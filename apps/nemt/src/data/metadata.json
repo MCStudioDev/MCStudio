@@ -1,0 +1,7 @@
+{
+  "name": "NEMT Dispatch System",
+  "description": "A Non-Emergency Medical Transportation (NEMT) application with a Dispatcher Portal and Driver App.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "mcstudio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MCStudio — SaaS platform with NEMT Dispatch, NutriMoment, Real Estate AI, and Mina Energy Consulting",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:nemt": "npm run dev --workspace=apps/nemt",
+    "dev:nutrimoment": "npm run dev --workspace=apps/nutrimoment",
+    "dev:realestate": "npm run dev --workspace=apps/realestate",
+    "build:nemt": "npm run build --workspace=apps/nemt",
+    "build:nutrimoment": "npm run build --workspace=apps/nutrimoment",
+    "build:realestate": "npm run build --workspace=apps/realestate",
+    "build:all": "npm run build --workspaces --if-present",
+    "lint:all": "npm run lint --workspaces --if-present",
+    "clean": "npx rimraf apps/*/node_modules apps/*/dist apps/*/.next packages/*/node_modules"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "MCStudio",
+  "license": "UNLICENSED"
+}

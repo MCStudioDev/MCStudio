@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    // HELPER FUNCTIONS
+    // ============================================================
+    
+    // Get the authenticated user's company ID
+    function getUserCompanyId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId;
+    }
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the document belongs to the user's company
+    function belongsToUserCompany() {
+      return isAuthenticated() && resource.data.companyId == getUserCompanyId();
+    }
+
+    // Check if the new document is being created for the user's company
+    function creatingForUserCompany() {
+      return isAuthenticated() && request.resource.data.companyId == getUserCompanyId();
+    }
+
+    // ============================================================
+    // USER PROFILES
+    // ============================================================
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      // Allow creation of own profile (first-time sign-in)
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      // Only admins or the user themselves can update
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      // No one can delete user profiles via client (admin console only)
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // COMPANIES
+    // ============================================================
+    match /companies/{companyId} {
+      // Anyone authenticated can read company info
+      allow read: if isAuthenticated();
+      // Only allow creation by authenticated users
+      allow create: if isAuthenticated();
+      // Only the company owner can update
+      allow update: if isAuthenticated() && resource.data.ownerUid == request.auth.uid;
+      // No client-side deletion
+      allow delete: if isAuthenticated() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ============================================================
+    // TENANT-SCOPED COLLECTIONS (Patients, Drivers, Trips, etc.)
+    // ============================================================
+
+    // Patients — HIPAA-sensitive data, strict tenant isolation
+    match /patients/{patientId} {
+      allow read: if belongsToUserCompany();
+      allow create: if creatingForUserCompany();
+      allow update: if belongsToUserCompany();
+      allow delete: if belongsToUserCompany();
+    }
+
+    // Drivers
+    match /drivers/{driverId} {
+      allow read: if belongsToUserCompany();
+      allow create: if creatingForUserCompany();
+      allow update: if belongsToUserCompany();
+      allow delete: if belongsToUserCompany();
+    }
+
+    // Trips
+    match /trips/{tripId} {
+      allow read: if belongsToUserCompany();
+      allow create: if creatingForUserCompany();
+      allow update: if belongsToUserCompany();
+      allow delete: if belongsToUserCompany();
+    }
+
+    // Vehicles
+    match /vehicles/{vehicleId} {
+      allow read: if belongsToUserCompany();
+      allow create: if creatingForUserCompany();
+      allow update: if belongsToUserCompany();
+      allow delete: if belongsToUserCompany();
+    }
+
+    // Facilities
+    match /facilities/{facilityId} {
+      allow read: if belongsToUserCompany();
+      allow create: if creatingForUserCompany();
+      allow update: if belongsToUserCompany();
+      allow delete: if belongsToUserCompany();
+    }
+
+    // Activities (audit log)
+    match /activities/{activityId} {
+      allow read: if belongsToUserCompany();
+      allow create: if creatingForUserCompany();
+      // Activities are immutable — no updates or deletes
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

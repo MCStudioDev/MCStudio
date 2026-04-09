@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment variables (each app has its own)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE & OS
+.DS_Store
+*.swp
+*.swo
+.vscode/settings.json
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# Database files (NutriMoment legacy)
+*.db
+*.sqlite
+
+# Vercel
+.vercel
+
+# Misc
+*.zip

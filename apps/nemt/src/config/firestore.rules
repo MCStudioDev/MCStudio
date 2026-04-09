@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isDispatcher() {
+      // Dispatchers are authenticated users (Google sign-in)
+      return isAuthenticated();
+    }
+
+    // ===============================================================
+    // DISPATCHER PORTAL (requires Google sign-in)
+    // ===============================================================
+    
+    match /patients/{patientId} {
+      allow read: if true;  // Drivers need patient info for trips
+      allow create, update, delete: if isDispatcher();
+    }
+    
+    match /vehicles/{vehicleId} {
+      allow read: if isDispatcher();
+      allow create, update, delete: if isDispatcher();
+    }
+    
+    match /activities/{activityId} {
+      allow read, write: if isDispatcher();
+    }
+    
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ===============================================================
+    // DRIVER APP (Name+PIN auth, no Google required)
+    // ===============================================================
+    
+    match /drivers/{driverId} {
+      // Read: Allow for Name+PIN verification
+      allow read: if true;
+      
+      // Create/Delete: Dispatchers only
+      allow create, delete: if isDispatcher();
+      
+      // Update: Allow location updates from driver app OR full updates from dispatchers
+      allow update: if isDispatcher() || 
+        // Driver app can only update location field
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['current_location']));
+    }
+    
+    match /trips/{tripId} {
+      // Read: Allow drivers to see their assigned trips
+      allow read: if true;
+      
+      // Create/Delete: Dispatchers only
+      allow create, delete: if isDispatcher();
+      
+      // Update: Dispatchers can update anything, drivers can only update status
+      allow update: if isDispatcher() || 
+        // Driver app can only update status and optimized_order fields
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'optimized_order']));
+    }
+    
+    match /facilities/{facilityId} {
+      allow read: if true;  // Drivers need facility info
+      allow create, update, delete: if isDispatcher();
+    }
+
+    // ===============================================================
+    // TEST (development only - remove in production)
+    // ===============================================================
+    
+    match /test/{testId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

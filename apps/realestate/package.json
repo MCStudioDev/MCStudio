@@ -1,0 +1,9 @@
+{
+  "name": "@mcstudio/realestate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real Estate AI — Social media post generator for property listings",
+  "scripts": {
+    "dev": "echo 'Real Estate app not yet initialized. Run Phase 4 to set up.'"
+  }
+}

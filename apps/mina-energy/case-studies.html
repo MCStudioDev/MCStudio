@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Case Studies & Portfolio | Mina Energy Storage Consultant</title>
+    
+    <!-- Meta Tags for SEO -->
+    <meta name="description" content="Explore our portfolio of successful energy storage projects and case studies. See how we've helped clients achieve their energy goals.">
+    <meta name="keywords" content="energy storage case studies, battery systems portfolio, BESS projects, energy consulting results">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Enhanced CSS with Brand Identity -->
+    <link rel="stylesheet" href="css/styles-enhanced.css">
+    
+    <!-- Structured Data for Portfolio -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "name": "Case Studies & Portfolio",
+      "description": "Portfolio of energy storage consulting projects and case studies",
+      "url": "https://yourwebsite.com/case-studies.html"
+    }
+    </script>
+</head>
+<body>
+    <!-- Skip Link for Accessibility -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html" class="brand-logo">
+                <div class="logo-icon">
+                    <i class="fas fa-battery-full"></i>
+                </div>
+                <span>Mina Energy</span>
+            </a>
+            
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="index.html#home" class="nav-link">Home</a>
+                </li>
+                <li class="nav-item">
+                    <a href="index.html#about" class="nav-link">About</a>
+                </li>
+                <li class="nav-item">
+                    <a href="index.html#services" class="nav-link">Services</a>
+                </li>
+                <li class="nav-item">
+                    <a href="index.html#expertise" class="nav-link">Expertise</a>
+                </li>
+                <li class="nav-item">
+                    <a href="blog.html" class="nav-link">Thought Leadership</a>
+                </li>
+                <li class="nav-item">
+                    <a href="index.html#contact" class="nav-link">Contact</a>
+                </li>
+                <li class="nav-item">
+                    <a href="case-studies.html" class="nav-link active">Case Studies</a>
+                </li>
+                <li class="nav-item">
+                    <a href="training.html" class="nav-link">Training</a>
+                </li>
+            </ul>
+            
+            <div class="hamburger" id="hamburger">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Scroll Progress Indicator -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Main Content -->
+    <main id="main-content">
+        <!-- Hero Section -->
+        <section class="hero" style="min-height: 60vh; background: linear-gradient(135deg, #0f172a, #1e293b);">
+            <div class="hero-container" style="text-align: center; max-width: 800px; margin: 0 auto;">
+                <div class="hero-content">
+                    <h1>Success Stories</h1>
+                    <p class="hero-subtitle">Discover how we've helped organizations achieve their energy storage goals and drive innovation in the industry.</p>
+                    <a href="index.html#contact" class="cta-btn">
+                        <i class="fas fa-rocket"></i>
+                        Start Your Project
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Portfolio Filter Section -->
+        <section class="services" style="padding: 4rem 0;">
+            <div class="container">
+                <h2 class="section-title animate-on-scroll">Our Portfolio</h2>
+                <p class="lead" style="text-align: center; margin-bottom: 3rem;">Explore our diverse portfolio of energy storage projects across various industries and applications.</p>
+                
+                <!-- Filter Buttons -->
+                <div class="portfolio-filters" style="display: flex; justify-content: center; gap: 1rem; margin-bottom: 3rem; flex-wrap: wrap;">
+                    <button class="btn btn-primary filter-btn active" data-filter="all">All Projects</button>
+                    <button class="btn btn-outline filter-btn" data-filter="utility">Utility Scale</button>
+                    <button class="btn btn-outline filter-btn" data-filter="commercial">Commercial & Industrial</button>
+                    <button class="btn btn-outline filter-btn" data-filter="transportation">Transportation</button>
+                    <button class="btn btn-outline filter-btn" data-filter="renewable">Renewable Integration</button>
+                </div>
+
+                <!-- Portfolio Grid -->
+                <div class="portfolio-grid" id="portfolioGrid">
+                    <!-- Project 1 -->
+                    <div class="portfolio-item animate-on-scroll" data-category="utility">
+                        <div class="portfolio-image">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #3b82f6, #10b981);">
+                                <i class="fas fa-building"></i>
+                            </div>
+                        </div>
+                        <div class="portfolio-content">
+                            <span class="project-category">Utility Scale</span>
+                            <h3>500MW Grid-Scale Energy Storage</h3>
+                            <p class="project-excerpt">Designed and implemented one of the largest battery energy storage systems in the Midwest, providing critical grid stability and renewable integration.</p>
+                            <div class="project-stats">
+                                <div class="stat-item">
+                                    <span class="stat-number">500MW</span>
+                                    <span class="stat-label">Capacity</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">2000MWh</span>
+                                    <span class="stat-label">Energy</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">$150M</span>
+                                    <span class="stat-label">Investment</span>
+                                </div>
+                            </div>
+                            <a href="#project-1" class="btn btn-outline view-project">View Case Study</a>
+                        </div>
+                    </div>
+
+                    <!-- Project 2 -->
+                    <div class="portfolio-item animate-on-scroll" data-category="commercial">
+                        <div class="portfolio-image">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #f59e0b, #ef4444);">
+                                <i class="fas fa-industry"></i>
+                            </div>
+                        </div>
+                        <div class="portfolio-content">
+                            <span class="project-category">Commercial & Industrial</span>
+                            <h3>Manufacturing Facility Optimization</h3>
+                            <p class="project-excerpt">Implemented a comprehensive energy storage solution for a major manufacturing facility, reducing energy costs by 35% and improving reliability.</p>
+                            <div class="project-stats">
+                                <div class="stat-item">
+                                    <span class="stat-number">15MW</span>
+                                    <span class="stat-label">Power</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">45MWh</span>
+                                    <span class="stat-label">Storage</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">35%</span>
+                                    <span class="stat-label">Cost Reduction</span>
+                                </div>
+                            </div>
+                            <a href="#project-2" class="btn btn-outline view-project">View Case Study</a>
+                        </div>
+                    </div>
+
+                    <!-- Project 3 -->
+                    <div class="portfolio-item animate-on-scroll" data-category="transportation">
+                        <div class="portfolio-image">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #8b5cf6, #06b6d4);">
+                                <i class="fas fa-bus"></i>
+                            </div>
+                        </div>
+                        <div class="portfolio-content">
+                            <span class="project-category">Transportation</span>
+                            <h3>Electric Bus Fleet Deployment</h3>
+                            <p class="project-excerpt">Designed and deployed charging infrastructure and energy storage for a 100-bus electric fleet, ensuring reliable operations and optimal energy management.</p>
+                            <div class="project-stats">
+                                <div class="stat-item">
+                                    <span class="stat-number">100 Buses</span>
+                                    <span class="stat-label">Fleet Size</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">10MW</span>
+                                    <span class="stat-label">Charging Power</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">99.5%</span>
+                                    <span class="stat-label">Uptime</span>
+                                </div>
+                            </div>
+                            <a href="#project-3" class="btn btn-outline view-project">View Case Study</a>
+                        </div>
+                    </div>
+
+                    <!-- Project 4 -->
+                    <div class="portfolio-item animate-on-scroll" data-category="renewable">
+                        <div class="portfolio-image">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #22c55e, #eab308);">
+                                <i class="fas fa-solar-panel"></i>
+                            </div>
+                        </div>
+                        <div class="portfolio-content">
+                            <span class="project-category">Renewable Integration</span>
+                            <h3>Solar + Storage Microgrid</h3>
+                            <p class="project-excerpt">Developed a hybrid solar and battery storage microgrid for a remote community, providing 24/7 renewable power and energy independence.</p>
+                            <div class="project-stats">
+                                <div class="stat-item">
+                                    <span class="stat-number">5MW Solar</span>
+                                    <span class="stat-label">Generation</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">15MWh Storage</span>
+                                    <span class="stat-label">Capacity</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">95%</span>
+                                    <span class="stat-label">Renewable</span>
+                                </div>
+                            </div>
+                            <a href="#project-4" class="btn btn-outline view-project">View Case Study</a>
+                        </div>
+                    </div>
+
+                    <!-- Project 5 -->
+                    <div class="portfolio-item animate-on-scroll" data-category="utility">
+                        <div class="portfolio-image">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #ef4444, #f97316);">
+                                <i class="fas fa-subway"></i>
+                            </div>
+                        </div>
+                        <div class="portfolio-content">
+                            <span class="project-category">Utility Scale</span>
+                            <h3>Subway System Energy Recovery</h3>
+                            <p class="project-excerpt">Implemented regenerative braking energy storage for a major subway system, capturing braking energy and reducing grid demand by 20%.</p>
+                            <div class="project-stats">
+                                <div class="stat-item">
+                                    <span class="stat-number">50 Stations</span>
+                                    <span class="stat-label">Coverage</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">25MW</span>
+                                    <span class="stat-label">Recovered Power</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">20%</span>
+                                    <span class="stat-label">Grid Reduction</span>
+                                </div>
+                            </div>
+                            <a href="#project-5" class="btn btn-outline view-project">View Case Study</a>
+                        </div>
+                    </div>
+
+                    <!-- Project 6 -->
+                    <div class="portfolio-item animate-on-scroll" data-category="commercial">
+                        <div class="portfolio-image">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #06b6d4, #8b5cf6);">
+                                <i class="fas fa-hospital"></i>
+                            </div>
+                        </div>
+                        <div class="portfolio-content">
+                            <span class="project-category">Commercial & Industrial</span>
+                            <h3>Hospital Backup Power System</h3>
+                            <p class="project-excerpt">Designed and installed a critical backup power system for a regional hospital, ensuring uninterrupted power during emergencies.</p>
+                            <div class="project-stats">
+                                <div class="stat-item">
+                                    <span class="stat-number">10MW</span>
+                                    <span class="stat-label">Backup Power</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">30MWh</span>
+                                    <span class="stat-label">Duration</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-number">99.9%</span>
+                                    <span class="stat-label">Reliability</span>
+                                </div>
+                            </div>
+                            <a href="#project-6" class="btn btn-outline view-project">View Case Study</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Detailed Case Studies -->
+        <section class="about" style="padding: 4rem 0;">
+            <div class="container">
+                <h2 class="section-title animate-on-scroll">Detailed Case Studies</h2>
+                
+                <!-- Case Study 1 -->
+                <div class="case-study" id="project-1" style="margin-bottom: 4rem;">
+                    <div class="about-grid">
+                        <div class="about-image animate-on-scroll">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #3b82f6, #10b981);">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                        </div>
+                        <div class="about-content animate-on-scroll">
+                            <h3>500MW Grid-Scale Energy Storage Project</h3>
+                            <div class="bio-section">
+                                <h4><i class="fas fa-map-marker-alt"></i> Location: Midwest, USA</h4>
+                                <h4><i class="fas fa-calendar"></i> Duration: 18 Months</h4>
+                                <h4><i class="fas fa-dollar-sign"></i> Investment: $150 Million</h4>
+                            </div>
+                            
+                            <div class="bio-section">
+                                <h4><i class="fas fa-challenge"></i> Challenges</h4>
+                                <ul>
+                                    <li>Integrating large-scale storage with existing grid infrastructure</li>
+                                    <li>Meeting stringent reliability and safety requirements</li>
+                                    <li>Optimizing for multiple revenue streams (frequency regulation, peak shaving, renewable firming)</li>
+                                    <li>Navigating complex regulatory environment</li>
+                                </ul>
+                            </div>
+
+                            <div class="bio-section">
+                                <h4><i class="fas fa-lightbulb"></i> Solution</h4>
+                                <ul>
+                                    <li>Designed a modular battery system architecture for scalability</li>
+                                    <li>Implemented advanced battery management system with AI-based optimization</li>
+                                    <li>Developed comprehensive grid integration strategy</li>
+                                    <li>Created detailed financial model for revenue optimization</li>
+                                </ul>
+                            </div>
+
+                            <div class="bio-section">
+                                <h4><i class="fas fa-trophy"></i> Results</h4>
+                                <ul>
+                                    <li><strong>Grid Stability:</strong> Reduced frequency deviations by 60%</li>
+                                    <li><strong>Renewable Integration:</strong> Enabled 200MW additional solar capacity</li>
+                                    <li><strong>Revenue Generation:</strong> Achieved 15% IRR through optimized market participation</li>
+                                    <li><strong>Reliability:</strong> 99.8% system availability</li>
+                                </ul>
+                            </div>
+
+                            <div class="case-study-cta" style="margin-top: 2rem;">
+                                <a href="index.html#contact" class="btn btn-primary">Start Your Project</a>
+                                <a href="#" class="btn btn-outline" style="margin-left: 1rem;">Download Full Case Study (PDF)</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Case Study 2 -->
+                <div class="case-study" id="project-2" style="margin-bottom: 4rem;">
+                    <div class="about-grid">
+                        <div class="about-image animate-on-scroll">
+                            <div class="placeholder-image" style="background: linear-gradient(135deg, #f59e0b, #ef4444);">
+                                <i class="fas fa-industry"></i>
+                            </div>
+                        </div>
+                        <div class="about-content animate-on-scroll">
+                            <h3>Manufacturing Facility Energy Optimization</h3>
+                            <div class="bio-section">
+                                <h4><i class="fas fa-map-marker-alt"></i> Location: Southeast, USA</h4>
+                                <h4><i class="fas fa-calendar"></i> Duration: 12 Months</h4>
+                                <h4><i class="fas fa-dollar-sign"></i> Investment: $25 Million</h4>
+                            </div>
+                            
+                            <div class="bio-section">
+                                <h4><i class="fas fa-challenge"></i> Challenges</h4>
+                                <ul>
+                                    <li>High energy costs impacting competitiveness</li>
+                                    <li>Need for uninterrupted power supply</li>
+                                    <li>Corporate sustainability goals</li>
+                                    <li>Limited space for energy infrastructure</li>
+                                </ul>
+                            </div>
+
+                            <div class="bio-section">
+                                <h4><i class="fas fa-lightbulb"></i> Solution</h4>
+                                <ul>
+                                    <li>Implemented behind-the-meter energy storage with solar integration</li>
+                                    <li>Designed demand charge management system</li>
+                                    <li>Created comprehensive energy monitoring and optimization platform</li>
+                                    <li>Integrated with existing facility management systems</li>
+                                </ul>
+                            </div>
+
+                            <div class="bio-section">
+                                <h4><i class="fas fa-trophy"></i> Results</h4>
+                                <ul>
+                                    <li><strong>Cost Savings:</strong> 35% reduction in energy costs</li>
+                                    <li><strong>Sustainability:</strong> 40% reduction in carbon footprint</li>
+                                    <li><strong>Reliability:</strong> Zero unplanned outages since implementation</li>
+                                    <li><strong>ROI:</strong> 4-year payback period</li>
+                                </ul>
+                            </div>
+
+                            <div class="case-study-cta" style="margin-top: 2rem;">
+                                <a href="index.html#contact" class="btn btn-primary">Start Your Project</a>
+                                <a href="#" class="btn btn-outline" style="margin-left: 1rem;">Download Full Case Study (PDF)</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Testimonials Section -->
+        <section class="services" style="padding: 4rem 0; background: var(--neutral-lighter);">
+            <div class="container">
+                <h2 class="section-title animate-on-scroll">Client Testimonials</h2>
+                <div class="testimonials-grid">
+                    <div class="testimonial-card animate-on-scroll">
+                        <div class="testimonial-content">
+                            <i class="fas fa-quote-left"></i>
+                            <p>"Mina's expertise in energy storage was instrumental in our successful grid-scale project. Their technical knowledge and strategic approach helped us navigate complex challenges and deliver exceptional results."</p>
+                            <i class="fas fa-quote-right"></i>
+                        </div>
+                        <div class="testimonial-author">
+                            <div class="author-avatar">
+                                <i class="fas fa-user-tie"></i>
+                            </div>
+                            <div class="author-info">
+                                <h4>John Smith</h4>
+                                <p>VP of Operations, Major Utility</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="testimonial-card animate-on-scroll">
+                        <div class="testimonial-content">
+                            <i class="fas fa-quote-left"></i>
+                            <p>"The energy optimization project delivered beyond our expectations. We've seen significant cost savings while improving our sustainability profile. Mina's team was professional and knowledgeable throughout."</p>
+                            <i class="fas fa-quote-right"></i>
+                        </div>
+                        <div class="testimonial-author">
+                            <div class="author-avatar">
+                                <i class="fas fa-user-tie"></i>
+                            </div>
+                            <div class="author-info">
+                                <h4>Sarah Johnson</h4>
+                                <p>Facility Manager, Manufacturing Company</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="testimonial-card animate-on-scroll">
+                        <div class="testimonial-content">
+                            <i class="fas fa-quote-left"></i>
+                            <p>"Working with Mina on our electric bus fleet deployment was a game-changer. Their comprehensive approach to charging infrastructure and energy management ensured our transition to electric was seamless."</p>
+                            <i class="fas fa-quote-right"></i>
+                        </div>
+                        <div class="testimonial-author">
+                            <div class="author-avatar">
+                                <i class="fas fa-user-tie"></i>
+                            </div>
+                            <div class="author-info">
+                                <h4>Michael Chen</h4>
+                                <p>Transportation Director, City Transit Authority</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Contact CTA -->
+        <section class="contact" style="padding: 4rem 0;">
+            <div class="container">
+                <div class="contact-grid">
+                    <div class="contact-info animate-on-scroll">
+                        <h3>Ready to Start Your Project?</h3>
+                        <p>Let's discuss how we can help you achieve your energy storage goals. Our team of experts is ready to provide tailored solutions for your specific needs.</p>
+                        
+                        <div class="contact-item">
+                            <i class="fas fa-envelope"></i>
+                            <div>
+                                <h4>Email</h4>
+                                <p>gamal.mina2013@gmail.com</p>
+                            </div>
+                        </div>
+                        <div class="contact-item">
+                            <i class="fas fa-phone"></i>
+                            <div>
+                                <h4>Phone</h4>
+                                <p>Available by appointment</p>
+                            </div>
+                        </div>
+                        <div class="contact-item">
+                            <i class="fas fa-map-marker-alt"></i>
+                            <div>
+                                <h4>Location</h4>
+                                <p>MI, USA</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="contact-form animate-on-scroll">
+                        <h3>Get in Touch</h3>
+                        <form id="contactForm">
+                            <div class="form-group">
+                                <input type="text" id="name" name="name" class="form-control" placeholder="Your Name" required>
+                            </div>
+                            <div class="form-group">
+                                <input type="email" id="email" name="email" class="form-control" placeholder="Your Email" required>
+                            </div>
+                            <div class="form-group">
+                                <input type="text" id="subject" name="subject" class="form-control" placeholder="Project Type" required>
+                            </div>
+                            <div class="form-group">
+                                <textarea id="message" name="message" class="form-control" placeholder="Tell us about your project" rows="4" required></textarea>
+                            </div>
+                            <button type="submit" class="submit-btn">
+                                <i class="fas fa-paper-plane"></i>
+                                Send Message
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer-brand">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h3>Mina Energy</h3>
+                <p>Expert energy storage and battery systems consulting services for a sustainable future. Trusted by industry leaders and innovators worldwide.</p>
+                <div class="social-links">
+                    <a href="https://linkedin.com/in/minanaguib42" target="_blank" aria-label="LinkedIn">
+                        <i class="fab fa-linkedin"></i>
+                    </a>
+                    <a href="#" target="_blank" aria-label="Twitter">
+                        <i class="fab fa-twitter"></i>
+                    </a>
+                    <a href="#" target="_blank" aria-label="Google Scholar">
+                        <i class="fas fa-graduation-cap"></i>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="footer-section">
+                <h4>Quick Links</h4>
+                <ul class="footer-links">
+                    <li><a href="index.html"><i class="fas fa-chevron-right"></i> Home</a></li>
+                    <li><a href="index.html#about"><i class="fas fa-chevron-right"></i> About</a></li>
+                    <li><a href="index.html#services"><i class="fas fa-chevron-right"></i> Services</a></li>
+                    <li><a href="index.html#expertise"><i class="fas fa-chevron-right"></i> Expertise</a></li>
+                    <li><a href="blog.html"><i class="fas fa-chevron-right"></i> Blog</a></li>
+                </ul>
+            </div>
+            
+            <div class="footer-section">
+                <h4>Services</h4>
+                <ul class="footer-links">
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Strategic Planning</a></li>
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Technical Analysis</a></li>
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Financial Modeling</a></li>
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Regulatory Compliance</a></li>
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Grid Integration</a></li>
+                </ul>
+            </div>
+            
+            <div class="footer-section">
+                <h4>Portfolio</h4>
+                <ul class="footer-links">
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Utility Scale</a></li>
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Commercial & Industrial</a></li>
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Transportation</a></li>
+                    <li><a href="#"><i class="fas fa-chevron-right"></i> Renewable Integration</a></li>
+                    <li><a href="training.html"><i class="fas fa-chevron-right"></i> Training Programs</a></li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="footer-bottom">
+            <p>&copy; 2026 Mina Energy Storage Consultant. All rights reserved. | <a href="#" style="color: var(--neutral-lighter);">Privacy Policy</a> | <a href="#" style="color: var(--neutral-lighter);">Terms of Service</a></p>
+        </div>
+    </footer>
+
+    <!-- Back to Top Button -->
+    <button id="backToTop" class="btn btn-accent" title="Go to top">
+        <i class="fas fa-arrow-up"></i>
+    </button>
+
+    <!-- JavaScript Files -->
+    <script src="js/script-enhanced.js"></script>
+    
+    <!-- Portfolio Filtering Script -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const filterButtons = document.querySelectorAll('.filter-btn');
+            const portfolioItems = document.querySelectorAll('.portfolio-item');
+
+            filterButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    // Update active button
+                    filterButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+
+                    const filterValue = button.getAttribute('data-filter');
+
+                    // Filter items
+                    portfolioItems.forEach(item => {
+                        if (filterValue === 'all' || item.getAttribute('data-category') === filterValue) {
+                            item.style.display = 'block';
+                            item.style.animation = 'fadeIn 0.6s ease';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            });
+        });
+    </script>
+</body>
+</html>

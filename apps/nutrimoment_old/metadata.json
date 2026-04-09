@@ -1,0 +1,9 @@
+{
+  "name": "NutriMoment",
+  "description": "AI-powered nutrition expert that identifies ingredients from photos, tracks pantry inventory, and generates personalized meal plans.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

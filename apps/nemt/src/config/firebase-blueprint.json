@@ -1,0 +1,138 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A registered user of the application (admin, dispatcher, driver, patient)",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "dispatcher", "driver", "patient"] },
+        "name": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "A patient requiring transportation",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "mobility_status": { "type": "string", "enum": ["Ambulatory", "Wheelchair", "Bariatric Wheelchair", "Stretcher"] },
+        "home_address": { "type": "string" },
+        "phone": { "type": "string" },
+        "geo_coordinates": { 
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        }
+      },
+      "required": ["name", "mobility_status", "home_address", "phone"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "A driver operating a vehicle",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "license_number": { "type": "string" },
+        "current_location": { 
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "shift_start": { "type": "string" },
+        "shift_end": { "type": "string" },
+        "vehicle_id": { "type": "string" },
+        "pin": { "type": "string", "description": "4-digit PIN for driver login" }
+      },
+      "required": ["name", "license_number", "shift_start", "shift_end", "vehicle_id", "pin"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "A vehicle used for transportation",
+      "type": "object",
+      "properties": {
+        "license_plate": { "type": "string" },
+        "type": { "type": "string", "enum": ["Van", "Sedan"] },
+        "capacity": { "type": "string" }
+      },
+      "required": ["license_plate", "type", "capacity"]
+    },
+    "Facility": {
+      "title": "Facility",
+      "description": "A medical facility",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "geo_coordinates": { 
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        }
+      },
+      "required": ["name", "address"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "A scheduled transportation trip",
+      "type": "object",
+      "properties": {
+        "patient_id": { "type": "string" },
+        "driver_id": { "type": "string" },
+        "pickup_time": { "type": "string" },
+        "appointment_time": { "type": "string" },
+        "status": { "type": "string", "enum": ["Scheduled", "En Route", "Arrived", "Onboard", "Completed", "Cancelled"] },
+        "pickup_address": { "type": "string" },
+        "dropoff_address": { "type": "string" },
+        "pickup_location": { 
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "dropoff_location": { 
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        }
+      },
+      "required": ["patient_id", "driver_id", "pickup_time", "appointment_time", "status", "pickup_address", "dropoff_address"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of users and their roles"
+    },
+    "patients": {
+      "schema": "Patient",
+      "description": "Collection of patients"
+    },
+    "drivers": {
+      "schema": "Driver",
+      "description": "Collection of drivers"
+    },
+    "vehicles": {
+      "schema": "Vehicle",
+      "description": "Collection of vehicles"
+    },
+    "facilities": {
+      "schema": "Facility",
+      "description": "Collection of medical facilities"
+    },
+    "trips": {
+      "schema": "Trip",
+      "description": "Collection of scheduled trips"
+    }
+  }
+}

@@ -4,12 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "vite dev --host --port 3000",
     "build": "vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --host --port 3000",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "start": "node dist/server.js"
+    "start": "vite preview --host --port 3000"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

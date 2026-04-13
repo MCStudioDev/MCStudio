@@ -14,6 +14,7 @@ const VEHICLE_CAPACITIES = [
 export default function Fleet() {
   const { data: drivers } = useCollection('drivers');
   const { companyId } = useTenant();
+  const [saveError, setSaveError] = useState<string | null>(null);
   
   // Driver state
   const [isDriverModalOpen, setIsDriverModalOpen] = useState(false);
@@ -48,6 +49,7 @@ export default function Fleet() {
   };
 
   const handleEditDriverClick = (driver: any) => {
+    setSaveError(null);
     setEditingDriverId(driver.id);
     setDriverFormData({
       name: driver.name,
@@ -62,6 +64,7 @@ export default function Fleet() {
 
   const handleDriverSubmit = async (e: any) => {
     e.preventDefault();
+    setSaveError(null);
     try {
       if (editingDriverId) {
         await updateDocument('drivers', editingDriverId, driverFormData);
@@ -76,6 +79,7 @@ export default function Fleet() {
       resetDriverForm();
     } catch (error) {
       console.error('Error saving driver:', error);
+      setSaveError('Could not save driver. Please make sure you are signed in and your company is set up, then try again.');
     }
   };
 
@@ -251,6 +255,12 @@ export default function Fleet() {
             </div>
             
             <form onSubmit={handleDriverSubmit} className="p-6 space-y-4 overflow-y-auto">
+              {saveError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {saveError}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
                 <input 

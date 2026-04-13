@@ -1,4 +1,3 @@
-
 import express from "express";
 import fileUpload from "express-fileupload";
 import { createServer as createViteServer } from "vite";
@@ -111,89 +110,74 @@ async function startServer() {
   }
 
   // Helper to get AI response (Gemini only)
-  
-async function generateAIResponse(
-  prompt: string,
-  systemInstruction?: string,
-  imageBase64?: string,
-  retries = 1
-): Promise<any> {
+  async function generateAIResponse(
+    prompt: string,
+    systemInstruction?: string,
+    imageBase64?: string,
+    retries = 1
+  ): Promise<any> {
 
-  const { GoogleGenAI } = require("@google/generative-ai");
+    const { GoogleGenAI } = require("@google/generative-ai");
 
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("API_KEY_MISSING");
-  }
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("API_KEY_MISSING");
+    }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  const model = process.env.FAST_MODE === "true"
-    ? "gemini-1.5-flash"
-    : "gemini-1.5-pro";
+    const model = process.env.FAST_MODE === "true"
+      ? "gemini-1.5-flash"
+      : "gemini-1.5-pro";
 
-  const parts = [{ text: prompt }];
+    const parts = [{ text: prompt }];
 
-  if (imageBase64) {
-    parts.push({
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: imageBase64
-      }
-    });
-  }
-
-  try {
-    const response = await ai.models.generateContent({
-      model,
-      contents: [{ parts }],
-      config: {
-        systemInstruction: systemInstruction || "",
-        responseMimeType: "application/json",
-        temperature: 0.4
-      }
-    });
-
-    const text = response.text || "{}";
+    if (imageBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: imageBase64
+        }
+      });
+    }
 
     try {
-      return JSON.parse(text);
-    } catch {
-      throw new Error("INVALID_JSON");
-    }
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{ parts }],
+        config: {
+          systemInstruction: systemInstruction || "",
+          responseMimeType: "application/json",
+          temperature: 0.4
+        }
+      });
 
-  } catch (error) {
-    if (retries > 0) {
-      return generateAIResponse(prompt, systemInstruction, imageBase64, retries - 1);
-    }
+      const text = response.text || "{}";
 
-    return {
-      recipeName: "Simple Dish",
-      ingredients: [],
-      steps: ["Cook ingredients together and serve."],
-      nutrition: {
-        calories: "N/A",
-        protein: "N/A",
-        carbs: "N/A",
-        fat: "N/A"
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error("INVALID_JSON");
       }
-    };
+
+    } catch (error) {
+      if (retries > 0) {
+        return generateAIResponse(prompt, systemInstruction, imageBase64, retries - 1);
+      }
+
+      return {
+        recipeName: "Simple Dish",
+        ingredients: [],
+        steps: ["Cook ingredients together and serve."],
+        nutrition: {
+          calories: "N/A",
+          protein: "N/A",
+          carbs: "N/A",
+          fat: "N/A"
+        }
+      };
+    }
   }
-}
 
-
-startServer();
-
-
-function enforceLanguage(text: string, language: string) {
-  const patterns: any = {
-    Arabic: /[؀-ۿ]/,
-    English: /^[\x00-\x7F\s.,\-:()"']+$/
-  };
-
-  if (patterns[language] && !patterns[language].test(text)) {
-    throw new Error("LANGUAGE_MISMATCH");
-  }
-
-  return text;
+  startServer();
 }
 

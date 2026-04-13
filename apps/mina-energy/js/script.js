@@ -22,7 +22,7 @@ class WebsiteEnhancer {
           const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
 
           window.scrollTo({
-            top
+            top: offsetPosition,
             behavior: 'smooth'
           });
         }
@@ -369,12 +369,7 @@ window.addEventListener('load', () => {
 
 // Handle window resize for responsive design
 window.addEventListener('resize', () => {
-  // Debounced resize handler
-  const debouncedResize = debounce(() => {
-    // Update any responsive elements if needed
-  }, 250);
-  
-  debouncedResize();
+  // Update any responsive elements if needed
 });
 
 // Error handling for console in production

@@ -1,9 +1,27 @@
 {
-  "name": "@mcstudio/realestate",
+  "name": "realestate",
   "version": "0.1.0",
   "private": true,
-  "description": "Real Estate AI — Social media post generator for property listings",
   "scripts": {
-    "dev": "echo 'Real Estate app not yet initialized. Run Phase 4 to set up.'"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@google/genai": "^1.49.0",
+    "firebase": "^12.11.0",
+    "lucide-react": "^1.7.0",
+    "next": "16.2.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.3",
+    "typescript": "^5"
   }
 }

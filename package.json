@@ -22,5 +22,8 @@
     "node": ">=18.0.0"
   },
   "author": "MCStudio",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@opencode-ai/sdk": "^1.4.6"
+  }
 }

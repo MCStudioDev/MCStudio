@@ -5,7 +5,7 @@ import { AppProvider } from "@/contexts/AppContext";
 
 export const metadata: Metadata = {
   title: "NutriMoment - AI Recipe & Fridge Scanner",
-  description: "AI-powered nutrition expert that turns your fridge into delicious, personalized recipes."
+  description: "AI-guided recipe and meal-planning support that turns your ingredients into practical cooking ideas."
 };
 
 interface RootLayoutProps {

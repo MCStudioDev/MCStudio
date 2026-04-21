@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { History, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -62,6 +63,18 @@ export function HistoryTab() {
                 <div className="grid gap-3 lg:grid-cols-3">
                   {entry.recipes.map((recipe) => (
                     <Card key={`${entry.id}-${recipe.name}`} variant="plain" className="rounded-[1.5rem] p-4 space-y-2">
+                      {hasRenderableImage(recipe.image_url) ? (
+                        <div className="overflow-hidden rounded-[1rem] bg-stone-100">
+                          <Image
+                            src={recipe.image_url ?? ""}
+                            alt={recipe.name}
+                            width={640}
+                            height={360}
+                            className="h-36 w-full object-cover"
+                            unoptimized
+                          />
+                        </div>
+                      ) : null}
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{recipe.cuisine}</p>
                       <h4 className="text-lg font-semibold text-stone-900">{recipe.name}</h4>
                       <p className="text-sm text-stone-500">
@@ -81,4 +94,8 @@ export function HistoryTab() {
       )}
     </motion.div>
   );
+}
+
+function hasRenderableImage(imageUrl?: string) {
+  return Boolean(imageUrl && /^(https?:|data:)/.test(imageUrl));
 }

@@ -17,6 +17,7 @@ export interface NutritionMacros {
 }
 
 export interface Recipe {
+  id?: string;
   name: string;
   cuisine: string;
   ingredients: string[];
@@ -34,6 +35,10 @@ export interface Recipe {
   image_url?: string;
   image_loading?: boolean;
   image_error?: boolean;
+  match_quality?: "great" | "good" | "possible" | "stretch";
+  matched_required_count?: number;
+  matched_optional_count?: number;
+  preference_hits?: string[];
 }
 
 export interface MealPlanMeal {
@@ -54,6 +59,8 @@ export interface MealPlanDay {
 export interface MealPlanData {
   plan: MealPlanDay[];
   shoppingList: string[];
+  recommendedRecipes?: Recipe[];
+  servedFrom?: "offline_catalog" | "fallback_ai" | "mock";
 }
 
 export interface HistoryItem {

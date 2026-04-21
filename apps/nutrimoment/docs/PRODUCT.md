@@ -1,24 +1,26 @@
 # NutriMoment - Product Description
-**Version:** 1.1
-**Date:** 2026-04-17
+**Version:** 1.2
+**Date:** 2026-04-20
 
 ## Tagline
 **"Point. Scan. Eat well."**
-Your AI nutrition assistant lives in your kitchen.
+AI-guided recipe and meal-planning support for your kitchen.
 
-## What is NutriMoment?
-NutriMoment is an AI-powered nutrition web app that turns ingredients you already have into practical, health-aware recipe ideas. Instead of making users search a huge recipe catalog, NutriMoment starts from the real contents of a fridge, pantry, or grocery bag and builds suggestions from there.
+## What Is NutriMoment?
+NutriMoment is an AI-guided nutrition and recipe web app that turns ingredients users already have into practical, preference-aware recipe ideas. Instead of making users search a huge recipe catalog, NutriMoment starts from the real contents of a fridge, pantry, or grocery bag and builds suggestions from there.
 
-The product is designed around one core idea: healthy eating is easier when the app understands inventory, preferences, and context at the same time.
+The product is designed around one core idea: healthy eating is easier when the app understands inventory, preferences, cuisine, and context at the same time.
+
+NutriMoment is informational meal-planning support. It is not medical advice, diagnosis, treatment, or a substitute for professional care.
 
 ## Problems It Solves
 | Problem | How NutriMoment Helps |
 |---|---|
 | "I have food but no idea what to cook." | Scan ingredients and generate recipes from what is actually available. |
 | "I forget what is in my pantry." | Keep a live pantry list tied to the signed-in user. |
-| "Meal planning takes too much effort." | Generate a 7-day meal plan from pantry items and profile settings. |
-| "Generic recipes ignore my health needs." | Inject diet and health profile data into AI recipe and meal-plan prompts. |
-| "Nutrition apps feel cold and complicated." | Present cooking, planning, and health settings in one warm, lifestyle-oriented interface. |
+| "Meal planning takes too much effort." | Generate and save a 7-day meal plan from pantry items and profile settings. |
+| "Generic recipes ignore my preferences." | Use diet, cuisine, calorie, and health profile data in catalog ranking and fallback prompts. |
+| "I do not know what to buy." | Build a shopping list from missing meal-plan ingredients after subtracting pantry quantities. |
 
 ## Core Features
 
@@ -26,102 +28,102 @@ The product is designed around one core idea: healthy eating is easier when the 
 The scanner is the main entry point. Users can upload a fridge or ingredient photo, or manually add ingredients as text.
 
 Current implementation details:
-- Upload flow is available from the scanner tab
-- Image analysis is handled by `POST /api/scan`
-- Detected ingredients are merged into an editable working list
-- Manual comma-separated ingredient entry is supported
-- The scanner experience now lives in a dedicated dashboard tab instead of a monolithic component
+- Upload flow is available from the scanner tab.
+- Image analysis is handled by `POST /api/scan`.
+- Detected ingredients are merged into an editable working list.
+- Manual comma-separated ingredient entry is supported.
+- Generated recipe sessions are saved into Firestore-backed history.
 
-### AI Recipe Generation
-NutriMoment generates three recipe options from the current ingredient list.
+### Catalog-Backed Recipe Generation
+NutriMoment returns recipe options from an offline catalog first, then uses Gemini only as fallback.
 
 Current implementation details:
-- Recipe generation is handled by `POST /api/generate-recipes`
-- The prompt includes:
-  - calorie target
-  - preferred cuisine
-  - max missing ingredients
-  - dietary preferences
-  - health conditions
-- Each recipe card can show:
-  - cuisine
-  - macros
-  - owned ingredients
-  - missing ingredients
-  - preparation steps
-- Generated sessions are stored in Firestore-backed history
-- Mock fallbacks are available when OpenAI credentials are not configured
+- Recipe generation is handled by `POST /api/generate-recipes`.
+- Primary results come from `src/data/offline/recipes.ts`.
+- Retrieval uses ingredient normalization, an ingredient recipe index, and ranking services.
+- Ranking considers calorie target, cuisine preference, max missing ingredients, diet preferences, health conditions, popularity, and quality score.
+- Recipe cards show cuisine, macros, owned ingredients, missing ingredients, preparation steps, and preference-hit badges.
+- Recipe cards can hydrate public web photos through `/api/recipe-photo` without AI image generation.
 
 ### Pantry Management
 NutriMoment keeps a per-user pantry collection in Firestore so ingredients persist across sessions.
 
 Current implementation details:
-- Pantry data is stored under `users/{uid}/pantry`
-- Users can add items manually
-- Users can remove individual pantry items
-- Users can clear the whole pantry
-- The pantry tab now renders from real hook data instead of hardcoded demo items
+- Pantry data is stored under `users/{uid}/pantry`.
+- Users can add items manually.
+- Users can scan pantry images, review detected items, and edit quantities before saving.
+- Users can remove individual pantry items or clear the pantry.
+- Pantry quantities are used by weekly meal-plan shopping-list subtraction.
+- Quantity hints guide users toward compatible units:
+  - rice, oats, lentils, quinoa: cups
+  - tomato, onion, egg: whole/items
+  - garlic: cloves
+  - olive oil: tbsp
+  - chicken breast: lb
+  - yogurt / greek yogurt: cups
 
 Planned improvements:
-- normalized units
+- expiry dates and freshness logic
 - category fields
-- expiry dates
-- freshness logic
-- scanner-to-pantry one-click import
+- richer conversion for bags, boxes, cans, containers, and package sizes
 
-### Health Profile
-NutriMoment stores user preferences and health constraints so AI output can be personalized.
+### Health, Diet, and Cuisine Preferences
+NutriMoment stores user preferences and health constraints so results can be personalized.
 
 Current implementation details:
-- Firestore-backed health profile is available
-- Users can toggle dietary preferences
-- Users can toggle health conditions
-- Settings persist:
-  - calorie target
-  - preferred cuisine
-  - max missing ingredients
-  - voice language
-  - recipe language
-  - UI language
-- Recipe and meal-plan prompts already consume this data
+- Firestore-backed health profile is available.
+- Users can toggle dietary preferences and health conditions.
+- Settings persist calorie target, preferred cuisine, max missing ingredients, voice language, recipe language, and UI language.
+- Cuisine preference includes Egyptian, Middle Eastern, Mediterranean, Italian, Indian, Mexican, American, Asian, Thai, and Any.
+- Recipe ranking and meal-plan generation consume this data.
+- Arabic UI language and RTL layout support are available.
 
 Planned improvements:
 - allergies
 - macro targets
 - richer health profile schema
+- clinician-reviewed condition wording if health guidance becomes a central product promise
 
-### AI Meal Planning
-NutriMoment can generate a 7-day meal plan using pantry data and profile settings.
+### Pantry-Aware Weekly Meal Planning
+NutriMoment can generate and save a 7-day meal plan using pantry data and profile settings.
 
 Current implementation details:
-- Meal plan generation is handled by `POST /api/mealplan`
-- The prompt uses pantry items plus health/profile settings
-- The meal-plan tab renders:
-  - a 7-day meal schedule
-  - breakfast, lunch, and dinner blocks
-  - a shopping-list panel
+- Meal plan generation is handled by `POST /api/mealplan`.
+- The route uses catalog-backed planning first and keeps AI as fallback.
+- The active plan is persisted at `users/{uid}/plans/currentWeekly`.
+- The plan remains available until the user generates a new one.
+- The meal-plan tab renders breakfast, lunch, and dinner blocks for seven days.
+- The shopping list sums ingredient quantities required by all selected meals and subtracts matching pantry quantities.
+- If the pantry is empty, the route still generates a plan from cuisine, calorie, diet, and health settings.
 
 Planned improvements:
-- Firestore persistence for generated meal plans
-- swap/regenerate a single meal slot
+- swap or regenerate a single meal slot
 - export shopping list
+- checked shopping-list items
+- structured shopping-list objects instead of display strings
 
 ### Recipe History
 Every generation session can be stored so users can revisit past results.
 
 Current implementation details:
-- History is stored under `users/{uid}/history`
-- The history tab shows:
-  - saved sessions
-  - timestamps
-  - ingredient sets
-  - generated recipes
-- Users can clear all history or remove single entries
+- History is stored under `users/{uid}/history`.
+- The history tab shows timestamps, ingredient sets, generated recipes, and saved recipe images.
+- Users can clear all history or remove single entries.
 
 Planned improvements:
 - favorites
 - separate saved recipe library
 - search and filtering
+
+### Legal and Safety Layer
+NutriMoment presents recipe and meal planning as informational support, not medical advice.
+
+Current implementation details:
+- App-wide legal banner.
+- Health-tab medical disclaimer.
+- Result-level safety notice on recipe and meal-plan outputs.
+- Legal pages under `/legal/disclaimer`, `/legal/terms`, and `/legal/privacy`.
+- Marketing copy avoids positioning the app as a medical or nutrition expert.
 
 ### Nutrition Tracking
 Nutrition tracking remains a planned feature rather than a completed one.
@@ -134,52 +136,58 @@ Planned scope:
 
 ## Current Implementation Snapshot
 
-### Working now
+### Working Now
 - Google sign-in and session-aware routing
-- Split dashboard with 6 real tab components
+- Split dashboard with scanner, pantry, meal plan, health, history, and settings tabs
 - Scanner upload flow and manual ingredient entry
-- Recipe generation with profile-aware prompts
-- Pantry CRUD backed by Firestore
+- Offline catalog-backed recipe retrieval with profile-aware ranking
+- Pantry CRUD and pantry image scan review backed by Firestore
 - Health and settings persistence via Firestore
-- Meal-plan generation and rendering
+- Persisted weekly meal-plan generation and rendering
+- Quantity-aware shopping lists that subtract pantry stock
 - Recipe history persistence
+- Public web recipe-photo hydration
+- Arabic UI translations and RTL dashboard shell
+- Legal disclaimer, terms, and privacy pages
 - Mock AI fallbacks for local development
 
-### Recently fixed
-- Missing dashboard tab imports were replaced with real components
-- App lint issues were resolved
-- TypeScript check is clean
-- Debug API route was removed
-- Root layout no longer depends on live Google Font fetches at build time
+### Recently Fixed
+- Firestore `undefined` write errors were fixed for pantry and meal-plan saves.
+- Meal plans now display locally even if Firestore persistence fails.
+- Pantry ingredient aliases such as `yogurt` and `greek yogurt` are normalized for shopping-list subtraction.
+- Shopping lists now include quantities and subtract pantry stock by canonical ingredient and compatible units.
+- Pantry recipe match cards were removed from the meal-plan page so the page focuses on the generated plan and missing shopping quantities.
 
-### Still open
+### Still Open
 - API authentication on route handlers
 - rate limiting
 - favorites and recipe library
 - nutrition tracking
-- richer pantry model and freshness logic
+- richer pantry freshness logic and advanced unit conversions
 - route consolidation for overlapping AI endpoints
+- automated tests for ranking, pantry normalization, and shopping-list math
 
 ## Users and Personas
 
-### Busy professional
+### Busy Professional
 Needs a fast way to turn a few ingredients into dinner without spending time browsing.
 
-### Health-managed eater
-Needs recipes that respect dietary constraints and health conditions with less manual filtering.
+### Health-Managed Eater
+Needs recipes that respect selected dietary constraints and conditions with less manual filtering.
 
-### New cook
+### New Cook
 Needs clear steps and realistic recipe ideas from whatever is already available at home.
 
-### Household planner
-Needs pantry awareness, meal planning, and a shopping list in one place.
+### Household Planner
+Needs pantry awareness, meal planning, and a missing-items shopping list in one place.
 
 ## Differentiation
 NutriMoment is different from a generic recipe app because it combines:
 - ingredient detection
 - pantry persistence
-- health-aware prompting
-- meal planning
+- cuisine and health-aware ranking
+- catalog-backed meal planning
+- quantity-aware missing shopping lists
 - history
 
 The value is not just "generate a recipe." The value is "generate the right recipe from my current kitchen state."
@@ -190,13 +198,15 @@ The value is not just "generate a recipe." The value is "generate the right reci
 - Tailwind CSS 4
 - Framer Motion
 - Firebase Auth and Firestore
-- OpenAI-backed route handlers with local mock fallback behavior
+- Gemini-backed route handlers with local mock fallback behavior
+- Offline recipe catalog and ingredient index
+- Catalog retrieval, normalization, and ranking services
 
 ## Near-Term Product Priorities
 1. Secure all API routes with Firebase token verification.
 2. Add rate limiting to AI routes.
 3. Consolidate duplicate AI route responsibilities.
-4. Improve pantry modeling with units, expiry, and freshness.
+4. Improve pantry modeling with expiry, freshness, and advanced unit conversion.
 5. Add saved recipes and favorites.
-6. Add meal-plan persistence.
+6. Add meal-slot swaps and shopping-list export.
 7. Build nutrition logging.

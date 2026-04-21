@@ -30,6 +30,51 @@ service cloud.firestore {
       match /recipes/{recipe} {
         allow read, write: if isOwner(userId);
       }
+
+      match /pantry/{item} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /history/{historyId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /favorites/{favoriteId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /mealPlans/{mealPlanId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /profile/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Read-only public catalog for offline retrieval engine
+    match /recipes/{recipeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /ingredients/{ingredientId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /ingredientAliases/{aliasId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /ingredientRecipeIndex/{ingredient} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /scans/{scanId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

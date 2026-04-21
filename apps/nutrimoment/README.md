@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NutriMoment
 
-## Getting Started
+NutriMoment is a Next.js nutrition app that is being migrated from an AI-first runtime to an offline-first recipe engine.
 
-First, run the development server:
+Current capabilities include:
+- fridge and pantry scanning
+- offline catalog-backed recipe retrieval
+- offline catalog-backed meal planning
+- pantry persistence
+- pantry image scan review with editable approximate quantities
+- profile-aware ranking inputs
+- cuisine-aware results, including Egyptian, Middle Eastern, and Mediterranean coverage
+- persisted current weekly plan
+- quantity-aware shopping lists that subtract pantry stock
+- scan and recipe history
+- Arabic UI support with RTL layout
+- in-app legal/safety notices and legal pages
+- public web recipe photo hydration without AI image generation
+
+## Development
+
+Run the app locally:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Offline Catalog Seed
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Generate the offline catalog manifest:
 
-## Learn More
+```bash
+npm run seed:offline-catalog
+```
 
-To learn more about Next.js, take a look at the following resources:
+If Firebase Admin credentials are configured in `.env.local`, the same script will also import the offline catalog into Firestore collections:
+- `recipes`
+- `ingredients`
+- `ingredientAliases`
+- `ingredientRecipeIndex`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Required admin env vars
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```env
+FIREBASE_ADMIN_PROJECT_ID=your-project-id
+FIREBASE_ADMIN_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com
+FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
 
-## Deploy on Vercel
+Without those values, the seed script safely falls back to manifest generation only.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Key Files
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Offline engine spec: `docs/OFFLINE-ENGINE-SPEC.md`
+- Client Firebase config: `src/config/firebase.ts`
+- Firebase Admin helper: `src/lib/firebaseAdmin.ts`
+- Offline data seed source: `src/data/offline`
+- Pantry quantity normalization: `src/lib/pantryQuantity.ts`
+- Weekly meal-plan persistence hook: `src/hooks/useMealPlan.ts`
+- Legal pages: `src/app/legal`

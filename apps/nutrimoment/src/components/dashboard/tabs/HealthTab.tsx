@@ -94,6 +94,10 @@ export function HealthTab() {
 
           <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-900">
             <strong>{t("medicalDisclaimer")}</strong> {t("medicalDisclaimerText")}
+            <p className="mt-2">
+              NutriMoment cannot confirm diagnosis-specific safety, allergens, medication interactions, pregnancy needs,
+              or pediatric suitability. Review every result with a qualified professional when health risk is involved.
+            </p>
           </div>
         </Card>
       </motion.div>

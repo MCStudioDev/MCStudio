@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
+import { USE_MOCK } from "@/lib/openai";
+import { extractPantryItemsFromImage } from "@/services/ingredientExtractionService";
+import { processScan } from "@/services/scanService";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -27,18 +29,29 @@ export async function POST(request: Request) {
       return Response.json({ result: JSON.stringify(items) });
     }
 
-    ensureAiAvailable();
+    if (isPantry) {
+      const pantryItems = await extractPantryItemsFromImage({
+        image,
+        language,
+        isPantry: true
+      });
 
-    const prompt = isPantry
-      ? `You are a food vision expert. Identify all distinct grocery or pantry items visible in this image (jars, cans, packaged goods, fresh produce, etc.). Respond ONLY with a JSON array of short item names (e.g., ["olive oil", "rice", "canned tomatoes"]). Use ${language}. No commentary.`
-      : `You are a food vision expert. Identify the raw ingredients visible in this image. Respond ONLY with a JSON array of short ingredient names in singular form (e.g., ["tomato", "onion", "chicken breast"]). Use ${language}. No commentary.`;
+      return Response.json({
+        result: JSON.stringify(pantryItems.map((item) => item.name)),
+        pantryItems
+      });
+    }
 
-    const text = await callOpenAIVision(prompt, image);
-    const json = extractJson(text);
-    return Response.json({ result: json });
+    const result = await processScan({
+      image,
+      language,
+      isPantry,
+      filters: { dietTags: [] }
+    });
+    return Response.json({ result: JSON.stringify(result.ingredientsNormalized), scanId: result.scanId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Scan failed";
-    const status = message.includes("OPENAI_API_KEY") ? 503 : 500;
+    const status = message.includes("GEMINI_API_KEY") ? 503 : 500;
     return Response.json({ error: message, result: "[]" }, { status });
   }
 }

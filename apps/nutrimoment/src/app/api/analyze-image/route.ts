@@ -30,7 +30,7 @@ Important:
 - Return an empty array if no food items are visible
 - Return ONLY the JSON and no other text.`;
 
-    const text = await callOpenAIVision(prompt, image, "gpt-4.1-mini");
+    const text = await callOpenAIVision(prompt, image, "gemini-2.5-flash");
     const json = extractJson(text);
     const parsedResult = JSON.parse(json);
 
@@ -41,7 +41,7 @@ Important:
 
     return Response.json(
       { error: message, ingredients: [] },
-      { status: message.includes("OPENAI_API_KEY") ? 503 : 500 }
+      { status: message.includes("GEMINI_API_KEY") ? 503 : 500 }
     );
   }
 }

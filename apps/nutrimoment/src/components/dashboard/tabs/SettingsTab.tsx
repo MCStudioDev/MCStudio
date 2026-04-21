@@ -1,15 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
-import { Flame, Languages, Mic, SlidersHorizontal, Utensils } from "lucide-react";
+import { Flame, Languages, Mic, Scale, SlidersHorizontal, Utensils } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
 import { containerVariants, itemVariants } from "@/lib/animations";
+import { CUISINE_OPTIONS, normalizeCuisineLabel } from "@/lib/cuisines";
 import { SectionHero } from "./shared";
 
-const CUISINES = ["Any", "Italian", "Mexican", "Indian", "Mediterranean", "Thai"] as const;
 const OUTPUT_LANGUAGES = ["English", "Spanish", "French", "German", "Chinese", "Japanese", "Arabic", "Hindi"] as const;
 
 export function SettingsTab() {
@@ -42,10 +43,10 @@ export function SettingsTab() {
         <SettingCard
           icon={<Utensils className="h-5 w-5" />}
           eyebrow={t("preferredCuisine")}
-          title={settings.preferredCuisine}
+          title={normalizeCuisineLabel(settings.preferredCuisine)}
         >
           <div className="flex flex-wrap gap-2">
-            {CUISINES.map((cuisine) => (
+            {CUISINE_OPTIONS.map((cuisine) => (
               <Pill
                 key={cuisine}
                 active={settings.preferredCuisine === cuisine}
@@ -112,8 +113,36 @@ export function SettingsTab() {
             {t("recipesWillAllowUpTo")} {settings.maxMissingIngredients} {t("missingIngredients")}
           </p>
         </SettingCard>
+
+        <SettingCard
+          icon={<Scale className="h-5 w-5" />}
+          eyebrow="Legal & Safety"
+          title="Use with verification"
+          className="xl:col-span-2"
+        >
+          <p className="text-sm leading-relaxed text-stone-500">
+            NutriMoment is designed for informational meal support. Review the disclaimer, terms, and privacy details
+            before relying on generated recipes or meal plans.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <LegalLink href="/legal/disclaimer">AI Disclaimer</LegalLink>
+            <LegalLink href="/legal/terms">Terms of Service</LegalLink>
+            <LegalLink href="/legal/privacy">Privacy Policy</LegalLink>
+          </div>
+        </SettingCard>
       </motion.div>
     </motion.div>
+  );
+}
+
+function LegalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+    >
+      {children}
+    </Link>
   );
 }
 

@@ -1,11 +1,12 @@
 import type { Language } from "./types";
+import { arabicTranslations } from "./arabicTranslations";
 
 export type TranslationKey = keyof typeof translations.en;
 
 export const translations = {
   en: {
     appTitle: "NutriMoment",
-    appSubtitle: "Your AI-powered nutrition expert",
+    appSubtitle: "AI-guided recipe and meal-planning support",
     login: "Login",
     signup: "Sign Up",
     email: "Email Address",
@@ -168,7 +169,7 @@ export const translations = {
   },
   ar: {
     appTitle: "نيوتري مومنت",
-    appSubtitle: "خبير التغذية الخاص بك المدعوم بالذكاء الاصطناعي",
+    appSubtitle: "دعم للوصفات وتخطيط الوجبات بالذكاء الاصطناعي",
     login: "تسجيل الدخول",
     signup: "إنشاء حساب",
     email: "البريد الإلكتروني",
@@ -331,7 +332,7 @@ export const translations = {
   },
   es: {
     appTitle: "NutriMoment",
-    appSubtitle: "Tu experto en nutrición con IA",
+    appSubtitle: "Apoyo con IA para recetas y planes de comida",
     login: "Iniciar sesión",
     signup: "Registrarse",
     email: "Correo electrónico",
@@ -494,7 +495,7 @@ export const translations = {
   },
   fr: {
     appTitle: "NutriMoment",
-    appSubtitle: "Votre expert en nutrition IA",
+    appSubtitle: "Accompagnement IA pour recettes et plans de repas",
     login: "Connexion",
     signup: "S'inscrire",
     email: "Adresse e-mail",
@@ -658,6 +659,10 @@ export const translations = {
 } as const;
 
 export function t(lang: Language, key: TranslationKey): string {
+  if (lang === "ar") {
+    return arabicTranslations[key] ?? translations.en[key] ?? key;
+  }
+
   const dict = translations[lang] ?? translations.en;
   const value = (dict as Record<string, string>)[key];
   return value ?? translations.en[key] ?? key;

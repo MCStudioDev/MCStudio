@@ -1,4 +1,7 @@
-import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson } from "@/lib/openai";
+import { z } from "zod";
+import { USE_MOCK, ensureAiAvailable, extractJson } from "@/lib/openai";
+import { generateFallbackRecipes } from "@/services/fallbackAiService";
+import { searchCatalogRecipes } from "@/services/recipeSearchService";
 
 const MOCK_RECIPES = {
   recipes: [
@@ -65,11 +68,23 @@ const MOCK_RECIPES = {
   ]
 };
 
+const requestSchema = z.object({
+  ingredients: z.array(z.string()).min(1).optional(),
+  prompt: z.string().min(20).optional(),
+  preferredCuisine: z.string().optional(),
+  calorieTarget: z.number().optional(),
+  maxMissingIngredients: z.number().optional(),
+  diets: z.array(z.string()).optional(),
+  conditions: z.array(z.string()).optional()
+}).refine((value) => Boolean(value.ingredients?.length || value.prompt), {
+  message: "Provide ingredients or a prompt."
+});
+
 export async function POST(request: Request) {
   try {
-    const { ingredients } = await request.json();
-
-    if (!ingredients || ingredients.length === 0) {
+    const body = await request.json();
+    const parsed = requestSchema.safeParse(body);
+    if (!parsed.success) {
       return Response.json(
         { error: "No ingredients provided" },
         { status: 400 }
@@ -80,49 +95,52 @@ export async function POST(request: Request) {
       return Response.json(MOCK_RECIPES);
     }
 
-    ensureAiAvailable();
+    const searchResult = await searchCatalogRecipes({
+      ingredients: parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""),
+      preferredCuisine: parsed.data.preferredCuisine,
+      calorieTarget: parsed.data.calorieTarget,
+      diets: parsed.data.diets,
+      conditions: parsed.data.conditions,
+      maxResults: 3
+    });
 
-    const prompt = `Generate 3 creative and delicious recipes based on these ingredients: ${ingredients.join(", ")}
-
-For each recipe, provide the response in the following JSON format:
-{
-  "recipes": [
-    {
-      "name": "Recipe Name",
-      "cuisine": "Cuisine Type",
-      "ingredients": ["ingredient1", "ingredient2"],
-      "missing_ingredients": ["optional missing ingredient"],
-      "steps": ["Step 1", "Step 2"],
-      "calories": 450,
-      "protein": "35g",
-      "carbs": "45g",
-      "fat": "15g",
-      "cook_time": "30 mins",
-      "difficulty": "Easy"
+    if (searchResult.recipes.length) {
+      return Response.json({
+        result: JSON.stringify(searchResult.recipes),
+        servedFrom: searchResult.servedFrom,
+        canLoadMore: searchResult.canLoadMore
+      });
     }
-  ]
-}
 
-Make sure the recipes are:
-1. Creative and interesting
-2. Using mostly the provided ingredients
-3. Include realistic nutrition information
-4. Include clear cooking steps
-5. Vary the cuisine types
+    if (!parsed.data.prompt) {
+      return Response.json({ result: "[]", servedFrom: "offline_catalog" });
+    }
 
-Return ONLY the JSON and no other text.`;
-
-    const text = await callOpenAIText(prompt, "gpt-4.1-mini");
+    ensureAiAvailable();
+    const text = await generateFallbackRecipes(parsed.data.prompt);
     const json = extractJson(text);
     const recipes = JSON.parse(json);
-
-    return Response.json(recipes);
+    return Response.json({ ...recipes, servedFrom: "fallback_ai", result: JSON.stringify(recipes.recipes ?? recipes) });
   } catch (error) {
     console.error("Error generating recipes:", error);
     const message = error instanceof Error ? error.message : "Failed to generate recipes";
     return Response.json(
       { error: message },
-      { status: message.includes("OPENAI_API_KEY") ? 503 : 500 }
+      { status: message.includes("GEMINI_API_KEY") ? 503 : 500 }
     );
   }
+}
+
+function extractIngredientsFromPrompt(prompt: string): string[] {
+  const exact = prompt.match(/ingredients:\s*(.+?)\./i);
+  if (exact?.[1]) {
+    return exact[1].split(",").map((item) => item.trim()).filter(Boolean);
+  }
+
+  const broad = prompt.match(/using these ingredients:\s*(.+?)\./i);
+  if (broad?.[1]) {
+    return broad[1].split(",").map((item) => item.trim()).filter(Boolean);
+  }
+
+  return [];
 }

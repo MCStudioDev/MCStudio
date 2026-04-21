@@ -23,10 +23,10 @@ export async function POST(request: Request) {
     }
 
     ensureAiAvailable();
-    const imageUrl = await generateOpenAIImage(parsed.data.prompt, "gpt-4.1-mini");
+    const imageUrl = await generateOpenAIImage(parsed.data.prompt, "gemini-2.5-flash-image");
     return Response.json({ imageUrl });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Image generation failed";
-    return Response.json({ error: message, imageUrl: "" }, { status: message.includes("OPENAI_API_KEY") ? 503 : 500 });
+    return Response.json({ error: message, imageUrl: "" }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
   }
 }

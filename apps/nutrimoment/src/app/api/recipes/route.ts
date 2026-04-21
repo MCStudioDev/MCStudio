@@ -99,6 +99,6 @@ export async function POST(request: Request) {
     return Response.json({ result: json });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Recipe generation failed";
-    return Response.json({ error: message, result: "[]" }, { status: message.includes("OPENAI_API_KEY") ? 503 : 500 });
+    return Response.json({ error: message, result: "[]" }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
   }
 }

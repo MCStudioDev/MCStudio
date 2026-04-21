@@ -11,7 +11,7 @@ import { Loader } from "@/components/ui/Loader";
 
 export default function Landing() {
   const { user, loading, signInWithGoogle } = useAuth();
-  const { t } = useApp();
+  const { t, rtl, language } = useApp();
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -57,7 +57,11 @@ export default function Landing() {
   }
 
   return (
-    <main className="relative min-h-screen flex items-center justify-center px-6 py-12 overflow-hidden">
+    <main
+      className="relative min-h-screen flex items-center justify-center px-6 py-12 overflow-hidden"
+      dir={rtl ? "rtl" : "ltr"}
+      lang={language}
+    >
       <HeroBlobs />
 
       <motion.div
@@ -105,9 +109,12 @@ export default function Landing() {
             {error ? (
               <p className="text-xs text-red-600">{error}</p>
             ) : (
-              <p className="text-[11px] text-stone-400 uppercase tracking-widest font-semibold">
-                Powered by OpenAI
-              </p>
+              <div className="space-y-2">
+                <p className="text-[11px] text-stone-400 uppercase tracking-widest font-semibold">Powered by Gemini</p>
+                <p className="text-[11px] leading-relaxed text-stone-400">
+                  Informational recipe support only. Verify allergens, nutrition, and food safety before use.
+                </p>
+              </div>
             )}
           </div>
         </div>

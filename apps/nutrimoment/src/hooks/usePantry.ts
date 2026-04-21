@@ -97,7 +97,7 @@ export function usePantry(): UsePantryResult {
   const addItem = async (item: Omit<PantryItem, "id">) => {
     if (!user) throw new Error("Must be logged in");
     await addDoc(collection(db, `users/${user.uid}/pantry`), {
-      ...item,
+      ...toFirestorePantryItem(item),
       createdAt: serverTimestamp()
     });
   };
@@ -106,7 +106,7 @@ export function usePantry(): UsePantryResult {
     if (!user) throw new Error("Must be logged in");
     for (const item of incoming) {
       await addDoc(collection(db, `users/${user.uid}/pantry`), {
-        ...item,
+        ...toFirestorePantryItem(item),
         createdAt: serverTimestamp()
       });
     }
@@ -129,4 +129,17 @@ export function usePantry(): UsePantryResult {
   };
 
   return { items, loading: effectiveLoading, error: state.error, addItem, addItems, removeItem, clear };
+}
+
+function toFirestorePantryItem(item: Omit<PantryItem, "id">) {
+  const payload: Record<string, string> = {
+    name: item.name.trim(),
+    quantity: item.quantity?.trim() || "1"
+  };
+
+  if (item.expiration?.trim()) {
+    payload.expiration = item.expiration.trim();
+  }
+
+  return payload;
 }

@@ -5,7 +5,7 @@ import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import type { HealthProfile, Language, UserSettings } from "@/lib/types";
-import { translations, isRtl, type TranslationKey } from "@/lib/translations";
+import { isRtl, t as translate, type TranslationKey } from "@/lib/translations";
 
 const DEFAULT_SETTINGS: UserSettings = {
   calorieTarget: 2000,
@@ -159,9 +159,7 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const t = useCallback(
     (key: TranslationKey) => {
-      const dict = translations[settings.uiLanguage] ?? translations.en;
-      const value = (dict as Record<string, string>)[key];
-      return value ?? translations.en[key] ?? key;
+      return translate(settings.uiLanguage, key);
     },
     [settings.uiLanguage]
   );

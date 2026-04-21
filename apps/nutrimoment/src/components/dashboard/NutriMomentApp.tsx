@@ -10,6 +10,7 @@ import { HealthTab } from "./tabs/HealthTab";
 import { MealPlanTab } from "./tabs/MealPlanTab";
 import { HistoryTab } from "./tabs/HistoryTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { AppLegalBanner } from "@/components/legal/LegalNotice";
 import type { Tab } from "@/lib/types";
 
 const TAB_COMPONENTS: Record<Tab, React.ComponentType> = {
@@ -28,6 +29,7 @@ export function NutriMomentApp() {
   return (
     <div className="relative min-h-screen">
       <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <AppLegalBanner />
       <ErrorBanner />
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-10">
         <AnimatePresence mode="wait">

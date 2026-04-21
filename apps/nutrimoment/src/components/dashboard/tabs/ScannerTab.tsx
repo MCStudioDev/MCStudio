@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import Image from "next/image";
+import { ChangeEvent, useCallback, useState } from "react";
 import { motion } from "framer-motion";
 import { Camera, ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -9,9 +10,11 @@ import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
 import { useHistory } from "@/hooks/useHistory";
 import { containerVariants, itemVariants } from "@/lib/animations";
+import { formatPreferencesForPrompt } from "@/lib/preferences";
 import { fileToBase64 } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
+import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -33,8 +36,9 @@ function buildRecipePrompt(
   }
 ) {
   const cuisineHint = options.preferredCuisine === "Any" ? "Use any cuisine." : `Prefer ${options.preferredCuisine} cuisine.`;
-  const diets = options.diets.length ? options.diets.join(", ") : "none";
-  const conditions = options.conditions.length ? options.conditions.join(", ") : "none";
+  const preferenceLabels = formatPreferencesForPrompt(options.diets, options.conditions);
+  const diets = preferenceLabels.diets.length ? preferenceLabels.diets.join(", ") : "none";
+  const conditions = preferenceLabels.conditions.length ? preferenceLabels.conditions.join(", ") : "none";
 
   return [
     `Generate exactly 3 recipes using these ingredients: ${ingredients.join(", ")}.`,
@@ -51,12 +55,64 @@ function buildRecipePrompt(
 
 export function ScannerTab() {
   const { t, settings, health, setError } = useApp();
-  const { addEntry } = useHistory();
+  const { addEntry, updateRecipeImage } = useHistory();
   const [manualEntry, setManualEntry] = useState("");
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [recipeSource, setRecipeSource] = useState<"offline_catalog" | "fallback_ai" | "mock" | null>(null);
+
+  const hydrateRecipePhotos = useCallback(
+    async (inputRecipes: Recipe[], historyEntryId: string | null) => {
+      const seeded = inputRecipes.map((recipe) =>
+        hasRenderableImage(recipe.image_url)
+          ? { ...recipe, image_loading: false, image_error: false }
+          : { ...recipe, image_loading: true, image_error: false }
+      );
+
+      setRecipes(seeded);
+
+      const resolved = await Promise.all(
+        seeded.map(async (recipe, index) => {
+          if (hasRenderableImage(recipe.image_url)) {
+            return recipe;
+          }
+
+          try {
+            const response = await fetch(`/api/recipe-photo?query=${encodeURIComponent(buildRecipePhotoQuery(recipe))}`);
+            const data = (await response.json()) as { imageUrl?: string };
+
+            if (!response.ok || !data.imageUrl) {
+              if (historyEntryId) {
+                await updateRecipeImage(historyEntryId, index, "", true);
+              }
+              return { ...recipe, image_loading: false, image_error: true };
+            }
+
+            if (historyEntryId) {
+              await updateRecipeImage(historyEntryId, index, data.imageUrl, false);
+            }
+
+            return {
+              ...recipe,
+              image_url: data.imageUrl,
+              image_loading: false,
+              image_error: false
+            };
+          } catch {
+            if (historyEntryId) {
+              await updateRecipeImage(historyEntryId, index, "", true);
+            }
+            return { ...recipe, image_loading: false, image_error: true };
+          }
+        })
+      );
+
+      setRecipes(resolved);
+    },
+    [updateRecipeImage]
+  );
 
   const addManualIngredient = () => {
     const next = manualEntry
@@ -129,21 +185,31 @@ export function ScannerTab() {
       const response = await fetch("/api/generate-recipes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({
+          ingredients,
+          prompt,
+          preferredCuisine: settings.preferredCuisine,
+          calorieTarget: settings.calorieTarget,
+          maxMissingIngredients: settings.maxMissingIngredients,
+          diets: health.diets,
+          conditions: health.conditions
+        })
       });
 
-      const data = (await response.json()) as { result?: string; error?: string };
+      const data = (await response.json()) as { result?: string; error?: string; servedFrom?: "offline_catalog" | "fallback_ai" | "mock" };
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to generate recipes");
       }
 
       const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "[]", []);
       setRecipes(nextRecipes);
-      await addEntry({
+      setRecipeSource(data.servedFrom ?? null);
+      const entryId = await addEntry({
         timestamp: new Date().toISOString(),
         ingredients,
         recipes: nextRecipes
       });
+      void hydrateRecipePhotos(nextRecipes, entryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Recipe generation failed";
       setError(message);
@@ -272,12 +338,37 @@ export function ScannerTab() {
 
       <motion.div variants={itemVariants}>
         {recipes.length ? (
-          <div className="grid gap-5 lg:grid-cols-3">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">
+                {recipeSource === "offline_catalog" ? "Offline catalog match" : recipeSource === "fallback_ai" ? "AI fallback" : "Mock mode"}
+              </span>
+            </div>
+            <ResultLegalNotice mode="recipes" />
+            <div className="grid gap-5 lg:grid-cols-3">
             {recipes.map((recipe) => (
               <Card key={recipe.name} className="rounded-[2rem] space-y-4">
+                <RecipeImage recipe={recipe} />
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{recipe.cuisine}</p>
                   <h3 className="text-2xl font-display font-bold text-stone-900">{recipe.name}</h3>
+                  {recipe.match_quality ? (
+                    <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                      {recipe.match_quality} match
+                    </span>
+                  ) : null}
+                  {recipe.preference_hits?.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {recipe.preference_hits.map((hit) => (
+                        <span
+                          key={`${recipe.name}-${hit}`}
+                          className="inline-flex rounded-full bg-cyan-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700"
+                        >
+                          {hit}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -324,11 +415,12 @@ export function ScannerTab() {
                 </div>
               </Card>
             ))}
+            </div>
           </div>
         ) : (
           <EmptyState
             title="Ready to cook"
-            description="Scan a photo or add ingredients manually, then generate three AI-powered recipe ideas tailored to your preferences."
+            description="Scan a photo or add ingredients manually, then generate three recipe ideas shaped by your preferences. Always verify allergens, nutrition, and food safety before cooking."
           />
         )}
       </motion.div>
@@ -343,4 +435,41 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-lg font-semibold text-stone-900">{value}</p>
     </div>
   );
+}
+
+function RecipeImage({ recipe }: { recipe: Recipe }) {
+  if (hasRenderableImage(recipe.image_url)) {
+    return (
+      <div className="overflow-hidden rounded-[1.5rem] bg-stone-100">
+        <Image
+          src={recipe.image_url ?? ""}
+          alt={recipe.name}
+          width={800}
+          height={480}
+          className="h-48 w-full object-cover"
+          unoptimized
+        />
+      </div>
+    );
+  }
+
+  if (recipe.image_loading) {
+    return <div className="h-48 animate-pulse rounded-[1.5rem] bg-stone-100" />;
+  }
+
+  return (
+    <div className="flex h-48 items-center justify-center rounded-[1.5rem] border border-dashed border-stone-200 bg-stone-50 px-4 text-center text-sm text-stone-500">
+      {recipe.image_error ? "No matching web photo found yet." : "Searching the web for a matching recipe photo."}
+    </div>
+  );
+}
+
+function hasRenderableImage(imageUrl?: string) {
+  return Boolean(imageUrl && /^(https?:|data:)/.test(imageUrl));
+}
+
+function buildRecipePhotoQuery(recipe: Recipe) {
+  return [recipe.name, recipe.cuisine, recipe.ingredients.slice(0, 3).join(" "), "food plated"]
+    .filter(Boolean)
+    .join(" ");
 }

@@ -3,6 +3,33 @@
 **Source app:** `C:\Users\gamal\Downloads\nutrimoment`
 **Target app:** `apps/nutrimoment`
 
+## Current Mapping Status - 2026-04-20
+The major source-app UI sections have now been mapped into the target Next.js app as real dashboard tabs.
+
+Implemented target areas:
+- `ScannerTab.tsx` for image/manual ingredient input and catalog-backed recipe results
+- `PantryTab.tsx` for Firestore pantry CRUD, pantry image scan review, editable quantities, and quantity guidance
+- `HealthTab.tsx` for diet and health preference selection plus medical disclaimer
+- `MealPlanTab.tsx` for persisted weekly meal plans and missing-quantity shopping lists
+- `HistoryTab.tsx` for saved recipe generations and hydrated recipe photos
+- `SettingsTab.tsx` for calorie, cuisine, language, missing-ingredient, and legal settings
+
+Additional target-only improvements beyond the source prototype:
+- offline recipe catalog and ingredient index under `src/data/offline`
+- retrieval and ranking services under `src/services`
+- Firestore catalog seed script under `scripts/seed-offline-catalog.ts`
+- cuisine matching for Egyptian, Middle Eastern, Mediterranean, and related cuisines
+- public web recipe-photo lookup through `/api/recipe-photo`
+- Arabic translation override and RTL dashboard shell
+- legal pages under `/legal/disclaimer`, `/legal/terms`, and `/legal/privacy`
+- pantry-aware weekly shopping lists that subtract stored pantry quantities from selected meal ingredients
+
+Remaining mapping/cleanup work:
+- consolidate overlapping routes such as `scan` vs `analyze-image` and `recipes` vs `generate-recipes`
+- add API route authentication and rate limiting
+- expand the offline catalog and alias dictionary
+- add automated tests for pantry quantity normalization, ranking, and shopping-list math
+
 ## Goal
 Map the downloaded NutriMoment prototype into the monorepo Next.js app without blindly copying the old architecture.
 
@@ -24,7 +51,7 @@ The target app is a Next.js 16 + Firebase + App Router rewrite with better separ
 The request asked to use all available skills. I used them as planning lenses for this mapping:
 
 - `imagegen`: checked whether NutriMoment's graphics should be recreated as bitmap assets. Conclusion: no bitmap generation is needed yet because the source graphics are code-native gradients, blobs, typography, and icons.
-- `openai-docs`: checked relevance. Conclusion: not a direct dependency for this migration because the app currently uses Gemini, not OpenAI APIs.
+- `openai-docs`: checked relevance for current provider migration work. Conclusion: official provider docs were useful for validating Gemini SDK choices, even though the app runtime now targets Gemini APIs.
 - `plugin-creator`: checked whether this mapping should become a plugin. Conclusion: not needed for the app migration itself.
 - `skill-creator`: used as the model for turning this into a reusable, step-by-step migration artifact instead of loose notes.
 - `skill-installer`: checked whether any missing external skills were required. Conclusion: no installation needed because the needed skills are already available.

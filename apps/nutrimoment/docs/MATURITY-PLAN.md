@@ -1,51 +1,64 @@
 # NutriMoment - Maturity Plan
-**Version:** 1.1
-**Date:** 2026-04-17
-**Current State:** v0.2.0 (stabilized prototype)
+**Version:** 1.2
+**Date:** 2026-04-20
+**Current State:** v0.5.0 (offline-first MVP foundation)
 **Target State:** v1.0.0 (production-ready SaaS)
 
 ## Current State Assessment
 
-### What works today
+### What Works Today
 | Feature | Status | Notes |
 |---|---|---|
 | Google Sign-In | Working | Firebase Auth plus user document creation |
-| Image to ingredient detection | Working | OpenAI route with mock fallback |
-| Recipe generation | Working | OpenAI route with profile-aware prompt input |
+| Image to ingredient detection | Working | Gemini route with mock fallback |
+| Recipe generation | Working | Offline catalog-backed retrieval with Gemini fallback |
 | Dashboard shell | Working | Top nav plus 6 rendered tab components |
 | Pantry CRUD | Working | Firestore-backed via `usePantry` |
+| Pantry image scan | Working | Scan, review, edit, and save approximate quantities |
+| Pantry quantity hints | Working | Ingredient-specific unit guidance and normalization |
 | Health/profile persistence | Working | Firestore-backed via `AppContext` |
+| Cuisine preferences | Working | Includes Egyptian, Middle Eastern, Mediterranean, and more |
 | History persistence | Working | Firestore-backed via `useHistory` |
-| Meal-plan generation UI | Working | Route-backed generation and shopping list rendering |
+| Meal-plan generation UI | Working | Catalog-backed generation and shopping-list rendering |
+| Meal-plan persistence | Working | Current plan stored at `users/{uid}/plans/currentWeekly` |
+| Shopping-list quantity math | Working | Sums meal ingredients and subtracts matching pantry quantities |
+| Arabic UI | Working | Arabic translation override plus RTL shell |
+| Legal/safety layer | Working | Banner, result disclaimers, and legal pages |
 | Lint and typecheck baseline | Working | `eslint` and `tsc --noEmit` are clean |
 
-### What is still incomplete or partially mocked
+### What Is Still Incomplete
 | Feature | Current Gap |
 |---|---|
 | API route security | No Firebase token verification on the AI route handlers yet |
 | Rate limiting | No quota protection on AI endpoints yet |
-| Meal plan persistence | Plans are generated in-session but not stored in Firestore |
-| Pantry model | No category, unit normalization, or freshness system |
+| Pantry freshness | Quantity hints exist, but expiry/freshness logic is not implemented |
+| Unit conversion | Basic compatible-unit subtraction exists, but package-size conversion is limited |
 | Recipe library | History exists, but favorites and separate saved-recipe collections do not |
 | Nutrition tracking | Not implemented yet |
 | Camera capture | Upload works, but live `getUserMedia` flow is not wired |
 | Route consolidation | `scan` vs `analyze-image` and `recipes` vs `generate-recipes` still overlap |
-| Legacy inventory hook | `useInventory` still exists as a secondary path and should be merged or retired |
+| Automated tests | Ranking and shopping-list math need dedicated tests |
 
-### Critical issues before production use
+### Critical Issues Before Production Use
 1. API keys and local secret handling need a formal cleanup review.
 2. AI routes need authenticated access.
 3. AI routes need rate limiting and abuse protection.
-4. Firestore security rules need to be verified against the intended data model.
+4. Firestore security rules need a deployment review against all current collections.
+5. Health-related copy should be reviewed by counsel and, if necessary, a qualified nutrition professional.
 
-## Stabilization Fixes Completed In This Pass
+## Completed Since Stabilized Prototype
 - Replaced missing dashboard tab imports with real tab implementations.
-- Added scanner, pantry, health, meal-plan, history, and settings tab components.
 - Removed `/api/debug`.
-- Fixed React effect patterns that were blocking lint.
-- Fixed TypeScript issues introduced by the dashboard split.
-- Removed hard runtime dependence on live Google Font fetches in the root layout.
+- Fixed React effect patterns that blocked lint.
 - Restored a clean `eslint` and `tsc --noEmit` baseline.
+- Added Gemini-backed AI routes and mock fallback behavior.
+- Added offline recipe catalog, ingredient index, retrieval service, ranking service, and catalog seed script.
+- Added Egyptian, Middle Eastern, and Mediterranean cuisine preference coverage.
+- Added pantry scan review, editable quantities, and quantity guidance.
+- Added persisted weekly meal plans under `users/{uid}/plans/currentWeekly`.
+- Added missing-quantity shopping lists that subtract pantry stock from meal ingredients.
+- Added Arabic translation override and RTL shell support.
+- Added legal disclaimer, terms, privacy pages, and result-level safety notices.
 
 ## Maturity Levels
 
@@ -58,10 +71,11 @@ Level 4: Production Ready
 Level 5: Growth
 ```
 
-NutriMoment is currently between Level 1 and Level 2:
-- strong prototype UX
+NutriMoment is currently between Level 2 and Level 3:
+- offline catalog-backed recipe and meal-plan paths exist
 - real Firestore-backed user data for key surfaces
-- still missing core production hardening
+- pantry-aware shopping lists are functional
+- still missing production hardening, automated tests, and nutrition tracking
 
 ## Roadmap
 
@@ -69,13 +83,13 @@ NutriMoment is currently between Level 1 and Level 2:
 Goal: make the current app safe and coherent before adding many more features.
 
 Tasks:
-- Add Firebase ID token verification middleware to all AI routes
-- Add rate limiting to AI routes
-- Review Firestore security rules against the actual collections in use
+- Add Firebase ID token verification middleware to all AI routes.
+- Add rate limiting to AI routes.
+- Review Firestore security rules against the actual collections in use.
 - Consolidate overlapping route handlers:
   - `scan` and `analyze-image`
   - `recipes` and `generate-recipes`
-- Remove or merge legacy inventory paths
+- Remove or merge legacy inventory paths.
 
 Definition of done:
 - unauthenticated users cannot hit protected AI endpoints
@@ -85,41 +99,58 @@ Definition of done:
 Goal: strengthen the current feature set instead of only adding new screens.
 
 Tasks:
-- Extend pantry items with unit, category, and expiry metadata
-- Add pantry freshness calculation and visual status
-- Add scanner-to-pantry import action
-- Persist meal plans to Firestore
-- Add a saved recipe library separate from history
-- Add favorites
+- Extend pantry items with category and expiry metadata.
+- Add pantry freshness calculation and visual status.
+- Improve unit conversion for packages, bags, boxes, cans, and mixed units.
+- Add a saved recipe library separate from history.
+- Add favorites.
+- Expand the offline recipe catalog to thousands of structured recipes.
 
 Definition of done:
 - pantry becomes a real kitchen inventory model
 - recipe data has a long-lived home beyond generation history
-- meal plans survive page refreshes and sign-in sessions
+- shopping lists remain accurate across common pantry units
 
-### Phase 3 - Personalization and Tracking
-Goal: deepen user value through health-aware behavior and outcome tracking.
+### Phase 3 - Offline Retrieval Engine Depth
+Goal: reduce runtime AI cost and improve deterministic quality.
 
 Tasks:
-- Add allergies to the health model
-- Add macro targets
-- Improve recipe prompt construction using richer health profile data
-- Build nutrition log collection
-- Add daily totals and weekly summaries
+- Grow `recipes`, `ingredients`, `ingredientAliases`, and `ingredientRecipeIndex`.
+- Improve ingredient normalization and synonym coverage.
+- Add tests for retrieval and ranking services.
+- Keep `/api/generate-recipes` catalog-first with AI fallback.
+- Keep `/api/mealplan` catalog-backed with AI fallback only as backup.
+- Add quality review tooling for weak matches.
 
 Definition of done:
-- NutriMoment moves from recipe generation to actual nutrition guidance workflow
+- most recipe and meal-plan responses are served from the offline catalog
+- ranking quality is deterministic and tunable
+- AI becomes augmentation rather than the primary runtime engine
 
-### Phase 4 - UX and Reliability
+### Phase 4 - Personalization and Tracking
+Goal: deepen user value through richer preference behavior and outcome tracking.
+
+Tasks:
+- Add allergies to the health model.
+- Add macro targets.
+- Improve recipe ranking using richer health profile data.
+- Build nutrition log collection.
+- Add daily totals and weekly summaries.
+
+Definition of done:
+- NutriMoment moves from recipe generation toward an accountable meal workflow
+
+### Phase 5 - UX and Reliability
 Goal: polish first-run experience and operational stability.
 
 Tasks:
-- Add onboarding
-- Add richer empty states and skeletons
-- Add error tracking and structured logging
-- Add monitoring
-- Add accessibility pass
-- Add camera capture flow where supported
+- Add onboarding.
+- Add richer empty states and skeletons.
+- Add error tracking and structured logging.
+- Add monitoring.
+- Add accessibility pass.
+- Add camera capture flow where supported.
+- Add shopping-list export and meal-slot swap controls.
 
 Definition of done:
 - users can reach first value quickly
@@ -131,8 +162,9 @@ Definition of done:
 | Stabilized prototype | v0.2.0 | Split tabs, clean lint/typecheck, no debug route |
 | Secured AI layer | v0.3.0 | Authenticated and rate-limited AI routes |
 | Real pantry and saved recipes | v0.4.0 | Stronger persistence and inventory fidelity |
-| Personalized meal workflows | v0.5.0 | Richer health profile plus persisted meal plans |
-| Nutrition tracking | v0.6.0 | Logging and progress metrics |
+| Offline retrieval engine | v0.5.0 | Catalog-backed recipes, catalog-backed meal plans, deterministic ranking |
+| Personalized meal workflows | v0.6.0 | Richer health profile, allergies, and meal-slot controls |
+| Nutrition tracking | v0.7.0 | Logging and progress metrics |
 | Production-ready baseline | v1.0.0 | Security, observability, UX, and deployment readiness |
 
 ## Production-Ready Checklist
@@ -155,10 +187,13 @@ Definition of done:
 - [ ] Structured logging
 - [ ] Error monitoring
 - [ ] Graceful handling of auth failures and quota failures
+- [x] Meal-plan display remains available when plan persistence fails
 
 ### UX
 - [x] Real dashboard tabs exist
 - [x] Key flows render through the current app architecture
+- [x] Arabic UI and RTL shell support
+- [x] Legal/safety notices on high-risk outputs
 - [ ] Onboarding
 - [ ] Nutrition tracking
-- [ ] Rich pantry metadata and freshness states
+- [ ] Rich pantry freshness states

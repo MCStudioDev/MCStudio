@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { buildMealPlanPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson } from "@/lib/openai";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
+import { accessErrorResponse, accessPayload, requireUser } from "@/services/authService";
 import { listSeededRecipes } from "@/repositories/recipeRepo";
 import { buildMealPlanData } from "@/services/mealPlanService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
@@ -14,6 +16,7 @@ const requestSchema = z.object({
   prompt: z.string().min(20).optional(),
   pantry: z.array(z.string()).optional(),
   pantryItems: z.array(z.object({ name: z.string(), quantity: z.string().optional() })).optional(),
+  recipeLanguage: z.string().optional(),
   preferredCuisine: z.string().optional(),
   calorieTarget: z.number().optional(),
   diets: z.array(z.string()).optional(),
@@ -43,14 +46,25 @@ const MOCK_MEAL_PLAN = {
 
 export async function POST(request: Request) {
   try {
+    const access = await requireUser(request);
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
       return Response.json({ error: "Invalid request" }, { status: 400 });
     }
 
+    if (!access.isPremium) {
+      return Response.json(
+        {
+          error: "Weekly meal plans are a premium feature. Free users can keep using manual pantry and offline recipe discovery.",
+          access: accessPayload(access)
+        },
+        { status: 403 }
+      );
+    }
+
     if (USE_MOCK) {
-      return Response.json({ result: JSON.stringify(MOCK_MEAL_PLAN) });
+      return Response.json({ result: JSON.stringify({ ...MOCK_MEAL_PLAN, servedFrom: "mock" }), access: accessPayload(access) });
     }
 
     const pantryItems = parsed.data.pantryItems ?? [];
@@ -75,29 +89,61 @@ export async function POST(request: Request) {
         ? searchResult.candidateRecipes
         : getCatalogFallbackRecipes(parsed.data.preferredCuisine);
 
-    if (catalogRecipes.length) {
-      const mealPlan = {
-        ...buildMealPlanData(catalogRecipes, pantryStock),
-        servedFrom: "offline_catalog" as const
-      };
-      return Response.json({ result: JSON.stringify(mealPlan), servedFrom: "offline_catalog" });
-    }
+    try {
+      ensureAiAvailable();
+      const text = await callOpenAIText(
+        buildMealPlanPrompt({
+          pantry,
+          diets: parsed.data.diets ?? [],
+          conditions: parsed.data.conditions ?? [],
+          recipeLanguage: parsed.data.recipeLanguage,
+          preferredCuisine: parsed.data.preferredCuisine,
+          calorieTarget: parsed.data.calorieTarget
+        })
+      );
+      const json = extractJson(text);
+      const rawMealPlan = JSON.parse(json);
+      const aiMealPlan = normalizeMealPlanData(rawMealPlan);
 
-    ensureAiAvailable();
-    const text = await callOpenAIText(buildFallbackPrompt(parsed.data, pantry));
-    const json = extractJson(text);
-    const aiMealPlan = normalizeMealPlanData(JSON.parse(json));
+      if (aiMealPlan) {
+        console.info("Meal plan served from Gemini fallback AI", {
+          days: aiMealPlan.plan.length,
+          shoppingItems: aiMealPlan.shoppingList.length
+        });
+        return Response.json({
+          result: JSON.stringify({ ...aiMealPlan, servedFrom: "fallback_ai" }),
+          servedFrom: "fallback_ai",
+          access: accessPayload(access)
+        });
+      }
 
-    if (aiMealPlan) {
-      return Response.json({ result: JSON.stringify({ ...aiMealPlan, servedFrom: "fallback_ai" }), servedFrom: "fallback_ai" });
+      console.error("Premium meal plan AI response was not usable; using offline fallback", {
+        topLevelType: Array.isArray(rawMealPlan) ? "array" : typeof rawMealPlan,
+        keys: rawMealPlan && typeof rawMealPlan === "object" && !Array.isArray(rawMealPlan) ? Object.keys(rawMealPlan).slice(0, 10) : [],
+        preview: json.slice(0, 600)
+      });
+    } catch (aiError) {
+      console.error("Premium meal plan API failed; using offline fallback:", aiError);
     }
 
     const emergencyMealPlan = {
-      ...buildMealPlanData(getCatalogFallbackRecipes(parsed.data.preferredCuisine), pantryStock),
+      ...buildMealPlanData(catalogRecipes.length ? catalogRecipes : getCatalogFallbackRecipes(parsed.data.preferredCuisine), pantryStock),
       servedFrom: "offline_catalog" as const
     };
-    return Response.json({ result: JSON.stringify(emergencyMealPlan), servedFrom: "offline_catalog" });
+    console.info("Meal plan served from offline catalog after AI failure", {
+      days: emergencyMealPlan.plan.length,
+      shoppingItems: emergencyMealPlan.shoppingList.length
+    });
+    return Response.json({
+      result: JSON.stringify(emergencyMealPlan),
+      servedFrom: "offline_catalog",
+      fallbackNotice: "The premium AI meal plan service was unavailable, so we used offline catalog recipes.",
+      access: accessPayload(access)
+    });
   } catch (err) {
+    if (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials"))) {
+      return accessErrorResponse(err);
+    }
     const message = err instanceof Error ? err.message : "Meal plan generation failed";
     return Response.json({ error: message }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
   }
@@ -122,22 +168,4 @@ function getCatalogFallbackRecipes(preferredCuisine?: string): RecipeCatalogDoc[
     .slice()
     .sort((left, right) => right.qualityScore + right.popularityScore - (left.qualityScore + left.popularityScore))
     .slice(0, 21);
-}
-
-function buildFallbackPrompt(
-  data: z.infer<typeof requestSchema>,
-  pantry: string[]
-) {
-  return [
-    "Generate a 7-day meal plan as valid JSON.",
-    `Pantry items: ${pantry.join(", ") || "none provided"}.`,
-    `Dietary preferences: ${data.diets?.join(", ") || "none"}.`,
-    `Health conditions: ${data.conditions?.join(", ") || "none"}.`,
-    `Preferred cuisine: ${data.preferredCuisine || "Any"}.`,
-    `Daily calorie target: ${data.calorieTarget || 2000}.`,
-    "Return an object with keys: plan and shoppingList.",
-    "plan must be an array of 7 days. Each day must include breakfast, lunch, and dinner with name, calories, protein, carbs, and fat.",
-    "shoppingList must include only missing items needed to cook the plan after pantry ingredients are used.",
-    "Every shoppingList item must include the summed missing quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."
-  ].join(" ");
 }

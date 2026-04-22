@@ -12,44 +12,95 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.role == "admin";
+    }
+
+    function isOwnerOrAdmin(userId) {
+      return isOwner(userId) || isAdmin();
+    }
+
+    function hasOnlyUserWritableProfileFields() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        "role",
+        "tier",
+        "status",
+        "features",
+        "aiCreditsUsed",
+        "aiCreditsLimit",
+        "aiCreditsRemaining",
+        "entitlement"
+      ]);
+    }
+
+    function hasNoAccessProfileFields() {
+      return !request.resource.data.keys().hasAny([
+        "role",
+        "tier",
+        "status",
+        "features",
+        "aiCreditsUsed",
+        "aiCreditsLimit",
+        "aiCreditsRemaining",
+        "entitlement"
+      ]);
+    }
+
     // =====================================
     // USER PROFILES
     // =====================================
     match /users/{userId} {
-      // Users can only read and write their own profile
-      allow read, write: if isOwner(userId);
+      // Users can read/write their own profile, but never their access tier/role.
+      allow read: if isOwnerOrAdmin(userId);
+      allow create: if isOwner(userId) && hasNoAccessProfileFields();
+      allow update: if isOwner(userId) && hasOnlyUserWritableProfileFields();
+      allow delete: if isAdmin();
       
       // =====================================
       // SUBCOLLECTIONS (Inventory, Recipes)
       // =====================================
       // Enforce isolation so one user cannot see another's scanned fridge items
       match /inventory/{item} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwnerOrAdmin(userId);
       }
       
       match /recipes/{recipe} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwnerOrAdmin(userId);
       }
 
       match /pantry/{item} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwnerOrAdmin(userId);
       }
 
       match /history/{historyId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwnerOrAdmin(userId);
       }
 
       match /favorites/{favoriteId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwnerOrAdmin(userId);
       }
 
       match /mealPlans/{mealPlanId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwnerOrAdmin(userId);
       }
 
       match /profile/{document=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwnerOrAdmin(userId);
       }
+
+      match /usage/{usageId} {
+        allow read: if isOwnerOrAdmin(userId);
+        allow write: if isAdmin();
+      }
+    }
+
+    match /entitlements/{userId} {
+      allow read: if isOwnerOrAdmin(userId);
+      allow write: if isAdmin();
+    }
+
+    match /adminAuditLogs/{logId} {
+      allow read, write: if isAdmin();
     }
 
     // Read-only public catalog for offline retrieval engine
@@ -74,7 +125,9 @@ service cloud.firestore {
     }
 
     match /scans/{scanId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
     }
   }
 }

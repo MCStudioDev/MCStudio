@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "seed:offline-catalog": "tsx scripts/seed-offline-catalog.ts"
+    "seed:offline-catalog": "tsx scripts/seed-offline-catalog.ts",
+    "set:user-access": "tsx scripts/set-user-access.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { USE_MOCK, callOpenAIText, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
+import {
+  accessErrorResponse,
+  accessPayload,
+  canUseApiFeature,
+  consumeFreeAiCredit
+} from "@/services/authService";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -79,6 +85,7 @@ const MOCK_RECIPES = [
 
 export async function POST(request: Request) {
   try {
+    const accessCheck = await canUseApiFeature(request, "recipe_generation");
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
@@ -86,8 +93,19 @@ export async function POST(request: Request) {
     }
     const { prompt, image } = parsed.data;
 
+    if (!accessCheck.allowed) {
+      return Response.json({
+        result: "[]",
+        servedFrom: "offline_catalog",
+        fallbackNotice: "Your 5 free AI credits are used. Use offline recipe generation or upgrade to premium.",
+        access: accessPayload(accessCheck.access)
+      });
+    }
+
+    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
+
     if (USE_MOCK) {
-      return Response.json({ result: JSON.stringify(MOCK_RECIPES) });
+      return Response.json({ result: JSON.stringify(MOCK_RECIPES), access: accessPayload(nextAccess) });
     }
 
     ensureAiAvailable();
@@ -96,8 +114,11 @@ export async function POST(request: Request) {
       : await callOpenAIText(prompt);
 
     const json = extractJson(text);
-    return Response.json({ result: json });
+    return Response.json({ result: json, access: accessPayload(nextAccess) });
   } catch (err) {
+    if (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials"))) {
+      return accessErrorResponse(err);
+    }
     const message = err instanceof Error ? err.message : "Recipe generation failed";
     return Response.json({ error: message, result: "[]" }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
   }

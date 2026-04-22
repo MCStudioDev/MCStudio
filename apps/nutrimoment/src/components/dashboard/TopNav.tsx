@@ -24,7 +24,7 @@ const TABS: { id: Tab; icon: typeof ChefHat; key: Parameters<ReturnType<typeof u
 ];
 
 export function TopNav({ activeTab, onTabChange }: TopNavProps) {
-  const { user, signOut } = useAuth();
+  const { user, access, signOut } = useAuth();
   const { t, language, setLanguage } = useApp();
   const [showLangMenu, setShowLangMenu] = useState(false);
 
@@ -57,6 +57,14 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
             </div>
 
             <div className="flex items-center gap-2">
+              <div className="hidden rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold text-stone-700 sm:block">
+                <span className="uppercase tracking-[0.16em] text-emerald-600">{access.tier}</span>
+                {access.tier === "free" ? (
+                  <span className="ml-2 text-stone-500">{access.aiCreditsRemaining}/{access.aiCreditsLimit} AI left</span>
+                ) : (
+                  <span className="ml-2 text-stone-500">API-first</span>
+                )}
+              </div>
               <div className="relative">
                 <button
                   type="button"

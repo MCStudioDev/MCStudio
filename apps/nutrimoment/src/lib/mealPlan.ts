@@ -3,9 +3,19 @@ import type { MealPlanData, MealPlanDay } from "@/lib/types";
 type UnknownRecord = Record<string, unknown>;
 
 export function normalizeMealPlanData(value: unknown): MealPlanData | null {
+  if (Array.isArray(value)) {
+    return normalizeMealPlanData({ plan: value });
+  }
+
   if (!isRecord(value)) return null;
 
-  const plan = Array.isArray(value.plan) ? value.plan.filter(isMealPlanDay) : [];
+  if (!Array.isArray(value.plan) && Array.isArray(value.mealPlan)) {
+    return normalizeMealPlanData({ ...value, plan: value.mealPlan });
+  }
+
+  const plan = Array.isArray(value.plan)
+    ? value.plan.map(normalizeMealPlanDay).filter((day): day is MealPlanDay => Boolean(day))
+    : [];
   if (!plan.length) return null;
 
   const normalized: MealPlanData = {
@@ -64,12 +74,49 @@ function hasQuantity(value: string) {
   return /\d/.test(value) || /\b(half|quarter|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(value);
 }
 
-function isMealPlanDay(value: unknown): value is MealPlanDay {
-  return isRecord(value) && typeof value.day === "string" && isMeal(value.breakfast) && isMeal(value.lunch) && isMeal(value.dinner);
+function normalizeMealPlanDay(value: unknown): MealPlanDay | null {
+  if (!isRecord(value)) return null;
+
+  const meals = isRecord(value.meals) ? value.meals : value;
+  const breakfast = normalizeMeal(meals.breakfast);
+  const lunch = normalizeMeal(meals.lunch);
+  const dinner = normalizeMeal(meals.dinner);
+
+  if (!breakfast || !lunch || !dinner) return null;
+
+  return {
+    ...value,
+    day: readString(value, ["day", "date", "label"]) || "Day",
+    breakfast,
+    lunch,
+    dinner
+  } as MealPlanDay;
 }
 
-function isMeal(value: unknown) {
-  return isRecord(value) && typeof value.name === "string";
+function normalizeMeal(value: unknown) {
+  if (typeof value === "string" && value.trim()) {
+    return {
+      name: value.trim(),
+      calories: 0,
+      protein: "0g",
+      carbs: "0g",
+      fat: "0g"
+    };
+  }
+
+  if (!isRecord(value)) return null;
+
+  const name = readString(value, ["name", "title", "meal"]);
+  if (!name) return null;
+
+  return {
+    ...value,
+    name,
+    calories: readNumber(value, ["calories", "kcal"]),
+    protein: readMacro(value, ["protein"]),
+    carbs: readMacro(value, ["carbs", "carbohydrates"]),
+    fat: readMacro(value, ["fat", "fats"])
+  };
 }
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -84,6 +131,29 @@ function readString(record: UnknownRecord, keys: string[]) {
   }
 
   return "";
+}
+
+function readNumber(record: UnknownRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number.parseFloat(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function readMacro(record: UnknownRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return `${value}g`;
+  }
+
+  return "0g";
 }
 
 function stripUndefinedDeep(value: unknown): unknown {

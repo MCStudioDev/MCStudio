@@ -1,5 +1,12 @@
 import { z } from "zod";
+import { buildRecipeGenerationPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, ensureAiAvailable, extractJson } from "@/lib/openai";
+import {
+  accessErrorResponse,
+  accessPayload,
+  canUseApiFeature,
+  consumeFreeAiCredit
+} from "@/services/authService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
 
@@ -70,7 +77,9 @@ const MOCK_RECIPES = {
 
 const requestSchema = z.object({
   ingredients: z.array(z.string()).min(1).optional(),
+  ingredientQuantities: z.array(z.string()).optional(),
   prompt: z.string().min(20).optional(),
+  recipeLanguage: z.string().optional(),
   preferredCuisine: z.string().optional(),
   calorieTarget: z.number().optional(),
   maxMissingIngredients: z.number().optional(),
@@ -81,7 +90,9 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
   try {
+    accessCheck = await canUseApiFeature(request, "recipe_generation");
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
@@ -91,12 +102,20 @@ export async function POST(request: Request) {
       );
     }
 
-    if (USE_MOCK) {
-      return Response.json(MOCK_RECIPES);
+    const ingredients = parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? "");
+
+    if (USE_MOCK && accessCheck.allowed) {
+      const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
+      return Response.json({
+        ...MOCK_RECIPES,
+        result: JSON.stringify(MOCK_RECIPES.recipes),
+        servedFrom: "mock",
+        access: accessPayload(nextAccess)
+      });
     }
 
     const searchResult = await searchCatalogRecipes({
-      ingredients: parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""),
+      ingredients,
       preferredCuisine: parsed.data.preferredCuisine,
       calorieTarget: parsed.data.calorieTarget,
       diets: parsed.data.diets,
@@ -104,24 +123,85 @@ export async function POST(request: Request) {
       maxResults: 3
     });
 
-    if (searchResult.recipes.length) {
+    if (!accessCheck.allowed) {
+      console.info("Recipe generation served from offline catalog because access is not allowed", {
+        reason: accessCheck.reason,
+        recipeCount: searchResult.recipes.length
+      });
       return Response.json({
         result: JSON.stringify(searchResult.recipes),
         servedFrom: searchResult.servedFrom,
-        canLoadMore: searchResult.canLoadMore
+        canLoadMore: searchResult.canLoadMore,
+        fallbackNotice: "Your 5 free AI credits are used. These recipes are from the offline catalog.",
+        access: accessPayload(accessCheck.access)
       });
     }
 
     if (!parsed.data.prompt) {
-      return Response.json({ result: "[]", servedFrom: "offline_catalog" });
+      console.info("Recipe generation served from offline catalog because no AI prompt was provided", {
+        recipeCount: searchResult.recipes.length
+      });
+      return Response.json({
+        result: JSON.stringify(searchResult.recipes),
+        servedFrom: searchResult.servedFrom,
+        access: accessPayload(accessCheck.access)
+      });
     }
 
-    ensureAiAvailable();
-    const text = await generateFallbackRecipes(parsed.data.prompt);
-    const json = extractJson(text);
-    const recipes = JSON.parse(json);
-    return Response.json({ ...recipes, servedFrom: "fallback_ai", result: JSON.stringify(recipes.recipes ?? recipes) });
+    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
+
+    try {
+      ensureAiAvailable();
+      const prompt = ingredients.length
+        ? buildRecipeGenerationPrompt(
+            ingredients.map((ingredient, index) => ({
+              name: ingredient,
+              quantity: readIngredientQuantity(parsed.data.ingredientQuantities?.[index])
+            })),
+            {
+              recipeLanguage: parsed.data.recipeLanguage ?? "English",
+              preferredCuisine: parsed.data.preferredCuisine ?? "Any",
+              calorieTarget: parsed.data.calorieTarget ?? 2000,
+              maxMissingIngredients: parsed.data.maxMissingIngredients ?? 3,
+              diets: parsed.data.diets ?? [],
+              conditions: parsed.data.conditions ?? []
+            }
+          )
+        : parsed.data.prompt ?? "";
+      const text = await generateFallbackRecipes(prompt);
+      const json = extractJson(text);
+      const recipes = JSON.parse(json);
+      const normalizedRecipes = recipes.recipes ?? recipes;
+      if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
+        console.info("Recipe generation served from Gemini fallback AI", {
+          recipeCount: normalizedRecipes.length
+        });
+        return Response.json({
+          ...recipes,
+          servedFrom: "fallback_ai",
+          result: JSON.stringify(normalizedRecipes),
+          access: accessPayload(nextAccess)
+        });
+      }
+    } catch (aiError) {
+      console.error("AI recipe generation failed; using offline catalog fallback:", aiError);
+    }
+
+    console.info("Recipe generation served from offline catalog after AI failure", {
+      recipeCount: searchResult.recipes.length,
+      canLoadMore: searchResult.canLoadMore
+    });
+    return Response.json({
+      result: JSON.stringify(searchResult.recipes),
+      servedFrom: "offline_catalog",
+      canLoadMore: searchResult.canLoadMore,
+      fallbackNotice: "AI recipe generation was unavailable, so we used offline catalog matches.",
+      access: accessPayload(nextAccess)
+    });
   } catch (error) {
+    if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Admin") || error.message.includes("Premium") || error.message.includes("Firebase Admin credentials"))) {
+      return accessErrorResponse(error);
+    }
     console.error("Error generating recipes:", error);
     const message = error instanceof Error ? error.message : "Failed to generate recipes";
     return Response.json(
@@ -143,4 +223,10 @@ function extractIngredientsFromPrompt(prompt: string): string[] {
   }
 
   return [];
+}
+
+function readIngredientQuantity(value?: string) {
+  if (!value) return undefined;
+  const [, quantity] = value.split(/\s+-\s+/, 2);
+  return quantity?.trim() || undefined;
 }

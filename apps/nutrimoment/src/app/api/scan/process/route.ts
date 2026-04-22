@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { getOptionalRequestUserId } from "@/services/authService";
+import {
+  accessErrorResponse,
+  accessPayload,
+  canUseApiFeature,
+  consumeFreeAiCredit
+} from "@/services/authService";
 import { processScan } from "@/services/scanService";
 
 export const runtime = "nodejs";
@@ -20,15 +25,26 @@ const requestSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const accessCheck = await canUseApiFeature(request, "image_to_text");
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
       return Response.json({ error: "Invalid request", details: parsed.error.format() }, { status: 400 });
     }
 
-    const uid = getOptionalRequestUserId(request);
+    if (!accessCheck.allowed) {
+      return Response.json({
+        ingredients: [],
+        recipes: [],
+        servedFrom: "offline_catalog",
+        fallbackNotice: "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.",
+        access: accessPayload(accessCheck.access)
+      });
+    }
+
+    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "image_to_text");
     const result = await processScan({
-      uid,
+      uid: accessCheck.access.uid,
       image: parsed.data.image,
       imagePath: parsed.data.imagePath,
       language: parsed.data.language,
@@ -41,8 +57,11 @@ export async function POST(request: Request) {
       }
     });
 
-    return Response.json(result);
+    return Response.json({ ...result, access: accessPayload(nextAccess) });
   } catch (error) {
+    if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials"))) {
+      return accessErrorResponse(error);
+    }
     const message = error instanceof Error ? error.message : "Failed to process scan";
     return Response.json({ error: message }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
   }

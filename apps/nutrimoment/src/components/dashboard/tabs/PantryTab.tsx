@@ -6,6 +6,7 @@ import { ImagePlus, Plus, ShoppingCart, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { getPantryQuantityHint } from "@/lib/pantryQuantity";
@@ -15,6 +16,7 @@ import { EmptyState, SectionHero } from "./shared";
 
 export function PantryTab() {
   const { t, setError } = useApp();
+  const { access, getAuthHeaders, refreshAccess } = useAuth();
   const { items, addItem, removeItem, clear, loading } = usePantry();
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -50,16 +52,20 @@ export function PantryTab() {
       const image = await fileToBase64(file);
       const response = await fetch("/api/scan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           image,
           language: "English",
           isPantry: true
         })
       });
-      const data = (await response.json()) as { pantryItems?: PantryItem[]; error?: string };
+      const data = (await response.json()) as { pantryItems?: PantryItem[]; error?: string; fallbackNotice?: string };
+      await refreshAccess();
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to scan pantry");
+      }
+      if (data.fallbackNotice) {
+        setError(data.fallbackNotice);
       }
 
       setScannedItems(Array.isArray(data.pantryItems) ? data.pantryItems : []);
@@ -131,6 +137,17 @@ export function PantryTab() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{t("addItem")}</p>
             <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">Add to your pantry</h3>
           </div>
+
+          {access.tier === "free" ? (
+            <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
+              Free plan: pantry image scans use your shared AI credits ({access.aiCreditsRemaining}/{access.aiCreditsLimit} left).
+              Manual pantry entry always stays available.
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs leading-relaxed text-emerald-800">
+              Premium plan: pantry image scans are API-first with manual fallback.
+            </div>
+          )}
 
           <label className="block">
             <input type="file" accept="image/*" className="hidden" onChange={handleScanPantry} />

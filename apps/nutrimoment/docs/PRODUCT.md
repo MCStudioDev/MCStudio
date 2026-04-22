@@ -34,16 +34,18 @@ Current implementation details:
 - Manual comma-separated ingredient entry is supported.
 - Generated recipe sessions are saved into Firestore-backed history.
 
-### Catalog-Backed Recipe Generation
-NutriMoment returns recipe options from an offline catalog first, then uses Gemini only as fallback.
+### Free/Premium Recipe Generation
+NutriMoment uses access-aware recipe generation. Free users receive a limited AI trial, then continue with offline catalog recipes. Premium users get API-first recipe generation with offline catalog fallback.
 
 Current implementation details:
 - Recipe generation is handled by `POST /api/generate-recipes`.
-- Primary results come from `src/data/offline/recipes.ts`.
+- Free users receive 5 lifetime shared AI uses across image-to-text scans and recipe photo lookup/generation.
+- After the free credits are used, recipe generation uses `src/data/offline/recipes.ts` and placeholder/local images.
+- Premium recipe generation uses Gemini first and falls back to offline catalog matches when API output is unavailable or weak.
 - Retrieval uses ingredient normalization, an ingredient recipe index, and ranking services.
 - Ranking considers calorie target, cuisine preference, max missing ingredients, diet preferences, health conditions, popularity, and quality score.
 - Recipe cards show cuisine, macros, owned ingredients, missing ingredients, preparation steps, and preference-hit badges.
-- Recipe cards can hydrate public web photos through `/api/recipe-photo` without AI image generation.
+- Recipe cards can hydrate public web photos through `/api/recipe-photo`; this counts against the shared free AI/photo credits for free users.
 
 ### Pantry Management
 NutriMoment keeps a per-user pantry collection in Firestore so ingredients persist across sessions.
@@ -89,7 +91,8 @@ NutriMoment can generate and save a 7-day meal plan using pantry data and profil
 
 Current implementation details:
 - Meal plan generation is handled by `POST /api/mealplan`.
-- The route uses catalog-backed planning first and keeps AI as fallback.
+- Weekly meal planning is premium-gated.
+- Premium weekly plans use Gemini first and fall back to catalog-backed planning if the API is unavailable.
 - The active plan is persisted at `users/{uid}/plans/currentWeekly`.
 - The plan remains available until the user generates a new one.
 - The meal-plan tab renders breakfast, lunch, and dinner blocks for seven days.
@@ -125,6 +128,17 @@ Current implementation details:
 - Legal pages under `/legal/disclaimer`, `/legal/terms`, and `/legal/privacy`.
 - Marketing copy avoids positioning the app as a medical or nutrition expert.
 
+### Access Control and Admin
+NutriMoment now has a server-enforced access model for free, premium, and admin users.
+
+Current implementation details:
+- Firebase Auth custom claims are the trusted source for `role` and `tier`.
+- Any signed-in user defaults to free unless a premium claim is granted.
+- Free users get 5 lifetime shared credits for image-to-text scanning and recipe image/photo lookup.
+- Premium users get API-first recipes, scans, recipe imagery, and weekly plans.
+- Admin users can update roles and tiers through protected backend control.
+- Firestore mirrors entitlement and usage data for UI display, while server routes enforce the actual access checks.
+
 ### Nutrition Tracking
 Nutrition tracking remains a planned feature rather than a completed one.
 
@@ -147,6 +161,8 @@ Planned scope:
 - Quantity-aware shopping lists that subtract pantry stock
 - Recipe history persistence
 - Public web recipe-photo hydration
+- Free/premium access gating with lifetime AI-credit tracking
+- Admin backend access control for role/tier updates
 - Arabic UI translations and RTL dashboard shell
 - Legal disclaimer, terms, and privacy pages
 - Mock AI fallbacks for local development
@@ -159,7 +175,6 @@ Planned scope:
 - Pantry recipe match cards were removed from the meal-plan page so the page focuses on the generated plan and missing shopping quantities.
 
 ### Still Open
-- API authentication on route handlers
 - rate limiting
 - favorites and recipe library
 - nutrition tracking
@@ -203,9 +218,9 @@ The value is not just "generate a recipe." The value is "generate the right reci
 - Catalog retrieval, normalization, and ranking services
 
 ## Near-Term Product Priorities
-1. Secure all API routes with Firebase token verification.
-2. Add rate limiting to AI routes.
-3. Consolidate duplicate AI route responsibilities.
+1. Add rate limiting to AI routes.
+2. Consolidate duplicate AI route responsibilities.
+3. Add an in-app admin dashboard on top of the protected backend access route.
 4. Improve pantry modeling with expiry, freshness, and advanced unit conversion.
 5. Add saved recipes and favorites.
 6. Add meal-slot swaps and shopping-list export.

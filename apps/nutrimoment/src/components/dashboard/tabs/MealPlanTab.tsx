@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useMealPlan } from "@/hooks/useMealPlan";
 import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
+import { buildMealPlanPrompt } from "@/lib/aiPrompts";
 import { normalizeMealPlanData, normalizeShoppingList } from "@/lib/mealPlan";
-import { formatPreferencesForPrompt } from "@/lib/preferences";
 import { EmptyState, SectionHero } from "./shared";
 
 function safeJsonParse<T>(value: string, fallback: T): T {
@@ -22,41 +23,9 @@ function safeJsonParse<T>(value: string, fallback: T): T {
   }
 }
 
-function buildMealPlanPrompt({
-  pantry,
-  diets,
-  conditions,
-  recipeLanguage,
-  preferredCuisine,
-  calorieTarget
-}: {
-  pantry: string[];
-  diets: string[];
-  conditions: string[];
-  recipeLanguage: string;
-  preferredCuisine: string;
-  calorieTarget: number;
-}) {
-  const preferenceLabels = formatPreferencesForPrompt(diets, conditions);
-
-  return [
-    "Generate a 7-day meal plan as valid JSON.",
-    `Pantry items: ${pantry.join(", ") || "none provided"}.`,
-    `Dietary preferences: ${preferenceLabels.diets.join(", ") || "none"}.`,
-    `Health conditions: ${preferenceLabels.conditions.join(", ") || "none"}.`,
-    `Preferred cuisine: ${preferredCuisine}.`,
-    `Recipe language: ${recipeLanguage}.`,
-    `Daily calorie target: ${calorieTarget}.`,
-    "Return an object with keys: plan and shoppingList.",
-    "plan must be an array of 7 days.",
-    "Each day must include breakfast, lunch, and dinner with name, calories, protein, carbs, and fat.",
-    "shoppingList must include only missing items needed to cook the plan after pantry ingredients are used.",
-    "Every shoppingList item must include the summed missing quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."
-  ].join(" ");
-}
-
 export function MealPlanTab() {
   const { t, settings, health, setError } = useApp();
+  const { access, getAuthHeaders, refreshAccess } = useAuth();
   const { items } = usePantry();
   const { mealPlan, loading: savedPlanLoading, error: mealPlanError, saveMealPlan } = useMealPlan();
   const [loading, setLoading] = useState(false);
@@ -68,6 +37,11 @@ export function MealPlanTab() {
   }, [mealPlanError, setError]);
 
   const generateMealPlan = async () => {
+    if (access.tier !== "premium") {
+      setError("Weekly meal plans are a premium feature. Free users can continue with manual pantry and offline recipe discovery.");
+      return;
+    }
+
     setLoading(true);
     try {
       const prompt = buildMealPlanPrompt({
@@ -81,20 +55,25 @@ export function MealPlanTab() {
 
       const response = await fetch("/api/mealplan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           prompt,
           pantry: items.map((item) => item.name),
           pantryItems: items.map((item) => ({ name: item.name, quantity: item.quantity })),
+          recipeLanguage: settings.recipeLanguage,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
           diets: health.diets,
           conditions: health.conditions
         })
       });
-      const data = (await response.json()) as { result?: string; error?: string };
+      const data = (await response.json()) as { result?: string; error?: string; fallbackNotice?: string };
+      await refreshAccess();
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to generate meal plan");
+      }
+      if (data.fallbackNotice) {
+        setError(data.fallbackNotice);
       }
 
       const nextMealPlan = normalizeMealPlanData(safeJsonParse<unknown>(data.result ?? "null", null));
@@ -122,9 +101,20 @@ export function MealPlanTab() {
       />
 
       <motion.div variants={itemVariants} className="flex justify-start">
-        <Button size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan}>
-          {loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
-        </Button>
+        <div className="space-y-3">
+          {access.tier !== "premium" ? (
+            <div className="rounded-[1.5rem] border border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+              Weekly plans are premium because they use API-first planning across pantry, health, cuisine, and shopping-list quantities.
+            </div>
+          ) : (
+            <div className="rounded-[1.5rem] border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+              Premium weekly plans use API generation first and offline catalog recipes if the API is unavailable.
+            </div>
+          )}
+          <Button size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={access.tier !== "premium"}>
+            {access.tier !== "premium" ? "Premium required" : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+          </Button>
+        </div>
       </motion.div>
 
       {mealPlan ? (
@@ -164,8 +154,8 @@ export function MealPlanTab() {
             </div>
             <div className="space-y-2">
               {shoppingList.length ? (
-                shoppingList.map((item) => (
-                  <div key={item} className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-stone-700">
+                shoppingList.map((item, index) => (
+                  <div key={`shopping-${index}-${item}`} className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-stone-700">
                     {item}
                   </div>
                 ))

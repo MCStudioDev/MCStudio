@@ -10,11 +10,13 @@ import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
 import { useHistory } from "@/hooks/useHistory";
 import { containerVariants, itemVariants } from "@/lib/animations";
-import { formatPreferencesForPrompt } from "@/lib/preferences";
+import { buildRecipeGenerationPrompt } from "@/lib/aiPrompts";
+import { getPantryQuantityHint, getPreferredPantryUnit } from "@/lib/pantryQuantity";
 import { fileToBase64 } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
+import { useAuth } from "@/contexts/AuthContext";
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -24,40 +26,32 @@ function safeJsonParse<T>(value: string, fallback: T): T {
   }
 }
 
-function buildRecipePrompt(
-  ingredients: string[],
-  options: {
-    recipeLanguage: string;
-    preferredCuisine: string;
-    calorieTarget: number;
-    maxMissingIngredients: number;
-    diets: string[];
-    conditions: string[];
-  }
-) {
-  const cuisineHint = options.preferredCuisine === "Any" ? "Use any cuisine." : `Prefer ${options.preferredCuisine} cuisine.`;
-  const preferenceLabels = formatPreferencesForPrompt(options.diets, options.conditions);
-  const diets = preferenceLabels.diets.length ? preferenceLabels.diets.join(", ") : "none";
-  const conditions = preferenceLabels.conditions.length ? preferenceLabels.conditions.join(", ") : "none";
+interface ScannerIngredient {
+  name: string;
+  quantity: string;
+}
 
-  return [
-    `Generate exactly 3 recipes using these ingredients: ${ingredients.join(", ")}.`,
-    cuisineHint,
-    `Recipe language: ${options.recipeLanguage}.`,
-    `Target calories per meal: approximately ${Math.round(options.calorieTarget / 3)} kcal.`,
-    `Maximum missing ingredients allowed: ${options.maxMissingIngredients}.`,
-    `Dietary preferences: ${diets}.`,
-    `Health conditions to respect: ${conditions}.`,
-    "Return ONLY valid JSON as an array of recipe objects.",
-    "Each recipe must include: name, cuisine, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty."
-  ].join(" ");
+function getRecipeIngredientLabel(ingredient: unknown) {
+  if (typeof ingredient === "string") return ingredient;
+
+  if (ingredient && typeof ingredient === "object") {
+    const maybeIngredient = ingredient as { name?: unknown; quantity?: unknown };
+    const name = typeof maybeIngredient.name === "string" ? maybeIngredient.name : "";
+    const quantity = typeof maybeIngredient.quantity === "string" ? maybeIngredient.quantity : "";
+
+    return [name, quantity].filter(Boolean).join(" - ") || JSON.stringify(ingredient);
+  }
+
+  return String(ingredient);
 }
 
 export function ScannerTab() {
   const { t, settings, health, setError } = useApp();
+  const { access, getAuthHeaders, refreshAccess } = useAuth();
   const { addEntry, updateRecipeImage } = useHistory();
   const [manualEntry, setManualEntry] = useState("");
-  const [ingredients, setIngredients] = useState<string[]>([]);
+  const [manualQuantity, setManualQuantity] = useState("");
+  const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -80,8 +74,12 @@ export function ScannerTab() {
           }
 
           try {
-            const response = await fetch(`/api/recipe-photo?query=${encodeURIComponent(buildRecipePhotoQuery(recipe))}`);
-            const data = (await response.json()) as { imageUrl?: string };
+            const authHeaders = await getAuthHeaders();
+            const response = await fetch(`/api/recipe-photo?query=${encodeURIComponent(buildRecipePhotoQuery(recipe))}`, {
+              headers: authHeaders
+            });
+            const data = (await response.json()) as { imageUrl?: string; fallbackNotice?: string };
+            await refreshAccess();
 
             if (!response.ok || !data.imageUrl) {
               if (historyEntryId) {
@@ -111,7 +109,7 @@ export function ScannerTab() {
 
       setRecipes(resolved);
     },
-    [updateRecipeImage]
+    [getAuthHeaders, refreshAccess, updateRecipeImage]
   );
 
   const addManualIngredient = () => {
@@ -119,15 +117,26 @@ export function ScannerTab() {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
-      .filter((item) => !ingredients.includes(item));
+      .filter((item) => !ingredients.some((ingredient) => ingredient.name.toLowerCase() === item.toLowerCase()))
+      .map((item) => ({
+        name: item,
+        quantity: manualQuantity.trim() || `1 ${getPreferredPantryUnit(item)}`
+      }));
 
     if (!next.length) return;
     setIngredients((current) => [...current, ...next]);
     setManualEntry("");
+    setManualQuantity("");
   };
 
   const removeIngredient = (ingredient: string) => {
-    setIngredients((current) => current.filter((item) => item !== ingredient));
+    setIngredients((current) => current.filter((item) => item.name !== ingredient));
+  };
+
+  const updateIngredientQuantity = (ingredientName: string, quantity: string) => {
+    setIngredients((current) =>
+      current.map((item) => (item.name === ingredientName ? { ...item, quantity } : item))
+    );
   };
 
   const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -140,23 +149,34 @@ export function ScannerTab() {
       const image = await fileToBase64(file);
       const response = await fetch("/api/scan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           image,
           language: settings.recipeLanguage,
           isPantry: false
         })
       });
-      const data = (await response.json()) as { result?: string; error?: string };
+      const data = (await response.json()) as { result?: string; error?: string; fallbackNotice?: string };
+      await refreshAccess();
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to scan image");
+      }
+      if (data.fallbackNotice) {
+        setError(data.fallbackNotice);
       }
 
       const scanned = safeJsonParse<string[]>(data.result ?? "[]", [])
         .map((item) => item.trim())
         .filter(Boolean);
 
-      setIngredients((current) => Array.from(new Set([...current, ...scanned])));
+      setIngredients((current) => {
+        const existing = new Set(current.map((item) => item.name.toLowerCase()));
+        const nextScanned = scanned
+          .filter((item) => !existing.has(item.toLowerCase()))
+          .map((item) => ({ name: item, quantity: `1 ${getPreferredPantryUnit(item)}` }));
+
+        return [...current, ...nextScanned];
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to scan image";
       setError(message);
@@ -173,7 +193,9 @@ export function ScannerTab() {
 
     setRecipeLoading(true);
     try {
-      const prompt = buildRecipePrompt(ingredients, {
+      const ingredientNames = ingredients.map((item) => item.name);
+      const ingredientQuantities = ingredients.map((item) => `${item.name} - ${item.quantity}`);
+      const prompt = buildRecipeGenerationPrompt(ingredients, {
         recipeLanguage: settings.recipeLanguage,
         preferredCuisine: settings.preferredCuisine,
         calorieTarget: settings.calorieTarget,
@@ -184,9 +206,11 @@ export function ScannerTab() {
 
       const response = await fetch("/api/generate-recipes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
-          ingredients,
+          ingredients: ingredientNames,
+          ingredientQuantities,
+          recipeLanguage: settings.recipeLanguage,
           prompt,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
@@ -196,9 +220,18 @@ export function ScannerTab() {
         })
       });
 
-      const data = (await response.json()) as { result?: string; error?: string; servedFrom?: "offline_catalog" | "fallback_ai" | "mock" };
+      const data = (await response.json()) as {
+        result?: string;
+        error?: string;
+        servedFrom?: "offline_catalog" | "fallback_ai" | "mock";
+        fallbackNotice?: string;
+      };
+      await refreshAccess();
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to generate recipes");
+      }
+      if (data.fallbackNotice) {
+        setError(data.fallbackNotice);
       }
 
       const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "[]", []);
@@ -206,7 +239,7 @@ export function ScannerTab() {
       setRecipeSource(data.servedFrom ?? null);
       const entryId = await addEntry({
         timestamp: new Date().toISOString(),
-        ingredients,
+        ingredients: ingredientQuantities,
         recipes: nextRecipes
       });
       void hydrateRecipePhotos(nextRecipes, entryId);
@@ -225,6 +258,17 @@ export function ScannerTab() {
         description={t("heroSub")}
         icon={<Camera className="h-6 w-6" />}
       />
+
+      {access.tier === "free" ? (
+        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+          Free plan: {access.aiCreditsRemaining} of {access.aiCreditsLimit} shared AI uses left for scans and recipe photos.
+          After that, manual ingredient entry and offline recipes stay available.
+        </motion.div>
+      ) : (
+        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+          Premium plan: API recipe generation, scans, and recipe photos are enabled with offline fallback.
+        </motion.div>
+      )}
 
       <motion.div variants={itemVariants} className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card className="space-y-5 rounded-[2rem]">
@@ -264,9 +308,19 @@ export function ScannerTab() {
                 placeholder={t("quickAdd")}
                 className="h-12 flex-1 rounded-2xl border border-emerald-100 bg-white px-4 text-sm outline-none transition focus:border-emerald-400"
               />
+              <input
+                value={manualQuantity}
+                onChange={(event) => setManualQuantity(event.target.value)}
+                placeholder={manualEntry.trim() ? getPantryQuantityHint(manualEntry) : "Quantity"}
+                className="h-12 w-44 rounded-2xl border border-emerald-100 bg-white px-4 text-sm outline-none transition focus:border-emerald-400"
+              />
               <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={addManualIngredient}>
                 {t("add")}
               </Button>
+            </div>
+            <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-xs leading-relaxed text-cyan-800">
+              Quantity guide: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
+              olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
             </div>
           </div>
         </Card>
@@ -283,27 +337,29 @@ export function ScannerTab() {
           </div>
 
           {ingredients.length ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-3">
               {ingredients.map((ingredient) => (
                 <div
-                  key={ingredient}
-                  className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-white/80 px-4 py-2 text-sm font-medium text-stone-700"
+                  key={ingredient.name}
+                  className="grid gap-3 rounded-[1.25rem] border border-emerald-100 bg-white/80 p-3 text-sm font-medium text-stone-700 sm:grid-cols-[1fr_190px_auto]"
                 >
-                  <span>{ingredient}</span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => removeIngredient(ingredient)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        removeIngredient(ingredient);
-                      }
-                    }}
-                    className="rounded-full px-1.5 text-xs text-stone-500 hover:bg-stone-100"
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-stone-900">{ingredient.name}</p>
+                    <p className="text-xs text-stone-500">{getPantryQuantityHint(ingredient.name)}</p>
+                  </div>
+                  <input
+                    value={ingredient.quantity}
+                    onChange={(event) => updateIngredientQuantity(ingredient.name, event.target.value)}
+                    placeholder={getPantryQuantityHint(ingredient.name)}
+                    className="h-11 rounded-2xl border border-emerald-100 bg-white px-4 text-sm outline-none focus:border-emerald-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeIngredient(ingredient.name)}
+                    className="rounded-2xl bg-stone-50 px-3 py-2 text-xs font-semibold text-stone-500 transition hover:bg-red-50 hover:text-red-600"
                   >
-                    x
-                  </span>
+                    Remove
+                  </button>
                 </div>
               ))}
             </div>
@@ -381,11 +437,15 @@ export function ScannerTab() {
                 <div className="space-y-2">
                   <p className="text-sm font-semibold text-stone-900">{t("ingredientsYouHave")}</p>
                   <div className="flex flex-wrap gap-2">
-                    {recipe.ingredients.map((ingredient) => (
-                      <Pill key={ingredient} active>
-                        {ingredient}
-                      </Pill>
-                    ))}
+                    {recipe.ingredients.map((ingredient, index) => {
+                      const label = getRecipeIngredientLabel(ingredient);
+
+                      return (
+                        <Pill key={`${recipe.name}-ingredient-${index}-${label}`} active>
+                          {label}
+                        </Pill>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -393,9 +453,11 @@ export function ScannerTab() {
                   <div className="space-y-2">
                     <p className="text-sm font-semibold text-stone-900">{t("ingredientsYouNeed")}</p>
                     <div className="flex flex-wrap gap-2">
-                      {recipe.missing_ingredients.map((ingredient) => (
-                        <Pill key={ingredient}>{ingredient}</Pill>
-                      ))}
+                      {recipe.missing_ingredients.map((ingredient, index) => {
+                        const label = getRecipeIngredientLabel(ingredient);
+
+                        return <Pill key={`${recipe.name}-missing-${index}-${label}`}>{label}</Pill>;
+                      })}
                     </div>
                   </div>
                 ) : null}
@@ -469,7 +531,12 @@ function hasRenderableImage(imageUrl?: string) {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
-  return [recipe.name, recipe.cuisine, recipe.ingredients.slice(0, 3).join(" "), "food plated"]
+  const ingredients = recipe.ingredients
+    .slice(0, 3)
+    .map((ingredient) => getRecipeIngredientLabel(ingredient))
+    .join(" ");
+
+  return [recipe.name, recipe.cuisine, ingredients, "food plated"]
     .filter(Boolean)
     .join(" ");
 }

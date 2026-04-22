@@ -1,4 +1,5 @@
 import type { PantryItem } from "@/lib/types";
+import { buildIngredientNameArrayVisionPrompt, buildPantryInventoryVisionPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
 
 const MOCK_INGREDIENTS = ["tomato", "onion", "garlic", "olive oil", "basil", "chicken breast", "spinach"];
@@ -29,11 +30,7 @@ export async function extractIngredientsFromImage({
 
   ensureAiAvailable();
 
-  const prompt = isPantry
-    ? `You are a food vision expert. Identify all distinct grocery or pantry items visible in this image (jars, cans, packaged goods, fresh produce, etc.). Respond ONLY with a JSON array of short item names (e.g., ["olive oil", "rice", "canned tomatoes"]). Use ${language}. No commentary.`
-    : `You are a food vision expert. Identify the raw ingredients visible in this image. Respond ONLY with a JSON array of short ingredient names in singular form (e.g., ["tomato", "onion", "chicken breast"]). Use ${language}. No commentary.`;
-
-  const text = await callOpenAIVision(prompt, image);
+  const text = await callOpenAIVision(buildIngredientNameArrayVisionPrompt(language, isPantry), image);
   const json = extractJson(text);
   const parsed = JSON.parse(json) as string[];
   return parsed.map((item) => item.trim()).filter(Boolean);
@@ -49,25 +46,7 @@ export async function extractPantryItemsFromImage({
 
   ensureAiAvailable();
 
-  const prompt = `You are a pantry inventory assistant. Analyze this pantry or grocery image and identify visible food items.
-
-Return ONLY valid JSON in this format:
-{
-  "items": [
-    { "name": "rice", "quantity": "1 bag" },
-    { "name": "olive oil", "quantity": "1 bottle" }
-  ]
-}
-
-Rules:
-- Estimate quantity approximately using simple units like "1 jar", "2 cans", "half bag", "1 bunch", "1 carton"
-- Use short singular item names where possible
-- Only include food or pantry items that are reasonably visible
-- If uncertain, still provide a cautious approximate quantity
-- Use ${language}
-- Return JSON only, no extra commentary.`;
-
-  const text = await callOpenAIVision(prompt, image);
+  const text = await callOpenAIVision(buildPantryInventoryVisionPrompt(language), image);
   const json = extractJson(text);
   const parsed = JSON.parse(json) as { items?: Array<{ name?: string; quantity?: string }> };
 

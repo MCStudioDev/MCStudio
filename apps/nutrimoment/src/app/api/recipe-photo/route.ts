@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  accessErrorResponse,
+  accessPayload,
+  canUseApiFeature,
+  consumeFreeAiCredit
+} from "@/services/authService";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -8,6 +14,13 @@ const querySchema = z.object({
 });
 
 export async function GET(request: Request) {
+  let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
+  try {
+    accessCheck = await canUseApiFeature(request, "recipe_image");
+  } catch (error) {
+    return accessErrorResponse(error);
+  }
+
   const { searchParams } = new URL(request.url);
   const parsed = querySchema.safeParse({
     query: searchParams.get("query")
@@ -19,15 +32,26 @@ export async function GET(request: Request) {
 
   const query = parsed.data.query.trim();
 
+  if (!accessCheck.allowed) {
+    return Response.json({
+      imageUrl: "",
+      source: "placeholder",
+      fallbackNotice: "Your 5 free AI/photo credits are used. Recipe cards will use placeholder images.",
+      access: accessPayload(accessCheck.access)
+    });
+  }
+
   try {
+    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_image");
     const wikimediaImage = await searchWikimediaCommons(query);
     if (wikimediaImage) {
-      return Response.json({ imageUrl: wikimediaImage, source: "wikimedia" });
+      return Response.json({ imageUrl: wikimediaImage, source: "wikimedia", access: accessPayload(nextAccess) });
     }
 
     return Response.json({
       imageUrl: buildLoremFlickrUrl(query),
-      source: "loremflickr"
+      source: "loremflickr",
+      access: accessPayload(nextAccess)
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to look up a recipe photo.";

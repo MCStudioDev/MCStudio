@@ -1,7 +1,15 @@
+import { buildIngredientVisionPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
+import {
+  accessErrorResponse,
+  accessPayload,
+  canUseApiFeature,
+  consumeFreeAiCredit
+} from "@/services/authService";
 
 export async function POST(request: Request) {
   try {
+    const accessCheck = await canUseApiFeature(request, "image_to_text");
     const { image } = await request.json();
 
     if (!image) {
@@ -11,31 +19,31 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!accessCheck.allowed) {
+      return Response.json({
+        ingredients: [],
+        fallbackNotice: "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium.",
+        access: accessPayload(accessCheck.access)
+      });
+    }
+
+    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "image_to_text");
+
     if (USE_MOCK) {
       const mockIngredients = ["chicken", "garlic", "onion", "tomato", "olive oil", "basil"];
-      return Response.json({ ingredients: mockIngredients });
+      return Response.json({ ingredients: mockIngredients, access: accessPayload(nextAccess) });
     }
 
     ensureAiAvailable();
-    const prompt = `Analyze this image and extract all food ingredients visible in it.
-
-Return ONLY a JSON object with this exact format:
-{
-  "ingredients": ["ingredient1", "ingredient2", "ingredient3"]
-}
-
-Important:
-- Only include actual food ingredients
-- Use singular form for ingredients
-- Return an empty array if no food items are visible
-- Return ONLY the JSON and no other text.`;
-
-    const text = await callOpenAIVision(prompt, image, "gemini-2.5-flash");
+    const text = await callOpenAIVision(buildIngredientVisionPrompt(), image, "gemini-2.5-flash");
     const json = extractJson(text);
     const parsedResult = JSON.parse(json);
 
-    return Response.json(parsedResult);
+    return Response.json({ ...parsedResult, access: accessPayload(nextAccess) });
   } catch (error) {
+    if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials"))) {
+      return accessErrorResponse(error);
+    }
     console.error("Error analyzing image:", error);
     const message = error instanceof Error ? error.message : "Failed to analyze image";
 

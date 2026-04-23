@@ -1,4 +1,4 @@
-import { formatPreferencesForPrompt } from "@/lib/preferences";
+import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -12,12 +12,14 @@ export interface RecipePromptOptions {
   maxMissingIngredients: number;
   diets: string[];
   conditions: string[];
+  allergens?: string[];
 }
 
 export interface MealPlanPromptOptions {
   pantry: string[];
   diets: string[];
   conditions: string[];
+  allergens?: string[];
   recipeLanguage?: string;
   preferredCuisine?: string;
   calorieTarget?: number;
@@ -25,29 +27,39 @@ export interface MealPlanPromptOptions {
 
 export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[], options: RecipePromptOptions) {
   const cuisineHint = options.preferredCuisine === "Any" ? "Use any cuisine." : `Prefer ${options.preferredCuisine} cuisine.`;
-  const preferenceLabels = formatPreferencesForPrompt(options.diets, options.conditions);
-  const diets = preferenceLabels.diets.length ? preferenceLabels.diets.join(", ") : "none";
-  const conditions = preferenceLabels.conditions.length ? preferenceLabels.conditions.join(", ") : "none";
+  const preferenceBrief = buildPromptPreferenceBrief({
+    preferredCuisine: options.preferredCuisine,
+    calorieTarget: options.calorieTarget,
+    diets: options.diets,
+    conditions: options.conditions,
+    allergens: options.allergens ?? []
+  });
   const ingredientNames = ingredients.map((item) => item.name).filter(Boolean);
   const ingredientQuantities = ingredients
     .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
     .filter(Boolean);
+  const perMealCalories = Math.round(options.calorieTarget / 3);
 
   return [
     "You are NutriMoment's recipe generation assistant.",
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
-    `Generate exactly 3 practical recipes using these available ingredients: ${ingredientNames.join(", ") || "none provided"}.`,
+    "Generate exactly 10 practical recipes.",
+    "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
+    "Order the 10 recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.",
+    "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
+    "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
+    `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`,
     `Available ingredient quantities: ${ingredientQuantities.join(", ") || "not provided"}.`,
+    preferenceBrief,
     cuisineHint,
     `Recipe language: ${options.recipeLanguage}.`,
-    `Target calories per meal: approximately ${Math.round(options.calorieTarget / 3)} kcal.`,
+    `Target calories per meal: approximately ${perMealCalories} kcal; keep each recipe within about 15% unless the health profile requires a tighter limit.`,
     `Maximum missing ingredients allowed per recipe: ${options.maxMissingIngredients}.`,
-    `Dietary preferences: ${diets}.`,
-    `Health conditions to respect: ${conditions}.`,
-    "Use pantry ingredients first. Missing ingredients must be optional or low-count.",
+    "Missing ingredients must be compatible with the diet and health rules. Be strict: never put cucumber, herbs, spices, oil, sauces, or staple ingredients in ingredients unless they are in Available pantry ingredients.",
+    "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of concise strings."
+    "Each recipe object must include: name, cuisine, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of concise strings. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies."
   ].join(" ");
 }
 
@@ -55,28 +67,83 @@ export function buildMealPlanPrompt({
   pantry,
   diets,
   conditions,
+  allergens = [],
   recipeLanguage = "English",
   preferredCuisine = "Any",
   calorieTarget = 2000
 }: MealPlanPromptOptions) {
-  const preferenceLabels = formatPreferencesForPrompt(diets, conditions);
+  const preferenceBrief = buildPromptPreferenceBrief({
+    preferredCuisine,
+    calorieTarget,
+    diets,
+    conditions,
+    allergens
+  });
 
   return [
     "You are NutriMoment's premium weekly meal planning assistant.",
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
-    "Generate a 7-day meal plan using pantry ingredients first and minimizing extra shopping.",
+    "Generate a 7-day meal plan.",
+    "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third use pantry ingredients and minimize extra shopping.",
+    "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
     `Pantry items: ${pantry.join(", ") || "none provided"}.`,
-    `Dietary preferences: ${preferenceLabels.diets.join(", ") || "none"}.`,
-    `Health conditions to respect: ${preferenceLabels.conditions.join(", ") || "none"}.`,
+    preferenceBrief,
     `Preferred cuisine: ${preferredCuisine}.`,
     `Recipe language: ${recipeLanguage}.`,
-    `Daily calorie target: ${calorieTarget}.`,
+    `Daily calorie target: ${calorieTarget}; make breakfast about 25%, lunch about 35%, and dinner about 40% of the target, with the day total within about 10% unless the health profile requires tighter limits.`,
+    "Every meal must be compatible with the diet and health-condition targets, not just one meal per day.",
+    "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Return an object with exactly these top-level keys: plan, shoppingList.",
     "plan must be an array of 7 days.",
-    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"...\",\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"...\",\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"...\",\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
+    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
     "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used.",
     "Every shoppingList item must include summed quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."
   ].join(" ");
+}
+
+function buildPromptPreferenceBrief(snapshot: {
+  preferredCuisine: string;
+  calorieTarget: number;
+  diets: string[];
+  conditions: string[];
+  allergens: string[];
+}) {
+  const resolved = buildPreferenceProfile(snapshot);
+  const dietLabels = resolved.promptDietLabels.length ? resolved.promptDietLabels.join(", ") : "none";
+  const conditionLabels = resolved.promptConditionLabels.length ? resolved.promptConditionLabels.join(", ") : "none";
+  const selectedDiets = snapshot.diets.length ? snapshot.diets.join(", ") : "none";
+  const selectedConditions = snapshot.conditions.length ? snapshot.conditions.join(", ") : "none";
+  const requiredDietTags = resolved.requiredDietTags.length ? resolved.requiredDietTags.join(", ") : "none";
+  const preferredDietTags = resolved.preferredDietTags.length ? resolved.preferredDietTags.join(", ") : "none";
+  const allergens = resolved.allergens?.length ? resolved.allergens.join(", ") : "none";
+  const nutritionTargets = formatNutritionGoals(resolved.nutritionGoals);
+
+  return [
+    `Selected diet setting IDs: ${selectedDiets}.`,
+    `Selected health condition setting IDs: ${selectedConditions}.`,
+    `Dietary preferences: ${dietLabels}.`,
+    `Health conditions to respect: ${conditionLabels}.`,
+    `Required diet compatibility: ${requiredDietTags}.`,
+    `Preferred diet compatibility: ${preferredDietTags}.`,
+    `Known allergens to avoid: ${allergens}.`,
+    `Nutrition targets derived from the profile: ${nutritionTargets}.`
+  ].join(" ");
+}
+
+function formatNutritionGoals(goals: NutritionGoals) {
+  const entries = [
+    goals.minCalories ? `minimum calories ${goals.minCalories} kcal per meal` : "",
+    goals.maxCalories ? `maximum calories ${goals.maxCalories} kcal per meal` : "",
+    goals.minProtein ? `minimum protein ${goals.minProtein}g per meal` : "",
+    goals.maxCarbs ? `maximum carbs ${goals.maxCarbs}g per meal` : "",
+    goals.maxSugar ? `maximum sugar ${goals.maxSugar}g per meal` : "",
+    goals.maxSodium ? `maximum sodium ${goals.maxSodium}mg per meal` : "",
+    goals.minSodium ? `minimum sodium ${goals.minSodium}mg per meal` : "",
+    goals.maxFat ? `maximum fat ${goals.maxFat}g per meal` : "",
+    goals.minFiber ? `minimum fiber ${goals.minFiber}g per meal` : ""
+  ].filter(Boolean);
+
+  return entries.length ? entries.join("; ") : "standard balanced meals aligned to calorie target";
 }
 
 export function buildIngredientVisionPrompt(language = "English") {
@@ -113,25 +180,5 @@ export function buildPantryInventoryVisionPrompt(language = "English") {
     "Estimate quantity approximately using simple units like \"1 jar\", \"2 cans\", \"half bag\", \"1 bunch\", or \"1 carton\".",
     "Use short singular item names where possible. Only include food or pantry items that are reasonably visible. If uncertain, provide a cautious approximate quantity.",
     `Use ${language}.`
-  ].join(" ");
-}
-
-export function buildRecipeImagePrompt(recipeName: string, cuisine?: string, ingredients: string[] = []) {
-  return [
-    "Create a realistic, appetizing plated food photo.",
-    `Dish: ${recipeName}.`,
-    cuisine ? `Cuisine: ${cuisine}.` : "",
-    ingredients.length ? `Visible ingredients: ${ingredients.slice(0, 5).join(", ")}.` : "",
-    "Natural lighting, clean plate, no text, no labels, no hands, no watermark."
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-export function buildFoodImagePrompt(description: string) {
-  return [
-    "Create a realistic, appetizing plated food photo from this description.",
-    `Description: ${description}.`,
-    "Natural lighting, clean plate, editorial food photography, no text, no labels, no hands, no watermark."
   ].join(" ");
 }

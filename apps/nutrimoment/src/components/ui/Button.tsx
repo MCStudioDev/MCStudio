@@ -15,13 +15,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const VARIANT_STYLES: Record<Variant, string> = {
   primary:
-    "text-white shadow-glow hover:shadow-soft transition-all gradient-emerald hover:brightness-110 active:brightness-95",
+    "text-white shadow-glow hover:shadow-soft transition-ui gradient-emerald hover:brightness-110 active:brightness-95",
   secondary:
-    "bg-white text-emerald-700 border border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50",
+    "bg-white text-emerald-700 border border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50 transition-ui",
   outline:
-    "bg-transparent text-emerald-700 border border-emerald-300 hover:bg-emerald-50",
-  ghost: "bg-transparent text-stone-700 hover:bg-stone-100",
-  danger: "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+    "bg-transparent text-emerald-700 border border-emerald-300 hover:bg-emerald-50 transition-ui",
+  ghost: "bg-transparent text-stone-700 hover:bg-stone-100 transition-ui",
+  danger: "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-ui"
 };
 
 const SIZE_STYLES: Record<Size, string> = {
@@ -31,15 +31,17 @@ const SIZE_STYLES: Record<Size, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant = "primary", size = "md", leftIcon, rightIcon, loading, fullWidth, children, disabled, ...rest },
+  { className, variant = "primary", size = "md", leftIcon, rightIcon, loading, fullWidth, children, disabled, type, ...rest },
   ref
 ) {
   return (
     <button
       ref={ref}
+      type={type ?? "button"}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
-        "inline-flex items-center justify-center gap-2 font-semibold tracking-tight",
+        "focus-ring inline-flex items-center justify-center gap-2 font-semibold tracking-tight",
         "disabled:opacity-60 disabled:cursor-not-allowed select-none",
         VARIANT_STYLES[variant],
         SIZE_STYLES[size],

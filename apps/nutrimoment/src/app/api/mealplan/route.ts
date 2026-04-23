@@ -20,7 +20,8 @@ const requestSchema = z.object({
   preferredCuisine: z.string().optional(),
   calorieTarget: z.number().optional(),
   diets: z.array(z.string()).optional(),
-  conditions: z.array(z.string()).optional()
+  conditions: z.array(z.string()).optional(),
+  allergens: z.array(z.string()).optional()
 });
 
 const MOCK_MEAL_PLAN = {
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
       calorieTarget: parsed.data.calorieTarget,
       diets: parsed.data.diets,
       conditions: parsed.data.conditions,
+      allergens: parsed.data.allergens,
       maxResults: 21
     });
 
@@ -98,7 +100,8 @@ export async function POST(request: Request) {
           conditions: parsed.data.conditions ?? [],
           recipeLanguage: parsed.data.recipeLanguage,
           preferredCuisine: parsed.data.preferredCuisine,
-          calorieTarget: parsed.data.calorieTarget
+          calorieTarget: parsed.data.calorieTarget,
+          allergens: parsed.data.allergens ?? []
         })
       );
       const json = extractJson(text);

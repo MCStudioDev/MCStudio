@@ -3,7 +3,7 @@ import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
 
 export type AccessRole = "admin" | "user";
 export type AccessTier = "free" | "premium";
-export type AiFeatureKey = "image_to_text" | "recipe_generation" | "recipe_image" | "weekly_plan";
+export type AiFeatureKey = "image_to_text" | "recipe_generation" | "weekly_plan";
 
 export const FREE_LIFETIME_AI_CREDITS = 5;
 
@@ -163,7 +163,7 @@ function buildFeatureMap(tier: AccessTier) {
     "pantry.imageScan": premium,
     "recipes.offline": true,
     "recipes.api": premium,
-    "recipes.imageLookup": premium,
+    "recipes.imageLookup": true,
     "mealPlan.weekly": premium,
     "shoppingList.quantities": true
   };

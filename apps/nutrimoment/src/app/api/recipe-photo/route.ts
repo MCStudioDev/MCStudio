@@ -1,26 +1,24 @@
 import { z } from "zod";
-import {
-  accessErrorResponse,
-  accessPayload,
-  canUseApiFeature,
-  consumeFreeAiCredit
-} from "@/services/authService";
+import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
+import { generateRecipeImageWithImagen, isImagenConfigured } from "@/lib/googleImagen";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const querySchema = z.object({
   query: z.string().min(3)
 });
 
-export async function GET(request: Request) {
-  let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
-  try {
-    accessCheck = await canUseApiFeature(request, "recipe_image");
-  } catch (error) {
-    return accessErrorResponse(error);
-  }
+type CachedRecipePhoto = {
+  imageUrl: string;
+  source: "wikimedia" | "generated";
+  model?: string;
+};
 
+const recipePhotoCache = new Map<string, CachedRecipePhoto>();
+const MAX_RECIPE_PHOTO_CACHE_ITEMS = 80;
+
+export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const parsed = querySchema.safeParse({
     query: searchParams.get("query")
@@ -31,80 +29,80 @@ export async function GET(request: Request) {
   }
 
   const query = parsed.data.query.trim();
-
-  if (!accessCheck.allowed) {
-    return Response.json({
-      imageUrl: "",
-      source: "placeholder",
-      fallbackNotice: "Your 5 free AI/photo credits are used. Recipe cards will use placeholder images.",
-      access: accessPayload(accessCheck.access)
+  const cacheKey = getRecipePhotoCacheKey(query);
+  const cached = recipePhotoCache.get(cacheKey);
+  if (cached) {
+    console.info("Recipe photo served", {
+      source: cached.source,
+      query,
+      cached: true,
+      model: cached.model
     });
+
+    return Response.json(cached);
   }
 
   try {
-    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_image");
-    const wikimediaImage = await searchWikimediaCommons(query);
-    if (wikimediaImage) {
-      return Response.json({ imageUrl: wikimediaImage, source: "wikimedia", access: accessPayload(nextAccess) });
+    const result = await findFreeRecipePhoto(query);
+    if (result) {
+      setRecipePhotoCache(cacheKey, result);
+      console.info("Recipe photo served", {
+        source: result.source,
+        query,
+        imageUrl: result.imageUrl
+      });
+
+      return Response.json(result);
     }
 
-    return Response.json({
-      imageUrl: buildLoremFlickrUrl(query),
-      source: "loremflickr",
-      access: accessPayload(nextAccess)
+    const generated = await generateRecipeImageWithImagen(query);
+    if (generated) {
+      setRecipePhotoCache(cacheKey, generated);
+      console.info("Recipe photo served", {
+        source: generated.source,
+        query,
+        model: generated.model
+      });
+
+      return Response.json(generated);
+    }
+
+    console.info("Recipe photo served", {
+      source: "unavailable",
+      query,
+      imagenConfigured: isImagenConfigured()
     });
+
+    return Response.json(
+      {
+        error: isImagenConfigured()
+          ? "No strict matching recipe photo or generated image was available."
+          : "No strict matching recipe photo was found, and Imagen fallback is not configured.",
+        imageUrl: "",
+        source: "unavailable"
+      },
+      { status: 404 }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to look up a recipe photo.";
+    console.error("Recipe photo generation failed", {
+      query,
+      message
+    });
+
     return Response.json({ error: message }, { status: 500 });
   }
 }
 
-async function searchWikimediaCommons(query: string) {
-  const url = `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(
-    query
-  )}&title=Special:MediaSearch&go=Go&type=image`;
-
-  const response = await fetch(url, {
-    headers: {
-      "user-agent": "NutriMoment/1.0 (+https://localhost:3000)"
-    },
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const html = await response.text();
-  const matches = html.match(/https?:\/\/upload\.wikimedia\.org\/[^"'<> ]+?\.(?:jpg|jpeg|png|webp)(?:[^"'<> ]*)/gi) ?? [];
-
-  for (const match of matches) {
-    const clean = match.replace(/&amp;/g, "&");
-    if (clean.includes("/thumb/") || clean.includes("/wikipedia/commons/")) {
-      return clean;
-    }
-  }
-
-  return null;
+function getRecipePhotoCacheKey(query: string) {
+  return query.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function buildLoremFlickrUrl(query: string) {
-  const keywords = query
-    .toLowerCase()
-    .replace(/[^a-z0-9\s,]/g, " ")
-    .split(/[\s,]+/)
-    .filter(Boolean)
-    .slice(0, 4);
-
-  const path = keywords.length ? keywords.join(",") : "food,recipe";
-  const lock = hashQuery(query);
-  return `https://loremflickr.com/800/600/${path}?lock=${lock}`;
-}
-
-function hashQuery(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+function setRecipePhotoCache(key: string, value: CachedRecipePhoto) {
+  if (recipePhotoCache.size >= MAX_RECIPE_PHOTO_CACHE_ITEMS) {
+    const oldestKey = recipePhotoCache.keys().next().value;
+    if (oldestKey) recipePhotoCache.delete(oldestKey);
   }
-  return hash;
+
+  recipePhotoCache.set(key, value);
 }

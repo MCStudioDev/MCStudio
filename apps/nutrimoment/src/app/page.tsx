@@ -43,7 +43,7 @@ export default function Landing() {
   if (loading || !isMounted) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader label="Checking your session..." />
+        <Loader label="Checking your session…" />
       </div>
     );
   }
@@ -51,7 +51,7 @@ export default function Landing() {
   if (user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader label="Redirecting to your kitchen..." />
+        <Loader label="Redirecting to your kitchen…" />
       </div>
     );
   }
@@ -83,7 +83,7 @@ export default function Landing() {
               <h1 className="text-4xl font-display font-bold tracking-tight text-stone-900">
                 {t("appTitle")}
               </h1>
-              <p className="text-stone-600 text-sm leading-relaxed max-w-xs mx-auto">
+              <p className="text-stone-800 text-sm font-medium leading-relaxed max-w-xs mx-auto">
                 {t("appSubtitle")}
               </p>
             </div>
@@ -101,17 +101,18 @@ export default function Landing() {
               whileTap={{ scale: 0.98 }}
               onClick={handleSignIn}
               disabled={signingIn}
-              className="w-full h-14 flex items-center justify-center gap-3 bg-white text-stone-800 rounded-2xl font-semibold text-sm border border-stone-200 hover:border-emerald-400 hover:bg-emerald-50/50 transition-all disabled:opacity-60"
+              className="focus-ring w-full h-14 flex items-center justify-center gap-3 bg-white text-stone-800 rounded-2xl font-semibold text-sm border border-stone-200 hover:border-emerald-400 hover:bg-emerald-50/50 transition-ui disabled:opacity-60"
+              aria-label="Continue with Google"
             >
               <GoogleIcon />
-              {signingIn ? "Connecting..." : "Continue with Google"}
+              {signingIn ? "Connecting…" : "Continue with Google"}
             </motion.button>
             {error ? (
               <p className="text-xs text-red-600">{error}</p>
             ) : (
               <div className="space-y-2">
-                <p className="text-[11px] text-stone-400 uppercase tracking-widest font-semibold">Powered by Gemini</p>
-                <p className="text-[11px] leading-relaxed text-stone-400">
+                <p className="text-[11px] text-stone-600 uppercase tracking-widest font-semibold">Powered by Gemini</p>
+                <p className="text-[11px] leading-relaxed text-stone-600">
                   Informational recipe support only. Verify allergens, nutrition, and food safety before use.
                 </p>
               </div>
@@ -130,7 +131,7 @@ interface FeatureProps {
 
 function Feature({ icon, label }: FeatureProps) {
   return (
-    <div className="flex flex-col items-center gap-1.5 rounded-2xl bg-white/60 border border-emerald-100 py-3 px-2">
+    <div className="flex flex-col items-center gap-1.5 rounded-2xl bg-white/85 border border-emerald-100 py-3 px-2 shadow-sm">
       <div className="text-emerald-700">{icon}</div>
       <span className="text-[11px] font-medium leading-tight text-stone-700 text-center">{label}</span>
     </div>

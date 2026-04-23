@@ -6,12 +6,12 @@ import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
+import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMealPlan } from "@/hooks/useMealPlan";
 import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
-import { buildMealPlanPrompt } from "@/lib/aiPrompts";
 import { normalizeMealPlanData, normalizeShoppingList } from "@/lib/mealPlan";
 import { EmptyState, SectionHero } from "./shared";
 
@@ -44,27 +44,18 @@ export function MealPlanTab() {
 
     setLoading(true);
     try {
-      const prompt = buildMealPlanPrompt({
-        pantry: items.map((item) => item.name),
-        diets: health.diets,
-        conditions: health.conditions,
-        recipeLanguage: settings.recipeLanguage,
-        preferredCuisine: settings.preferredCuisine,
-        calorieTarget: settings.calorieTarget
-      });
-
       const response = await fetch("/api/mealplan", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
-          prompt,
           pantry: items.map((item) => item.name),
           pantryItems: items.map((item) => ({ name: item.name, quantity: item.quantity })),
           recipeLanguage: settings.recipeLanguage,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
           diets: health.diets,
-          conditions: health.conditions
+          conditions: health.conditions,
+          allergens: health.allergens ?? []
         })
       });
       const data = (await response.json()) as { result?: string; error?: string; fallbackNotice?: string };
@@ -120,28 +111,16 @@ export function MealPlanTab() {
       {mealPlan ? (
         <motion.div variants={itemVariants} className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="grid gap-4">
-            {mealPlan.servedFrom ? (
-              <div className="w-fit rounded-full bg-cyan-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">
-                {mealPlan.servedFrom === "offline_catalog"
-                  ? "Offline catalog meal plan"
-                  : mealPlan.servedFrom === "fallback_ai"
-                    ? "AI fallback meal plan"
-                    : "Mock meal plan"}
-              </div>
-            ) : null}
             <ResultLegalNotice mode="mealplan" />
             {mealPlan.plan.map((day) => (
               <Card key={day.day} className="rounded-[2rem] space-y-4">
-                <div className="flex items-center justify-between">
+                <div>
                   <h3 className="text-2xl font-display font-bold text-stone-900">{day.day}</h3>
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                    {settings.preferredCuisine}
-                  </span>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
-                  <MealCard title={t("breakfast")} meal={day.breakfast} />
-                  <MealCard title={t("lunch")} meal={day.lunch} />
-                  <MealCard title={t("dinner")} meal={day.dinner} />
+                  <MealPlanRevealCard title={t("breakfast")} meal={day.breakfast} />
+                  <MealPlanRevealCard title={t("lunch")} meal={day.lunch} />
+                  <MealPlanRevealCard title={t("dinner")} meal={day.dinner} />
                 </div>
               </Card>
             ))}
@@ -176,7 +155,7 @@ export function MealPlanTab() {
   );
 }
 
-function MealCard({
+function MealPlanRevealCard({
   title,
   meal
 }: {
@@ -184,13 +163,24 @@ function MealCard({
   meal: { name: string; calories: number; protein: string; carbs: string; fat: string };
 }) {
   return (
-    <Card variant="plain" className="rounded-[1.5rem] p-4 space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{title}</p>
-      <h4 className="text-lg font-semibold text-stone-900">{meal.name}</h4>
-      <p className="text-sm text-stone-500">{meal.calories} kcal</p>
-      <p className="text-xs text-stone-500">
-        {meal.protein} protein - {meal.carbs} carbs - {meal.fat} fat
-      </p>
-    </Card>
+    <MealRevealCard
+      name={meal.name}
+      eyebrow={title}
+      imageQuery={`${meal.name} food plated`}
+      stats={[
+        { label: "kcal", value: meal.calories },
+        { label: "protein", value: meal.protein },
+        { label: "carbs", value: meal.carbs },
+        { label: "fat", value: meal.fat }
+      ]}
+      sections={[
+        {
+          title: "Macros",
+          tone: "steps",
+          items: [`${meal.protein} protein`, `${meal.carbs} carbs`, `${meal.fat} fat`]
+        }
+      ]}
+      className="min-h-full"
+    />
   );
 }

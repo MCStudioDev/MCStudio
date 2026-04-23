@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ChefHat, Languages, LogOut, ShoppingCart, Heart, History, Settings, Camera, Calendar } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
@@ -27,15 +27,43 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
   const { user, access, signOut } = useAuth();
   const { t, language, setLanguage } = useApp();
   const [showLangMenu, setShowLangMenu] = useState(false);
+  const langContainerRef = useRef<HTMLDivElement | null>(null);
 
   const handleLangPick = async (lang: Language) => {
     await setLanguage(lang);
     setShowLangMenu(false);
   };
 
+  const handleSignOut = async () => {
+    const ok = typeof window !== "undefined" ? window.confirm("Sign out of NutriMoment?") : true;
+    if (!ok) return;
+    await signOut();
+  };
+
+  useEffect(() => {
+    if (!showLangMenu) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!langContainerRef.current) return;
+      if (!langContainerRef.current.contains(event.target as Node)) {
+        setShowLangMenu(false);
+      }
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowLangMenu(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [showLangMenu]);
+
   return (
-    <header className="sticky top-0 z-40">
-      <div className="bg-white/80 backdrop-blur-xl border-b border-emerald-100 shadow-sm">
+    <header className="sticky top-0 z-[80]">
+      <div className="relative z-30 bg-white/90 backdrop-blur-xl border-b border-emerald-100 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-20 gap-4">
             <div className="flex items-center gap-3">
@@ -60,30 +88,39 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
               <div className="hidden rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold text-stone-700 sm:block">
                 <span className="uppercase tracking-[0.16em] text-emerald-600">{access.tier}</span>
                 {access.tier === "free" ? (
-                  <span className="ml-2 text-stone-500">{access.aiCreditsRemaining}/{access.aiCreditsLimit} AI left</span>
+                  <span className="ml-2 text-stone-500 tabular-nums">
+                    {access.aiCreditsRemaining}/{access.aiCreditsLimit} AI left
+                  </span>
                 ) : (
                   <span className="ml-2 text-stone-500">API-first</span>
                 )}
               </div>
-              <div className="relative">
+              <div className="relative" ref={langContainerRef}>
                 <button
                   type="button"
                   onClick={() => setShowLangMenu((v) => !v)}
-                  className="p-2.5 rounded-xl text-stone-700 hover:bg-emerald-50 transition flex items-center gap-1.5"
+                  className="focus-ring p-2.5 rounded-xl text-stone-700 hover:bg-emerald-50 transition-ui flex items-center gap-1.5"
                   aria-label="Switch language"
+                  aria-haspopup="menu"
+                  aria-expanded={showLangMenu}
                 >
-                  <Languages className="h-5 w-5" />
+                  <Languages className="h-5 w-5" aria-hidden="true" />
                   <span className="text-xs font-semibold uppercase">{language}</span>
                 </button>
                 {showLangMenu ? (
-                  <div className="absolute right-0 mt-2 min-w-44 rounded-2xl border border-emerald-100 bg-white shadow-soft p-1.5 z-50">
+                  <div
+                    role="menu"
+                    aria-label="Language"
+                    className="absolute right-0 top-full z-[120] mt-2 min-w-44 rounded-2xl border border-emerald-100 bg-white p-1.5 shadow-soft ring-1 ring-stone-900/5"
+                  >
                     {LANGUAGES.map((lang) => (
                       <button
                         key={lang.code}
                         type="button"
+                        role="menuitem"
                         onClick={() => handleLangPick(lang.code)}
                         className={cn(
-                          "w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition flex justify-between items-center",
+                          "focus-ring w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-ui flex justify-between items-center",
                           language === lang.code
                             ? "bg-emerald-50 text-emerald-700"
                             : "hover:bg-stone-50 text-stone-700"
@@ -99,19 +136,19 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
 
               <button
                 type="button"
-                onClick={() => signOut()}
-                className="p-2.5 rounded-xl text-stone-700 hover:bg-red-50 hover:text-red-600 transition"
+                onClick={handleSignOut}
+                className="focus-ring p-2.5 rounded-xl text-stone-700 hover:bg-red-50 hover:text-red-600 transition-ui"
                 aria-label={t("logout")}
                 title={user?.email ?? ""}
               >
-                <LogOut className="h-5 w-5" />
+                <LogOut className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      <nav className="bg-white/70 backdrop-blur-xl border-b border-emerald-100">
+      <nav className="relative z-10 bg-white/80 backdrop-blur-xl border-b border-emerald-100">
         <div className="max-w-6xl mx-auto px-2 sm:px-6">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-hidden py-2">
             {TABS.map((tab) => {
@@ -122,8 +159,9 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                   key={tab.id}
                   type="button"
                   onClick={() => onTabChange(tab.id)}
+                  aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "relative flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-semibold whitespace-nowrap transition-all",
+                    "focus-ring relative flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-semibold whitespace-nowrap transition-ui",
                     isActive ? "text-white" : "text-stone-600 hover:text-emerald-700 hover:bg-emerald-50"
                   )}
                 >
@@ -135,7 +173,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                     />
                   ) : null}
                   <span className="relative flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-4 w-4" aria-hidden="true" />
                     {t(tab.key)}
                   </span>
                 </button>

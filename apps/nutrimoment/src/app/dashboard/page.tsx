@@ -20,7 +20,7 @@ export default function DashboardPage() {
   if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader label="Loading your kitchen..." />
+        <Loader label="Loading your kitchen…" />
       </div>
     );
   }

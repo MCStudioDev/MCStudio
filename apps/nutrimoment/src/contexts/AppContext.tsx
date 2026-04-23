@@ -18,7 +18,8 @@ const DEFAULT_SETTINGS: UserSettings = {
 
 const DEFAULT_HEALTH: HealthProfile = {
   diets: [],
-  conditions: []
+  conditions: [],
+  allergens: []
 };
 
 interface AppContextValue {
@@ -99,8 +100,9 @@ export function AppProvider({ children }: AppProviderProps) {
         dispatch({
           type: "health/set",
           payload: {
-          diets: Array.isArray(data.diets) ? data.diets : [],
-          conditions: Array.isArray(data.conditions) ? data.conditions : []
+            diets: Array.isArray(data.diets) ? data.diets : [],
+            conditions: Array.isArray(data.conditions) ? data.conditions : [],
+            allergens: Array.isArray(data.allergens) ? data.allergens : []
           }
         });
       }
@@ -135,7 +137,8 @@ export function AppProvider({ children }: AppProviderProps) {
     async (next: Partial<HealthProfile>) => {
       const merged: HealthProfile = {
         diets: next.diets ?? health.diets,
-        conditions: next.conditions ?? health.conditions
+        conditions: next.conditions ?? health.conditions,
+        allergens: next.allergens ?? health.allergens ?? []
       };
       dispatch({ type: "health/set", payload: merged });
       if (!user) return;

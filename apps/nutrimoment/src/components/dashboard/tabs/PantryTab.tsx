@@ -119,6 +119,11 @@ export function PantryTab() {
   };
 
   const handleClear = async () => {
+    const ok =
+      typeof window !== "undefined"
+        ? window.confirm("Clear all pantry items? This cannot be undone.")
+        : true;
+    if (!ok) return;
     try {
       await clear();
     } catch (error) {
@@ -149,28 +154,51 @@ export function PantryTab() {
             </div>
           )}
 
-          <label className="block">
-            <input type="file" accept="image/*" className="hidden" onChange={handleScanPantry} />
-            <span className="flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-emerald-200 bg-emerald-50/60 px-6 text-center transition hover:border-emerald-400 hover:bg-emerald-50">
-              <ImagePlus className="h-8 w-8 text-emerald-600" />
-              <span className="text-sm font-semibold text-stone-800">
+          <label htmlFor="pantry-photo-upload" className="block">
+            <span className="sr-only">Upload a pantry image</span>
+            <input
+              id="pantry-photo-upload"
+              name="pantry-photo-upload"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={handleScanPantry}
+              aria-label="Upload a pantry image"
+            />
+            <span className="focus-within:ring-2 focus-within:ring-emerald-500 focus-within:ring-offset-2 flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-emerald-200 bg-emerald-50/60 px-6 text-center transition-ui hover:border-emerald-400 hover:bg-emerald-50">
+              <ImagePlus className="h-8 w-8 text-emerald-600" aria-hidden="true" />
+              <span className="text-sm font-semibold text-stone-800" aria-live="polite">
                 {scanLoading ? t("analyzingPantry") : "Upload a pantry image"}
               </span>
               <span className="text-xs text-stone-500">We will estimate pantry items and approximate quantities.</span>
             </span>
           </label>
 
+          <label htmlFor="pantry-item-name" className="sr-only">
+            {t("ingredientName")}
+          </label>
           <input
+            id="pantry-item-name"
+            name="pantry-item-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder={t("ingredientName")}
-            className="h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm outline-none focus:border-emerald-400"
+            autoComplete="off"
+            spellCheck
+            className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
           />
+          <label htmlFor="pantry-item-quantity" className="sr-only">
+            {t("quantity")}
+          </label>
           <input
+            id="pantry-item-quantity"
+            name="pantry-item-quantity"
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
             placeholder={name.trim() ? getPantryQuantityHint(name) : t("quantity")}
-            className="h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm outline-none focus:border-emerald-400"
+            autoComplete="off"
+            inputMode="text"
+            className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
           />
           <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-xs leading-relaxed text-cyan-800">
             Quantity guide: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
@@ -189,7 +217,7 @@ export function PantryTab() {
 
           <Card variant="plain" className="rounded-[1.5rem] p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{t("items")}</p>
-            <p className="mt-2 text-3xl font-display font-bold text-stone-900">{items.length}</p>
+            <p className="mt-2 text-3xl font-display font-bold text-stone-900 tabular-nums">{items.length}</p>
           </Card>
         </Card>
 
@@ -212,23 +240,41 @@ export function PantryTab() {
                   <Card key={`${item.name}-${index}`} variant="plain" className="rounded-[1.5rem] p-4">
                     <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
                       <input
+                        id={`scanned-pantry-name-${index}`}
+                        name={`scanned-pantry-name-${index}`}
                         value={item.name}
                         onChange={(event) => updateScannedItem(index, "name", event.target.value)}
                         placeholder={t("ingredientName")}
-                        className="h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm outline-none focus:border-emerald-400"
+                        aria-label={`Scanned item ${index + 1} name`}
+                        autoComplete="off"
+                        spellCheck
+                        className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
                       />
                       <input
+                        id={`scanned-pantry-quantity-${index}`}
+                        name={`scanned-pantry-quantity-${index}`}
                         value={item.quantity ?? ""}
                         onChange={(event) => updateScannedItem(index, "quantity", event.target.value)}
                         placeholder={item.name.trim() ? getPantryQuantityHint(item.name) : t("quantity")}
-                        className="h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm outline-none focus:border-emerald-400"
+                        aria-label={`Scanned item ${index + 1} quantity`}
+                        autoComplete="off"
+                        inputMode="text"
+                        className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
                       />
                       <button
                         type="button"
-                        onClick={() => removeScannedItem(index)}
-                        className="rounded-2xl bg-red-50 p-3 text-red-600 transition hover:bg-red-100"
+                        onClick={() => {
+                          const ok =
+                            typeof window !== "undefined"
+                              ? window.confirm(item.name ? `Remove ${item.name}?` : `Remove scanned item ${index + 1}?`)
+                              : true;
+                          if (!ok) return;
+                          removeScannedItem(index);
+                        }}
+                        aria-label={item.name ? `Remove ${item.name}` : `Remove scanned item ${index + 1}`}
+                        className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </div>
                   </Card>
@@ -240,11 +286,14 @@ export function PantryTab() {
               </Button>
             </Card>
           ) : loading ? (
-            <Card className="rounded-[2rem] text-sm text-stone-500">Loading pantry...</Card>
+            <Card className="rounded-[2rem] text-sm text-stone-500">Loading pantry…</Card>
           ) : items.length ? (
             <div className="space-y-4">
               <div className="flex justify-end">
-                <Button variant="ghost" onClick={handleClear}>
+                <Button
+                  variant="ghost"
+                  onClick={() => void handleClear()}
+                >
                   {t("clearAll")}
                 </Button>
               </div>
@@ -258,10 +307,18 @@ export function PantryTab() {
                     {item.id ? (
                       <button
                         type="button"
-                        onClick={() => removeItem(item.id!)}
-                        className="rounded-2xl bg-red-50 p-3 text-red-600 transition hover:bg-red-100"
+                        onClick={() => {
+                          const ok =
+                            typeof window !== "undefined"
+                              ? window.confirm(`Remove ${item.name} from your pantry?`)
+                              : true;
+                          if (!ok) return;
+                          void removeItem(item.id!);
+                        }}
+                        aria-label={`Remove ${item.name}`}
+                        className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </button>
                     ) : null}
                   </Card>

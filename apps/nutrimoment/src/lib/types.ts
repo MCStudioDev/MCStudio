@@ -73,6 +73,7 @@ export interface HistoryItem {
 export interface HealthProfile {
   diets: string[];
   conditions: string[];
+  allergens?: string[];
 }
 
 export interface UserSettings {

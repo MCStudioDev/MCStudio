@@ -144,23 +144,3 @@ export async function callOpenAIVision(
   if (!text) throw new Error("Empty response from Gemini");
   return text;
 }
-
-export async function generateOpenAIImage(prompt: string, modelName = "gemini-2.5-flash-image"): Promise<string> {
-  ensureAiAvailable();
-  const client = getClient();
-  if (!client) throw new Error("Gemini API key not configured");
-
-  const response = await client.models.generateContent({
-    model: modelName,
-    contents: prompt
-  });
-
-  const parts = response.candidates?.[0]?.content?.parts ?? [];
-  const imagePart = parts.find((part) => part.inlineData?.data);
-  if (!imagePart?.inlineData?.data) {
-    throw new Error("No image returned from Gemini");
-  }
-
-  const mimeType = imagePart.inlineData.mimeType ?? "image/png";
-  return `data:${mimeType};base64,${imagePart.inlineData.data}`;
-}

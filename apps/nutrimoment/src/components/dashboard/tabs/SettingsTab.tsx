@@ -26,14 +26,20 @@ export function SettingsTab() {
           eyebrow={t("dailyCalorieTarget")}
           title={`${settings.calorieTarget} kcal`}
         >
+          <label htmlFor="settings-calorie-target" className="sr-only">
+            {t("dailyCalorieTarget")}
+          </label>
           <input
+            id="settings-calorie-target"
+            name="calorieTarget"
             type="range"
             min="1200"
             max="4000"
             step="50"
+            inputMode="decimal"
             value={settings.calorieTarget}
             onChange={(event) => saveSettings({ calorieTarget: Number(event.target.value) })}
-            className="w-full accent-emerald-600"
+            className="focus-ring w-full accent-emerald-600"
           />
           <p className="text-sm text-stone-500">
             {t("recipesWillAimFor")} {Math.round(settings.calorieTarget / 3)} {t("kcalPerMeal")}
@@ -100,14 +106,20 @@ export function SettingsTab() {
           title={`${settings.maxMissingIngredients}`}
           className="xl:col-span-2"
         >
+          <label htmlFor="settings-max-missing-ingredients" className="sr-only">
+            {t("maxMissingIngredients")}
+          </label>
           <input
+            id="settings-max-missing-ingredients"
+            name="maxMissingIngredients"
             type="range"
             min="0"
             max="5"
             step="1"
+            inputMode="decimal"
             value={settings.maxMissingIngredients}
             onChange={(event) => saveSettings({ maxMissingIngredients: Number(event.target.value) })}
-            className="w-full accent-emerald-600"
+            className="focus-ring w-full accent-emerald-600"
           />
           <p className="text-sm text-stone-500">
             {t("recipesWillAllowUpTo")} {settings.maxMissingIngredients} {t("missingIngredients")}
@@ -139,7 +151,7 @@ function LegalLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <Link
       href={href}
-      className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+      className="focus-ring inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition-ui hover:border-emerald-300 hover:bg-emerald-100"
     >
       {children}
     </Link>

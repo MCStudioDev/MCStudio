@@ -17,6 +17,7 @@ export function isImagenConfigured() {
 export async function generateRecipeImageWithImagen(query: string): Promise<GeneratedRecipeImage | null> {
   if (!isImagenConfigured()) return null;
 
+  process.env.GOOGLE_API_KEY = imagenApiKey;
   const client = new GoogleGenAI({ apiKey: imagenApiKey });
 
   const response = await client.models.generateImages({
@@ -27,13 +28,7 @@ export async function generateRecipeImageWithImagen(query: string): Promise<Gene
       aspectRatio: "4:3",
       outputMimeType: "image/jpeg",
       outputCompressionQuality: 86,
-      includeRaiReason: true,
-      addWatermark: true,
-      enhancePrompt: true,
-      labels: {
-        app: "nutrimoment",
-        feature: "recipe-photo"
-      }
+      includeRaiReason: true
     }
   });
 

@@ -15,6 +15,7 @@ import { EmptyState, SectionHero } from "./shared";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
+import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -45,7 +46,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 
 export function ScannerTab() {
   const { t, settings, health, setError } = useApp();
-  const { access, getAuthHeaders, refreshAccess } = useAuth();
+  const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const { addEntry, updateRecipeImage } = useHistory();
   const [manualEntry, setManualEntry] = useState("");
   const [manualQuantity, setManualQuantity] = useState("");
@@ -53,6 +54,7 @@ export function ScannerTab() {
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
 
   const hydrateRecipePhotos = useCallback(
     async (inputRecipes: Recipe[], historyEntryId: string | null) => {
@@ -66,16 +68,27 @@ export function ScannerTab() {
 
       const resolved = await Promise.all(
         seeded.map(async (recipe, index) => {
+          if (index >= 2) {
+            return { ...recipe, image_loading: false, image_error: false };
+          }
+
           if (hasRenderableImage(recipe.image_url)) {
             return recipe;
           }
 
           try {
             const authHeaders = await getAuthHeaders();
-            const response = await fetch(`/api/recipe-photo?query=${encodeURIComponent(buildRecipePhotoQuery(recipe))}`, {
+            const response = await fetch(buildRecipePhotoRequestUrl(buildRecipePhotoQuery(recipe)), {
               headers: authHeaders
             });
-            const data = (await response.json()) as { imageUrl?: string; fallbackNotice?: string; source?: string };
+            const data = (await response.json()) as {
+              imageAttributionName?: string;
+              imageAttributionUrl?: string;
+              imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+              imageUrl?: string;
+              fallbackNotice?: string;
+              source?: string;
+            };
             await refreshAccess();
 
             if (!response.ok || !data.imageUrl) {
@@ -86,11 +99,17 @@ export function ScannerTab() {
             }
 
             if (historyEntryId && /^https?:/.test(data.imageUrl)) {
-              await updateRecipeImage(historyEntryId, index, data.imageUrl, false);
+              await updateRecipeImage(historyEntryId, index, data.imageUrl, false, data.imageSource, {
+                name: data.imageAttributionName,
+                url: data.imageAttributionUrl
+              });
             }
 
             return {
               ...recipe,
+              image_attribution_name: data.imageAttributionName,
+              image_attribution_url: data.imageAttributionUrl,
+              image_source: data.imageSource,
               image_url: data.imageUrl,
               image_loading: false,
               image_error: false
@@ -229,6 +248,7 @@ export function ScannerTab() {
         ingredients: ingredientQuantities,
         recipes: nextRecipes
       });
+      setHistoryEntryId(entryId);
       void hydrateRecipePhotos(nextRecipes, entryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Recipe generation failed";
@@ -419,14 +439,40 @@ export function ScannerTab() {
           <div className="space-y-4">
             <ResultLegalNotice mode="recipes" />
             <div className="grid gap-5 lg:grid-cols-3">
-              {recipes.map((recipe) => (
+              {recipes.map((recipe, index) => (
                 <MealRevealCard
                   key={recipe.name}
+                  deferImageLookup={index >= 2}
                   name={recipe.name}
                   imageUrl={recipe.image_url}
+                  imageSource={recipe.image_source}
+                  imageAttributionName={recipe.image_attribution_name}
+                  imageAttributionUrl={recipe.image_attribution_url}
                   imageLoading={recipe.image_loading}
                   imageError={recipe.image_error}
                   imageQuery={buildRecipePhotoQuery(recipe)}
+                  onImageResolved={
+                    user && historyEntryId
+                      ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
+                          const persistedImageUrl = await persistRecipeImageForUser({
+                            uid: user.uid,
+                            imageUrl,
+                              query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
+                            });
+                          const recipeIndex = recipes.findIndex((candidate) => candidate.name === recipe.name);
+                          if (recipeIndex >= 0) {
+                            await updateRecipeImage(
+                              historyEntryId,
+                              recipeIndex,
+                              persistedImageUrl || imageUrl,
+                              false,
+                              imageSource,
+                              { name: imageAttributionName, url: imageAttributionUrl }
+                            );
+                          }
+                        }
+                      : undefined
+                  }
                   stats={buildRecipeStats(recipe)}
                   sections={buildRecipeSections(recipe, t)}
                 />
@@ -436,7 +482,7 @@ export function ScannerTab() {
         ) : (
           <EmptyState
             title="Ready to cook"
-            description="Scan a photo or add ingredients manually, then generate ten recipe ideas ranked by ingredient fit and preferences. Always verify allergens, nutrition, and food safety before cooking."
+            description="Scan a photo or add ingredients manually, then generate five recipe ideas ranked by ingredient fit and preferences. Always verify allergens, nutrition, and food safety before cooking."
           />
         )}
       </motion.div>
@@ -449,9 +495,29 @@ function hasRenderableImage(imageUrl?: string) {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
-  return [recipe.name, recipe.cuisine, "prepared food"]
-    .filter(Boolean)
-    .join(" ");
+  return [
+    ...(recipe.image_search_indices ?? []),
+    recipe.image_search_index,
+    [recipe.name, recipe.cuisine].filter(Boolean).join(" "),
+    `${recipe.name} prepared food`
+  ].filter((value): value is string => Boolean(value));
+}
+
+function buildRecipePhotoRequestUrl(queries: string[]) {
+  const params = new URLSearchParams();
+  queries.slice(0, 5).forEach((query, index) => {
+    if (index === 0) {
+      params.set("query", query);
+    } else {
+      params.append("alt", query);
+    }
+  });
+
+  return `/api/recipe-photo?${params.toString()}`;
+}
+
+function serializeRecipePhotoQuery(queries: string[]) {
+  return queries.join(" || ");
 }
 
 function buildRecipeStats(recipe: Recipe) {

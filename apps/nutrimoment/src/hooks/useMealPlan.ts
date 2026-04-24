@@ -5,7 +5,7 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
-import type { MealPlanData } from "@/lib/types";
+import type { MealPlanData, RecipeImageSource } from "@/lib/types";
 
 interface MealPlanState {
   mealPlan: MealPlanData | null;
@@ -102,10 +102,55 @@ export function useMealPlan() {
     }
   };
 
+  const updateMealImage = async (
+    dayIndex: number,
+    mealType: "breakfast" | "lunch" | "dinner",
+    imageUrl: string,
+    imageSource?: RecipeImageSource,
+    imageAttribution?: { name?: string; url?: string }
+  ) => {
+    const current = state.mealPlan;
+    if (!current) return;
+    const nextPlan = current.plan.map((day, index) =>
+      index === dayIndex
+        ? {
+            ...day,
+            [mealType]: {
+              ...day[mealType],
+              image_url: imageUrl,
+              image_source: imageSource ?? day[mealType].image_source,
+              image_attribution_name: imageAttribution?.name ?? day[mealType].image_attribution_name,
+              image_attribution_url: imageAttribution?.url ?? day[mealType].image_attribution_url
+            }
+          }
+        : day
+    );
+
+    const nextMealPlan: MealPlanData = {
+      ...current,
+      plan: nextPlan
+    };
+
+    dispatch({ type: "plan", payload: nextMealPlan });
+
+    if (!user) return;
+
+    const planRef = doc(db, "users", user.uid, "plans", "currentWeekly");
+    await setDoc(
+      planRef,
+      {
+        mealPlan: nextMealPlan,
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    );
+  };
+
   return {
     mealPlan: state.mealPlan,
     loading: user ? state.loading : false,
     error: state.error,
-    saveMealPlan
+    saveMealPlan,
+    updateMealImage
   };
 }

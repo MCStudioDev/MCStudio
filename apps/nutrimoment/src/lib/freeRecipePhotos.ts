@@ -1,3 +1,5 @@
+import { buildRecipePhotoIdentity, findKnownDish, normalizeRecipePhotoQuery } from "@/lib/recipePhotoIdentity";
+
 export interface RecipePhotoLookupResult {
   imageUrl: string;
   source: "wikimedia";
@@ -18,15 +20,92 @@ interface WikimediaQueryResponse {
   };
 }
 
+const CONFLICTING_MEAL_TYPE_TERMS: Record<string, string[]> = {
+  chili: ["salad", "soup"],
+  dip: ["salad", "soup", "stew"],
+  pilaf: ["salad", "soup", "roll"],
+  salad: ["soup", "stew", "chili"],
+  shakshuka: ["salad", "soup"],
+  skillet: ["salad", "soup"],
+  soup: ["salad", "stir fry"],
+  stew: ["salad", "soup", "stir fry"],
+  "stir-fry": ["salad", "soup", "stew"]
+};
+
+export function getKnownDishRecipePhoto(query: string): RecipePhotoLookupResult | null {
+  const normalized = normalizeRecipePhotoQuery(query);
+  const knownDish = findKnownDish(normalized);
+  if (knownDish?.imageUrl) {
+    return {
+      imageUrl: knownDish.imageUrl,
+      source: "wikimedia"
+    };
+  }
+
+  const identity = buildRecipePhotoIdentity(query);
+
+  if (identity.familyKey === "chicken-rice-pilaf") {
+    return {
+      imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Low-Carb%20Chicken%20and%20Rice.jpg",
+      source: "wikimedia"
+    };
+  }
+
+  if (identity.familyKey === "fish-rice-pilaf" || identity.familyKey === "rice-pilaf") {
+    return {
+      imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/14T%2020240407%2019.jpg",
+      source: "wikimedia"
+    };
+  }
+
+  if (identity.familyKey === "chicken-rice-salad") {
+    return {
+      imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Salad%20with%20plain%20rice.jpg",
+      source: "wikimedia"
+    };
+  }
+
+  if (identity.familyKey === "fasolia") {
+    return {
+      imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
+      source: "wikimedia"
+    };
+  }
+
+  const hasEgyptian = /\begyptian\b/.test(normalized);
+  const hasBeans = /\b(bean|beans|fava|chickpea|chickpeas)\b/.test(normalized);
+  const hasRice = /\brice\b/.test(normalized);
+  const hasLentils = /\b(lentil|lentils)\b/.test(normalized);
+  const hasTomatoPaste = /tomato paste/.test(normalized);
+
+  if (hasEgyptian && hasRice && (hasBeans || hasLentils || hasTomatoPaste)) {
+    return {
+      imageUrl:
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
+      source: "wikimedia"
+    };
+  }
+
+  if (hasEgyptian && hasBeans) {
+    return {
+      imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
+      source: "wikimedia"
+    };
+  }
+
+  return null;
+}
+
 export async function findFreeRecipePhoto(query: string): Promise<RecipePhotoLookupResult | null> {
-  const cleanQuery = normalizePhotoQuery(query);
-  const knownDishPhoto = getKnownDishPhoto(cleanQuery);
+  const knownDishPhoto = getKnownDishRecipePhoto(query);
   if (knownDishPhoto) {
     return knownDishPhoto;
   }
 
-  for (const searchQuery of buildFocusedPhotoQueries(cleanQuery)) {
-    const wikimediaImage = await searchWikimediaCommons(searchQuery);
+  const identity = buildRecipePhotoIdentity(query);
+
+  for (const searchQuery of identity.searchQueries) {
+    const wikimediaImage = await searchWikimediaCommons(searchQuery, identity);
 
     if (wikimediaImage) {
       return {
@@ -39,29 +118,21 @@ export async function findFreeRecipePhoto(query: string): Promise<RecipePhotoLoo
   return null;
 }
 
-function normalizePhotoQuery(query: string) {
-  const clean = query
-    .replace(/\bkposhary\b/gi, "koshary")
-    .replace(/\bkoshari\b/gi, "koshary")
-    .replace(/\bkushari\b/gi, "koshary")
-    .replace(/\b(food plated|recipe|dish|meal)\b/gi, " ")
-    .replace(/\b(prepared food|prepared|food)\b/gi, " ")
-    .replace(/\b\d+(?:\/\d+)?\s*(?:g|gram|grams|kg|lb|oz|cup|cups|tbsp|tsp|large|small|medium|can|cans)\b/gi, " ")
-    .replace(/[()[\]"]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+async function searchWikimediaCommons(query: string, identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+  const exactPhrase = await searchWikimediaCommonsOnce(`"${query}"`, identity);
+  if (exactPhrase) return exactPhrase;
 
-  return clean || "healthy food";
+  return searchWikimediaCommonsOnce(`${query} food`, identity);
 }
 
-async function searchWikimediaCommons(query: string) {
+async function searchWikimediaCommonsOnce(query: string, identity: ReturnType<typeof buildRecipePhotoIdentity>) {
   const url = new URL("https://commons.wikimedia.org/w/api.php");
   url.searchParams.set("action", "query");
   url.searchParams.set("format", "json");
   url.searchParams.set("generator", "search");
   url.searchParams.set("gsrnamespace", "6");
-  url.searchParams.set("gsrlimit", "8");
-  url.searchParams.set("gsrsearch", `${query} food`);
+  url.searchParams.set("gsrlimit", "12");
+  url.searchParams.set("gsrsearch", query);
   url.searchParams.set("prop", "imageinfo");
   url.searchParams.set("iiprop", "url");
   url.searchParams.set("iiurlwidth", "900");
@@ -78,15 +149,19 @@ async function searchWikimediaCommons(query: string) {
 
     const data = (await response.json()) as WikimediaQueryResponse;
     const pages = Object.values(data.query?.pages ?? {});
-    const queryTokens = getMeaningfulPhotoTokens(query);
     const image = pages
       .flatMap((page) =>
-        (page.imageinfo ?? []).map((info) => ({
-          title: page.title ?? "",
-          url: info.thumburl ?? info.url ?? ""
-        }))
+        (page.imageinfo ?? []).map((info) => {
+          const title = page.title ?? "";
+          const haystack = `${title} ${decodeURIComponent(info.url ?? "")}`;
+          return {
+            score: scoreWikimediaCandidate(haystack, identity),
+            url: info.thumburl ?? info.url ?? ""
+          };
+        })
       )
-      .find((candidate) => isSupportedImageUrl(candidate.url) && hasPhotoTokenOverlap(candidate.title, candidate.url, queryTokens));
+      .filter((candidate) => isSupportedImageUrl(candidate.url) && candidate.score >= getRequiredWikimediaScore(identity))
+      .sort((left, right) => right.score - left.score)[0];
 
     return image?.url || null;
   } catch {
@@ -94,96 +169,84 @@ async function searchWikimediaCommons(query: string) {
   }
 }
 
-function buildFocusedPhotoQueries(query: string) {
-  const candidates = [
-    query,
-    query.replace(/\s+with\s+.+$/i, ""),
-    query.replace(/\s+(?:inspired|style)\b/gi, ""),
-    query.split(/\s+/).slice(0, 7).join(" ")
-  ]
-    .map((candidate) => candidate.replace(/\s+/g, " ").trim())
-    .filter((candidate) => candidate.length >= 3);
+function getRequiredWikimediaScore(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+  if (identity.canonicalDishKey || identity.familyKey) {
+    return 5;
+  }
 
-  return Array.from(new Set(candidates));
+  if (identity.beanTypeKey || identity.mealTypeKey) {
+    return 6;
+  }
+
+  return 7;
 }
 
 function isSupportedImageUrl(value: string) {
   if (/\.pdf\b|\/page\d+-/i.test(value)) return false;
-  return /^https:\/\/upload\.wikimedia\.org\/.+\.(?:jpg|jpeg|png|webp)(?:[?#].*)?$/i.test(value);
+  return /^https:\/\/(?:upload|commons)\.wikimedia\.org\/.+\.(?:jpg|jpeg|png|webp)(?:[?#].*)?$/i.test(value);
 }
 
-function hasPhotoTokenOverlap(title: string, url: string, queryTokens: string[]) {
-  if (!queryTokens.length) return true;
-  const haystack = normalizePhotoQuery(`${title} ${decodeURIComponent(url)}`).toLowerCase();
-  const hits = queryTokens.filter((token) => haystack.includes(token)).length;
+function scoreWikimediaCandidate(candidate: string, identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+  const haystack = normalizeRecipePhotoQuery(candidate);
+  let score = 0;
 
-  return hits >= Math.min(2, queryTokens.length);
+  if (identity.canonicalDishKey) {
+    const knownDish = findKnownDish(identity.canonicalDishKey);
+    if (knownDish && haystack.includes(knownDish.canonicalName)) {
+      score += 8;
+    }
+  }
+
+  if (identity.familyKey) {
+    const familyPhrase = identity.familyKey.replace(/-/g, " ");
+    if (haystack.includes(familyPhrase)) {
+      score += 5;
+    }
+  }
+
+  if (identity.cuisineKey && haystack.includes(identity.cuisineKey.replace(/-/g, " "))) {
+    score += 2;
+  }
+
+  if (identity.mainIngredientKey && haystack.includes(identity.mainIngredientKey.replace(/-/g, " "))) {
+    score += 2;
+  }
+
+  if (identity.beanTypeKey && haystack.includes(identity.beanTypeKey.replace(/-/g, " "))) {
+    score += 3;
+  }
+
+  if (identity.mealTypeKey) {
+    const mealTypePhrase = identity.mealTypeKey.replace(/-/g, " ");
+    if (haystack.includes(mealTypePhrase)) {
+      score += 4;
+    }
+
+    for (const conflictingTerm of CONFLICTING_MEAL_TYPE_TERMS[identity.mealTypeKey] ?? []) {
+      if (haystack.includes(conflictingTerm)) {
+        score -= 4;
+      }
+    }
+  }
+
+  const tokenHits = identity.coreTokens.filter((token) => haystack.includes(token)).length;
+  score += Math.min(tokenHits, 5);
+
+  if (identity.mainIngredientKey === "lamb" && /\b(chicken|fish|salmon|tuna)\b/.test(haystack)) {
+    score -= 5;
+  }
+
+  if ((identity.mainIngredientKey === "fish" || identity.mainIngredientKey === "tuna") && /\b(chicken|beef|lamb)\b/.test(haystack)) {
+    score -= 5;
+  }
+
+  if (identity.mainIngredientKey === "tuna" && !/\btuna\b/.test(haystack)) {
+    score -= 4;
+  }
+
+  if (identity.mainIngredientKey === "bean" && /\b(pancake|dessert|cake|cookie)\b/.test(haystack)) {
+    score -= 8;
+  }
+
+  return score;
 }
-
-function getMeaningfulPhotoTokens(query: string) {
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((token) => token.replace(/[^a-z0-9]/g, ""))
-    .filter((token) => token.length >= 4 && !PHOTO_STOP_WORDS.has(token))
-    .slice(0, 8);
-}
-
-function getKnownDishPhoto(query: string): RecipePhotoLookupResult | null {
-  const normalized = query.toLowerCase();
-  const hasEgyptian = /\begyptian\b/.test(normalized);
-  const hasBeans = /\b(bean|beans|fava|chickpea|chickpeas)\b/.test(normalized);
-  const hasRice = /\brice\b/.test(normalized);
-  const hasLentils = /\b(lentil|lentils)\b/.test(normalized);
-  const hasTomatoPaste = /tomato paste/.test(normalized);
-
-  if (/\b(kafta|kofta|kofte|kefta|kufta)\b/.test(normalized)) {
-    return {
-      imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/Oriental_food_including_beef_kabab%2C_shish_tawoook%2C_and_kafta_kabab_%28Orlando%29_May_2023.jpg/960px-Oriental_food_including_beef_kabab%2C_shish_tawoook%2C_and_kafta_kabab_%28Orlando%29_May_2023.jpg",
-      source: "wikimedia"
-    };
-  }
-
-  if (/\b(koshary|koshari|kushari|kposhary)\b/.test(normalized)) {
-    return {
-      imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
-      source: "wikimedia"
-    };
-  }
-
-  if (/\b(ful|foul|fuul)\b/.test(normalized) || /medames/.test(normalized) || /egyptian.*\b(bean|beans|fava)\b/.test(normalized)) {
-    return {
-      imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
-      source: "wikimedia"
-    };
-  }
-
-  if (hasEgyptian && hasRice && (hasBeans || hasLentils || hasTomatoPaste)) {
-    return {
-      imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
-      source: "wikimedia"
-    };
-  }
-
-  if (hasEgyptian && hasBeans) {
-    return {
-      imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
-      source: "wikimedia"
-    };
-  }
-
-  return null;
-}
-
-const PHOTO_STOP_WORDS = new Set([
-  "food",
-  "meal",
-  "dish",
-  "prepared",
-  "style",
-  "inspired",
-  "with",
-  "and",
-  "rice",
-  "bowl"
-]);

@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
+import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { formatDate } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
@@ -14,7 +16,8 @@ import { EmptyState, SectionHero } from "./shared";
 
 export function HistoryTab() {
   const { t, setError } = useApp();
-  const { items, clear, removeEntry, loading } = useHistory();
+  const { user } = useAuth();
+  const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
 
   const handleClear = async () => {
     const ok = typeof window !== "undefined" ? window.confirm("Clear all history? This cannot be undone.") : true;
@@ -76,7 +79,32 @@ export function HistoryTab() {
                       key={`${entry.id}-${recipe.name}`}
                       name={recipe.name}
                       imageUrl={recipe.image_url}
+                      imageSource={recipe.image_source}
+                      imageAttributionName={recipe.image_attribution_name}
+                      imageAttributionUrl={recipe.image_attribution_url}
                       imageQuery={buildRecipePhotoQuery(recipe)}
+                      onImageResolved={
+                        user
+                          ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
+                              const persistedImageUrl = await persistRecipeImageForUser({
+                                uid: user.uid,
+                                imageUrl,
+                                query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
+                              });
+                              const recipeIndex = entry.recipes.findIndex((candidate) => candidate.name === recipe.name);
+                              if (recipeIndex >= 0) {
+                                await updateRecipeImage(
+                                  entry.id,
+                                  recipeIndex,
+                                  persistedImageUrl || imageUrl,
+                                  false,
+                                  imageSource,
+                                  { name: imageAttributionName, url: imageAttributionUrl }
+                                );
+                              }
+                            }
+                          : undefined
+                      }
                       stats={buildRecipeStats(recipe)}
                       sections={buildRecipeSections(recipe, t)}
                     />
@@ -110,9 +138,16 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
-  return [recipe.name, recipe.cuisine, "prepared food"]
-    .filter(Boolean)
-    .join(" ");
+  return [
+    ...(recipe.image_search_indices ?? []),
+    recipe.image_search_index,
+    [recipe.name, recipe.cuisine].filter(Boolean).join(" "),
+    `${recipe.name} prepared food`
+  ].filter((value): value is string => Boolean(value));
+}
+
+function serializeRecipePhotoQuery(queries: string[]) {
+  return queries.join(" || ");
 }
 
 function buildRecipeStats(recipe: Recipe) {

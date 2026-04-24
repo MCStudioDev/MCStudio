@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   getIdTokenResult,
   onAuthStateChanged,
@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [access, setAccess] = useState<UserAccessState>(DEFAULT_ACCESS);
 
-  const refreshAccessForUser = async (currentUser: User | null) => {
+  const refreshAccessForUser = useCallback(async (currentUser: User | null) => {
     if (!currentUser) {
       setAccess({ ...DEFAULT_ACCESS, loading: false });
       return;
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         tier === "premium" ? current.aiCreditsLimit : Math.max(current.aiCreditsLimit - current.aiCreditsUsed, 0),
       loading: false
     }));
-  };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -100,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [refreshAccessForUser]);
 
   useEffect(() => {
     if (!user) return;
@@ -149,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = useCallback(async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
@@ -157,27 +157,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Error signing in with Google:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       await firebaseSignOut(auth);
     } catch (error) {
       console.error('Error signing out:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const refreshAccess = async () => {
+  const refreshAccess = useCallback(async () => {
     await refreshAccessForUser(auth.currentUser);
-  };
+  }, [refreshAccessForUser]);
 
-  const getAuthHeaders = async (): Promise<Record<string, string>> => {
+  const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     const currentUser = auth.currentUser;
     if (!currentUser) return {};
     const token = await currentUser.getIdToken();
     return { Authorization: `Bearer ${token}` };
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, access, refreshAccess, getAuthHeaders, signInWithGoogle, signOut }}>

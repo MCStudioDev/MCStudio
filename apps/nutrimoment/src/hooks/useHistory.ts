@@ -15,14 +15,21 @@ import {
 } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import type { HistoryItem, Recipe } from "@/lib/types";
+import type { HistoryItem, Recipe, RecipeImageSource } from "@/lib/types";
 
 interface UseHistoryResult {
   items: HistoryItem[];
   loading: boolean;
   error: Error | null;
   addEntry: (entry: Omit<HistoryItem, "id">) => Promise<string | null>;
-  updateRecipeImage: (entryId: string, recipeIndex: number, imageUrl: string, errored?: boolean) => Promise<void>;
+  updateRecipeImage: (
+    entryId: string,
+    recipeIndex: number,
+    imageUrl: string,
+    errored?: boolean,
+    imageSource?: RecipeImageSource,
+    imageAttribution?: { name?: string; url?: string }
+  ) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
   clear: () => Promise<void>;
 }
@@ -114,7 +121,9 @@ export function useHistory(): UseHistoryResult {
     entryId: string,
     recipeIndex: number,
     imageUrl: string,
-    errored = false
+    errored = false,
+    imageSource?: RecipeImageSource,
+    imageAttribution?: { name?: string; url?: string }
   ) => {
     if (!user) return;
     const current = state.items.find((i) => i.id === entryId);
@@ -124,6 +133,9 @@ export function useHistory(): UseHistoryResult {
     recipes[recipeIndex] = {
       ...recipes[recipeIndex],
       image_url: imageUrl || recipes[recipeIndex].image_url,
+      image_source: imageSource ?? recipes[recipeIndex].image_source,
+      image_attribution_name: imageAttribution?.name ?? recipes[recipeIndex].image_attribution_name,
+      image_attribution_url: imageAttribution?.url ?? recipes[recipeIndex].image_attribution_url,
       image_loading: false,
       image_error: errored
     };

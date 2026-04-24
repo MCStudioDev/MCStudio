@@ -12,7 +12,7 @@ import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import type { Recipe } from "@/lib/types";
 
-const RECIPE_RESULT_COUNT = 10;
+const RECIPE_RESULT_COUNT = 5;
 
 const MOCK_RECIPES = {
   recipes: [
@@ -256,7 +256,12 @@ async function buildAvailableIngredientSet(inputIngredients: string[]) {
 
 function applyStrictIngredientOwnership(inputRecipes: unknown[], availableIngredients: Set<string>): Recipe[] {
   return inputRecipes.map((recipe) => {
-    const baseRecipe = recipe as Recipe;
+    const baseRecipe = recipe as Recipe & {
+      photo_query?: string;
+      photo_queries?: string[];
+      search_index?: string;
+      search_indices?: string[];
+    };
     const allRecipeIngredients = dedupeIngredients([
       ...(Array.isArray(baseRecipe.ingredients) ? baseRecipe.ingredients : []),
       ...(Array.isArray(baseRecipe.missing_ingredients) ? baseRecipe.missing_ingredients : [])
@@ -274,12 +279,45 @@ function applyStrictIngredientOwnership(inputRecipes: unknown[], availableIngred
       }
     }
 
+    const imageSearchIndices = normalizeImageSearchIndices([
+      baseRecipe.image_search_indices,
+      baseRecipe.photo_queries,
+      baseRecipe.search_indices,
+      baseRecipe.image_search_index,
+      baseRecipe.photo_query,
+      baseRecipe.search_index
+    ]);
+
     return {
       ...baseRecipe,
+      image_search_index: imageSearchIndices[0],
+      image_search_indices: imageSearchIndices.length ? imageSearchIndices : undefined,
       ingredients: owned,
       missing_ingredients: missing
     };
   });
+}
+
+function normalizeImageSearchIndices(values: unknown[]) {
+  const indices = values.flatMap((value) => {
+    if (Array.isArray(value)) {
+      return value.filter((entry): entry is string => typeof entry === "string");
+    }
+
+    if (typeof value === "string") {
+      return [value];
+    }
+
+    return [];
+  });
+
+  return Array.from(
+    new Set(
+      indices
+        .map((value) => value.trim())
+        .filter((value) => value.length >= 3)
+    )
+  ).slice(0, 5);
 }
 
 function rankStrictRecipes(

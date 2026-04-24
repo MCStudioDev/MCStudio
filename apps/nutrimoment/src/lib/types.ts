@@ -1,6 +1,7 @@
 export type Tab = "scanner" | "pantry" | "mealplan" | "health" | "history" | "settings";
 
 export type Language = "en" | "ar" | "es" | "fr";
+export type RecipeImageSource = "api" | "cache" | "search" | "unsplash" | "wikimedia";
 
 export interface PantryItem {
   id?: string;
@@ -20,6 +21,8 @@ export interface Recipe {
   id?: string;
   name: string;
   cuisine: string;
+  image_search_index?: string;
+  image_search_indices?: string[];
   ingredients: string[];
   missing_ingredients: string[];
   steps: string[];
@@ -33,6 +36,9 @@ export interface Recipe {
   cook_time: string;
   difficulty: string;
   image_url?: string;
+  image_source?: RecipeImageSource;
+  image_attribution_name?: string;
+  image_attribution_url?: string;
   image_loading?: boolean;
   image_error?: boolean;
   match_quality?: "great" | "good" | "possible" | "stretch";
@@ -43,10 +49,16 @@ export interface Recipe {
 
 export interface MealPlanMeal {
   name: string;
+  image_search_index?: string;
+  image_search_indices?: string[];
   calories: number;
   protein: string;
   carbs: string;
   fat: string;
+  image_url?: string;
+  image_source?: RecipeImageSource;
+  image_attribution_name?: string;
+  image_attribution_url?: string;
 }
 
 export interface MealPlanDay {

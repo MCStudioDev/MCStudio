@@ -1,6 +1,7 @@
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 function getPrivateKey() {
   const value = cleanEnvValue(process.env.FIREBASE_ADMIN_PRIVATE_KEY);
@@ -21,6 +22,13 @@ function getPrivateKey() {
 function cleanEnvValue(value: string | undefined) {
   if (!value) return undefined;
   return value.trim().replace(/^"/, "").replace(/",?$/, "").replace(/,$/, "");
+}
+
+function getStorageBucketName() {
+  return (
+    cleanEnvValue(process.env.FIREBASE_ADMIN_STORAGE_BUCKET) ??
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)
+  );
 }
 
 export function hasFirebaseAdminConfig() {
@@ -44,7 +52,8 @@ function ensureAdminApp() {
         projectId: cleanEnvValue(process.env.FIREBASE_ADMIN_PROJECT_ID),
         clientEmail: cleanEnvValue(process.env.FIREBASE_ADMIN_CLIENT_EMAIL),
         privateKey: getPrivateKey()
-      })
+      }),
+      storageBucket: getStorageBucketName()
     });
   }
 }
@@ -57,4 +66,15 @@ export function getAdminDb() {
 export function getAdminAuth() {
   ensureAdminApp();
   return getAuth();
+}
+
+export function getAdminStorageBucket() {
+  ensureAdminApp();
+
+  const bucketName = getStorageBucketName();
+  if (!bucketName) {
+    throw new Error("Firebase Storage bucket is not configured.");
+  }
+
+  return getStorage().bucket(bucketName);
 }

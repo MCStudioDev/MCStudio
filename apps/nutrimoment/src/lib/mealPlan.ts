@@ -108,10 +108,14 @@ function normalizeMeal(value: unknown) {
 
   const name = readString(value, ["name", "title", "meal"]);
   if (!name) return null;
+  const imageSearchIndices = readStringArray(value, ["image_search_indices", "photo_queries", "search_indices"]);
+  const imageSearchIndex = readString(value, ["image_search_index", "photo_query", "search_index"]) || imageSearchIndices?.[0];
 
   return {
     ...value,
     name,
+    image_search_index: imageSearchIndex,
+    image_search_indices: imageSearchIndices,
     calories: readNumber(value, ["calories", "kcal"]),
     protein: readMacro(value, ["protein"]),
     carbs: readMacro(value, ["carbs", "carbohydrates"]),
@@ -154,6 +158,24 @@ function readMacro(record: UnknownRecord, keys: string[]) {
   }
 
   return "0g";
+}
+
+function readStringArray(record: UnknownRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      const items = value
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+      if (items.length) {
+        return Array.from(new Set(items)).slice(0, 5);
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function stripUndefinedDeep(value: unknown): unknown {

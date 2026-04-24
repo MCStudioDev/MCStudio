@@ -43,9 +43,16 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   return [
     "You are NutriMoment's recipe generation assistant.",
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
-    "Generate exactly 10 practical recipes.",
+    "Generate exactly 5 practical recipes.",
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
-    "Order the 10 recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.",
+    "Order the 5 recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.",
+    "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative marketing titles.",
+    "Avoid filler adjectives like simple, hearty, lean, classic, spiced, vibrant, or loaded unless they are essential to distinguish the dish.",
+    "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
+    "For every recipe also output image_search_indices: an array of 3 to 5 short English food-photo search phrases tuned for Unsplash and Pexels, ordered from most exact to broader backup searches.",
+    "Each image_search_indices item should be 2 to 6 words, use canonical dish nouns first, add cuisine or protein only when it improves accuracy, and avoid quantities, health claims, macro words, filler adjectives, and branding.",
+    "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
+    "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"white bean stew\",\"fasolia\",\"bean tomato stew\"], [\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"].",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
     `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`,
@@ -58,8 +65,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Missing ingredients must be compatible with the diet and health rules. Be strict: never put cucumber, herbs, spices, oil, sauces, or staple ingredients in ingredients unless they are in Available pantry ingredients.",
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of concise strings. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies."
+    "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of concise strings. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings."
   ].join(" ");
 }
 
@@ -85,6 +92,13 @@ export function buildMealPlanPrompt({
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     "Generate a 7-day meal plan.",
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third use pantry ingredients and minimize extra shopping.",
+    "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative titles.",
+    "Avoid filler adjectives like simple, hearty, lean, classic, spiced, or loaded unless they are essential.",
+    "When a meal matches a known family, title it that way, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
+    "For every breakfast, lunch, and dinner object also output image_search_indices: an array of 3 to 5 short English food-photo search phrases tuned for Unsplash and Pexels, ordered from most exact to broader backup searches.",
+    "Each image_search_indices item should be 2 to 6 words, use canonical dish nouns first, add cuisine or protein only when it improves accuracy, and avoid quantities, health claims, macro words, filler adjectives, and branding.",
+    "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
+    "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"chicken shawarma bowl\",\"chicken shawarma\",\"shawarma plate\"], [\"baked white fish\",\"white fish vegetables\",\"roasted fish plate\"].",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
     `Pantry items: ${pantry.join(", ") || "none provided"}.`,
     preferenceBrief,
@@ -96,6 +110,7 @@ export function buildMealPlanPrompt({
     "Return an object with exactly these top-level keys: plan, shoppingList.",
     "plan must be an array of 7 days.",
     "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
+    "Include image_search_index and image_search_indices inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
     "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used.",
     "Every shoppingList item must include summed quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."
   ].join(" ");

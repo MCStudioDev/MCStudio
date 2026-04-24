@@ -6,7 +6,7 @@ export interface GeneratedRecipeImage {
   model: string;
 }
 
-const imagenEnabled = process.env.GOOGLE_IMAGEN_ENABLED !== "false";
+const imagenEnabled = process.env.GOOGLE_IMAGEN_ENABLED === "true";
 const imagenApiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? "";
 const imagenModel = process.env.GOOGLE_IMAGEN_MODEL ?? "imagen-4.0-generate-001";
 
@@ -14,10 +14,16 @@ export function isImagenConfigured() {
   return Boolean(imagenEnabled && imagenApiKey);
 }
 
+export function getImagenModel() {
+  return imagenModel;
+}
+
 export async function generateRecipeImageWithImagen(query: string): Promise<GeneratedRecipeImage | null> {
   if (!isImagenConfigured()) return null;
 
-  process.env.GOOGLE_API_KEY = imagenApiKey;
+  if (process.env.GEMINI_API_KEY) {
+    delete process.env.GOOGLE_API_KEY;
+  }
   const client = new GoogleGenAI({ apiKey: imagenApiKey });
 
   const response = await client.models.generateImages({

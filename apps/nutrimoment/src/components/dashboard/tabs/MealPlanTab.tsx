@@ -12,7 +12,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useMealPlan } from "@/hooks/useMealPlan";
 import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
+import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { normalizeMealPlanData, normalizeShoppingList } from "@/lib/mealPlan";
+import type { MealPlanMeal } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
 function safeJsonParse<T>(value: string, fallback: T): T {
@@ -25,9 +27,9 @@ function safeJsonParse<T>(value: string, fallback: T): T {
 
 export function MealPlanTab() {
   const { t, settings, health, setError } = useApp();
-  const { access, getAuthHeaders, refreshAccess } = useAuth();
+  const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const { items } = usePantry();
-  const { mealPlan, loading: savedPlanLoading, error: mealPlanError, saveMealPlan } = useMealPlan();
+  const { mealPlan, loading: savedPlanLoading, error: mealPlanError, saveMealPlan, updateMealImage } = useMealPlan();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -118,9 +120,72 @@ export function MealPlanTab() {
                   <h3 className="text-2xl font-display font-bold text-stone-900">{day.day}</h3>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
-                  <MealPlanRevealCard title={t("breakfast")} meal={day.breakfast} />
-                  <MealPlanRevealCard title={t("lunch")} meal={day.lunch} />
-                  <MealPlanRevealCard title={t("dinner")} meal={day.dinner} />
+                  <MealPlanRevealCard
+                    title={t("breakfast")}
+                    meal={day.breakfast}
+                    onImageResolved={
+                      user
+                        ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
+                            const persistedImageUrl = await persistRecipeImageForUser({
+                              uid: user.uid,
+                              imageUrl,
+                              query: `${day.breakfast.name} food plated`
+                            });
+                            await updateMealImage(
+                              indexOfDay(mealPlan.plan, day.day),
+                              "breakfast",
+                              persistedImageUrl || imageUrl,
+                              imageSource,
+                              { name: imageAttributionName, url: imageAttributionUrl }
+                            );
+                          }
+                        : undefined
+                    }
+                  />
+                  <MealPlanRevealCard
+                    title={t("lunch")}
+                    meal={day.lunch}
+                    onImageResolved={
+                      user
+                        ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
+                            const persistedImageUrl = await persistRecipeImageForUser({
+                              uid: user.uid,
+                              imageUrl,
+                              query: `${day.lunch.name} food plated`
+                            });
+                            await updateMealImage(
+                              indexOfDay(mealPlan.plan, day.day),
+                              "lunch",
+                              persistedImageUrl || imageUrl,
+                              imageSource,
+                              { name: imageAttributionName, url: imageAttributionUrl }
+                            );
+                          }
+                        : undefined
+                    }
+                  />
+                  <MealPlanRevealCard
+                    title={t("dinner")}
+                    meal={day.dinner}
+                    onImageResolved={
+                      user
+                        ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
+                            const persistedImageUrl = await persistRecipeImageForUser({
+                              uid: user.uid,
+                              imageUrl,
+                              query: `${day.dinner.name} food plated`
+                            });
+                            await updateMealImage(
+                              indexOfDay(mealPlan.plan, day.day),
+                              "dinner",
+                              persistedImageUrl || imageUrl,
+                              imageSource,
+                              { name: imageAttributionName, url: imageAttributionUrl }
+                            );
+                          }
+                        : undefined
+                    }
+                  />
                 </div>
               </Card>
             ))}
@@ -157,16 +222,33 @@ export function MealPlanTab() {
 
 function MealPlanRevealCard({
   title,
-  meal
+  meal,
+  onImageResolved
 }: {
   title: string;
-  meal: { name: string; calories: number; protein: string; carbs: string; fat: string };
+  meal: MealPlanMeal;
+  onImageResolved?: (payload: {
+    imageAttributionName?: string;
+    imageAttributionUrl?: string;
+    imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+    imageUrl: string;
+  }) => void | Promise<void>;
 }) {
   return (
     <MealRevealCard
       name={meal.name}
       eyebrow={title}
-      imageQuery={`${meal.name} food plated`}
+      imageUrl={meal.image_url}
+      imageSource={meal.image_source}
+      imageAttributionName={meal.image_attribution_name}
+      imageAttributionUrl={meal.image_attribution_url}
+      imageQuery={[
+        ...(meal.image_search_indices ?? []),
+        meal.image_search_index,
+        meal.name,
+        `${meal.name} food plated`
+      ].filter((value): value is string => Boolean(value))}
+      onImageResolved={onImageResolved}
       stats={[
         { label: "kcal", value: meal.calories },
         { label: "protein", value: meal.protein },
@@ -183,4 +265,8 @@ function MealPlanRevealCard({
       className="min-h-full"
     />
   );
+}
+
+function indexOfDay(plan: Array<{ day: string }>, day: string) {
+  return plan.findIndex((entry) => entry.day === day);
 }

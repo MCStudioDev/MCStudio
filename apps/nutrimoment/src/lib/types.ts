@@ -1,6 +1,6 @@
 export type Tab = "scanner" | "pantry" | "mealplan" | "health" | "history" | "settings";
 
-export type Language = "en" | "ar" | "es" | "fr";
+export type Language = "en" | "ar";
 export type RecipeImageSource = "api" | "cache" | "search" | "unsplash" | "wikimedia";
 
 export interface PantryItem {
@@ -93,7 +93,6 @@ export interface UserSettings {
   calorieTarget: number;
   preferredCuisine: string;
   maxMissingIngredients: number;
-  voiceLanguage: string;
   recipeLanguage: string;
   uiLanguage: Language;
 }

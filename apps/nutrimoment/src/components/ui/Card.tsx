@@ -13,9 +13,9 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
     variant === "strong"
       ? "glass-card-strong"
       : variant === "plain"
-        ? "bg-white border border-emerald-100"
+        ? "bg-white/[0.08] border border-white/10 backdrop-blur-xl text-emerald-50"
         : "glass-card";
   return (
-    <div ref={ref} className={cn("rounded-3xl p-5 md:p-6", base, className)} {...rest} />
+    <div ref={ref} className={cn("rounded-[1.75rem] p-5 md:p-6 text-emerald-50", base, className)} {...rest} />
   );
 });

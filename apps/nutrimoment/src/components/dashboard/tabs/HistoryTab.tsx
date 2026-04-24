@@ -11,6 +11,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { formatDate } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
@@ -38,11 +39,30 @@ export function HistoryTab() {
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
-      <SectionHero title={t("recipeHistory")} description={t("recipeHistoryDesc")} icon={<History className="h-6 w-6" />} />
+      <SectionHero
+        title={t("recipeHistory")}
+        description={t("recipeHistoryDesc")}
+        eyebrow="Memory lane"
+        chips={["Saved", "Revisit", "Compare"]}
+        icon={<History className="h-6 w-6" />}
+        stats={[
+          { label: "Sessions", value: `${items.length}` },
+          { label: "Latest", value: items[0] ? formatDate(items[0].timestamp) : "No entries" },
+          { label: "Status", value: loading ? "Syncing" : "Ready" }
+        ]}
+        aside={
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Recall</p>
+            <p className="text-sm leading-relaxed text-emerald-50/72">
+              Return to past scans, compare recipe ideas, and keep your stronger matches easy to revisit.
+            </p>
+          </div>
+        }
+      />
 
       {loading ? (
         <motion.div variants={itemVariants}>
-          <Card className="rounded-[2rem] text-sm text-stone-500">Loading history…</Card>
+          <Card className="rounded-[2rem] text-sm text-emerald-50/58">Loading history...</Card>
         </motion.div>
       ) : items.length ? (
         <motion.div variants={itemVariants} className="space-y-4">
@@ -67,8 +87,8 @@ export function HistoryTab() {
               <Card key={entry.id} className="rounded-[2rem] space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{formatDate(entry.timestamp)}</p>
-                    <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{formatDate(entry.timestamp)}</p>
+                    <h3 className="mt-2 text-2xl font-display font-bold text-white">
                       {entry.recipes[0]?.name ?? "Saved recipe session"}
                     </h3>
                   </div>
@@ -94,6 +114,9 @@ export function HistoryTab() {
                     <MealRevealCard
                       key={`${entry.id}-${recipe.name}`}
                       name={recipe.name}
+                      summary={buildRecipeSummary(recipe)}
+                      previewLabel="Saved recipe preview"
+                      previewItems={buildRecipePreviewItems(recipe)}
                       imageUrl={recipe.image_url}
                       imageSource={recipe.image_source}
                       imageAttributionName={recipe.image_attribution_name}
@@ -169,12 +192,14 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
-  return [
-    ...(recipe.image_search_indices ?? []),
-    recipe.image_search_index,
-    [recipe.name, recipe.cuisine].filter(Boolean).join(" "),
-    `${recipe.name} prepared food`
-  ].filter((value): value is string => Boolean(value));
+  return buildRecipePhotoQueryCandidates({
+    cuisine: recipe.cuisine,
+    imageSearchIndex: recipe.image_search_index,
+    imageSearchIndices: recipe.image_search_indices,
+    ingredients: recipe.ingredients,
+    missingIngredients: recipe.missing_ingredients,
+    name: recipe.name
+  });
 }
 
 function serializeRecipePhotoQuery(queries: string[]) {
@@ -188,6 +213,14 @@ function buildRecipeStats(recipe: Recipe) {
     { label: "carbs", value: recipe.carbs },
     { label: "fat", value: recipe.fat }
   ];
+}
+
+function buildRecipeSummary(recipe: Recipe) {
+  return [recipe.cuisine, recipe.match_quality].filter(Boolean).join(" / ");
+}
+
+function buildRecipePreviewItems(recipe: Recipe) {
+  return [...recipe.ingredients, ...recipe.missing_ingredients].map(getRecipeIngredientLabel).slice(0, 5);
 }
 
 function buildRecipeSections(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {

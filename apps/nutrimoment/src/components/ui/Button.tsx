@@ -15,13 +15,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const VARIANT_STYLES: Record<Variant, string> = {
   primary:
-    "text-white shadow-glow hover:shadow-soft transition-ui gradient-emerald hover:brightness-110 active:brightness-95",
+    "text-[#032019] shadow-glow hover:shadow-soft transition-ui gradient-emerald hover:-translate-y-0.5 hover:brightness-105 active:translate-y-0 active:brightness-95",
   secondary:
-    "bg-white text-emerald-700 border border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50 transition-ui",
+    "bg-white/[0.08] text-emerald-50 border border-white/12 hover:border-cyan-300/35 hover:bg-white/[0.12] transition-ui backdrop-blur-xl",
   outline:
-    "bg-transparent text-emerald-700 border border-emerald-300 hover:bg-emerald-50 transition-ui",
-  ghost: "bg-transparent text-stone-700 hover:bg-stone-100 transition-ui",
-  danger: "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-ui"
+    "bg-transparent text-cyan-100 border border-cyan-300/30 hover:bg-cyan-300/8 transition-ui",
+  ghost: "bg-transparent text-emerald-50/78 hover:bg-white/[0.06] transition-ui",
+  danger: "bg-red-500/12 text-red-100 border border-red-300/20 hover:bg-red-500/18 transition-ui"
 };
 
 const SIZE_STYLES: Record<Size, string> = {
@@ -41,7 +41,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        "focus-ring inline-flex items-center justify-center gap-2 font-semibold tracking-tight",
+        "focus-ring inline-flex items-center justify-center gap-2 font-semibold tracking-tight will-change-transform",
         "disabled:opacity-60 disabled:cursor-not-allowed select-none",
         VARIANT_STYLES[variant],
         SIZE_STYLES[size],

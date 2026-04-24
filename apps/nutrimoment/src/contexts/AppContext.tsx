@@ -5,13 +5,19 @@ import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import type { HealthProfile, Language, UserSettings } from "@/lib/types";
+import {
+  getStoredOrDetectedPilotLanguage,
+  normalizePilotLanguage,
+  normalizeRecipeLanguage,
+  persistPilotLanguage,
+  recipeLanguageFromUiLanguage
+} from "@/lib/language";
 import { isRtl, t as translate, type TranslationKey } from "@/lib/translations";
 
 const DEFAULT_SETTINGS: UserSettings = {
   calorieTarget: 2000,
   preferredCuisine: "Any",
   maxMissingIngredients: 2,
-  voiceLanguage: "English",
   recipeLanguage: "English",
   uiLanguage: "en"
 };
@@ -72,10 +78,34 @@ function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
+function normalizeSettings(
+  raw: Partial<UserSettings> | undefined,
+  fallbackLanguage: Language = "en"
+): Partial<UserSettings> {
+  const uiLanguage = normalizePilotLanguage(raw?.uiLanguage, fallbackLanguage);
+  return {
+    ...raw,
+    uiLanguage,
+    recipeLanguage: normalizeRecipeLanguage(raw?.recipeLanguage, recipeLanguageFromUiLanguage(uiLanguage))
+  };
+}
+
 export function AppProvider({ children }: AppProviderProps) {
   const { user } = useAuth();
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const preferredLanguage = getStoredOrDetectedPilotLanguage();
+    dispatch({
+      type: "settings/merge",
+      payload: {
+        uiLanguage: preferredLanguage,
+        recipeLanguage: recipeLanguageFromUiLanguage(preferredLanguage)
+      }
+    });
+    persistPilotLanguage(preferredLanguage);
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -87,9 +117,20 @@ export function AppProvider({ children }: AppProviderProps) {
     const healthRef = doc(db, "users", user.uid, "profile", "health");
 
     const unsubSettings = onSnapshot(settingsRef, (snap) => {
+      const fallbackLanguage = getStoredOrDetectedPilotLanguage();
       if (snap.exists()) {
-        const data = snap.data() as Partial<UserSettings>;
+        const data = normalizeSettings(snap.data() as Partial<UserSettings>, fallbackLanguage);
         dispatch({ type: "settings/merge", payload: data });
+        persistPilotLanguage(data.uiLanguage ?? fallbackLanguage);
+      } else {
+        dispatch({
+          type: "settings/merge",
+          payload: {
+            uiLanguage: fallbackLanguage,
+            recipeLanguage: recipeLanguageFromUiLanguage(fallbackLanguage)
+          }
+        });
+        persistPilotLanguage(fallbackLanguage);
       }
       dispatch({ type: "profile/loading", payload: false });
     });
@@ -119,8 +160,9 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const saveSettings = useCallback(
     async (next: Partial<UserSettings>) => {
-      const merged = { ...settings, ...next };
-      dispatch({ type: "settings/merge", payload: next });
+      const merged = normalizeSettings({ ...settings, ...next }, settings.uiLanguage);
+      dispatch({ type: "settings/merge", payload: merged });
+      persistPilotLanguage(merged.uiLanguage ?? settings.uiLanguage);
       if (!user) return;
       try {
         const ref = doc(db, "users", user.uid, "profile", "settings");
@@ -155,7 +197,7 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const setLanguage = useCallback(
     async (lang: Language) => {
-      await saveSettings({ uiLanguage: lang });
+      await saveSettings({ uiLanguage: normalizePilotLanguage(lang) });
     },
     [saveSettings]
   );

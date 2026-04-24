@@ -1,21 +1,152 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ChefHat, Sparkles, Camera, Heart } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
-import { useApp } from "@/contexts/AppContext";
-import { HeroBlobs } from "@/components/ui/HeroBlobs";
+import {
+  ArrowRight,
+  CalendarDays,
+  Camera,
+  ChefHat,
+  Heart,
+  ShieldCheck,
+  ShoppingBasket,
+  Sparkles
+} from "lucide-react";
 import { Loader } from "@/components/ui/Loader";
+import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
+import type { Language } from "@/lib/types";
+
+const LANDING_COPY: Record<
+  Language,
+  {
+    badge: string;
+    subtitle: string;
+    featureScan: string;
+    featurePantry: string;
+    featurePlan: string;
+    languageLabel: string;
+    languageHelper: string;
+    languageDetected: string;
+    scannerEyebrow: string;
+    scannerTitle: string;
+    scannerUpload: string;
+    scannerHint: string;
+    quickIngredients: string[];
+    metricLabels: [string, string, string];
+    metricValues: [string, string, string];
+    signIn: string;
+    signInBusy: string;
+    disclaimer: string;
+    panels: Array<{
+      eyebrow: string;
+      title: string;
+      description: string;
+      items: string[];
+    }>;
+  }
+> = {
+  en: {
+    badge: "AI fridge scanner",
+    subtitle:
+      "AI-guided recipe and meal-planning support. Scan ingredients, build a pantry, and turn everyday groceries into healthier meal ideas with one calm workflow.",
+    featureScan: "Scan ingredients",
+    featurePantry: "Track pantry",
+    featurePlan: "Plan meals",
+    languageLabel: "Pilot language",
+    languageHelper: "We choose a starting language from your browser or region, and you can switch it here before login.",
+    languageDetected: "Current language",
+    scannerEyebrow: "Scan ingredients",
+    scannerTitle: "What ingredients do you have?",
+    scannerUpload: "Upload a fridge or ingredient photo",
+    scannerHint: "Preview the same scanner flow you get immediately after sign-in.",
+    quickIngredients: ["Tomatoes", "Spinach", "Greek yogurt", "Oats"],
+    metricLabels: ["Healthy choices", "Safer planning", "Fast workflow"],
+    metricValues: ["Ranked by fit", "Allergen-aware", "Scan to recipes"],
+    signIn: "Continue with Google",
+    signInBusy: "Connecting...",
+    disclaimer: "Informational support only. Always verify allergens, nutrition, and food safety.",
+    panels: [
+      {
+        eyebrow: "Pantry intelligence",
+        title: "Keep your kitchen updated",
+        description:
+          "Save quantities, watch what is running low, and use the same pantry data in recipes and weekly planning.",
+        items: ["Brown rice - 2 cups", "Eggs - 6 items", "Chicken breast - 1.5 lb"]
+      },
+      {
+        eyebrow: "Meal planning",
+        title: "Get a healthier weekly rhythm",
+        description:
+          "Plan breakfast, lunch, and dinner around preferences, calorie targets, and what you already have.",
+        items: ["Mon - Greek yogurt bowl", "Tue - Chickpea salad", "Wed - Lemon chicken rice"]
+      },
+      {
+        eyebrow: "Health profile",
+        title: "Personalize what gets suggested",
+        description: "Set diets, conditions, and allergens so results stay more relevant and easier to trust.",
+        items: ["Vegetarian", "Low sodium", "No peanuts"]
+      }
+    ]
+  },
+  ar: {
+    badge: "ماسح المطبخ الذكي",
+    subtitle:
+      "مساعد وصفات وتخطيط وجبات بالذكاء الاصطناعي. امسح المكونات وابن مخزنك وحول مشترياتك اليومية إلى أفكار صحية في مسار واحد هادئ.",
+    featureScan: "مسح المكونات",
+    featurePantry: "متابعة المخزن",
+    featurePlan: "تخطيط الوجبات",
+    languageLabel: "لغة النسخة التجريبية",
+    languageHelper: "نختار لغة البداية من المتصفح أو المنطقة، ويمكنك تغييرها هنا قبل تسجيل الدخول.",
+    languageDetected: "اللغة الحالية",
+    scannerEyebrow: "مسح المكونات",
+    scannerTitle: "ما المكونات المتوفرة لديك؟",
+    scannerUpload: "ارفع صورة للثلاجة أو المكونات",
+    scannerHint: "هذه معاينة لنفس تجربة المسح التي تبدأ بها مباشرة بعد تسجيل الدخول.",
+    quickIngredients: ["طماطم", "سبانخ", "زبادي يوناني", "شوفان"],
+    metricLabels: ["خيارات صحية", "تخطيط أكثر أمانا", "مسار سريع"],
+    metricValues: ["مرتبة حسب الملاءمة", "مراعية للحساسية", "من المسح إلى الوصفات"],
+    signIn: "المتابعة باستخدام Google",
+    signInBusy: "جار الاتصال...",
+    disclaimer: "الدعم هنا لأغراض معلوماتية فقط. يرجى دائما التحقق من الحساسية والقيم الغذائية وسلامة الطعام.",
+    panels: [
+      {
+        eyebrow: "ذكاء المخزن",
+        title: "حافظ على مطبخك محدثا",
+        description: "احفظ الكميات وتابع ما يوشك على النفاد واستخدم بيانات المخزن نفسها في الوصفات والخطة الأسبوعية.",
+        items: ["أرز بني - كوبان", "بيض - 6 حبات", "صدر دجاج - 1.5 رطل"]
+      },
+      {
+        eyebrow: "تخطيط الوجبات",
+        title: "احصل على إيقاع أسبوعي صحي",
+        description: "خطط للفطور والغداء والعشاء بناء على التفضيلات والسعرات وما لديك بالفعل.",
+        items: ["الاثنين - وعاء زبادي يوناني", "الثلاثاء - سلطة حمص", "الأربعاء - أرز بالدجاج والليمون"]
+      },
+      {
+        eyebrow: "الملف الصحي",
+        title: "خصص ما يتم اقتراحه",
+        description: "حدد الأنظمة والحالات الصحية ومسببات الحساسية ليبقى المحتوى أكثر ملاءمة وأسهل في الثقة.",
+        items: ["نباتي", "صوديوم منخفض", "بدون فول سوداني"]
+      }
+    ]
+  }
+};
+
+const LANGUAGE_OPTIONS: Array<{ code: Language; label: string }> = [
+  { code: "en", label: "English" },
+  { code: "ar", label: "العربية" }
+];
 
 export default function Landing() {
   const { user, loading, signInWithGoogle } = useAuth();
-  const { t, rtl, language } = useApp();
+  const { rtl, language, setLanguage, t } = useApp();
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const copy = LANDING_COPY[language];
 
   useEffect(() => {
     setIsMounted(true);
@@ -42,98 +173,246 @@ export default function Landing() {
 
   if (loading || !isMounted) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader label="Checking your session…" />
+      <div className="dashboard-shell flex min-h-screen items-center justify-center px-4">
+        <Loader label="Checking your session..." />
       </div>
     );
   }
 
   if (user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader label="Redirecting to your kitchen…" />
+      <div className="dashboard-shell flex min-h-screen items-center justify-center px-4">
+        <Loader label="Redirecting to your kitchen..." />
       </div>
     );
   }
 
   return (
     <main
-      className="relative min-h-screen flex items-center justify-center px-6 py-12 overflow-hidden"
+      className="dashboard-shell interactive-shell relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 sm:py-8"
       dir={rtl ? "rtl" : "ltr"}
       lang={language}
     >
-      <HeroBlobs />
+      <div className="blob animate-blob left-[-5rem] top-10 h-56 w-56 bg-emerald-300/18" />
+      <div className="blob animate-blob right-[-3rem] top-24 h-72 w-72 bg-cyan-300/14 [animation-delay:-4s]" />
+      <div className="blob animate-blob bottom-0 left-[18%] h-52 w-52 bg-lime-200/10 [animation-delay:-8s]" />
 
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="relative z-10 w-full max-w-md"
-      >
-        <div className="glass-card-strong rounded-[32px] p-8 md:p-10 text-center space-y-8">
-          <div className="flex flex-col items-center space-y-5">
-            <motion.div
-              whileHover={{ rotate: 12, scale: 1.05 }}
-              transition={{ type: "spring", stiffness: 260, damping: 18 }}
-              className="gradient-emerald rounded-3xl p-4 shadow-glow"
-            >
-              <ChefHat className="h-10 w-10 text-white" />
-            </motion.div>
-            <div className="space-y-2">
-              <h1 className="text-4xl font-display font-bold tracking-tight text-stone-900">
-                {t("appTitle")}
-              </h1>
-              <p className="text-stone-800 text-sm font-medium leading-relaxed max-w-xs mx-auto">
-                {t("appSubtitle")}
-              </p>
-            </div>
-          </div>
+      <div className="shell-frame relative z-10 flex min-h-[calc(100vh-3rem)] w-full items-center">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="flex w-full flex-col gap-6"
+        >
+          <section className="floating-shell section-band rounded-[2.2rem] p-6 md:p-8 lg:p-10">
+            <div className="flex flex-col gap-8">
+              <div className="space-y-5">
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-white/[0.06] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/90">
+                  {copy.badge}
+                </div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <motion.div
+                    whileHover={{ rotate: 12, scale: 1.05 }}
+                    transition={{ type: "spring", stiffness: 260, damping: 18 }}
+                    className="gradient-emerald w-fit rounded-3xl p-4 shadow-glow"
+                  >
+                    <ChefHat className="h-9 w-9 text-white" />
+                  </motion.div>
+                  <div>
+                    <h1 className="text-4xl font-display font-bold tracking-tight text-white md:text-5xl">
+                      {t("appTitle")}
+                    </h1>
+                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-emerald-50/70 md:text-base">
+                      {copy.subtitle}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-          <div className="grid grid-cols-3 gap-3 text-xs text-stone-600">
-            <Feature icon={<Camera className="h-4 w-4" />} label={t("scanIng")} />
-            <Feature icon={<Sparkles className="h-4 w-4" />} label={t("aiGenerated")} />
-            <Feature icon={<Heart className="h-4 w-4" />} label={t("healthProfile")} />
-          </div>
-
-          <div className="space-y-3 pt-2">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleSignIn}
-              disabled={signingIn}
-              className="focus-ring w-full h-14 flex items-center justify-center gap-3 bg-white text-stone-800 rounded-2xl font-semibold text-sm border border-stone-200 hover:border-emerald-400 hover:bg-emerald-50/50 transition-ui disabled:opacity-60"
-              aria-label="Continue with Google"
-            >
-              <GoogleIcon />
-              {signingIn ? "Connecting…" : "Continue with Google"}
-            </motion.button>
-            {error ? (
-              <p className="text-xs text-red-600">{error}</p>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-[11px] text-stone-600 uppercase tracking-widest font-semibold">Powered by Gemini</p>
-                <p className="text-[11px] leading-relaxed text-stone-600">
-                  Informational recipe support only. Verify allergens, nutrition, and food safety before use.
+              <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{copy.languageLabel}</p>
+                    <p className="text-sm text-emerald-50/62">{copy.languageHelper}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {LANGUAGE_OPTIONS.map((option) => (
+                      <button
+                        key={option.code}
+                        type="button"
+                        onClick={() => void setLanguage(option.code)}
+                        aria-pressed={language === option.code}
+                        className={`focus-ring rounded-full px-4 py-2 text-sm font-semibold transition-ui ${
+                          language === option.code
+                            ? "gradient-emerald text-[#032019] shadow-glow"
+                            : "border border-white/10 bg-white/[0.05] text-emerald-50/82 hover:bg-white/[0.1]"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-50/42">
+                  {copy.languageDetected}: {language === "ar" ? "العربية" : "English"}
                 </p>
               </div>
-            )}
-          </div>
-        </div>
-      </motion.div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Feature icon={<Camera className="h-4 w-4" />} label={copy.featureScan} />
+                <Feature icon={<ShoppingBasket className="h-4 w-4" />} label={copy.featurePantry} />
+                <Feature icon={<CalendarDays className="h-4 w-4" />} label={copy.featurePlan} />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+                <div className="rounded-[1.85rem] border border-white/10 bg-[linear-gradient(135deg,rgba(8,24,22,0.8)_0%,rgba(10,49,42,0.56)_52%,rgba(8,32,45,0.78)_100%)] p-5 md:p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{copy.scannerEyebrow}</p>
+                      <h2 className="mt-2 text-2xl font-display font-bold text-white">{copy.scannerTitle}</h2>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.08] p-3 text-cyan-100">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-6 py-8 text-center">
+                    <Camera className="mx-auto h-8 w-8 text-cyan-200" />
+                    <p className="mt-3 text-sm font-semibold text-white">{copy.scannerUpload}</p>
+                    <p className="mt-1 text-xs text-emerald-50/55">{copy.scannerHint}</p>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {copy.quickIngredients.map((item) => (
+                      <span
+                        key={item}
+                        className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-emerald-50/78"
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-1">
+                  <PreviewMetric label={copy.metricLabels[0]} value={copy.metricValues[0]} icon={<Heart className="h-4 w-4" />} />
+                  <PreviewMetric label={copy.metricLabels[1]} value={copy.metricValues[1]} icon={<ShieldCheck className="h-4 w-4" />} />
+                  <PreviewMetric label={copy.metricLabels[2]} value={copy.metricValues[2]} icon={<ArrowRight className="h-4 w-4" />} />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSignIn}
+                  disabled={signingIn}
+                  className="focus-ring gradient-emerald shadow-glow flex h-14 w-full items-center justify-center gap-3 rounded-2xl px-6 font-semibold text-[#032019] transition-ui disabled:opacity-60 sm:w-auto"
+                  aria-label="Continue with Google"
+                >
+                  <GoogleIcon />
+                  {signingIn ? copy.signInBusy : copy.signIn}
+                </motion.button>
+                <div className="text-xs leading-relaxed text-emerald-50/58">{copy.disclaimer}</div>
+              </div>
+
+              {error ? (
+                <p className="text-sm text-red-200">{error}</p>
+              ) : (
+                <div className="flex flex-wrap gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-50/42">
+                  <span>Powered by Gemini</span>
+                  <Link href="/legal/disclaimer" className="transition-ui hover:text-emerald-50">
+                    AI Disclaimer
+                  </Link>
+                  <Link href="/legal/privacy" className="transition-ui hover:text-emerald-50">
+                    Privacy
+                  </Link>
+                  <Link href="/legal/terms" className="transition-ui hover:text-emerald-50">
+                    Terms
+                  </Link>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {copy.panels.map((panel, index) => (
+              <PreviewPanel
+                key={panel.title}
+                eyebrow={panel.eyebrow}
+                title={panel.title}
+                description={panel.description}
+                items={panel.items}
+                className={index === 2 ? "md:col-span-2 xl:col-span-1" : undefined}
+              />
+            ))}
+          </section>
+        </motion.div>
+      </div>
     </main>
   );
 }
 
-interface FeatureProps {
-  icon: React.ReactNode;
-  label: string;
+function Feature({ icon, label }: { icon: ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-[1.25rem] border border-white/10 bg-white/[0.05] px-4 py-4 backdrop-blur-xl">
+      <div className="rounded-xl bg-white/[0.08] p-2 text-cyan-100">{icon}</div>
+      <span className="text-sm font-semibold text-emerald-50/88">{label}</span>
+    </div>
+  );
 }
 
-function Feature({ icon, label }: FeatureProps) {
+function PreviewMetric({
+  label,
+  value,
+  icon
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+}) {
   return (
-    <div className="flex flex-col items-center gap-1.5 rounded-2xl bg-white/85 border border-emerald-100 py-3 px-2 shadow-sm">
-      <div className="text-emerald-700">{icon}</div>
-      <span className="text-[11px] font-medium leading-tight text-stone-700 text-center">{label}</span>
+    <div className="glass-card section-band rounded-[1.6rem] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{label}</p>
+          <p className="mt-2 text-xl font-semibold text-white">{value}</p>
+        </div>
+        <div className="rounded-2xl bg-white/[0.08] p-3 text-cyan-100">{icon}</div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewPanel({
+  eyebrow,
+  title,
+  description,
+  items,
+  className
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  items: string[];
+  className?: string;
+}) {
+  return (
+    <div className={`glass-card section-band rounded-[1.9rem] p-5 ${className ?? ""}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{eyebrow}</p>
+      <h2 className="mt-2 text-2xl font-display font-bold text-white">{title}</h2>
+      <p className="mt-2 text-sm leading-relaxed text-emerald-50/65">{description}</p>
+
+      <div className="mt-4 space-y-2">
+        {items.map((item) => (
+          <div
+            key={item}
+            className="rounded-[1rem] border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-medium text-emerald-50/82"
+          >
+            {item}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

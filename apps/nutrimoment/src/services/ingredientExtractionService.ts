@@ -32,8 +32,16 @@ export async function extractIngredientsFromImage({
 
   const text = await callOpenAIVision(buildIngredientNameArrayVisionPrompt(language, isPantry), image);
   const json = extractJson(text);
-  const parsed = JSON.parse(json) as string[];
-  return parsed.map((item) => item.trim()).filter(Boolean);
+  const parsed = JSON.parse(json) as string[] | { ingredients?: string[]; items?: Array<{ name?: string }> };
+  const rawItems = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed.ingredients)
+      ? parsed.ingredients
+      : Array.isArray(parsed.items)
+        ? parsed.items.map((item) => item?.name ?? "")
+        : [];
+
+  return normalizeDetectedIngredientNames(rawItems, { isPantry });
 }
 
 export async function extractPantryItemsFromImage({
@@ -52,8 +60,54 @@ export async function extractPantryItemsFromImage({
 
   return (parsed.items ?? [])
     .map((item) => ({
-      name: item.name?.trim() ?? "",
+      name: normalizeDetectedIngredientName(item.name ?? "", { isPantry: true }),
       quantity: item.quantity?.trim() || "1 item"
     }))
     .filter((item) => Boolean(item.name));
+}
+
+function normalizeDetectedIngredientNames(values: string[], options: { isPantry: boolean }) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeDetectedIngredientName(value, options))
+        .filter(Boolean)
+    )
+  ).slice(0, 20);
+}
+
+function normalizeDetectedIngredientName(value: string, options: { isPantry: boolean }) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[_]/g, " ")
+    .replace(/\b\d+(?:\/\d+)?\b/g, " ")
+    .replace(/\b(pack|packet|box|jar|bottle|container|brand|label|plate|bowl|dish|meal|food|ingredient mix)\b/g, " ")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\bgrilled chicken breast\b/g, "chicken breast")
+    .replace(/\bfried chicken breast\b/g, "chicken breast")
+    .replace(/\bgrilled chicken\b/g, "chicken")
+    .replace(/\bfried chicken\b/g, "chicken")
+    .replace(/\broasted chicken\b/g, "chicken")
+    .replace(/\bspaghetti\b/g, "pasta")
+    .replace(/\bpenne\b/g, "pasta")
+    .replace(/\bfettuccine\b/g, "pasta")
+    .replace(/\bmacaroni\b/g, "pasta")
+    .replace(/\bred sauce\b/g, "tomato sauce")
+    .replace(/\bmarinara\b/g, "tomato sauce")
+    .replace(/\bwhite sauce\b/g, "white sauce")
+    .replace(/\balfredo sauce\b/g, "white sauce")
+    .replace(/\bcreamy sauce\b/g, "white sauce")
+    .replace(/\begg noodles\b/g, "egg noodles")
+    .replace(/\bnoodles\b/g, options.isPantry ? "noodles" : "egg noodles")
+    .replace(/\btomatoes\b/g, "tomato")
+    .replace(/\beggs\b/g, "egg")
+    .replace(/\bbreasts\b/g, "breast")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return "";
+  if (normalized.length < 2) return "";
+  if (!options.isPantry && /^(food|meal|dish|ingredient)$/.test(normalized)) return "";
+
+  return normalized;
 }

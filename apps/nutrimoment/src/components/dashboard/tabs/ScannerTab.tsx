@@ -17,6 +17,7 @@ import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -276,16 +277,34 @@ export function ScannerTab() {
       <SectionHero
         title={t("heroTitle")}
         description={t("heroSub")}
+        eyebrow="Live recipe vision"
+        chips={["Scan", "Match", "Cook"]}
         icon={<Camera className="h-6 w-6" />}
+        stats={[
+          { label: "Ingredients", value: `${ingredients.length}` },
+          { label: "Recipes", value: recipes.length ? `${recipes.length} ready` : "Waiting" },
+          {
+            label: "Credits",
+            value: access.tier === "free" ? `${access.aiCreditsRemaining}/${access.aiCreditsLimit}` : "Premium"
+          }
+        ]}
+        aside={
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Flow</p>
+            <p className="text-sm leading-relaxed text-emerald-50/72">
+              Capture what you have, refine the list, then reveal recipe directions with richer image matching.
+            </p>
+          </div>
+        }
       />
 
       {access.tier === "free" ? (
-        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-amber-200/16 bg-amber-400/10 px-5 py-4 text-sm text-amber-50/90">
           Free plan: {access.aiCreditsRemaining} of {access.aiCreditsLimit} shared AI uses left for scans and recipe generation.
           Recipe photos use free public lookups.
         </motion.div>
       ) : (
-        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-emerald-200/16 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-50/90">
           Premium plan: API recipe generation and scans are enabled with offline fallback. Recipe photos use free public lookups.
         </motion.div>
       )}
@@ -294,10 +313,10 @@ export function ScannerTab() {
         <Card className="space-y-5 rounded-[2rem]">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">{t("scanIng")}</p>
-              <h3 className="text-2xl font-display font-bold text-stone-900">{t("whatIng")}</h3>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">{t("scanIng")}</p>
+              <h3 className="text-2xl font-display font-bold text-white">{t("whatIng")}</h3>
             </div>
-            <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700">
+            <div className="rounded-2xl bg-white/[0.08] p-3 text-cyan-100">
               <Utensils className="h-5 w-5" />
             </div>
           </div>
@@ -313,17 +332,17 @@ export function ScannerTab() {
               onChange={handleImageUpload}
               aria-label="Upload a fridge or ingredient photo"
             />
-            <span className="focus-within:ring-2 focus-within:ring-emerald-500 focus-within:ring-offset-2 flex min-h-36 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-emerald-200 bg-emerald-50/60 px-6 text-center transition-ui hover:border-emerald-400 hover:bg-emerald-50">
-              <ImagePlus className="h-8 w-8 text-emerald-600" aria-hidden="true" />
-              <span className="text-sm font-semibold text-stone-800" aria-live="polite">
+            <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-36 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-6 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
+              <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
+              <span className="text-sm font-semibold text-white" aria-live="polite">
                 {scanLoading ? t("identifying") : "Upload a fridge or ingredient photo"}
               </span>
-              <span className="text-xs text-stone-500">{t("takePhoto")}</span>
+              <span className="text-xs text-emerald-50/55">{t("takePhoto")}</span>
             </span>
           </label>
 
           <div className="space-y-3">
-            <label htmlFor="scanner-manual-ingredient" className="text-sm font-semibold text-stone-800">
+            <label htmlFor="scanner-manual-ingredient" className="text-sm font-semibold text-emerald-50/88">
               {t("typeIng")}
             </label>
             <div className="flex gap-3">
@@ -341,7 +360,7 @@ export function ScannerTab() {
                 placeholder={t("quickAdd")}
                 autoComplete="off"
                 spellCheck
-                className="focus-ring h-12 flex-1 rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+                className="focus-ring neo-input h-12 flex-1 rounded-2xl px-4 text-sm transition-ui"
               />
               <label htmlFor="scanner-manual-quantity" className="sr-only">
                 Ingredient quantity
@@ -355,13 +374,13 @@ export function ScannerTab() {
                 autoComplete="off"
                 inputMode="text"
                 aria-label="Ingredient quantity"
-                className="focus-ring h-12 w-44 rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+                className="focus-ring neo-input h-12 w-44 rounded-2xl px-4 text-sm transition-ui"
               />
               <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={addManualIngredient}>
                 {t("add")}
               </Button>
             </div>
-            <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-xs leading-relaxed text-cyan-800">
+            <div className="rounded-2xl border border-cyan-200/14 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/86">
               Quantity guide: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
               olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
             </div>
@@ -371,10 +390,10 @@ export function ScannerTab() {
         <Card className="space-y-5 rounded-[2rem]">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">{t("reviewIng")}</p>
-              <h3 className="text-2xl font-display font-bold text-stone-900">{t("detectedIng")}</h3>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">{t("reviewIng")}</p>
+              <h3 className="text-2xl font-display font-bold text-white">{t("detectedIng")}</h3>
             </div>
-            <div className="rounded-2xl bg-cyan-100 p-3 text-cyan-700">
+            <div className="rounded-2xl bg-white/[0.08] p-3 text-cyan-100">
               <Sparkles className="h-5 w-5" />
             </div>
           </div>
@@ -384,11 +403,11 @@ export function ScannerTab() {
               {ingredients.map((ingredient) => (
                 <div
                   key={ingredient.id}
-                  className="grid gap-3 rounded-[1.25rem] border border-emerald-100 bg-white/80 p-3 text-sm font-medium text-stone-700 sm:grid-cols-[1fr_190px_auto]"
+                  className="grid gap-3 rounded-[1.25rem] border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/82 sm:grid-cols-[1fr_190px_auto]"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-stone-900">{ingredient.name}</p>
-                    <p className="text-xs text-stone-500">{getPantryQuantityHint(ingredient.name)}</p>
+                    <p className="truncate font-semibold text-white">{ingredient.name}</p>
+                    <p className="text-xs text-emerald-50/50">{getPantryQuantityHint(ingredient.name)}</p>
                   </div>
                   <input
                     id={`scanner-quantity-${ingredient.id}`}
@@ -398,7 +417,7 @@ export function ScannerTab() {
                     placeholder={getPantryQuantityHint(ingredient.name)}
                     aria-label={`Quantity for ${ingredient.name}`}
                     autoComplete="off"
-                    className="focus-ring h-11 rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+                    className="focus-ring neo-input h-11 rounded-2xl px-4 text-sm transition-ui"
                   />
                   <button
                     type="button"
@@ -411,7 +430,7 @@ export function ScannerTab() {
                       })
                     }
                     aria-label={`Remove ${ingredient.name}`}
-                    className="focus-ring rounded-2xl bg-stone-50 px-3 py-2 text-xs font-semibold text-stone-500 transition-ui hover:bg-red-50 hover:text-red-600"
+                    className="focus-ring rounded-2xl bg-white/[0.05] px-3 py-2 text-xs font-semibold text-emerald-50/65 transition-ui hover:bg-red-500/12 hover:text-red-100"
                   >
                     Remove
                   </button>
@@ -419,19 +438,19 @@ export function ScannerTab() {
               ))}
             </div>
           ) : (
-            <div className="rounded-[1.5rem] border border-dashed border-emerald-200 bg-white/70 px-5 py-6 text-sm text-stone-500">
+            <div className="rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-5 py-6 text-sm text-emerald-50/55">
               {t("scanFridgeStart")}
             </div>
           )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Card variant="plain" className="rounded-[1.5rem] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{t("preferredCuisine")}</p>
-              <p className="mt-2 text-lg font-semibold text-stone-900">{settings.preferredCuisine}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("preferredCuisine")}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{settings.preferredCuisine}</p>
             </Card>
             <Card variant="plain" className="rounded-[1.5rem] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{t("dailyCalorieTarget")}</p>
-              <p className="mt-2 text-lg font-semibold text-stone-900">{settings.calorieTarget} kcal</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("dailyCalorieTarget")}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{settings.calorieTarget} kcal</p>
             </Card>
           </div>
 
@@ -457,6 +476,9 @@ export function ScannerTab() {
                   key={recipe.name}
                   deferImageLookup={index >= 2}
                   name={recipe.name}
+                  summary={buildRecipeSummary(recipe)}
+                  previewLabel="Preview ingredients and macros"
+                  previewItems={buildRecipePreviewItems(recipe)}
                   imageUrl={recipe.image_url}
                   imageSource={recipe.image_source}
                   imageAttributionName={recipe.image_attribution_name}
@@ -523,12 +545,14 @@ function hasRenderableImage(imageUrl?: string) {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
-  return [
-    ...(recipe.image_search_indices ?? []),
-    recipe.image_search_index,
-    [recipe.name, recipe.cuisine].filter(Boolean).join(" "),
-    `${recipe.name} prepared food`
-  ].filter((value): value is string => Boolean(value));
+  return buildRecipePhotoQueryCandidates({
+    cuisine: recipe.cuisine,
+    imageSearchIndex: recipe.image_search_index,
+    imageSearchIndices: recipe.image_search_indices,
+    ingredients: recipe.ingredients,
+    missingIngredients: recipe.missing_ingredients,
+    name: recipe.name
+  });
 }
 
 function buildRecipePhotoRequestUrl(queries: string[]) {
@@ -555,6 +579,15 @@ function buildRecipeStats(recipe: Recipe) {
     { label: "carbs", value: recipe.carbs },
     { label: "fat", value: recipe.fat }
   ];
+}
+
+function buildRecipeSummary(recipe: Recipe) {
+  const preferenceHits = recipe.preference_hits?.length ? `${recipe.preference_hits.length} preference matches` : null;
+  return [recipe.cuisine, recipe.match_quality, preferenceHits].filter(Boolean).join(" / ");
+}
+
+function buildRecipePreviewItems(recipe: Recipe) {
+  return [...recipe.ingredients, ...recipe.missing_ingredients].map(getRecipeIngredientLabel).slice(0, 5);
 }
 
 function buildRecipeSections(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {

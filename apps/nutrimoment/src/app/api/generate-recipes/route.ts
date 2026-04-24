@@ -10,6 +10,8 @@ import {
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
+import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import type { Recipe } from "@/lib/types";
 
 const RECIPE_RESULT_COUNT = 5;
@@ -114,7 +116,7 @@ export async function POST(request: Request) {
       const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
       const strictRecipes = rankStrictRecipes(
         applyStrictIngredientOwnership(MOCK_RECIPES.recipes, availableIngredients),
-        parsed.data
+        { ...parsed.data, ingredients }
       );
       return Response.json({
         recipes: strictRecipes,
@@ -141,7 +143,7 @@ export async function POST(request: Request) {
       });
       const strictRecipes = rankStrictRecipes(
         applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
-        parsed.data
+        { ...parsed.data, ingredients }
       );
       return Response.json({
         result: JSON.stringify(strictRecipes),
@@ -180,7 +182,7 @@ export async function POST(request: Request) {
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
         const strictRecipes = rankStrictRecipes(
           applyStrictIngredientOwnership(normalizedRecipes, availableIngredients),
-          parsed.data
+          { ...parsed.data, ingredients }
         ).slice(0, RECIPE_RESULT_COUNT);
         console.info("Recipe generation served from Gemini fallback AI", {
           recipeCount: strictRecipes.length
@@ -203,7 +205,7 @@ export async function POST(request: Request) {
     });
     const strictRecipes = rankStrictRecipes(
       applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
-      parsed.data
+      { ...parsed.data, ingredients }
     );
     return Response.json({
       result: JSON.stringify(strictRecipes),
@@ -279,14 +281,25 @@ function applyStrictIngredientOwnership(inputRecipes: unknown[], availableIngred
       }
     }
 
-    const imageSearchIndices = normalizeImageSearchIndices([
-      baseRecipe.image_search_indices,
-      baseRecipe.photo_queries,
-      baseRecipe.search_indices,
-      baseRecipe.image_search_index,
-      baseRecipe.photo_query,
-      baseRecipe.search_index
-    ]);
+    const imageSearchIndices = buildRecipePhotoQueryCandidates({
+      cuisine: typeof baseRecipe.cuisine === "string" ? baseRecipe.cuisine : "",
+      imageSearchIndex:
+        typeof baseRecipe.image_search_index === "string"
+          ? baseRecipe.image_search_index
+          : typeof baseRecipe.photo_query === "string"
+            ? baseRecipe.photo_query
+            : typeof baseRecipe.search_index === "string"
+              ? baseRecipe.search_index
+              : undefined,
+      imageSearchIndices: normalizeImageSearchIndices([
+        baseRecipe.image_search_indices,
+        baseRecipe.photo_queries,
+        baseRecipe.search_indices
+      ]),
+      ingredients: owned,
+      missingIngredients: missing,
+      name: typeof baseRecipe.name === "string" ? baseRecipe.name : "recipe"
+    });
 
     return {
       ...baseRecipe,
@@ -323,6 +336,7 @@ function normalizeImageSearchIndices(values: unknown[]) {
 function rankStrictRecipes(
   recipes: Recipe[],
   options: {
+    ingredients?: string[];
     preferredCuisine?: string;
     calorieTarget?: number;
     maxMissingIngredients?: number;
@@ -343,7 +357,8 @@ function rankStrictRecipes(
         targetCaloriesPerMeal,
         preferredCuisine,
         maxMissingIngredients: options.maxMissingIngredients ?? 3,
-        hasPreferences: Boolean(options.diets?.length || options.conditions?.length)
+        hasPreferences: Boolean(options.diets?.length || options.conditions?.length),
+        availableIngredients: options.ingredients ?? []
       })
     }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
@@ -358,6 +373,7 @@ function scoreStrictRecipe(
     preferredCuisine: string;
     maxMissingIngredients: number;
     hasPreferences: boolean;
+    availableIngredients: string[];
   }
 ) {
   const ownedCount = recipe.ingredients.length;
@@ -373,12 +389,21 @@ function scoreStrictRecipe(
   const calorieScore = Math.max(0, 8 - calorieDistance / 50);
   const maxMissingBonus = missingCount <= options.maxMissingIngredients ? 4 : -4;
   const matchQualityScore = getMatchQualityScore(recipe.match_quality);
+  const cuisineFit = scoreCuisineFit({
+    preferredCuisine: options.preferredCuisine,
+    recipeCuisine: recipe.cuisine,
+    recipeName: recipe.name,
+    availableIngredients: options.availableIngredients,
+    recipeIngredients: recipe.ingredients,
+    missingIngredients: recipe.missing_ingredients
+  });
 
   return (
     ownedCount * 20 -
     missingCount * 8 +
     preferenceHitCount * (options.hasPreferences ? 7 : 3) +
     cuisineMatch * 5 +
+    cuisineFit.score +
     calorieScore +
     maxMissingBonus +
     matchQualityScore

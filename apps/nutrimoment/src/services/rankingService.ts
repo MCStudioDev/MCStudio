@@ -1,5 +1,6 @@
 import type { RankedRecipeResult, RecipeCatalogDoc } from "@/lib/domain";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
+import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import type { ResolvedPreferenceProfile } from "@/lib/preferences";
 
 export interface RankRecipesInput {
@@ -36,10 +37,18 @@ export function rankRecipes({
       const calorieMatch = maxCalories ? Number(recipe.calories <= maxCalories) : 0;
       const cuisineMatch = preferredCuisine !== "Any" && cuisineMatchesPreference(recipe.cuisine, preferredCuisine) ? 1 : 0;
       const mealTypeMatch = mealType && recipe.mealType === mealType ? 1 : 0;
+      const cuisineFit = scoreCuisineFit({
+        preferredCuisine,
+        recipeCuisine: recipe.cuisine,
+        recipeName: recipe.title,
+        mealType: recipe.mealType,
+        availableIngredients: normalizedIngredients,
+        recipeIngredients: recipe.ingredientCanonicals
+      });
       const popularityBoost = normalizeBoost(recipe.popularityScore);
       const qualityBoost = normalizeBoost(recipe.qualityScore);
       const nutritionGoalScore = scoreNutritionGoals(recipe, preferences);
-      const preferenceHits = buildPreferenceHits(recipe, preferences, preferredDietTagMatches, calorieMatch);
+      const preferenceHits = buildPreferenceHits(recipe, preferences, preferredDietTagMatches, calorieMatch, cuisineFit.hits);
 
       const score =
         8 * matchedRequired.length +
@@ -51,6 +60,7 @@ export function rankRecipes({
         3 * calorieMatch +
         2 * cuisineMatch +
         2 * mealTypeMatch +
+        cuisineFit.score +
         nutritionGoalScore +
         popularityBoost +
         qualityBoost -
@@ -118,9 +128,10 @@ function buildPreferenceHits(
   recipe: RecipeCatalogDoc,
   preferences: ResolvedPreferenceProfile,
   preferredDietTagMatches: number,
-  calorieMatch: number
+  calorieMatch: number,
+  cuisineHits: string[]
 ) {
-  const hits: string[] = [];
+  const hits: string[] = [...cuisineHits];
 
   for (const tag of preferences.requiredDietTags) {
     if (recipe.dietTags.includes(tag)) {

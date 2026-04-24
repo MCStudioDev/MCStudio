@@ -1,14 +1,18 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ChefHat, Languages, LogOut, ShoppingCart, Heart, History, Settings, Camera, Calendar } from "lucide-react";
+import { ChefHat, LogOut, ShoppingCart, Heart, History, Settings, Camera, Calendar } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
 import type { Tab, Language } from "@/lib/types";
-import { LANGUAGES } from "@/lib/translations";
+
+const PILOT_LANGUAGES: Array<{ code: Language; label: string; nativeLabel: string; rtl?: boolean }> = [
+  { code: "en", label: "English", nativeLabel: "English" },
+  { code: "ar", label: "Arabic", nativeLabel: "العربية", rtl: true }
+];
 
 interface TopNavProps {
   activeTab: Tab;
@@ -27,6 +31,8 @@ const TABS: { id: Tab; icon: typeof ChefHat; key: Parameters<ReturnType<typeof u
 export function TopNav({ activeTab, onTabChange }: TopNavProps) {
   const { user, access, signOut } = useAuth();
   const { t, language, setLanguage } = useApp();
+  const activeLanguage = PILOT_LANGUAGES.find((item) => item.code === language) ?? PILOT_LANGUAGES[0];
+  const activeLanguageChip = activeLanguage.code === "ar" ? "ع" : "EN";
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const langContainerRef = useRef<HTMLDivElement | null>(null);
@@ -62,10 +68,10 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
   }, [showLangMenu]);
 
   return (
-    <header className="sticky top-0 z-[80]">
-      <div className="relative z-30 bg-white/90 backdrop-blur-xl border-b border-emerald-100 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-20 gap-4">
+    <header className="sticky top-0 z-[80] px-3 pt-3 sm:px-4 sm:pt-4">
+      <div className="shell-frame relative z-30">
+        <div className="floating-shell rounded-[2rem] px-4 sm:px-6">
+          <div className="flex min-h-22 flex-col justify-center gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <motion.div
                 whileHover={{ rotate: 10 }}
@@ -74,50 +80,63 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
               >
                 <ChefHat className="h-6 w-6 text-white" />
               </motion.div>
-              <div className="hidden sm:block">
-                <h1 className="text-lg font-display font-bold text-stone-900 leading-none">
+              <div>
+                <div className="mb-1 inline-flex items-center gap-2 rounded-full border border-emerald-300/16 bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-100/80">
+                  Futuristic wellness
+                </div>
+                <h1 className="text-lg font-display font-bold leading-none text-white sm:text-xl">
                   {t("appTitle")}
                 </h1>
-                <p className="text-[11px] text-stone-500 mt-1 leading-none">
-                  {t("appSubtitle")}
+                <p className="mt-1 max-w-md text-[11px] leading-relaxed text-emerald-50/60 sm:text-xs">
+                  {t("appSubtitle")} Keep your pantry, meal plan, and health profile aligned from one dashboard.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold text-stone-700">
-                <span className="uppercase tracking-[0.16em] text-emerald-600">{access.tier}</span>
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-emerald-50 backdrop-blur-xl">
+                <span className="uppercase tracking-[0.16em] text-cyan-200">{access.tier}</span>
                 {access.tier === "free" ? (
-                  <span className="ml-2 text-stone-500 tabular-nums">
+                  <span className="ml-2 tabular-nums text-emerald-50/65">
                     <span className="sm:hidden">{access.aiCreditsRemaining}/{access.aiCreditsLimit}</span>
                     <span className="hidden sm:inline">{access.aiCreditsRemaining}/{access.aiCreditsLimit} AI left</span>
                   </span>
                 ) : (
-                  <span className="ml-2 text-stone-500">
+                  <span className="ml-2 text-emerald-50/65">
                     <span className="sm:hidden">API</span>
                     <span className="hidden sm:inline">API-first</span>
                   </span>
                 )}
               </div>
+              {user?.email ? (
+                <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-emerald-50/65 backdrop-blur-xl md:block">
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100/50">Signed in</span>
+                  <span className="mt-1 block max-w-52 truncate font-medium text-emerald-50">{user.email}</span>
+                </div>
+              ) : null}
               <div className="relative" ref={langContainerRef}>
                 <button
                   type="button"
                   onClick={() => setShowLangMenu((v) => !v)}
-                  className="focus-ring p-2.5 rounded-xl text-stone-700 hover:bg-emerald-50 transition-ui flex items-center gap-1.5"
+                  className="focus-ring flex min-w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-emerald-50/80 hover:bg-white/[0.08] transition-ui"
                   aria-label="Switch language"
                   aria-haspopup="menu"
                   aria-expanded={showLangMenu}
                 >
-                  <Languages className="h-5 w-5" aria-hidden="true" />
-                  <span className="text-xs font-semibold uppercase">{language}</span>
+                  <span
+                    className={cn("text-sm font-bold", activeLanguage.rtl ? "tracking-normal" : "uppercase")}
+                    dir={activeLanguage.rtl ? "rtl" : "ltr"}
+                  >
+                    {activeLanguageChip}
+                  </span>
                 </button>
                 {showLangMenu ? (
                   <div
                     role="menu"
                     aria-label="Language"
-                    className="absolute right-0 top-full z-[120] mt-2 min-w-44 rounded-2xl border border-emerald-100 bg-white p-1.5 shadow-soft ring-1 ring-stone-900/5"
+                    className="absolute right-0 top-full z-[120] mt-2 min-w-44 rounded-2xl border border-white/10 bg-[#0d221e]/96 p-1.5 shadow-soft ring-1 ring-white/10"
                   >
-                    {LANGUAGES.map((lang) => (
+                    {PILOT_LANGUAGES.map((lang) => (
                       <button
                         key={lang.code}
                         type="button"
@@ -126,12 +145,16 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                         className={cn(
                           "focus-ring w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-ui flex justify-between items-center",
                           language === lang.code
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "hover:bg-stone-50 text-stone-700"
+                            ? "bg-white/[0.08] text-emerald-50"
+                            : "hover:bg-white/[0.05] text-emerald-50/75"
                         )}
                       >
-                        <span>{lang.nativeLabel}</span>
-                        <span className="text-[10px] uppercase text-stone-400">{lang.code}</span>
+                        <span className={lang.rtl ? "tracking-normal" : "uppercase"} dir={lang.rtl ? "rtl" : "ltr"}>
+                          {lang.nativeLabel}
+                        </span>
+                        <span className="text-[11px] font-semibold text-emerald-50/45">
+                          {lang.code === "ar" ? "ع" : "EN"}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -141,7 +164,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
               <button
                 type="button"
                 onClick={() => setShowSignOutConfirm(true)}
-                className="focus-ring p-2.5 rounded-xl text-stone-700 hover:bg-red-50 hover:text-red-600 transition-ui"
+                className="focus-ring rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-emerald-50/80 hover:bg-red-500/12 hover:text-red-100 transition-ui"
                 aria-label={t("logout")}
                 title={user?.email ?? ""}
               >
@@ -152,9 +175,9 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
         </div>
       </div>
 
-      <nav className="relative z-10 bg-white/80 backdrop-blur-xl border-b border-emerald-100">
-        <div className="max-w-6xl mx-auto px-2 sm:px-6">
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-hidden py-2">
+      <nav className="relative z-10 mt-3">
+        <div className="shell-frame px-1 sm:px-3">
+          <div className="nav-pill-track flex items-center gap-2 overflow-x-auto rounded-[1.75rem] px-2 py-2 scrollbar-hidden">
             {TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -165,14 +188,16 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                   onClick={() => onTabChange(tab.id)}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "focus-ring relative flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-semibold whitespace-nowrap transition-ui",
-                    isActive ? "text-white" : "text-stone-600 hover:text-emerald-700 hover:bg-emerald-50"
+                    "focus-ring relative flex items-center gap-2 rounded-[1.15rem] px-4 py-3 text-sm font-semibold whitespace-nowrap transition-ui",
+                    isActive
+                      ? "text-[#032019]"
+                      : "border border-white/6 bg-transparent text-emerald-50/68 hover:text-white hover:bg-white/[0.06]"
                   )}
                 >
                   {isActive ? (
                     <motion.span
                       layoutId="active-tab-pill"
-                      className="absolute inset-0 gradient-emerald rounded-2xl shadow-glow"
+                      className="absolute inset-0 gradient-emerald rounded-[1.15rem] shadow-glow"
                       transition={{ type: "spring", stiffness: 300, damping: 28 }}
                     />
                   ) : null}

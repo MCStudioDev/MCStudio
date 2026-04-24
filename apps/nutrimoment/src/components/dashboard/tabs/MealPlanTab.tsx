@@ -13,6 +13,7 @@ import { useMealPlan } from "@/hooks/useMealPlan";
 import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { normalizeMealPlanData, normalizeShoppingList } from "@/lib/mealPlan";
 import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
 import type { MealPlanMeal } from "@/lib/types";
@@ -95,17 +96,32 @@ export function MealPlanTab() {
       <SectionHero
         title={t("mealPlanTitle")}
         description={t("mealPlanDesc")}
+        eyebrow="Weekly nutrition rhythm"
+        chips={["Balanced", "Pantry-aware", "Visual"]}
         icon={<CalendarDays className="h-6 w-6" />}
+        stats={[
+          { label: "Plan status", value: mealPlan ? "Active" : "Not generated" },
+          { label: "Shopping", value: shoppingList.length ? `${shoppingList.length} items` : "Minimal" },
+          { label: "Access", value: access.tier === "premium" ? "Premium" : "Upgrade" }
+        ]}
+        aside={
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Planning lane</p>
+            <p className="text-sm leading-relaxed text-emerald-50/72">
+              Shape breakfast, lunch, and dinner into one calmer weekly flow with pantry context built in.
+            </p>
+          </div>
+        }
       />
 
       <motion.div variants={itemVariants} className="flex justify-start">
         <div className="space-y-3">
           {access.tier !== "premium" ? (
-            <div className="rounded-[1.5rem] border border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+            <div className="rounded-[1.5rem] border border-amber-200/16 bg-amber-400/10 px-5 py-4 text-sm text-amber-50/88">
               Weekly plans are premium because they use API-first planning across pantry, health, cuisine, and shopping-list quantities.
             </div>
           ) : (
-            <div className="rounded-[1.5rem] border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+            <div className="rounded-[1.5rem] border border-emerald-200/16 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-50/88">
               Premium weekly plans use API generation first and offline catalog recipes if the API is unavailable.
             </div>
           )}
@@ -122,7 +138,7 @@ export function MealPlanTab() {
             {mealPlan.plan.map((day) => (
               <Card key={day.day} className="rounded-[2rem] space-y-4">
                 <div>
-                  <h3 className="text-2xl font-display font-bold text-stone-900">{day.day}</h3>
+                  <h3 className="text-2xl font-display font-bold text-white">{day.day}</h3>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
                   <MealPlanRevealCard
@@ -135,7 +151,7 @@ export function MealPlanTab() {
                             const persistedImageUrl = await persistRecipeImageForUser({
                               uid: user.uid,
                               imageUrl,
-                              query: `${day.breakfast.name} food plated`
+                              query: serializeRecipePhotoQuery(buildMealPlanPhotoQuery(day.breakfast))
                             });
                             await updateMealImage(
                               indexOfDay(mealPlan.plan, day.day),
@@ -158,7 +174,7 @@ export function MealPlanTab() {
                             const persistedImageUrl = await persistRecipeImageForUser({
                               uid: user.uid,
                               imageUrl,
-                              query: `${day.lunch.name} food plated`
+                              query: serializeRecipePhotoQuery(buildMealPlanPhotoQuery(day.lunch))
                             });
                             await updateMealImage(
                               indexOfDay(mealPlan.plan, day.day),
@@ -181,7 +197,7 @@ export function MealPlanTab() {
                             const persistedImageUrl = await persistRecipeImageForUser({
                               uid: user.uid,
                               imageUrl,
-                              query: `${day.dinner.name} food plated`
+                              query: serializeRecipePhotoQuery(buildMealPlanPhotoQuery(day.dinner))
                             });
                             await updateMealImage(
                               indexOfDay(mealPlan.plan, day.day),
@@ -201,18 +217,18 @@ export function MealPlanTab() {
 
           <Card className="rounded-[2rem] space-y-4 h-fit">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{t("shoppingList")}</p>
-              <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">{t("shoppingListDesc")}</h3>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("shoppingList")}</p>
+              <h3 className="mt-2 text-2xl font-display font-bold text-white">{t("shoppingListDesc")}</h3>
             </div>
             <div className="space-y-2">
               {shoppingList.length ? (
                 shoppingList.map((item, index) => (
-                  <div key={`shopping-${index}-${item}`} className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-stone-700">
+                  <div key={`shopping-${index}-${item}`} className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-emerald-50/82">
                     {item}
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-stone-500">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-emerald-50/58">
                   No extra shopping items needed.
                 </div>
               )}
@@ -260,16 +276,14 @@ function MealPlanRevealCard({
     <MealRevealCard
       name={meal.name}
       eyebrow={title}
+      summary={buildMealSummary(ingredients, haveIngredients, needIngredients)}
+      previewLabel="Pantry and nutrition preview"
+      previewItems={[...haveIngredients, ...needIngredients].slice(0, 5)}
       imageUrl={meal.image_url}
       imageSource={meal.image_source}
       imageAttributionName={meal.image_attribution_name}
       imageAttributionUrl={meal.image_attribution_url}
-      imageQuery={[
-        ...(meal.image_search_indices ?? []),
-        meal.image_search_index,
-        meal.name,
-        `${meal.name} food plated`
-      ].filter((value): value is string => Boolean(value))}
+      imageQuery={buildMealPlanPhotoQuery(meal)}
       onImageResolved={onImageResolved}
       stats={[
         { label: "kcal", value: meal.calories },
@@ -285,4 +299,24 @@ function MealPlanRevealCard({
 
 function indexOfDay(plan: Array<{ day: string }>, day: string) {
   return plan.findIndex((entry) => entry.day === day);
+}
+
+function buildMealSummary(allIngredients: string[], haveIngredients: string[], needIngredients: string[]) {
+  const total = allIngredients.length ? `${allIngredients.length} planned ingredients` : "Pantry-aware meal";
+  const have = haveIngredients.length ? `${haveIngredients.length} on hand` : null;
+  const need = needIngredients.length ? `${needIngredients.length} to shop` : null;
+  return [total, have, need].filter(Boolean).join(" / ");
+}
+
+function buildMealPlanPhotoQuery(meal: MealPlanMeal) {
+  return buildRecipePhotoQueryCandidates({
+    imageSearchIndex: meal.image_search_index,
+    imageSearchIndices: meal.image_search_indices,
+    ingredients: meal.ingredients,
+    name: meal.name
+  });
+}
+
+function serializeRecipePhotoQuery(queries: string[]) {
+  return queries.join(" || ");
 }

@@ -16,8 +16,8 @@ export function Loader({ label, sub, className }: LoaderProps) {
           <Loader2 className="h-7 w-7 animate-spin" />
         </div>
       </div>
-      {label ? <p className="text-sm font-semibold text-emerald-800">{label}</p> : null}
-      {sub ? <p className="text-xs text-stone-500 max-w-xs text-center">{sub}</p> : null}
+      {label ? <p className="text-sm font-semibold text-emerald-50">{label}</p> : null}
+      {sub ? <p className="max-w-xs text-center text-xs text-emerald-50/58">{sub}</p> : null}
     </div>
   );
 }

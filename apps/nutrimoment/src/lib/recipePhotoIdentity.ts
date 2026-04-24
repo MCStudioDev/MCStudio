@@ -3,12 +3,15 @@ export interface RecipePhotoIdentity {
   beanTypeKey?: string;
   canonicalDishKey?: string;
   cleanQuery: string;
+  cookingMethodKey?: string;
   coreTokens: string[];
   cuisineKey?: string;
   familyKey?: string;
   mainIngredientKey?: string;
   mealTypeKey?: string;
+  sauceKey?: string;
   searchQueries: string[];
+  starchKey?: string;
   signature: string;
 }
 
@@ -165,7 +168,34 @@ const BEAN_TYPE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "chickpea", pattern: new RegExp(`\\bchickpea|chickpeas\\b|${ARABIC.chickpea}`, "iu") }
 ];
 
+const SAUCE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
+  { key: "red-sauce", pattern: /\bred sauce|tomato sauce|marinara|pomodoro|tomato basil\b/iu },
+  { key: "white-sauce", pattern: /\bwhite sauce|alfredo|cream sauce|creamy sauce|creamy\b/iu },
+  { key: "pesto", pattern: /\bpesto\b/iu },
+  { key: "soy-garlic", pattern: /\bsoy garlic|garlic soy|soy sauce\b/iu },
+  { key: "curry", pattern: /\bcurry sauce|curry\b/iu }
+];
+
+const STARCH_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
+  { key: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/iu },
+  { key: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/iu },
+  { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") },
+  { key: "potato", pattern: /\bpotato|potatoes\b/iu },
+  { key: "bread", pattern: /\bbread|toast|bun|roll|wrap\b/iu }
+];
+
+const COOKING_METHOD_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
+  { key: "grilled", pattern: /\bgrilled|chargrilled\b/iu },
+  { key: "fried", pattern: /\bfried|crispy|breaded|crunchy\b/iu },
+  { key: "baked", pattern: /\bbaked\b/iu },
+  { key: "roasted", pattern: /\broasted\b/iu },
+  { key: "stir-fry", pattern: /\bstir[- ]?fry\b/iu },
+  { key: "pan-seared", pattern: /\bpan[- ]seared|seared\b/iu }
+];
+
 const MEAL_TYPE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
+  { key: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/iu },
+  { key: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/iu },
   { key: "salad", pattern: /\bsalad\b/iu },
   { key: "soup", pattern: /\bsoup\b/iu },
   { key: "stew", pattern: /\bstew\b/iu },
@@ -215,6 +245,9 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
   const cuisineKey = knownDish?.cuisineKey ?? detectCuisine(cleanQuery);
   const mainIngredientKey = detectMainIngredient(cleanQuery);
   const beanTypeKey = detectBeanType(cleanQuery);
+  const sauceKey = detectSauce(cleanQuery);
+  const starchKey = detectStarch(cleanQuery);
+  const cookingMethodKey = detectCookingMethod(cleanQuery);
   const mealTypeKey = detectMealType(cleanQuery);
   const familyKey =
     knownDish?.key ??
@@ -228,26 +261,35 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
   const searchQueries = buildSearchQueries(cleanQuery, {
     beanTypeKey,
     canonicalName: knownDish?.canonicalName,
+    cookingMethodKey,
     cuisineKey,
     familyKey,
     mainIngredientKey,
-    mealTypeKey
+    mealTypeKey,
+    sauceKey,
+    starchKey
   });
   const signature = buildRecipePhotoSignature({
     canonicalDishKey: knownDish?.key,
+    cookingMethodKey,
     coreTokens,
     cuisineKey,
     familyKey,
     mainIngredientKey,
-    mealTypeKey
+    mealTypeKey,
+    sauceKey,
+    starchKey
   });
   const alternateSignatures = buildAlternateRecipePhotoSignatures({
     beanTypeKey,
     canonicalDishKey: knownDish?.key,
+    cookingMethodKey,
     cuisineKey,
     familyKey,
     mainIngredientKey,
-    mealTypeKey
+    mealTypeKey,
+    sauceKey,
+    starchKey
   }).filter((candidate) => candidate !== signature);
 
   return {
@@ -255,12 +297,15 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
     beanTypeKey,
     canonicalDishKey: knownDish?.key,
     cleanQuery,
+    cookingMethodKey,
     coreTokens,
     cuisineKey,
     familyKey,
     mainIngredientKey,
     mealTypeKey,
+    sauceKey,
     searchQueries,
+    starchKey,
     signature
   };
 }
@@ -290,6 +335,18 @@ function detectMainIngredient(query: string) {
 
 function detectBeanType(query: string) {
   return BEAN_TYPE_PATTERNS.find((entry) => entry.pattern.test(query))?.key;
+}
+
+function detectSauce(query: string) {
+  return SAUCE_PATTERNS.find((entry) => entry.pattern.test(query))?.key;
+}
+
+function detectStarch(query: string) {
+  return STARCH_PATTERNS.find((entry) => entry.pattern.test(query))?.key;
+}
+
+function detectCookingMethod(query: string) {
+  return COOKING_METHOD_PATTERNS.find((entry) => entry.pattern.test(query))?.key;
 }
 
 function detectMealType(query: string) {
@@ -365,13 +422,25 @@ function buildSearchQueries(
   details: {
     beanTypeKey?: string;
     canonicalName?: string;
+    cookingMethodKey?: string;
     cuisineKey?: string;
     familyKey?: string;
     mainIngredientKey?: string;
     mealTypeKey?: string;
+    sauceKey?: string;
+    starchKey?: string;
   }
 ) {
   const familySearchQueries = getFamilySearchQueries(details.familyKey, details.cuisineKey);
+  const detailedVariant = [details.cookingMethodKey, details.mainIngredientKey, details.sauceKey, details.starchKey ?? details.mealTypeKey]
+    .filter(Boolean)
+    .join(" ");
+  const proteinVariant = [details.mainIngredientKey, details.sauceKey, details.starchKey ?? details.mealTypeKey]
+    .filter(Boolean)
+    .join(" ");
+  const cuisineVariant = [details.cuisineKey, details.mainIngredientKey, details.sauceKey, details.starchKey ?? details.mealTypeKey]
+    .filter(Boolean)
+    .join(" ");
 
   const candidates = [
     details.canonicalName ? [details.canonicalName, details.cuisineKey].filter(Boolean).join(" ") : "",
@@ -379,6 +448,9 @@ function buildSearchQueries(
     ...familySearchQueries,
     cleanQuery,
     cleanQuery.replace(/\s+with\s+.+$/i, ""),
+    detailedVariant,
+    proteinVariant,
+    cuisineVariant,
     [details.cuisineKey, details.beanTypeKey ?? details.mainIngredientKey, details.familyKey ?? details.canonicalName]
       .filter(Boolean)
       .join(" "),
@@ -464,37 +536,59 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
 
 function buildRecipePhotoSignature({
   canonicalDishKey,
+  cookingMethodKey,
   coreTokens,
   cuisineKey,
   familyKey,
   mainIngredientKey,
-  mealTypeKey
+  mealTypeKey,
+  sauceKey,
+  starchKey
 }: Pick<
   RecipePhotoIdentity,
-  "canonicalDishKey" | "coreTokens" | "cuisineKey" | "familyKey" | "mainIngredientKey" | "mealTypeKey"
+  | "canonicalDishKey"
+  | "cookingMethodKey"
+  | "coreTokens"
+  | "cuisineKey"
+  | "familyKey"
+  | "mainIngredientKey"
+  | "mealTypeKey"
+  | "sauceKey"
+  | "starchKey"
 >) {
   if (canonicalDishKey) {
     return `${canonicalDishKey}|${cuisineKey ?? "general"}`;
   }
 
   if (familyKey) {
-    return `${familyKey}|${cuisineKey ?? "general"}|${mainIngredientKey ?? "general"}`;
+    return `${familyKey}|${cuisineKey ?? "general"}|${mainIngredientKey ?? "general"}|${sauceKey ?? starchKey ?? "general"}`;
   }
 
   const coreSlug = slugify(coreTokens.slice(0, 5).join("-")) || "meal";
-  return `${coreSlug}|${cuisineKey ?? "general"}|${mainIngredientKey ?? "general"}|${mealTypeKey ?? "general"}`;
+  return `${coreSlug}|${cuisineKey ?? "general"}|${mainIngredientKey ?? "general"}|${mealTypeKey ?? starchKey ?? "general"}|${sauceKey ?? cookingMethodKey ?? "general"}`;
 }
 
 function buildAlternateRecipePhotoSignatures({
   beanTypeKey,
   canonicalDishKey,
+  cookingMethodKey,
   cuisineKey,
   familyKey,
   mainIngredientKey,
-  mealTypeKey
+  mealTypeKey,
+  sauceKey,
+  starchKey
 }: Pick<
   RecipePhotoIdentity,
-  "beanTypeKey" | "canonicalDishKey" | "cuisineKey" | "familyKey" | "mainIngredientKey" | "mealTypeKey"
+  | "beanTypeKey"
+  | "canonicalDishKey"
+  | "cookingMethodKey"
+  | "cuisineKey"
+  | "familyKey"
+  | "mainIngredientKey"
+  | "mealTypeKey"
+  | "sauceKey"
+  | "starchKey"
 >) {
   if (canonicalDishKey) {
     return [];
@@ -504,6 +598,8 @@ function buildAlternateRecipePhotoSignatures({
     familyKey ? `${familyKey}|${cuisineKey ?? "general"}` : "",
     [beanTypeKey ?? mainIngredientKey, mealTypeKey, cuisineKey].filter(Boolean).join("|"),
     [mainIngredientKey, mealTypeKey, cuisineKey].filter(Boolean).join("|"),
+    [mainIngredientKey, sauceKey, starchKey].filter(Boolean).join("|"),
+    [mainIngredientKey, cookingMethodKey, starchKey].filter(Boolean).join("|"),
     [familyKey, mealTypeKey].filter(Boolean).join("|")
   ]
     .map((candidate) => candidate.trim())

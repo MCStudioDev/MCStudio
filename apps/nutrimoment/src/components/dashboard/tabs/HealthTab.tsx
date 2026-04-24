@@ -64,14 +64,29 @@ export function HealthTab() {
       <SectionHero
         title={t("healthProfile")}
         description={t("healthProfileDesc")}
+        eyebrow="Personal nutrition rules"
+        chips={["Diet", "Conditions", "Allergens"]}
         icon={<Heart className="h-6 w-6" />}
+        stats={[
+          { label: "Diets", value: `${health.diets.length} active` },
+          { label: "Conditions", value: `${health.conditions.length} active` },
+          { label: "Allergens", value: `${(health.allergens ?? []).length} blocked` }
+        ]}
+        aside={
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Trust layer</p>
+            <p className="text-sm leading-relaxed text-emerald-50/72">
+              Tell the app what matters most so recipe ranking becomes safer, clearer, and more personally relevant.
+            </p>
+          </div>
+        }
       />
 
       <motion.div variants={itemVariants} className="grid gap-6 xl:grid-cols-2">
         <Card className="rounded-[2rem] space-y-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{t("dietaryPrefs")}</p>
-            <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">Dietary profile</h3>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("dietaryPrefs")}</p>
+            <h3 className="mt-2 text-2xl font-display font-bold text-white">Dietary profile</h3>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -88,9 +103,9 @@ export function HealthTab() {
 
           <div className="grid gap-3">
             {DIETS.map((diet) => (
-              <div key={diet.id} className="rounded-2xl border border-emerald-100 bg-white px-4 py-3">
-                <p className="font-semibold text-stone-900">{t(diet.key)}</p>
-                <p className="mt-1 text-sm text-stone-500">{t(diet.desc)}</p>
+              <div key={diet.id} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                <p className="font-semibold text-white">{t(diet.key)}</p>
+                <p className="mt-1 text-sm text-emerald-50/58">{t(diet.desc)}</p>
               </div>
             ))}
           </div>
@@ -98,8 +113,8 @@ export function HealthTab() {
 
         <Card className="rounded-[2rem] space-y-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{t("healthConditions")}</p>
-            <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">Health conditions</h3>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("healthConditions")}</p>
+            <h3 className="mt-2 text-2xl font-display font-bold text-white">Health conditions</h3>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -114,7 +129,7 @@ export function HealthTab() {
             ))}
           </div>
 
-          <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-900">
+          <div className="rounded-[1.5rem] border border-amber-200/16 bg-amber-400/10 px-5 py-4 text-sm leading-relaxed text-amber-50/90">
             <strong>{t("medicalDisclaimer")}</strong> {t("medicalDisclaimerText")}
             <p className="mt-2">
               NutriMoment cannot confirm diagnosis-specific safety, allergens, medication interactions, pregnancy needs,
@@ -127,9 +142,9 @@ export function HealthTab() {
       <motion.div variants={itemVariants}>
         <Card className="rounded-[2rem] space-y-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">Allergens</p>
-            <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">Ingredients to avoid completely</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-stone-500">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Allergens</p>
+            <h3 className="mt-2 text-2xl font-display font-bold text-white">Ingredients to avoid completely</h3>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-emerald-50/62">
               Add allergens like peanuts, shellfish, sesame, or soy so recipe ranking and meal planning can treat them
               as hard blockers.
             </p>
@@ -148,7 +163,7 @@ export function HealthTab() {
               placeholder="Add an allergen"
               autoComplete="off"
               spellCheck={false}
-              className="focus-ring h-12 flex-1 rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+              className="focus-ring neo-input h-12 flex-1 rounded-2xl px-4 text-sm transition-ui"
             />
             <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => void addAllergen()}>
               Add allergen
@@ -164,7 +179,7 @@ export function HealthTab() {
               ))}
             </div>
           ) : (
-            <div className="rounded-[1.5rem] border border-dashed border-emerald-200 bg-emerald-50/50 px-5 py-4 text-sm text-stone-500">
+            <div className="rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-5 py-4 text-sm text-emerald-50/58">
               No allergens saved yet.
             </div>
           )}

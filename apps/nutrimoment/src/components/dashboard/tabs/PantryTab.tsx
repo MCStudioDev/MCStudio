@@ -132,22 +132,41 @@ export function PantryTab() {
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
-      <SectionHero title={t("myPantry")} description={t("keepTrack")} icon={<ShoppingCart className="h-6 w-6" />} />
+      <SectionHero
+        title={t("myPantry")}
+        description={t("keepTrack")}
+        eyebrow="Kitchen inventory"
+        chips={["Track", "Scan", "Restock"]}
+        icon={<ShoppingCart className="h-6 w-6" />}
+        stats={[
+          { label: "Saved items", value: `${items.length}` },
+          { label: "Scan queue", value: scannedItems.length ? `${scannedItems.length} reviewing` : "Clear" },
+          { label: "Mode", value: access.tier === "premium" ? "API vision" : "Manual + AI" }
+        ]}
+        aside={
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Kitchen signal</p>
+            <p className="text-sm leading-relaxed text-emerald-50/72">
+              Keep quantities fresh so recipe ranking and meal planning can react to what is actually in your kitchen.
+            </p>
+          </div>
+        }
+      />
 
       <motion.div variants={itemVariants} className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <Card className="rounded-[2rem] space-y-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{t("addItem")}</p>
-            <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">Add to your pantry</h3>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("addItem")}</p>
+            <h3 className="mt-2 text-2xl font-display font-bold text-white">Add to your pantry</h3>
           </div>
 
           {access.tier === "free" ? (
-            <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
+            <div className="rounded-2xl border border-amber-200/16 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-50/88">
               Free plan: pantry image scans use your shared AI credits ({access.aiCreditsRemaining}/{access.aiCreditsLimit} left).
               Manual pantry entry always stays available.
             </div>
           ) : (
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs leading-relaxed text-emerald-800">
+            <div className="rounded-2xl border border-emerald-200/16 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-50/88">
               Premium plan: pantry image scans are API-first with manual fallback.
             </div>
           )}
@@ -163,12 +182,12 @@ export function PantryTab() {
               onChange={handleScanPantry}
               aria-label="Upload a pantry image"
             />
-            <span className="focus-within:ring-2 focus-within:ring-emerald-500 focus-within:ring-offset-2 flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-emerald-200 bg-emerald-50/60 px-6 text-center transition-ui hover:border-emerald-400 hover:bg-emerald-50">
-              <ImagePlus className="h-8 w-8 text-emerald-600" aria-hidden="true" />
-              <span className="text-sm font-semibold text-stone-800" aria-live="polite">
+            <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-6 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
+              <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
+              <span className="text-sm font-semibold text-white" aria-live="polite">
                 {scanLoading ? t("analyzingPantry") : "Upload a pantry image"}
               </span>
-              <span className="text-xs text-stone-500">We will estimate pantry items and approximate quantities.</span>
+              <span className="text-xs text-emerald-50/55">We will estimate pantry items and approximate quantities.</span>
             </span>
           </label>
 
@@ -183,7 +202,7 @@ export function PantryTab() {
             placeholder={t("ingredientName")}
             autoComplete="off"
             spellCheck
-            className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+            className="focus-ring neo-input h-12 w-full rounded-2xl px-4 text-sm transition-ui"
           />
           <label htmlFor="pantry-item-quantity" className="sr-only">
             {t("quantity")}
@@ -196,10 +215,10 @@ export function PantryTab() {
             placeholder={name.trim() ? getPantryQuantityHint(name) : t("quantity")}
             autoComplete="off"
             inputMode="text"
-            className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+            className="focus-ring neo-input h-12 w-full rounded-2xl px-4 text-sm transition-ui"
           />
           <div className="space-y-2">
-            <label htmlFor="pantry-item-expiration" className="text-sm font-semibold text-stone-800">
+            <label htmlFor="pantry-item-expiration" className="text-sm font-semibold text-emerald-50/88">
               {t("expiration")}
             </label>
             <input
@@ -209,10 +228,10 @@ export function PantryTab() {
               value={expiration}
               onChange={(event) => setExpiration(event.target.value)}
               autoComplete="off"
-              className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+              className="focus-ring neo-input h-12 w-full rounded-2xl px-4 text-sm transition-ui"
             />
           </div>
-          <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-xs leading-relaxed text-cyan-800">
+          <div className="rounded-2xl border border-cyan-200/16 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/88">
             Quantity guide: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
             olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
           </div>
@@ -228,8 +247,8 @@ export function PantryTab() {
           </Button>
 
           <Card variant="plain" className="rounded-[1.5rem] p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{t("items")}</p>
-            <p className="mt-2 text-3xl font-display font-bold text-stone-900 tabular-nums">{items.length}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("items")}</p>
+            <p className="mt-2 text-3xl font-display font-bold text-white tabular-nums">{items.length}</p>
           </Card>
         </Card>
 
@@ -238,9 +257,9 @@ export function PantryTab() {
             <Card className="rounded-[2rem] space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">{t("pantryScan")}</p>
-                  <h3 className="mt-2 text-2xl font-display font-bold text-stone-900">Review scanned pantry items</h3>
-                  <p className="mt-2 text-sm text-stone-500">Adjust names or quantities before saving them to your pantry.</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("pantryScan")}</p>
+                  <h3 className="mt-2 text-2xl font-display font-bold text-white">Review scanned pantry items</h3>
+                  <p className="mt-2 text-sm text-emerald-50/60">Adjust names or quantities before saving them to your pantry.</p>
                 </div>
                 <Button variant="ghost" onClick={addManualScannedItem}>
                   {t("add")}
@@ -260,7 +279,7 @@ export function PantryTab() {
                         aria-label={`Scanned item ${index + 1} name`}
                         autoComplete="off"
                         spellCheck
-                        className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+                        className="focus-ring neo-input h-12 w-full rounded-2xl px-4 text-sm transition-ui"
                       />
                       <input
                         id={`scanned-pantry-quantity-${index}`}
@@ -271,7 +290,7 @@ export function PantryTab() {
                         aria-label={`Scanned item ${index + 1} quantity`}
                         autoComplete="off"
                         inputMode="text"
-                        className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+                        className="focus-ring neo-input h-12 w-full rounded-2xl px-4 text-sm transition-ui"
                       />
                       <button
                         type="button"
@@ -300,7 +319,7 @@ export function PantryTab() {
               </Button>
             </Card>
           ) : loading ? (
-            <Card className="rounded-[2rem] text-sm text-stone-500">Loading pantry…</Card>
+            <Card className="rounded-[2rem] text-sm text-emerald-50/58">Loading pantry...</Card>
           ) : items.length ? (
             <div className="space-y-4">
               <div className="flex justify-end">
@@ -329,9 +348,9 @@ export function PantryTab() {
                 {items.map((item) => (
                   <Card key={item.id ?? item.name} className="rounded-[1.75rem] flex items-center justify-between gap-4">
                     <div className="min-w-0">
-                      <p className="text-lg font-semibold text-stone-900 truncate">{item.name}</p>
-                      <p className="text-sm text-stone-500">{item.quantity || "1"}</p>
-                      {item.expiration ? <p className="text-xs text-stone-400">Expires {item.expiration}</p> : null}
+                      <p className="truncate text-lg font-semibold text-white">{item.name}</p>
+                      <p className="text-sm text-emerald-50/62">{item.quantity || "1"}</p>
+                      {item.expiration ? <p className="text-xs text-emerald-50/42">Expires {item.expiration}</p> : null}
                     </div>
                     {item.id ? (
                       <button

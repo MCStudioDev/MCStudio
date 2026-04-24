@@ -8,6 +8,8 @@ export interface UnsplashRecipePhotoLookupResult {
   attributionName: string;
   attributionUrl: string;
   imageUrl: string;
+  matchedQuery: string;
+  score: number;
   source: "unsplash_search";
 }
 
@@ -42,16 +44,19 @@ export function isUnsplashRecipePhotoSearchConfigured() {
   return Boolean(unsplashAccessKey);
 }
 
-export async function findUnsplashRecipePhoto(query: string): Promise<UnsplashRecipePhotoLookupResult | null> {
+export async function findUnsplashRecipePhoto(
+  query: string,
+  options?: { excludeUrls?: Set<string> }
+): Promise<UnsplashRecipePhotoLookupResult | null> {
   if (!isUnsplashRecipePhotoSearchConfigured()) return null;
 
   const identity = buildRecipePhotoIdentity(query);
   const candidates = Array.from(new Set([query, ...identity.searchQueries])).slice(0, 5);
 
-  let bestCandidate: { attributionName: string; attributionUrl: string; score: number; url: string } | null = null;
+  let bestCandidate: { attributionName: string; attributionUrl: string; matchedQuery: string; score: number; url: string } | null = null;
 
   for (const candidateQuery of candidates) {
-    const result = await searchUnsplashPhotos(candidateQuery, identity);
+    const result = await searchUnsplashPhotos(candidateQuery, identity, options?.excludeUrls);
     if (result && (!bestCandidate || result.score > bestCandidate.score)) {
       bestCandidate = result;
     }
@@ -63,13 +68,19 @@ export async function findUnsplashRecipePhoto(query: string): Promise<UnsplashRe
     attributionName: bestCandidate.attributionName,
     attributionUrl: bestCandidate.attributionUrl,
     imageUrl: bestCandidate.url,
+    matchedQuery: bestCandidate.matchedQuery,
+    score: bestCandidate.score,
     source: "unsplash_search"
   };
 }
 
-async function searchUnsplashPhotos(query: string, identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+async function searchUnsplashPhotos(
+  query: string,
+  identity: ReturnType<typeof buildRecipePhotoIdentity>,
+  excludeUrls?: Set<string>
+) {
   const requestQueries = buildUnsplashRequestQueries(query, identity);
-  let bestCandidate: { attributionName: string; attributionUrl: string; score: number; url: string } | null = null;
+  let bestCandidate: { attributionName: string; attributionUrl: string; matchedQuery: string; score: number; url: string } | null = null;
 
   for (const requestQuery of requestQueries) {
     const url = new URL("https://api.unsplash.com/search/photos");
@@ -103,6 +114,7 @@ async function searchUnsplashPhotos(query: string, identity: ReturnType<typeof b
         return {
           attributionName: photographerName,
           attributionUrl: photographerUrl,
+          matchedQuery: requestQuery,
           score: scoreUnsplashCandidate(haystack, imageUrl, identity, requestQuery, photo),
           url: imageUrl
         };
@@ -110,6 +122,7 @@ async function searchUnsplashPhotos(query: string, identity: ReturnType<typeof b
       .filter(
         (candidate) =>
           candidate.url &&
+          !excludeUrls?.has(candidate.url) &&
           candidate.attributionName &&
           candidate.attributionUrl &&
           candidate.score >= getRequiredUnsplashScore(identity)
@@ -195,6 +208,18 @@ function scoreUnsplashCandidate(
     score += 3;
   }
 
+  if (identity.starchKey && haystack.includes(identity.starchKey.replace(/-/g, " "))) {
+    score += 3;
+  }
+
+  if (identity.sauceKey && haystack.includes(identity.sauceKey.replace(/-/g, " "))) {
+    score += 3;
+  }
+
+  if (identity.cookingMethodKey && haystack.includes(identity.cookingMethodKey.replace(/-/g, " "))) {
+    score += 2;
+  }
+
   score += Math.min(identity.coreTokens.filter((token) => haystack.includes(token)).length, 5);
   score += Math.min(
     normalizedRequestQuery
@@ -262,6 +287,16 @@ function buildUnsplashRequestQueries(query: string, identity: ReturnType<typeof 
     .join(" ")
     .replace(/-/g, " ")
     .trim();
+  const ingredientSauceStarchPhrase = [identity.cookingMethodKey, identity.mainIngredientKey, identity.sauceKey, identity.starchKey]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/-/g, " ")
+    .trim();
+  const proteinSaucePhrase = [identity.mainIngredientKey, identity.sauceKey, identity.starchKey ?? identity.mealTypeKey]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/-/g, " ")
+    .trim();
   const simplifiedBase = query
     .replace(/\bfood plated\b/gi, "")
     .replace(/\bprepared food\b/gi, "")
@@ -275,6 +310,8 @@ function buildUnsplashRequestQueries(query: string, identity: ReturnType<typeof 
     simplifiedBase,
     simplifiedBase.replace(/\bwith\b.+$/i, "").trim(),
     familyPhrase,
+    ingredientSauceStarchPhrase,
+    proteinSaucePhrase,
     ingredientMealPhrase,
     ingredientMealPhrase ? `${ingredientMealPhrase} plate` : "",
     identity.mainIngredientKey ? `${identity.mainIngredientKey} dish` : "",

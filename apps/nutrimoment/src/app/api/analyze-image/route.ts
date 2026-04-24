@@ -37,9 +37,10 @@ export async function POST(request: Request) {
     ensureAiAvailable();
     const text = await callOpenAIVision(buildIngredientVisionPrompt(), image, "gemini-2.5-flash");
     const json = extractJson(text);
-    const parsedResult = JSON.parse(json);
+    const parsedResult = JSON.parse(json) as { ingredients?: string[] } | string[];
+    const ingredients = Array.isArray(parsedResult) ? parsedResult : parsedResult.ingredients ?? [];
 
-    return Response.json({ ...parsedResult, access: accessPayload(nextAccess) });
+    return Response.json({ ingredients, access: accessPayload(nextAccess) });
   } catch (error) {
     if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials"))) {
       return accessErrorResponse(error);

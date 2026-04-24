@@ -49,12 +49,28 @@ type RecipePhotoLookupResult =
       ok: false;
     };
 
+type ProviderRecipePhotoCandidate = {
+  alternateSignatures: string[];
+  attributionName?: string;
+  attributionUrl?: string;
+  imageSource: "search" | "unsplash";
+  imageUrl: string;
+  matchedQuery: string;
+  model: "pexels_search" | "unsplash_search";
+  score: number;
+  signature: string;
+  source: "pexels_search" | "unsplash_search";
+  weightedScore: number;
+};
+
 const recipePhotoCache = new Map<string, CachedRecipePhoto>();
 const recipePhotoFailureCache = new Map<string, CachedRecipePhotoFailure>();
 const inFlightRecipePhotoLookups = new Map<string, Promise<RecipePhotoLookupResult>>();
+const recentRecipePhotoSelections = new Map<string, { expiresAt: number; signature: string }>();
 const MAX_RECIPE_PHOTO_CACHE_ITEMS = 120;
 const MAX_RECIPE_PHOTO_FAILURE_CACHE_ITEMS = 120;
 const STRICT_NO_MATCH_TTL_MS = 30 * 60 * 1000;
+const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const WIKIMEDIA_ENABLED = false;
 
 export async function GET(request: Request) {
@@ -85,10 +101,12 @@ export async function GET(request: Request) {
     new Set(identities.flatMap((entry) => [entry.signature, ...entry.alternateSignatures]))
   );
   const imageMode = accessCheck.allowed ? "search" : "disabled";
+  const forceUnsplashFirst = accessCheck.allowed && isUnsplashRecipePhotoSearchConfigured();
   const failureCacheKey = getRecipePhotoFailureCacheKey(queryCandidates.join("||") || identity.signature, imageMode);
 
-  const cached = getRecipePhotoCacheBySignatures(signatureCandidates);
-  if (cached) {
+  const cached = forceUnsplashFirst ? null : getRecipePhotoCacheBySignatures(signatureCandidates);
+  if (cached && (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates))) {
+    rememberRecipePhotoSelection(cached.imageUrl, cached.signature);
     console.info("Recipe photo served", {
       source: cached.source,
       query,
@@ -105,8 +123,12 @@ export async function GET(request: Request) {
     });
   }
 
-  const sharedCached = await getSharedRecipePhotoBySignatures(signatureCandidates);
-  if (sharedCached && (WIKIMEDIA_ENABLED || sharedCached.source !== "wikimedia")) {
+  const sharedCached = forceUnsplashFirst ? null : await getSharedRecipePhotoBySignatures(signatureCandidates);
+  if (
+    sharedCached &&
+    (WIKIMEDIA_ENABLED || sharedCached.source !== "wikimedia") &&
+    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates))
+  ) {
     const sharedPhoto = {
       imageAttributionName: sharedCached.imageAttributionName,
       imageAttributionUrl: sharedCached.imageAttributionUrl,
@@ -117,6 +139,7 @@ export async function GET(request: Request) {
       source: sharedCached.source
     } satisfies CachedRecipePhoto;
     setRecipePhotoCacheAliases(signatureCandidates, sharedPhoto);
+    rememberRecipePhotoSelection(sharedPhoto.imageUrl, sharedPhoto.signature);
 
     console.info("Recipe photo served", {
       source: sharedPhoto.source,
@@ -168,6 +191,7 @@ export async function GET(request: Request) {
       identities,
       query,
       queryCandidates,
+      signatureCandidates,
       reason: accessCheck.reason
     }).finally(() => {
       inFlightRecipePhotoLookups.delete(failureCacheKey);
@@ -273,6 +297,7 @@ async function performRecipePhotoLookup({
   identities,
   query,
   queryCandidates,
+  signatureCandidates,
   reason
 }: {
   accessAllowed: boolean;
@@ -281,97 +306,102 @@ async function performRecipePhotoLookup({
   identities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
   query: string;
   queryCandidates: string[];
+  signatureCandidates: string[];
   reason?: string | null;
 }): Promise<RecipePhotoLookupResult> {
-  for (const [index, candidateQuery] of queryCandidates.entries()) {
-    const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
-    const alternateSignatures = identities
-      .flatMap((entry) => [entry.signature, ...entry.alternateSignatures])
-      .filter((signature) => signature !== candidateIdentity.signature);
+  const excludedUrls = getRecentlyUsedRecipeImageUrls(signatureCandidates);
+  let bestMatch: ProviderRecipePhotoCandidate | null = null;
 
-    if (accessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
-      const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery);
+  if (accessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
+    for (const [index, candidateQuery] of queryCandidates.entries()) {
+      const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+      const alternateSignatures = identities
+        .flatMap((entry) => [entry.signature, ...entry.alternateSignatures])
+        .filter((signature) => signature !== candidateIdentity.signature);
+
+      const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto) {
-        const persistedSearchPhoto = await persistSharedRecipePhotoAliases(
-          {
-            imageAttributionName: searchedPhoto.attributionName,
-            imageAttributionUrl: searchedPhoto.attributionUrl,
-            imageUrl: searchedPhoto.imageUrl,
-            query: candidateQuery,
-            signature: candidateIdentity.signature,
-            source: searchedPhoto.source
-          },
-          alternateSignatures
-        );
-        const unsplashPhoto = {
-          imageAttributionName: persistedSearchPhoto.imageAttributionName,
-          imageAttributionUrl: persistedSearchPhoto.imageAttributionUrl,
-          imageSource: "unsplash" as const,
-          imageUrl: persistedSearchPhoto.imageUrl,
+        bestMatch = chooseBetterRecipePhoto(bestMatch, {
+          alternateSignatures,
+          attributionName: searchedPhoto.attributionName,
+          attributionUrl: searchedPhoto.attributionUrl,
+          imageSource: "unsplash",
+          imageUrl: searchedPhoto.imageUrl,
+          matchedQuery: searchedPhoto.matchedQuery || candidateQuery,
           model: "unsplash_search",
+          score: searchedPhoto.score,
           signature: candidateIdentity.signature,
-          source: persistedSearchPhoto.source
-        } satisfies CachedRecipePhoto;
-
-        setRecipePhotoCacheAliases([candidateIdentity.signature, ...alternateSignatures], unsplashPhoto);
-        console.info("Recipe photo served", {
-          source: unsplashPhoto.source,
-          query,
-          matchedQuery: candidateQuery,
-          imageUrl: unsplashPhoto.imageUrl,
-          imageMode,
-          reason,
-          signature: candidateIdentity.signature
+          source: searchedPhoto.source,
+          weightedScore: searchedPhoto.score + 0.2
         });
-
-        return {
-          consumeFreeCredit: false,
-          ok: true,
-          photo: unsplashPhoto
-        };
       }
     }
+  }
 
-    if (accessAllowed && isPexelsRecipePhotoSearchConfigured()) {
-      const searchedPhoto = await findPexelsRecipePhoto(candidateQuery);
+  if (!bestMatch && accessAllowed && isPexelsRecipePhotoSearchConfigured()) {
+    for (const [index, candidateQuery] of queryCandidates.entries()) {
+      const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+      const alternateSignatures = identities
+        .flatMap((entry) => [entry.signature, ...entry.alternateSignatures])
+        .filter((signature) => signature !== candidateIdentity.signature);
+
+      const searchedPhoto = await findPexelsRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto) {
-        const persistedSearchPhoto = await persistSharedRecipePhotoAliases(
-          {
-            ...searchedPhoto,
-            query: candidateQuery,
-            signature: candidateIdentity.signature
-          },
-          alternateSignatures
-        );
-        const pexelsPhoto = {
-          imageAttributionName: persistedSearchPhoto.imageAttributionName,
-          imageAttributionUrl: persistedSearchPhoto.imageAttributionUrl,
-          imageSource: "search" as const,
-          imageUrl: persistedSearchPhoto.imageUrl,
+        bestMatch = chooseBetterRecipePhoto(bestMatch, {
+          alternateSignatures,
+          imageSource: "search",
+          imageUrl: searchedPhoto.imageUrl,
+          matchedQuery: searchedPhoto.matchedQuery || candidateQuery,
           model: "pexels_search",
+          score: searchedPhoto.score,
           signature: candidateIdentity.signature,
-          source: persistedSearchPhoto.source
-        } satisfies CachedRecipePhoto;
-
-        setRecipePhotoCacheAliases([candidateIdentity.signature, ...alternateSignatures], pexelsPhoto);
-        console.info("Recipe photo served", {
-          source: pexelsPhoto.source,
-          query,
-          matchedQuery: candidateQuery,
-          imageUrl: pexelsPhoto.imageUrl,
-          imageMode,
-          reason,
-          signature: candidateIdentity.signature
+          source: searchedPhoto.source,
+          weightedScore: searchedPhoto.score
         });
-
-        return {
-          consumeFreeCredit: false,
-          ok: true,
-          photo: pexelsPhoto
-        };
       }
     }
+  }
 
+  if (bestMatch) {
+    const persistedSearchPhoto = await persistSharedRecipePhotoAliases(
+      {
+        imageAttributionName: bestMatch.attributionName,
+        imageAttributionUrl: bestMatch.attributionUrl,
+        imageUrl: bestMatch.imageUrl,
+        query: bestMatch.matchedQuery,
+        signature: bestMatch.signature,
+        source: bestMatch.source
+      },
+      bestMatch.alternateSignatures
+    );
+    const selectedPhoto = {
+      imageAttributionName: persistedSearchPhoto.imageAttributionName,
+      imageAttributionUrl: persistedSearchPhoto.imageAttributionUrl,
+      imageSource: bestMatch.imageSource,
+      imageUrl: persistedSearchPhoto.imageUrl,
+      model: bestMatch.model,
+      signature: bestMatch.signature,
+      source: persistedSearchPhoto.source
+    } satisfies CachedRecipePhoto;
+
+    setRecipePhotoCacheAliases([bestMatch.signature, ...bestMatch.alternateSignatures], selectedPhoto);
+    rememberRecipePhotoSelection(selectedPhoto.imageUrl, bestMatch.signature);
+    console.info("Recipe photo served", {
+      source: selectedPhoto.source,
+      query,
+      matchedQuery: bestMatch.matchedQuery,
+      imageUrl: selectedPhoto.imageUrl,
+      imageMode,
+      reason,
+      score: bestMatch.score,
+      signature: bestMatch.signature
+    });
+
+    return {
+      consumeFreeCredit: false,
+      ok: true,
+      photo: selectedPhoto
+    };
   }
 
   const noMatchFailure = createRecipePhotoFailure(
@@ -446,4 +476,51 @@ function createRecipePhotoFailure(error: string, status: number, cacheTtlMs: num
     source: "unavailable" as const,
     status
   };
+}
+
+function chooseBetterRecipePhoto(
+  current: ProviderRecipePhotoCandidate | null,
+  candidate: ProviderRecipePhotoCandidate
+) {
+  if (!current) return candidate;
+  if (candidate.weightedScore > current.weightedScore) return candidate;
+  if (candidate.weightedScore === current.weightedScore && candidate.source === "unsplash_search") return candidate;
+  return current;
+}
+
+function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[]) {
+  const now = Date.now();
+  const allowedSignatures = new Set(signatureCandidates);
+  const excluded = new Set<string>();
+
+  for (const [imageUrl, entry] of recentRecipePhotoSelections.entries()) {
+    if (entry.expiresAt <= now) {
+      recentRecipePhotoSelections.delete(imageUrl);
+      continue;
+    }
+
+    if (!allowedSignatures.has(entry.signature)) {
+      excluded.add(imageUrl);
+    }
+  }
+
+  return excluded;
+}
+
+function rememberRecipePhotoSelection(imageUrl: string, signature: string) {
+  recentRecipePhotoSelections.set(imageUrl, {
+    expiresAt: Date.now() + RECENT_SELECTION_TTL_MS,
+    signature
+  });
+}
+
+function isRecipePhotoRecentlyUsedForDifferentSignature(imageUrl: string, signatureCandidates: string[]) {
+  const existing = recentRecipePhotoSelections.get(imageUrl);
+  if (!existing) return false;
+  if (existing.expiresAt <= Date.now()) {
+    recentRecipePhotoSelections.delete(imageUrl);
+    return false;
+  }
+
+  return !signatureCandidates.includes(existing.signature);
 }

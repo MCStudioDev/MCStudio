@@ -668,7 +668,7 @@ export function t(lang: Language, key: TranslationKey): string {
   return value ?? translations.en[key] ?? key;
 }
 
-export const LANGUAGES: { code: Language; label: string; nativeLabel: string; rtl?: boolean }[] = [
+export const LANGUAGES: { code: string; label: string; nativeLabel: string; rtl?: boolean }[] = [
   { code: "en", label: "English", nativeLabel: "English" },
   { code: "ar", label: "Arabic", nativeLabel: "العربية", rtl: true },
   { code: "es", label: "Spanish", nativeLabel: "Español" },

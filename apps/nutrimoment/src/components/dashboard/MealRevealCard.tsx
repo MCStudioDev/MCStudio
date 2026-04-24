@@ -1,11 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from "react";
+import { ChevronDown, Plus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import type { RecipeImageSource } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const recipePhotoSuccessCache = new Map<
   string,
@@ -30,6 +30,11 @@ export interface MealRevealSection {
   tone?: "have" | "need" | "steps";
 }
 
+interface MealRevealStat {
+  label: string;
+  value: string | number | undefined;
+}
+
 interface MealRevealCardProps {
   deferImageLookup?: boolean;
   name: string;
@@ -47,7 +52,10 @@ interface MealRevealCardProps {
     imageUrl: string;
   }) => void | Promise<void>;
   eyebrow?: string;
-  stats?: Array<{ label: string; value: string | number | undefined }>;
+  summary?: string;
+  previewLabel?: string;
+  previewItems?: string[];
+  stats?: MealRevealStat[];
   sections?: MealRevealSection[];
   className?: string;
 }
@@ -64,12 +72,17 @@ export function MealRevealCard({
   imageQuery,
   onImageResolved,
   eyebrow,
+  summary,
+  previewLabel = "Ingredient snapshot",
+  previewItems,
   stats = [],
   sections = [],
   className
 }: MealRevealCardProps) {
   const { getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
   const [lookupActivated, setLookupActivated] = useState(false);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [lookupState, setLookupState] = useState<{
     failed: boolean;
     imageAttributionName?: string;
@@ -85,6 +98,7 @@ export function MealRevealCard({
     imageSource: undefined,
     queryKey: ""
   });
+
   const queryCandidates = useMemo(() => normalizeRecipePhotoQueries(imageQuery), [imageQuery]);
   const primaryQuery = queryCandidates[0] ?? "";
   const queryKey = queryCandidates.join(" || ");
@@ -104,6 +118,22 @@ export function MealRevealCard({
     imageAttributionUrl || lookedUpAttributionUrl || cachedImageEntry?.imageAttributionUrl;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const showNoExactPhoto = !resolvedImage && (imageError || lookupFailed || cachedFailure);
+  const visibleStats = useMemo(
+    () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
+    [stats]
+  );
+  const headlineStats = useMemo(() => visibleStats.slice(0, 2), [visibleStats]);
+  const detailStats = useMemo(() => visibleStats.slice(0, 4), [visibleStats]);
+  const detailSections = useMemo(() => sections.filter((section) => section.items.length), [sections]);
+  const derivedPreviewItems = useMemo(() => {
+    if (previewItems?.length) return previewItems.slice(0, 5);
+    return detailSections
+      .filter((section) => section.tone !== "steps")
+      .flatMap((section) => section.items)
+      .slice(0, 5);
+  }, [detailSections, previewItems]);
+  const cardSummary = summary ?? derivedPreviewItems.slice(0, 2).join(" / ");
+  const detailId = useMemo(() => `meal-details-${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, [name]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -211,11 +241,10 @@ export function MealRevealCard({
     authLoading,
     cachedImage,
     getAuthHeaders,
-    imageQuery,
     imageUrl,
-    lookedUpImage,
-    lookupFailed,
     lookupEnabled,
+    lookupFailed,
+    lookedUpImage,
     onImageResolved,
     primaryQuery,
     queryCandidates,
@@ -224,194 +253,360 @@ export function MealRevealCard({
     user
   ]);
 
-  const visibleStats = useMemo(
-    () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
-    [stats]
-  );
-  const headlineStats = useMemo(() => visibleStats.slice(0, 2), [visibleStats]);
-  const detailStats = useMemo(() => visibleStats.slice(2, 4), [visibleStats]);
-  const [isOpen, setIsOpen] = useState(false);
+  const handleSurfaceClick = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, a, input, textarea, select")) return;
+    setLookupActivated(true);
+    setIsOpen((value) => {
+      const nextValue = !value;
+      setIsFlipped(nextValue);
+      return nextValue;
+    });
+  };
+
+  const handleSurfaceKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = event.target as HTMLElement | null;
+    if (target?.tagName === "BUTTON" || target?.tagName === "A") return;
+    event.preventDefault();
+    setLookupActivated(true);
+    setIsOpen((value) => {
+      const nextValue = !value;
+      setIsFlipped(nextValue);
+      return nextValue;
+    });
+  };
 
   return (
     <article
       tabIndex={0}
-      onFocusCapture={() => setLookupActivated(true)}
+      onFocusCapture={() => {
+        setLookupActivated(true);
+        setIsFlipped(true);
+      }}
       onMouseEnter={() => setLookupActivated(true)}
       onTouchStart={() => setLookupActivated(true)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          setIsOpen((value) => !value);
-        }
-      }}
+      onKeyDown={handleSurfaceKeyDown}
       className={cn(
-        "focus-ring group relative overflow-hidden rounded-[1.5rem] border border-white/70 bg-stone-950 shadow-soft transition-ui hover:-translate-y-1 hover:shadow-xl",
+        "focus-ring group relative overflow-hidden rounded-[1.7rem] border border-white/10 bg-[#041411] shadow-soft transition-ui hover:-translate-y-1 hover:shadow-xl",
         className
       )}
     >
-      <div className="relative min-h-[21rem]">
-        {resolvedImage ? (
-          <Image
-            src={resolvedImage}
-            alt={name}
-            fill
-            sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-            className="object-cover transition-[transform,filter] duration-500 group-hover:scale-105 group-hover:brightness-75 group-focus-within:scale-105 group-focus-within:brightness-75"
-            unoptimized
-          />
-        ) : (
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(16,185,129,0.45),transparent_32%),linear-gradient(135deg,#134e4a,#1c1917_62%,#78350f)]" />
-        )}
+      <div className="relative">
+        <div
+          className="relative h-[23rem] [perspective:1600px] sm:h-[24rem]"
+          onClick={handleSurfaceClick}
+        >
+          <div
+            className={cn(
+              "relative h-full w-full transition-transform duration-500 [transform-style:preserve-3d] md:group-hover:[transform:rotateY(180deg)] md:group-focus-within:[transform:rotateY(180deg)]",
+              (isFlipped || isOpen) && "[transform:rotateY(180deg)]"
+            )}
+          >
+            <div className="absolute inset-0 [backface-visibility:hidden]">
+              <RecipeFrontFace
+                eyebrow={eyebrow}
+                name={name}
+                summary={cardSummary}
+                headlineStats={headlineStats}
+                resolvedImage={resolvedImage}
+                resolvedSource={resolvedSource}
+                imageLoading={imageLoading}
+                showNoExactPhoto={showNoExactPhoto}
+              />
+            </div>
 
-        <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/45 to-transparent" />
-
-        {imageLoading ? (
-          <div className="absolute right-4 top-4 rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-700">
-            Finding photo
+            <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+              <RecipeBackFace
+                eyebrow={eyebrow}
+                name={name}
+                previewLabel={previewLabel}
+                previewItems={derivedPreviewItems}
+                detailStats={detailStats}
+                isOpen={isOpen}
+                onToggleOpen={() =>
+                  setIsOpen((value) => {
+                    const nextValue = !value;
+                    setIsFlipped(nextValue);
+                    return nextValue;
+                  })
+                }
+              />
+            </div>
           </div>
-        ) : null}
+        </div>
 
-        {resolvedSource ? (
-          resolvedSource === "search" ? (
+        {resolvedSource === "unsplash" && resolvedAttributionName && resolvedAttributionUrl ? (
+          <div className="border-t border-white/8 bg-[#071714]/86 px-5 py-3 text-[11px] text-white/65">
+            Photo by{" "}
             <a
-              href="https://www.pexels.com"
+              href={resolvedAttributionUrl}
               target="_blank"
               rel="noreferrer"
-              className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+              className="underline decoration-white/35 underline-offset-2 hover:text-white"
             >
-              {formatImageSourceLabel(resolvedSource)}
-            </a>
-          ) : resolvedSource === "unsplash" ? (
+              {resolvedAttributionName}
+            </a>{" "}
+            on{" "}
             <a
               href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
               target="_blank"
               rel="noreferrer"
-              className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+              className="underline decoration-white/35 underline-offset-2 hover:text-white"
             >
-              {formatImageSourceLabel(resolvedSource)}
+              Unsplash
             </a>
-          ) : (
-            <div className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md">
-              {formatImageSourceLabel(resolvedSource)}
-            </div>
-          )
-        ) : null}
-
-        {showNoExactPhoto ? (
-          <div className="absolute right-4 top-4 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800">
-            No exact photo
           </div>
         ) : null}
 
-        <div className="absolute inset-x-0 bottom-0 space-y-4 p-5 text-white">
-          <div className="space-y-2">
-            {eyebrow ? (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">{eyebrow}</p>
-            ) : null}
-            <h3 className="text-2xl font-display font-bold leading-tight drop-shadow-sm">{name}</h3>
-          </div>
-
-          {headlineStats.length ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {headlineStats.map((stat) => (
-                <div
-                  key={`headline-${stat.label}-${stat.value}`}
-                  className="inline-flex items-baseline gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
-                >
-                  <span className="text-white">{stat.value}</span>
-                  <span className="text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div
-            id={`meal-details-${name.replace(/\s+/g, "-")}`}
-            className={cn(
-              "space-y-4 overflow-hidden transition-[max-height,opacity] duration-300",
-              isOpen ? "max-h-[28rem] opacity-100" : "max-h-0 opacity-0"
-            )}
-          >
+        <div
+          id={detailId}
+          className={cn(
+            "overflow-hidden border-t border-white/8 bg-[linear-gradient(180deg,rgba(5,17,15,0.98)_0%,rgba(7,27,22,0.98)_100%)] transition-[max-height,opacity] duration-300",
+            isOpen ? "max-h-[48rem] opacity-100" : "max-h-0 opacity-0"
+          )}
+        >
+          <div className="space-y-5 p-5">
             {detailStats.length ? (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {detailStats.map((stat) => (
-                  <div key={`detail-${stat.label}-${stat.value}`} className="rounded-2xl bg-white/14 px-3 py-2 backdrop-blur-md">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/65">{stat.label}</p>
-                    <p className="text-sm font-semibold tabular-nums">{stat.value}</p>
+                  <div
+                    key={`detail-${stat.label}-${stat.value}`}
+                    className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3"
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-200">{stat.label}</p>
+                    <p className="mt-1 text-lg font-semibold text-white tabular-nums">{stat.value}</p>
                   </div>
                 ))}
               </div>
             ) : null}
 
-            <div className="max-h-56 space-y-3 overflow-y-auto pr-1">
-              {sections
-                .filter((section) => section.items.length)
-                .map((section) => (
-                  <div key={section.title} className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">{section.title}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {section.items.slice(0, section.tone === "steps" ? 6 : 12).map((item, index) => (
+            <div className="space-y-4">
+              {detailSections.map((section) => (
+                <div key={section.title} className="space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">{section.title}</p>
+                  {section.tone === "steps" ? (
+                    <div className="space-y-2">
+                      {section.items.map((item, index) => (
+                        <div
+                          key={`${section.title}-${index}-${item}`}
+                          className="rounded-[1.2rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-relaxed text-white/88"
+                        >
+                          <span className="mr-2 text-cyan-200">{index + 1}.</span>
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {section.items.map((item, index) => (
                         <span
                           key={`${section.title}-${index}-${item}`}
                           className={cn(
-                            "rounded-full px-2.5 py-1 text-xs font-semibold",
-                            section.tone === "have" && "bg-emerald-300/20 text-emerald-50",
-                            section.tone === "need" && "bg-amber-200/20 text-amber-50",
-                            section.tone === "steps" && "bg-white/12 text-white/90"
+                            "rounded-full px-3 py-1.5 text-xs font-semibold",
+                            section.tone === "have" && "border border-emerald-200/20 bg-emerald-300/14 text-emerald-50",
+                            section.tone === "need" && "border border-amber-200/18 bg-amber-200/14 text-amber-50",
+                            !section.tone && "border border-white/10 bg-white/[0.05] text-white/88"
                           )}
                         >
-                          {section.tone === "steps" ? `${index + 1}. ${item}` : item}
+                          {item}
                         </span>
                       ))}
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
+              ))}
             </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.14em] text-white/75">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsOpen((value) => !value);
-              }}
-              aria-expanded={isOpen}
-              aria-controls={`meal-details-${name.replace(/\s+/g, "-")}`}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white backdrop-blur-md transition hover:bg-white/25"
-            >
-              {isOpen ? "Hide" : "Details"}
-              <ChevronDown
-                className={cn("h-3.5 w-3.5 transition-transform", isOpen ? "rotate-180" : "rotate-0")}
-                aria-hidden="true"
-              />
-            </button>
-            {resolvedSource === "unsplash" && resolvedAttributionName && resolvedAttributionUrl ? (
-              <p className="text-right text-[10px] font-medium normal-case tracking-normal text-white/70">
-                Photo by{" "}
-                <a
-                  href={resolvedAttributionUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline decoration-white/35 underline-offset-2 hover:text-white"
-                >
-                  {resolvedAttributionName}
-                </a>{" "}
-                on{" "}
-                <a
-                  href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline decoration-white/35 underline-offset-2 hover:text-white"
-                >
-                  Unsplash
-                </a>
-              </p>
-            ) : null}
           </div>
         </div>
       </div>
     </article>
+  );
+}
+
+function RecipeFrontFace({
+  eyebrow,
+  name,
+  summary,
+  headlineStats,
+  resolvedImage,
+  resolvedSource,
+  imageLoading,
+  showNoExactPhoto
+}: {
+  eyebrow?: string;
+  name: string;
+  summary: string;
+  headlineStats: MealRevealStat[];
+  resolvedImage?: string;
+  resolvedSource?: RecipeImageSource;
+  imageLoading?: boolean;
+  showNoExactPhoto: boolean;
+}) {
+  return (
+    <div className="relative h-full overflow-hidden">
+      {resolvedImage ? (
+        <Image
+          src={resolvedImage}
+          alt={name}
+          fill
+          sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+          className="object-cover transition-[transform,filter] duration-500 group-hover:scale-105 group-hover:brightness-75 group-focus-within:scale-105 group-focus-within:brightness-75"
+          unoptimized
+        />
+      ) : (
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(73,247,189,0.38),transparent_30%),radial-gradient(circle_at_78%_18%,rgba(97,196,255,0.24),transparent_24%),linear-gradient(135deg,#0b201c,#061311_58%,#05293a)]" />
+      )}
+
+      <div className="absolute inset-0 bg-gradient-to-t from-[#040c0a] via-[#040c0a]/36 to-transparent" />
+      <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 to-transparent" />
+
+      {imageLoading ? (
+        <div className="absolute right-4 top-4 rounded-full border border-white/10 bg-[#f5fffc]/88 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#07201a]">
+          Finding photo
+        </div>
+      ) : null}
+
+      {resolvedSource ? (
+        resolvedSource === "search" ? (
+          <a
+            href="https://www.pexels.com"
+            target="_blank"
+            rel="noreferrer"
+            className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+          >
+            {formatImageSourceLabel(resolvedSource)}
+          </a>
+        ) : resolvedSource === "unsplash" ? (
+          <a
+            href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
+            target="_blank"
+            rel="noreferrer"
+            className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+          >
+            {formatImageSourceLabel(resolvedSource)}
+          </a>
+        ) : (
+          <div className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md">
+            {formatImageSourceLabel(resolvedSource)}
+          </div>
+        )
+      ) : null}
+
+      {showNoExactPhoto ? (
+        <div className="absolute right-4 top-4 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800">
+          No exact photo
+        </div>
+      ) : null}
+
+      <div className="absolute inset-x-0 bottom-0 space-y-4 p-5 text-white">
+        <div className="space-y-2">
+          {eyebrow ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100/82">{eyebrow}</p>
+          ) : null}
+          <h3 className="text-2xl font-display font-bold leading-tight drop-shadow-sm">{name}</h3>
+          {summary ? <p className="max-w-xl text-sm leading-relaxed text-white/74">{summary}</p> : null}
+        </div>
+
+        {headlineStats.length ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {headlineStats.map((stat) => (
+              <div
+                key={`headline-${stat.label}-${stat.value}`}
+                className="inline-flex items-baseline gap-1 rounded-full border border-white/10 bg-white/12 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
+              >
+                <span className="text-white">{stat.value}</span>
+                <span className="text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="inline-flex items-center rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80 backdrop-blur-md">
+          Hover for preview, click for full recipe
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecipeBackFace({
+  eyebrow,
+  name,
+  previewLabel,
+  previewItems,
+  detailStats,
+  isOpen,
+  onToggleOpen
+}: {
+  eyebrow?: string;
+  name: string;
+  previewLabel: string;
+  previewItems: string[];
+  detailStats: MealRevealStat[];
+  isOpen: boolean;
+  onToggleOpen: () => void;
+}) {
+  return (
+    <div className="relative flex h-full flex-col justify-between overflow-hidden bg-[linear-gradient(180deg,#081d19_0%,#071310_55%,#061a25_100%)] p-5 text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(84,255,209,0.2),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(102,196,255,0.18),transparent_26%)]" />
+
+      <div className="relative z-10 space-y-4">
+        <div className="space-y-2">
+          {eyebrow ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{eyebrow}</p>
+          ) : null}
+          <h3 className="text-2xl font-display font-bold leading-tight">{name}</h3>
+          <p className="text-sm leading-relaxed text-white/70">{previewLabel}</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {previewItems.length ? (
+            previewItems.map((item, index) => (
+              <span
+                key={`preview-${index}-${item}`}
+                className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white/88"
+              >
+                {item}
+              </span>
+            ))
+          ) : (
+            <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-white/70">
+              Full recipe details available inside
+            </span>
+          )}
+        </div>
+
+        {detailStats.length ? (
+          <div className="grid grid-cols-2 gap-2">
+            {detailStats.map((stat) => (
+              <div key={`preview-stat-${stat.label}-${stat.value}`} className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">{stat.label}</p>
+                <p className="mt-1 text-sm font-semibold tabular-nums text-white">{stat.value}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="relative z-10 flex items-center justify-between gap-3 pt-5">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
+          {isOpen ? "Click card again to close" : "Click card or use plus"}
+        </span>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleOpen();
+          }}
+          className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.09] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.14]"
+        >
+          <Plus className={cn("h-4 w-4 transition-transform", isOpen && "rotate-45")} />
+          {isOpen ? "Hide recipe" : "Show recipe"}
+          <ChevronDown className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} />
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -40,25 +40,25 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[140] flex items-center justify-center bg-stone-950/40 px-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[140] flex items-center justify-center bg-[#020807]/70 px-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md rounded-[2rem] border border-stone-200 bg-white p-6 shadow-2xl"
+        className="w-full max-w-md rounded-[2rem] border border-white/10 bg-[#081917]/96 p-6 text-emerald-50 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start gap-4">
-          <div className="rounded-2xl bg-amber-50 p-3 text-amber-700">
+          <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-100">
             <AlertTriangle className="h-5 w-5" aria-hidden="true" />
           </div>
           <div className="space-y-2">
-            <h2 id="confirm-dialog-title" className="text-xl font-display font-bold text-stone-900">
+            <h2 id="confirm-dialog-title" className="text-xl font-display font-bold text-white">
               {title}
             </h2>
-            <p className="text-sm leading-relaxed text-stone-600">{description}</p>
+            <p className="text-sm leading-relaxed text-emerald-50/65">{description}</p>
           </div>
         </div>
 

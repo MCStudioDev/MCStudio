@@ -55,6 +55,7 @@ export interface MealPlanMeal {
   protein: string;
   carbs: string;
   fat: string;
+  ingredients?: string[];
   image_url?: string;
   image_source?: RecipeImageSource;
   image_attribution_name?: string;

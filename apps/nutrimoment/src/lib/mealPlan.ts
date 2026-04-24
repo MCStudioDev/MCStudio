@@ -34,6 +34,10 @@ export function normalizeMealPlanData(value: unknown): MealPlanData | null {
   return stripUndefinedDeep(normalized) as MealPlanData;
 }
 
+export function sanitizeMealPlanForFirestore(value: MealPlanData): MealPlanData {
+  return stripUndefinedDeep(value) as MealPlanData;
+}
+
 export function normalizeShoppingList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map(formatShoppingListItem).filter(Boolean);
@@ -100,7 +104,8 @@ function normalizeMeal(value: unknown) {
       calories: 0,
       protein: "0g",
       carbs: "0g",
-      fat: "0g"
+      fat: "0g",
+      ingredients: []
     };
   }
 
@@ -110,12 +115,14 @@ function normalizeMeal(value: unknown) {
   if (!name) return null;
   const imageSearchIndices = readStringArray(value, ["image_search_indices", "photo_queries", "search_indices"]);
   const imageSearchIndex = readString(value, ["image_search_index", "photo_query", "search_index"]) || imageSearchIndices?.[0];
+  const ingredients = readIngredientList(value, ["ingredients", "items", "ingredient_list"]);
 
   return {
     ...value,
     name,
     image_search_index: imageSearchIndex,
     image_search_indices: imageSearchIndices,
+    ingredients,
     calories: readNumber(value, ["calories", "kcal"]),
     protein: readMacro(value, ["protein"]),
     carbs: readMacro(value, ["carbs", "carbohydrates"]),
@@ -158,6 +165,23 @@ function readMacro(record: UnknownRecord, keys: string[]) {
   }
 
   return "0g";
+}
+
+function readIngredientList(record: UnknownRecord, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      const items = value
+        .map((entry) => {
+          if (typeof entry === "string") return entry.trim();
+          if (isRecord(entry)) return readString(entry, ["name", "ingredient", "item", "canonical"]);
+          return "";
+        })
+        .filter(Boolean);
+      if (items.length) return Array.from(new Set(items));
+    }
+  }
+  return [];
 }
 
 function readStringArray(record: UnknownRecord, keys: string[]) {

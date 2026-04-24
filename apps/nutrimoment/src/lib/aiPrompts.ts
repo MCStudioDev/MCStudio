@@ -17,6 +17,7 @@ export interface RecipePromptOptions {
 
 export interface MealPlanPromptOptions {
   pantry: string[];
+  pantryItems?: { name: string; quantity?: string }[];
   diets: string[];
   conditions: string[];
   allergens?: string[];
@@ -72,6 +73,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
 
 export function buildMealPlanPrompt({
   pantry,
+  pantryItems = [],
   diets,
   conditions,
   allergens = [],
@@ -79,6 +81,9 @@ export function buildMealPlanPrompt({
   preferredCuisine = "Any",
   calorieTarget = 2000
 }: MealPlanPromptOptions) {
+  const pantryWithQuantities = pantryItems
+    .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
+    .filter(Boolean);
   const preferenceBrief = buildPromptPreferenceBrief({
     preferredCuisine,
     calorieTarget,
@@ -101,6 +106,7 @@ export function buildMealPlanPrompt({
     "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"chicken shawarma bowl\",\"chicken shawarma\",\"shawarma plate\"], [\"baked white fish\",\"white fish vegetables\",\"roasted fish plate\"].",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
     `Pantry items: ${pantry.join(", ") || "none provided"}.`,
+    `Pantry quantities (use these to decide what is actually needed for the week): ${pantryWithQuantities.join(", ") || "not provided"}.`,
     preferenceBrief,
     `Preferred cuisine: ${preferredCuisine}.`,
     `Recipe language: ${recipeLanguage}.`,
@@ -109,7 +115,8 @@ export function buildMealPlanPrompt({
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Return an object with exactly these top-level keys: plan, shoppingList.",
     "plan must be an array of 7 days.",
-    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
+    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
+    "Each meal MUST include an ingredients array of short canonical lowercase names that lists every ingredient the meal uses, including pantry items the diner already owns. This is needed for shopping coverage display.",
     "Include image_search_index and image_search_indices inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
     "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used.",
     "Every shoppingList item must include summed quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."

@@ -4,7 +4,7 @@ import { useEffect, useReducer } from "react";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import { normalizeMealPlanData } from "@/lib/mealPlan";
+import { normalizeMealPlanData, sanitizeMealPlanForFirestore } from "@/lib/mealPlan";
 import type { MealPlanData, RecipeImageSource } from "@/lib/types";
 
 interface MealPlanState {
@@ -86,10 +86,11 @@ export function useMealPlan() {
 
     const planRef = doc(db, "users", user.uid, "plans", "currentWeekly");
     try {
+      const sanitized = sanitizeMealPlanForFirestore(normalized);
       await setDoc(
         planRef,
         {
-          mealPlan: normalized,
+          mealPlan: sanitized,
           updatedAt: serverTimestamp()
         },
         { merge: true }
@@ -130,6 +131,7 @@ export function useMealPlan() {
       ...current,
       plan: nextPlan
     };
+    const sanitized = sanitizeMealPlanForFirestore(nextMealPlan);
 
     dispatch({ type: "plan", payload: nextMealPlan });
 
@@ -139,7 +141,7 @@ export function useMealPlan() {
     await setDoc(
       planRef,
       {
-        mealPlan: nextMealPlan,
+        mealPlan: sanitized,
         updatedAt: serverTimestamp()
       },
       { merge: true }

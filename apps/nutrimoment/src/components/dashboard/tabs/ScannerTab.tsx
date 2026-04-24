@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Camera, ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useApp } from "@/contexts/AppContext";
 import { useHistory } from "@/hooks/useHistory";
 import { containerVariants, itemVariants } from "@/lib/animations";
@@ -26,8 +27,17 @@ function safeJsonParse<T>(value: string, fallback: T): T {
 }
 
 interface ScannerIngredient {
+  id: string;
   name: string;
   quantity: string;
+}
+
+function createScannerIngredient(name: string, quantity: string): ScannerIngredient {
+  return {
+    id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    name,
+    quantity
+  };
 }
 
 function getRecipeIngredientLabel(ingredient: unknown) {
@@ -55,6 +65,12 @@ export function ScannerTab() {
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    action: () => void | Promise<void>;
+  } | null>(null);
 
   const hydrateRecipePhotos = useCallback(
     async (inputRecipes: Recipe[], historyEntryId: string | null) => {
@@ -134,10 +150,7 @@ export function ScannerTab() {
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item) => !ingredients.some((ingredient) => ingredient.name.toLowerCase() === item.toLowerCase()))
-      .map((item) => ({
-        name: item,
-        quantity: manualQuantity.trim() || `1 ${getPreferredPantryUnit(item)}`
-      }));
+      .map((item) => createScannerIngredient(item, manualQuantity.trim() || `1 ${getPreferredPantryUnit(item)}`));
 
     if (!next.length) return;
     setIngredients((current) => [...current, ...next]);
@@ -145,13 +158,13 @@ export function ScannerTab() {
     setManualQuantity("");
   };
 
-  const removeIngredient = (ingredient: string) => {
-    setIngredients((current) => current.filter((item) => item.name !== ingredient));
+  const removeIngredient = (ingredientId: string) => {
+    setIngredients((current) => current.filter((item) => item.id !== ingredientId));
   };
 
-  const updateIngredientQuantity = (ingredientName: string, quantity: string) => {
+  const updateIngredientQuantity = (ingredientId: string, quantity: string) => {
     setIngredients((current) =>
-      current.map((item) => (item.name === ingredientName ? { ...item, quantity } : item))
+      current.map((item) => (item.id === ingredientId ? { ...item, quantity } : item))
     );
   };
 
@@ -189,7 +202,7 @@ export function ScannerTab() {
         const existing = new Set(current.map((item) => item.name.toLowerCase()));
         const nextScanned = scanned
           .filter((item) => !existing.has(item.toLowerCase()))
-          .map((item) => ({ name: item, quantity: `1 ${getPreferredPantryUnit(item)}` }));
+          .map((item) => createScannerIngredient(item, `1 ${getPreferredPantryUnit(item)}`));
 
         return [...current, ...nextScanned];
       });
@@ -370,7 +383,7 @@ export function ScannerTab() {
             <div className="grid gap-3">
               {ingredients.map((ingredient) => (
                 <div
-                  key={ingredient.name}
+                  key={ingredient.id}
                   className="grid gap-3 rounded-[1.25rem] border border-emerald-100 bg-white/80 p-3 text-sm font-medium text-stone-700 sm:grid-cols-[1fr_190px_auto]"
                 >
                   <div className="min-w-0">
@@ -378,10 +391,10 @@ export function ScannerTab() {
                     <p className="text-xs text-stone-500">{getPantryQuantityHint(ingredient.name)}</p>
                   </div>
                   <input
-                    id={`scanner-quantity-${ingredient.name.replace(/\s+/g, "-").toLowerCase()}`}
+                    id={`scanner-quantity-${ingredient.id}`}
                     name={`quantity-${ingredient.name}`}
                     value={ingredient.quantity}
-                    onChange={(event) => updateIngredientQuantity(ingredient.name, event.target.value)}
+                    onChange={(event) => updateIngredientQuantity(ingredient.id, event.target.value)}
                     placeholder={getPantryQuantityHint(ingredient.name)}
                     aria-label={`Quantity for ${ingredient.name}`}
                     autoComplete="off"
@@ -389,14 +402,14 @@ export function ScannerTab() {
                   />
                   <button
                     type="button"
-                    onClick={() => {
-                      const ok =
-                        typeof window !== "undefined"
-                          ? window.confirm(`Remove ${ingredient.name} from this scan?`)
-                          : true;
-                      if (!ok) return;
-                      removeIngredient(ingredient.name);
-                    }}
+                    onClick={() =>
+                      setConfirmState({
+                        title: "Remove ingredient?",
+                        description: `${ingredient.name} will be removed from this scan.`,
+                        confirmLabel: "Remove",
+                        action: () => removeIngredient(ingredient.id)
+                      })
+                    }
                     aria-label={`Remove ${ingredient.name}`}
                     className="focus-ring rounded-2xl bg-stone-50 px-3 py-2 text-xs font-semibold text-stone-500 transition-ui hover:bg-red-50 hover:text-red-600"
                   >
@@ -486,6 +499,21 @@ export function ScannerTab() {
           />
         )}
       </motion.div>
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title ?? ""}
+        description={confirmState?.description ?? ""}
+        confirmLabel={confirmState?.confirmLabel}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (!confirmState) return;
+          try {
+            await confirmState.action();
+          } finally {
+            setConfirmState(null);
+          }
+        }}
+      />
     </motion.div>
   );
 }

@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { History, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,10 +20,14 @@ export function HistoryTab() {
   const { t, setError } = useApp();
   const { user } = useAuth();
   const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    action: () => void | Promise<void>;
+  } | null>(null);
 
   const handleClear = async () => {
-    const ok = typeof window !== "undefined" ? window.confirm("Clear all history? This cannot be undone.") : true;
-    if (!ok) return;
     try {
       await clear();
     } catch (error) {
@@ -41,7 +47,17 @@ export function HistoryTab() {
       ) : items.length ? (
         <motion.div variants={itemVariants} className="space-y-4">
           <div className="flex justify-end">
-            <Button variant="ghost" onClick={handleClear}>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setConfirmState({
+                  title: "Clear history?",
+                  description: "This removes every saved recipe session from your history.",
+                  confirmLabel: t("clearAll"),
+                  action: handleClear
+                })
+              }
+            >
               {t("clearAll")}
             </Button>
           </div>
@@ -58,14 +74,14 @@ export function HistoryTab() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const ok =
-                        typeof window !== "undefined"
-                          ? window.confirm("Remove this history entry?")
-                          : true;
-                      if (!ok) return;
-                      void removeEntry(entry.id);
-                    }}
+                    onClick={() =>
+                      setConfirmState({
+                        title: "Remove history entry?",
+                        description: "This saved recipe session will be removed from your history.",
+                        confirmLabel: "Remove",
+                        action: () => removeEntry(entry.id)
+                      })
+                    }
                     aria-label="Remove history entry"
                     className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                   >
@@ -119,6 +135,21 @@ export function HistoryTab() {
           <EmptyState title={t("noHistory")} description={t("noHistoryDesc")} />
         </motion.div>
       )}
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title ?? ""}
+        description={confirmState?.description ?? ""}
+        confirmLabel={confirmState?.confirmLabel}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (!confirmState) return;
+          try {
+            await confirmState.action();
+          } finally {
+            setConfirmState(null);
+          }
+        }}
+      />
     </motion.div>
   );
 }

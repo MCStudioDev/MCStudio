@@ -5,7 +5,7 @@ import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { accessErrorResponse, accessPayload, requireUser } from "@/services/authService";
 import { listSeededRecipes } from "@/repositories/recipeRepo";
-import { buildMealPlanData } from "@/services/mealPlanService";
+import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 
@@ -96,6 +96,7 @@ export async function POST(request: Request) {
       const text = await callOpenAIText(
         buildMealPlanPrompt({
           pantry,
+          pantryItems: pantryStock,
           diets: parsed.data.diets ?? [],
           conditions: parsed.data.conditions ?? [],
           recipeLanguage: parsed.data.recipeLanguage,
@@ -109,12 +110,15 @@ export async function POST(request: Request) {
       const aiMealPlan = normalizeMealPlanData(rawMealPlan);
 
       if (aiMealPlan) {
+        const reconciledShoppingList = reconcileShoppingListWithPantry(aiMealPlan.shoppingList, pantryStock);
+        const reconciledMealPlan = { ...aiMealPlan, shoppingList: reconciledShoppingList };
         console.info("Meal plan served from Gemini fallback AI", {
-          days: aiMealPlan.plan.length,
-          shoppingItems: aiMealPlan.shoppingList.length
+          days: reconciledMealPlan.plan.length,
+          shoppingItems: reconciledMealPlan.shoppingList.length,
+          shoppingItemsBeforeReconcile: aiMealPlan.shoppingList.length
         });
         return Response.json({
-          result: JSON.stringify({ ...aiMealPlan, servedFrom: "fallback_ai" }),
+          result: JSON.stringify({ ...reconciledMealPlan, servedFrom: "fallback_ai" }),
           servedFrom: "fallback_ai",
           access: accessPayload(access)
         });

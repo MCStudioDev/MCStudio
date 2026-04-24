@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ImagePlus, Plus, ShoppingCart, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePantry } from "@/hooks/usePantry";
@@ -20,9 +21,16 @@ export function PantryTab() {
   const { items, addItem, removeItem, clear, loading } = usePantry();
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [expiration, setExpiration] = useState("");
   const [saving, setSaving] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
   const [scannedItems, setScannedItems] = useState<PantryItem[]>([]);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    action: () => Promise<void> | void;
+  } | null>(null);
 
   const handleAddItem = async () => {
     if (!name.trim()) return;
@@ -30,10 +38,12 @@ export function PantryTab() {
     try {
       await addItem({
         name: name.trim(),
-        quantity: quantity.trim() || "1"
+        quantity: quantity.trim() || "1",
+        expiration: expiration.trim() || undefined
       });
       setName("");
       setQuantity("");
+      setExpiration("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to add pantry item";
       setError(message);
@@ -118,19 +128,7 @@ export function PantryTab() {
     }
   };
 
-  const handleClear = async () => {
-    const ok =
-      typeof window !== "undefined"
-        ? window.confirm("Clear all pantry items? This cannot be undone.")
-        : true;
-    if (!ok) return;
-    try {
-      await clear();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to clear pantry";
-      setError(message);
-    }
-  };
+  const openConfirm = (options: NonNullable<typeof confirmState>) => setConfirmState(options);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -200,6 +198,20 @@ export function PantryTab() {
             inputMode="text"
             className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
           />
+          <div className="space-y-2">
+            <label htmlFor="pantry-item-expiration" className="text-sm font-semibold text-stone-800">
+              {t("expiration")}
+            </label>
+            <input
+              id="pantry-item-expiration"
+              name="pantry-item-expiration"
+              type="date"
+              value={expiration}
+              onChange={(event) => setExpiration(event.target.value)}
+              autoComplete="off"
+              className="focus-ring h-12 w-full rounded-2xl border border-emerald-100 bg-white px-4 text-sm transition-ui focus:border-emerald-400"
+            />
+          </div>
           <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-xs leading-relaxed text-cyan-800">
             Quantity guide: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
             olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
@@ -263,14 +275,16 @@ export function PantryTab() {
                       />
                       <button
                         type="button"
-                        onClick={() => {
-                          const ok =
-                            typeof window !== "undefined"
-                              ? window.confirm(item.name ? `Remove ${item.name}?` : `Remove scanned item ${index + 1}?`)
-                              : true;
-                          if (!ok) return;
-                          removeScannedItem(index);
-                        }}
+                        onClick={() =>
+                          openConfirm({
+                            title: "Remove scanned item?",
+                            description: item.name
+                              ? `${item.name} will be removed from this review list.`
+                              : `Scanned item ${index + 1} will be removed from this review list.`,
+                            confirmLabel: "Remove",
+                            action: () => removeScannedItem(index)
+                          })
+                        }
                         aria-label={item.name ? `Remove ${item.name}` : `Remove scanned item ${index + 1}`}
                         className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                       >
@@ -292,7 +306,21 @@ export function PantryTab() {
               <div className="flex justify-end">
                 <Button
                   variant="ghost"
-                  onClick={() => void handleClear()}
+                  onClick={() =>
+                    openConfirm({
+                      title: "Clear pantry?",
+                      description: "This removes every pantry item from your saved list.",
+                      confirmLabel: t("clearAll"),
+                      action: async () => {
+                        try {
+                          await clear();
+                        } catch (error) {
+                          const message = error instanceof Error ? error.message : "Failed to clear pantry";
+                          setError(message);
+                        }
+                      }
+                    })
+                  }
                 >
                   {t("clearAll")}
                 </Button>
@@ -303,18 +331,21 @@ export function PantryTab() {
                     <div className="min-w-0">
                       <p className="text-lg font-semibold text-stone-900 truncate">{item.name}</p>
                       <p className="text-sm text-stone-500">{item.quantity || "1"}</p>
+                      {item.expiration ? <p className="text-xs text-stone-400">Expires {item.expiration}</p> : null}
                     </div>
                     {item.id ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          const ok =
-                            typeof window !== "undefined"
-                              ? window.confirm(`Remove ${item.name} from your pantry?`)
-                              : true;
-                          if (!ok) return;
-                          void removeItem(item.id!);
-                        }}
+                        onClick={() =>
+                          openConfirm({
+                            title: "Remove pantry item?",
+                            description: `${item.name} will be removed from your pantry.`,
+                            confirmLabel: "Remove",
+                            action: async () => {
+                              await removeItem(item.id!);
+                            }
+                          })
+                        }
                         aria-label={`Remove ${item.name}`}
                         className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                       >
@@ -330,6 +361,21 @@ export function PantryTab() {
           )}
         </motion.div>
       </motion.div>
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title ?? ""}
+        description={confirmState?.description ?? ""}
+        confirmLabel={confirmState?.confirmLabel}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (!confirmState) return;
+          try {
+            await confirmState.action();
+          } finally {
+            setConfirmState(null);
+          }
+        }}
+      />
     </motion.div>
   );
 }

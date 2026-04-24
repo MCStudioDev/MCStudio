@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronUp, Sparkles } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import type { RecipeImageSource } from "@/lib/types";
@@ -228,6 +228,9 @@ export function MealRevealCard({
     () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
     [stats]
   );
+  const headlineStats = useMemo(() => visibleStats.slice(0, 2), [visibleStats]);
+  const detailStats = useMemo(() => visibleStats.slice(2, 4), [visibleStats]);
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
     <article
@@ -235,6 +238,12 @@ export function MealRevealCard({
       onFocusCapture={() => setLookupActivated(true)}
       onMouseEnter={() => setLookupActivated(true)}
       onTouchStart={() => setLookupActivated(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setIsOpen((value) => !value);
+        }
+      }}
       className={cn(
         "focus-ring group relative overflow-hidden rounded-[1.5rem] border border-white/70 bg-stone-950 shadow-soft transition-ui hover:-translate-y-1 hover:shadow-xl",
         className
@@ -302,11 +311,31 @@ export function MealRevealCard({
             <h3 className="text-2xl font-display font-bold leading-tight drop-shadow-sm">{name}</h3>
           </div>
 
-          <div className="max-h-0 space-y-4 overflow-hidden opacity-0 transition-[max-height,opacity] duration-300 group-hover:max-h-[26rem] group-hover:opacity-100 group-focus-within:max-h-[26rem] group-focus-within:opacity-100">
-            {visibleStats.length ? (
+          {headlineStats.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {headlineStats.map((stat) => (
+                <div
+                  key={`headline-${stat.label}-${stat.value}`}
+                  className="inline-flex items-baseline gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
+                >
+                  <span className="text-white">{stat.value}</span>
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div
+            id={`meal-details-${name.replace(/\s+/g, "-")}`}
+            className={cn(
+              "space-y-4 overflow-hidden transition-[max-height,opacity] duration-300",
+              isOpen ? "max-h-[28rem] opacity-100" : "max-h-0 opacity-0"
+            )}
+          >
+            {detailStats.length ? (
               <div className="grid grid-cols-2 gap-2">
-                {visibleStats.slice(0, 4).map((stat) => (
-                  <div key={`${stat.label}-${stat.value}`} className="rounded-2xl bg-white/14 px-3 py-2 backdrop-blur-md">
+                {detailStats.map((stat) => (
+                  <div key={`detail-${stat.label}-${stat.value}`} className="rounded-2xl bg-white/14 px-3 py-2 backdrop-blur-md">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/65">{stat.label}</p>
                     <p className="text-sm font-semibold tabular-nums">{stat.value}</p>
                   </div>
@@ -321,7 +350,7 @@ export function MealRevealCard({
                   <div key={section.title} className="space-y-2">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">{section.title}</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {section.items.slice(0, section.tone === "steps" ? 4 : 8).map((item, index) => (
+                      {section.items.slice(0, section.tone === "steps" ? 6 : 12).map((item, index) => (
                         <span
                           key={`${section.title}-${index}-${item}`}
                           className={cn(
@@ -340,36 +369,45 @@ export function MealRevealCard({
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-white/75">
-            <div className="space-y-1">
-              <span className="inline-flex items-center gap-1">
-                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                Hover for details
-              </span>
-              {resolvedSource === "unsplash" && resolvedAttributionName && resolvedAttributionUrl ? (
-                <p className="text-[10px] font-medium normal-case tracking-normal text-white/70">
-                  Photo by{" "}
-                  <a
-                    href={resolvedAttributionUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline decoration-white/35 underline-offset-2 hover:text-white"
-                  >
-                    {resolvedAttributionName}
-                  </a>{" "}
-                  on{" "}
-                  <a
-                    href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline decoration-white/35 underline-offset-2 hover:text-white"
-                  >
-                    Unsplash
-                  </a>
-                </p>
-              ) : null}
-            </div>
-            <ChevronUp className="h-4 w-4 transition-transform group-hover:rotate-180 group-focus-within:rotate-180" aria-hidden="true" />
+          <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.14em] text-white/75">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsOpen((value) => !value);
+              }}
+              aria-expanded={isOpen}
+              aria-controls={`meal-details-${name.replace(/\s+/g, "-")}`}
+              className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white backdrop-blur-md transition hover:bg-white/25"
+            >
+              {isOpen ? "Hide" : "Details"}
+              <ChevronDown
+                className={cn("h-3.5 w-3.5 transition-transform", isOpen ? "rotate-180" : "rotate-0")}
+                aria-hidden="true"
+              />
+            </button>
+            {resolvedSource === "unsplash" && resolvedAttributionName && resolvedAttributionUrl ? (
+              <p className="text-right text-[10px] font-medium normal-case tracking-normal text-white/70">
+                Photo by{" "}
+                <a
+                  href={resolvedAttributionUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-white/35 underline-offset-2 hover:text-white"
+                >
+                  {resolvedAttributionName}
+                </a>{" "}
+                on{" "}
+                <a
+                  href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-white/35 underline-offset-2 hover:text-white"
+                >
+                  Unsplash
+                </a>
+              </p>
+            ) : null}
           </div>
         </div>
       </div>

@@ -80,8 +80,8 @@ function buildShoppingList(slots: MealPlanCandidateDay[], pantryStock: Map<strin
       });
     });
 
-  return Array.from(needed.values())
-    .map((item) => subtractPantryStock(item, pantryStock.get(item.canonical.toLowerCase())))
+  return Array.from(needed.entries())
+    .map(([key, item]) => subtractPantryStock(item, pantryStock.get(key)))
     .filter((item) => item.quantity > 0)
     .map(formatShoppingItem);
 }
@@ -133,4 +133,31 @@ function subtractPantryStock(item: PantryStockAmount, pantryItem?: PantryStockAm
 function formatShoppingItem(item: PantryStockAmount) {
   const quantity = Number.isInteger(item.quantity) ? `${item.quantity}` : item.quantity.toFixed(1);
   return `${item.canonical} - ${quantity} ${item.unit}`;
+}
+
+const SHOPPING_ENTRY_PATTERN = /^(.+?)\s*-\s*(\d+(?:\.\d+)?)\s*(.*)$/;
+
+function parseShoppingListEntry(entry: string): PantryStockAmount {
+  const match = entry.trim().match(SHOPPING_ENTRY_PATTERN);
+  if (!match) {
+    return { canonical: entry.trim(), quantity: 1, unit: "whole" };
+  }
+  const canonical = match[1].trim();
+  const quantity = Number.parseFloat(match[2]);
+  const unit = normalizeUnit(match[3] ?? "") || "whole";
+  return {
+    canonical,
+    quantity: Number.isFinite(quantity) ? quantity : 1,
+    unit
+  };
+}
+
+export function reconcileShoppingListWithPantry(shoppingList: string[], pantryItems: PantryStockItem[]): string[] {
+  const pantryStock = buildPantryStockMap(pantryItems);
+
+  return shoppingList
+    .map(parseShoppingListEntry)
+    .map((item) => subtractPantryStock(item, pantryStock.get(normalizePantryIngredientName(item.canonical))))
+    .filter((item) => item.quantity > 0)
+    .map(formatShoppingItem);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +14,7 @@ import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { normalizeMealPlanData, normalizeShoppingList } from "@/lib/mealPlan";
+import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
 import type { MealPlanMeal } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
@@ -84,6 +85,10 @@ export function MealPlanTab() {
   };
 
   const shoppingList = normalizeShoppingList(mealPlan?.shoppingList);
+  const pantryKeys = useMemo(
+    () => new Set(items.map((item) => normalizePantryIngredientName(item.name)).filter(Boolean)),
+    [items]
+  );
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -123,6 +128,7 @@ export function MealPlanTab() {
                   <MealPlanRevealCard
                     title={t("breakfast")}
                     meal={day.breakfast}
+                    pantryKeys={pantryKeys}
                     onImageResolved={
                       user
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -145,6 +151,7 @@ export function MealPlanTab() {
                   <MealPlanRevealCard
                     title={t("lunch")}
                     meal={day.lunch}
+                    pantryKeys={pantryKeys}
                     onImageResolved={
                       user
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -167,6 +174,7 @@ export function MealPlanTab() {
                   <MealPlanRevealCard
                     title={t("dinner")}
                     meal={day.dinner}
+                    pantryKeys={pantryKeys}
                     onImageResolved={
                       user
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -223,10 +231,12 @@ export function MealPlanTab() {
 function MealPlanRevealCard({
   title,
   meal,
+  pantryKeys,
   onImageResolved
 }: {
   title: string;
   meal: MealPlanMeal;
+  pantryKeys: Set<string>;
   onImageResolved?: (payload: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
@@ -234,6 +244,18 @@ function MealPlanRevealCard({
     imageUrl: string;
   }) => void | Promise<void>;
 }) {
+  const ingredients = meal.ingredients ?? [];
+  const haveIngredients = ingredients.filter((ing) => pantryKeys.has(normalizePantryIngredientName(ing)));
+  const needIngredients = ingredients.filter((ing) => !pantryKeys.has(normalizePantryIngredientName(ing)));
+
+  const sections = [];
+  if (haveIngredients.length) {
+    sections.push({ title: "In your pantry", tone: "have" as const, items: haveIngredients });
+  }
+  if (needIngredients.length) {
+    sections.push({ title: "To shop", tone: "need" as const, items: needIngredients });
+  }
+
   return (
     <MealRevealCard
       name={meal.name}
@@ -255,13 +277,7 @@ function MealPlanRevealCard({
         { label: "carbs", value: meal.carbs },
         { label: "fat", value: meal.fat }
       ]}
-      sections={[
-        {
-          title: "Macros",
-          tone: "steps",
-          items: [`${meal.protein} protein`, `${meal.carbs} carbs`, `${meal.fat} fat`]
-        }
-      ]}
+      sections={sections}
       className="min-h-full"
     />
   );

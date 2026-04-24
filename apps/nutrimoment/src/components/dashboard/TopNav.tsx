@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { ChefHat, Languages, LogOut, ShoppingCart, Heart, History, Settings, Camera, Calendar } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
@@ -27,6 +28,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
   const { user, access, signOut } = useAuth();
   const { t, language, setLanguage } = useApp();
   const [showLangMenu, setShowLangMenu] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const langContainerRef = useRef<HTMLDivElement | null>(null);
 
   const handleLangPick = async (lang: Language) => {
@@ -35,8 +37,6 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
   };
 
   const handleSignOut = async () => {
-    const ok = typeof window !== "undefined" ? window.confirm("Sign out of NutriMoment?") : true;
-    if (!ok) return;
     await signOut();
   };
 
@@ -85,14 +85,18 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold text-stone-700 sm:block">
+              <div className="rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold text-stone-700">
                 <span className="uppercase tracking-[0.16em] text-emerald-600">{access.tier}</span>
                 {access.tier === "free" ? (
                   <span className="ml-2 text-stone-500 tabular-nums">
-                    {access.aiCreditsRemaining}/{access.aiCreditsLimit} AI left
+                    <span className="sm:hidden">{access.aiCreditsRemaining}/{access.aiCreditsLimit}</span>
+                    <span className="hidden sm:inline">{access.aiCreditsRemaining}/{access.aiCreditsLimit} AI left</span>
                   </span>
                 ) : (
-                  <span className="ml-2 text-stone-500">API-first</span>
+                  <span className="ml-2 text-stone-500">
+                    <span className="sm:hidden">API</span>
+                    <span className="hidden sm:inline">API-first</span>
+                  </span>
                 )}
               </div>
               <div className="relative" ref={langContainerRef}>
@@ -136,7 +140,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
 
               <button
                 type="button"
-                onClick={handleSignOut}
+                onClick={() => setShowSignOutConfirm(true)}
                 className="focus-ring p-2.5 rounded-xl text-stone-700 hover:bg-red-50 hover:text-red-600 transition-ui"
                 aria-label={t("logout")}
                 title={user?.email ?? ""}
@@ -182,6 +186,20 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
           </div>
         </div>
       </nav>
+      <ConfirmDialog
+        open={showSignOutConfirm}
+        title="Sign out?"
+        description="You will be returned to the sign-in screen."
+        confirmLabel={t("logout")}
+        onCancel={() => setShowSignOutConfirm(false)}
+        onConfirm={async () => {
+          try {
+            await handleSignOut();
+          } finally {
+            setShowSignOutConfirm(false);
+          }
+        }}
+      />
     </header>
   );
 }

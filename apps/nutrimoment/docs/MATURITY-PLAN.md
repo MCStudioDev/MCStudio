@@ -1,67 +1,52 @@
 # NutriMoment - Maturity Plan
-**Version:** 1.2
-**Date:** 2026-04-20
-**Current State:** v0.5.0 (offline-first MVP foundation)
-**Target State:** v1.0.0 (production-ready SaaS)
+**Version:** 1.3  
+**Date:** 2026-04-24  
+**Current State:** v0.6.x style application with a working offline-first core  
+**Target State:** production-ready, observable, and test-backed SaaS
 
 ## Current State Assessment
 
 ### What Works Today
 | Feature | Status | Notes |
 |---|---|---|
-| Google Sign-In | Working | Firebase Auth plus user document creation |
-| Image to ingredient detection | Working | Gemini route with mock fallback |
-| Recipe generation | Working | Offline catalog-backed retrieval with Gemini fallback |
-| Dashboard shell | Working | Top nav plus 6 rendered tab components |
-| Pantry CRUD | Working | Firestore-backed via `usePantry` |
-| Pantry image scan | Working | Scan, review, edit, and save approximate quantities |
-| Pantry quantity hints | Working | Ingredient-specific unit guidance and normalization |
-| Health/profile persistence | Working | Firestore-backed via `AppContext` |
-| Cuisine preferences | Working | Includes Egyptian, Middle Eastern, Mediterranean, and more |
-| History persistence | Working | Firestore-backed via `useHistory` |
-| Meal-plan generation UI | Working | Catalog-backed generation and shopping-list rendering |
-| Meal-plan persistence | Working | Current plan stored at `users/{uid}/plans/currentWeekly` |
-| Shopping-list quantity math | Working | Sums meal ingredients and subtracts matching pantry quantities |
-| Arabic UI | Working | Arabic translation override plus RTL shell |
-| Legal/safety layer | Working | Banner, result disclaimers, and legal pages |
-| Lint and typecheck baseline | Working | `eslint` and `tsc --noEmit` are clean |
+| Google sign-in | Working | Firebase Auth with Firestore user bootstrap |
+| Server-enforced access control | Working | free / premium / admin enforced in backend |
+| Ingredient scanning | Working | protected `/api/scan` route with normalization |
+| Offline-first recipe retrieval | Working | catalog-first, ranked results |
+| Gemini text fallback | Working | used only when catalog output is weak or unavailable |
+| Pantry CRUD | Working | Firestore-backed |
+| Pantry scan review | Working | editable quantities before save |
+| Weekly meal plans | Working | premium-only, persisted current plan |
+| Shopping-list pantry subtraction | Working | quantity-aware reconciliation |
+| History persistence | Working | recipes and images persist in history |
+| Recipe photo lookup | Working | cache -> Unsplash -> Pexels -> unavailable |
+| Unsplash attribution | Working | preserved and shown in UI |
+| Arabic UI and RTL shell | Working | translated UI available |
+| Legal / safety layer | Working | disclaimer, terms, privacy, result notices |
+| Lint and production build | Working | both pass |
 
 ### What Is Still Incomplete
 | Feature | Current Gap |
 |---|---|
-| API route security | No Firebase token verification on the AI route handlers yet |
-| Rate limiting | No quota protection on AI endpoints yet |
-| Pantry freshness | Quantity hints exist, but expiry/freshness logic is not implemented |
-| Unit conversion | Basic compatible-unit subtraction exists, but package-size conversion is limited |
-| Recipe library | History exists, but favorites and separate saved-recipe collections do not |
-| Nutrition tracking | Not implemented yet |
-| Camera capture | Upload works, but live `getUserMedia` flow is not wired |
-| Route consolidation | `scan` vs `analyze-image` and `recipes` vs `generate-recipes` still overlap |
-| Automated tests | Ranking and shopping-list math need dedicated tests |
+| automated tests | ranking, pantry math, and photo matching need coverage |
+| route consolidation | legacy overlaps still exist |
+| rate limiting | no formal protection layer yet |
+| pantry freshness | no expiry / freshness model yet |
+| advanced unit conversion | still limited for packaged goods |
+| favorites / saved recipe library | history exists, separate library does not |
+| nutrition tracking | not implemented |
+| observability | metrics exist in places, but no full monitoring stack |
 
-### Critical Issues Before Production Use
-1. API keys and local secret handling need a formal cleanup review.
-2. AI routes need authenticated access.
-3. AI routes need rate limiting and abuse protection.
-4. Firestore security rules need a deployment review against all current collections.
-5. Health-related copy should be reviewed by counsel and, if necessary, a qualified nutrition professional.
+## Current Maturity Level
+NutriMoment is currently between **Level 2: Core Product** and **Level 3: Full Feature**.
 
-## Completed Since Stabilized Prototype
-- Replaced missing dashboard tab imports with real tab implementations.
-- Removed `/api/debug`.
-- Fixed React effect patterns that blocked lint.
-- Restored a clean `eslint` and `tsc --noEmit` baseline.
-- Added Gemini-backed AI routes and mock fallback behavior.
-- Added offline recipe catalog, ingredient index, retrieval service, ranking service, and catalog seed script.
-- Added Egyptian, Middle Eastern, and Mediterranean cuisine preference coverage.
-- Added pantry scan review, editable quantities, and quantity guidance.
-- Added persisted weekly meal plans under `users/{uid}/plans/currentWeekly`.
-- Added missing-quantity shopping lists that subtract pantry stock from meal ingredients.
-- Added Arabic translation override and RTL shell support.
-- Added legal disclaimer, terms, privacy pages, and result-level safety notices.
+Why:
+- the main user loops are real, not mocked
+- the app has working persistence and access control
+- the product has meaningful offline-first behavior
+- but operational hardening and automated verification are still behind
 
 ## Maturity Levels
-
 ```text
 Level 0: Prototype
 Level 1: Foundation
@@ -71,129 +56,109 @@ Level 4: Production Ready
 Level 5: Growth
 ```
 
-NutriMoment is currently between Level 2 and Level 3:
-- offline catalog-backed recipe and meal-plan paths exist
-- real Firestore-backed user data for key surfaces
-- pantry-aware shopping lists are functional
-- still missing production hardening, automated tests, and nutrition tracking
-
 ## Roadmap
 
-### Phase 1 - Security and Consolidation
-Goal: make the current app safe and coherent before adding many more features.
+### Phase 1 - Hardening the Current Core
+Goal: make the current implementation safer and easier to operate.
 
 Tasks:
-- Add Firebase ID token verification middleware to all AI routes.
-- Add rate limiting to AI routes.
-- Review Firestore security rules against the actual collections in use.
-- Consolidate overlapping route handlers:
-  - `scan` and `analyze-image`
-  - `recipes` and `generate-recipes`
-- Remove or merge legacy inventory paths.
+- add route-level rate limiting
+- review Firestore security rules against live collections
+- audit access-controlled routes for consistency
+- remove or consolidate overlapping legacy endpoints
+- add structured logging around ranking, fallbacks, and photo resolution
 
 Definition of done:
-- unauthenticated users cannot hit protected AI endpoints
-- duplicate route responsibilities are reduced to one route per concern
+- expensive routes are protected from abuse
+- route ownership is clearer
+- production troubleshooting gets easier
 
-### Phase 2 - Product Data Depth
-Goal: strengthen the current feature set instead of only adding new screens.
+### Phase 2 - Data Quality and Inventory Fidelity
+Goal: improve the app’s kitchen realism.
 
 Tasks:
-- Extend pantry items with category and expiry metadata.
-- Add pantry freshness calculation and visual status.
-- Improve unit conversion for packages, bags, boxes, cans, and mixed units.
-- Add a saved recipe library separate from history.
-- Add favorites.
-- Expand the offline recipe catalog to thousands of structured recipes.
+- add pantry category metadata
+- add expiry/freshness model
+- expand unit conversion
+- improve ingredient alias coverage
+- improve shopping-list precision
 
 Definition of done:
-- pantry becomes a real kitchen inventory model
-- recipe data has a long-lived home beyond generation history
-- shopping lists remain accurate across common pantry units
+- pantry behaves more like a real inventory system
+- shopping lists become more trustworthy across diverse inputs
 
-### Phase 3 - Offline Retrieval Engine Depth
-Goal: reduce runtime AI cost and improve deterministic quality.
+### Phase 3 - Retrieval and Planning Quality
+Goal: raise the quality ceiling of the catalog-first engine.
 
 Tasks:
-- Grow `recipes`, `ingredients`, `ingredientAliases`, and `ingredientRecipeIndex`.
-- Improve ingredient normalization and synonym coverage.
-- Add tests for retrieval and ranking services.
-- Keep `/api/generate-recipes` catalog-first with AI fallback.
-- Keep `/api/mealplan` catalog-backed with AI fallback only as backup.
-- Add quality review tooling for weak matches.
+- expand the offline catalog
+- improve ranking heuristics and test them
+- add weak-match review tooling
+- continue reducing reliance on fallback AI
+- improve meal-plan slot quality and variety
 
 Definition of done:
-- most recipe and meal-plan responses are served from the offline catalog
-- ranking quality is deterministic and tunable
-- AI becomes augmentation rather than the primary runtime engine
+- most recipe and meal-plan responses are strong without AI fallback
+- ranking becomes predictable and tunable
 
-### Phase 4 - Personalization and Tracking
-Goal: deepen user value through richer preference behavior and outcome tracking.
+### Phase 4 - Personal Library and Workflow Depth
+Goal: make the product feel like a durable meal workflow, not only a generator.
 
 Tasks:
-- Add allergies to the health model.
-- Add macro targets.
-- Improve recipe ranking using richer health profile data.
-- Build nutrition log collection.
-- Add daily totals and weekly summaries.
+- add favorites
+- add saved recipe library separate from history
+- add meal-slot swap / regenerate controls
+- add shopping-list export
 
 Definition of done:
-- NutriMoment moves from recipe generation toward an accountable meal workflow
+- users can curate and revisit meals deliberately
 
-### Phase 5 - UX and Reliability
-Goal: polish first-run experience and operational stability.
+### Phase 5 - Nutrition Tracking
+Goal: extend from planning into follow-through.
 
 Tasks:
-- Add onboarding.
-- Add richer empty states and skeletons.
-- Add error tracking and structured logging.
-- Add monitoring.
-- Add accessibility pass.
-- Add camera capture flow where supported.
-- Add shopping-list export and meal-slot swap controls.
+- add meal logging
+- add daily calorie and macro totals
+- add weekly summaries
+- add progress views
 
 Definition of done:
-- users can reach first value quickly
-- issues can be observed and triaged in production
+- NutriMoment can support planning plus lightweight adherence tracking
 
 ## Milestone Summary
-| Milestone | Version | Target Outcome |
-|---|---|---|
-| Stabilized prototype | v0.2.0 | Split tabs, clean lint/typecheck, no debug route |
-| Secured AI layer | v0.3.0 | Authenticated and rate-limited AI routes |
-| Real pantry and saved recipes | v0.4.0 | Stronger persistence and inventory fidelity |
-| Offline retrieval engine | v0.5.0 | Catalog-backed recipes, catalog-backed meal plans, deterministic ranking |
-| Personalized meal workflows | v0.6.0 | Richer health profile, allergies, and meal-slot controls |
-| Nutrition tracking | v0.7.0 | Logging and progress metrics |
-| Production-ready baseline | v1.0.0 | Security, observability, UX, and deployment readiness |
+| Milestone | Outcome |
+|---|---|
+| Stabilized dashboard | real tabs, clean lint/build baseline |
+| Offline-first engine | catalog-backed recipes and plans |
+| Access control | free/premium/admin server enforcement |
+| Public photo stack | shared cache + Unsplash + Pexels |
+| Next major milestone | hardening, tests, and rate limiting |
 
 ## Production-Ready Checklist
 
 ### Security
-- [ ] No exposed secrets in committed history
-- [ ] AI routes verify Firebase ID tokens
-- [ ] Rate limiting is active
-- [ ] Firestore security rules match the real data model
+- [x] Active protected routes verify Firebase ID tokens
+- [ ] Route-level rate limiting
+- [ ] Full Firestore rule audit against current collections
 - [x] Debug route removed
 
 ### Quality
 - [x] ESLint clean
-- [x] TypeScript clean
-- [ ] Strong automated test coverage
-- [ ] Duplicate route responsibilities removed
-- [ ] No legacy unused state paths
+- [x] Production build clean
+- [ ] Automated tests for retrieval, ranking, and pantry math
+- [ ] Route ownership cleanup
 
 ### Reliability
-- [ ] Structured logging
-- [ ] Error monitoring
-- [ ] Graceful handling of auth failures and quota failures
-- [x] Meal-plan display remains available when plan persistence fails
+- [x] Catalog-first fallback behavior exists
+- [x] Weekly plan remains usable when persistence has issues
+- [x] Recipe photos avoid wrong-image fallback behavior
+- [ ] Structured monitoring and alerting
 
 ### UX
-- [x] Real dashboard tabs exist
-- [x] Key flows render through the current app architecture
-- [x] Arabic UI and RTL shell support
-- [x] Legal/safety notices on high-risk outputs
-- [ ] Onboarding
+- [x] Real dashboard tabs
+- [x] Pantry-aware weekly plan flow
+- [x] History persistence
+- [x] Arabic UI / RTL support
+- [ ] Favorites and saved recipes
 - [ ] Nutrition tracking
-- [ ] Rich pantry freshness states
+- [ ] Pantry freshness indicators

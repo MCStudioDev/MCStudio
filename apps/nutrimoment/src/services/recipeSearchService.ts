@@ -110,7 +110,8 @@ export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): Me
       calories: 0,
       protein: "0g",
       carbs: "0g",
-      fat: "0g"
+      fat: "0g",
+      ingredients: []
     };
   }
 
@@ -119,7 +120,8 @@ export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): Me
     calories: recipe.calories,
     protein: `${recipe.protein}g`,
     carbs: `${recipe.carbs}g`,
-    fat: `${recipe.fat}g`
+    fat: `${recipe.fat}g`,
+    ingredients: recipe.ingredientCanonicals
   };
 }
 

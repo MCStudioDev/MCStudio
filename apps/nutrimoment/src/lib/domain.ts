@@ -69,6 +69,70 @@ export interface HealthTagDoc {
   isActive: boolean;
 }
 
+export interface RecipeSourceDoc {
+  id: string;
+  name: string;
+  provider: string;
+  mode: "api" | "wiki" | "html" | "dataset";
+  baseUrl?: string;
+  focusCuisines: string[];
+  focusRegions?: string[];
+  languages: string[];
+  license?: string;
+  trustScore: number;
+  importPriority: number;
+  active: boolean;
+  notes?: string;
+  lastImportedAt?: number;
+}
+
+export interface RecipeRawImportDoc {
+  id: string;
+  sourceId: string;
+  importBatchId: string;
+  externalId?: string;
+  sourceUrl?: string;
+  title: string;
+  cuisine: string;
+  language: string;
+  ingredients: string[];
+  steps: string[];
+  imageUrl?: string;
+  license?: string;
+  recipeFingerprint: string;
+  fetchedAt: number;
+}
+
+export interface RecipeCanonicalStagingDoc {
+  id: string;
+  rawImportId: string;
+  sourceId: string;
+  importBatchId: string;
+  canonicalTitle: string;
+  normalizedTitle: string;
+  cuisine: string;
+  ingredientCanonicals: string[];
+  steps: string[];
+  duplicateKey: string;
+  source: {
+    provider: string;
+    externalId?: string;
+    url?: string;
+    license?: string;
+  };
+  localized?: Partial<Record<"English" | "Arabic", import("@/lib/types").Recipe>>;
+  image?: {
+    storagePath?: string;
+    thumbPath?: string;
+  };
+  qualityScore: number;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason?: string;
+  candidateRecipeId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface RecipeCatalogDoc {
   id: string;
   title: string;

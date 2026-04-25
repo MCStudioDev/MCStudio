@@ -1,64 +1,136 @@
 import path from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import { config as loadEnv } from "dotenv";
-import { getAdminDb, hasFirebaseAdminConfig } from "../src/lib/firebaseAdmin";
 import type { RecipeCatalogDoc } from "../src/lib/domain";
+import { hasFirebaseAdminConfig } from "../src/lib/firebaseAdmin";
 import { enrichOfflineRecipe } from "../src/data/offline/recipeMetadata";
 import { OFFLINE_INGREDIENT_ALIASES } from "../src/data/offline/aliases";
 import { OFFLINE_INGREDIENT_TAXONOMY } from "../src/data/offline/ingredientTaxonomy";
 import { OFFLINE_RECIPES } from "../src/data/offline/recipes";
+import { REAL_RECIPE_SOURCE_REGISTRY } from "../src/data/offline/recipeSourceRegistry";
 import { localizeRecipeForArabic } from "../src/lib/arabicRecipeLocalization";
 import type { Recipe } from "../src/lib/types";
+import {
+  buildCanonicalStagingDoc,
+  buildImportBatchId,
+  buildRawImportDoc,
+  buildRecipeFingerprint,
+  ExternalRecipeRecord,
+  seedCanonicalRecipeStaging,
+  seedFinalRecipes,
+  seedRawImportedRecipes,
+  seedRecipeSourceRegistry,
+  slugify,
+  stableHash
+} from "./lib/realRecipeImportPipeline";
 
 loadEnv({ path: path.join(process.cwd(), ".env.local") });
 
-const WRITE_BATCH_SIZE = 150;
 const THEMEALDB_AREAS = ["Egyptian", "Italian", "Lebanese", "Turkish"];
 const WIKIBOOKS_CATEGORY_TITLE = "Category:Italian_recipes";
 const WIKIBOOKS_CUISINE_PAGES = [
   { title: "Cookbook:Cuisine_of_Egypt", cuisine: "egyptian" },
   { title: "Cookbook:Middle_Eastern_cuisines", cuisine: "middle eastern" }
 ];
-
-interface ExternalRecipeRecord {
-  title: string;
-  cuisine: string;
-  ingredients: string[];
-  steps: string[];
-  source: {
-    provider: string;
-    externalId?: string;
-    url?: string;
-    license?: string;
-  };
-  imageUrl?: string;
-}
+const OPENRECIPES_DATA_URL = "https://raw.githubusercontent.com/jakevdp/open-recipe-data/master/recipeitems.json.gz";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const MAX_RECIPES = getNumericArg("--max");
 const EXISTING_RECIPE_KEYS = new Set(OFFLINE_RECIPES.map((recipe) => buildRecipeKey(recipe.title, recipe.ingredientCanonicals)));
+const FETCH_RETRY_LIMIT = 4;
+const FETCH_BASE_BACKOFF_MS = 1200;
+const OUTPUT_ARTIFACTS = process.argv.includes("--write-artifacts") || DRY_RUN;
+const OPEN_RECIPE_PATTERNS = {
+  italian:
+    /\b(pasta|risotto|gnocchi|lasagna|lasagne|spaghetti|fettuccine|penne|arrabbiata|puttanesca|alfredo|cacio|parmigiana|parmesan|marinara|bolognese|bruschetta|focaccia|polenta|minestrone|tiramisu|caprese|pesto|osso buco|ravioli|carbonara|cannoli|manicotti|orzo)\b/i,
+  middleEastern:
+    /\b(hummus|houmous|shawarma|falafel|tabbouleh|tabouli|fattoush|kofta|kebab|kebob|kibbeh|manakish|labneh|mujadara|mujaddara|harira|shakshuka|zaatar|za'atar|tahini|baklava|baba ghanoush|freekeh|sumac|halva|halloumi)\b/i,
+  egyptian:
+    /\b(koshari|kushari|molokhia|mulukhiyah|ful medames|foul medames|basbousa|mahashi|roz bel laban|roz bi laban|ta'?meya|taameya|fatta|konafa|kunafa)\b/i
+};
 
 async function main() {
   if (!DRY_RUN && !hasFirebaseAdminConfig()) {
     throw new Error("Firebase Admin credentials are not configured.");
   }
 
-  const sourceRecords = await Promise.all([importTheMealDb(), importWikibooks()]);
-  const deduped = dedupeExternalRecipes(sourceRecords.flat());
+  const importBatchId = buildImportBatchId();
+  const fetchedAt = Date.now();
+  const sourceRecords = (await Promise.all([importTheMealDb(), importWikibooks(), importOpenRecipeData()])).flat();
+  const rawImports = sourceRecords.map((record) =>
+    buildRawImportDoc({
+      importBatchId,
+      record,
+      fetchedAt,
+      sourceId: record.source.provider
+    })
+  );
+  const deduped = dedupeExternalRecipes(sourceRecords);
   const catalogDocs = deduped
     .map(buildCatalogDoc)
     .filter((recipe): recipe is RecipeCatalogDoc => Boolean(recipe))
-    .filter((recipe) => !EXISTING_RECIPE_KEYS.has(buildRecipeKey(recipe.title, recipe.ingredientCanonicals)));
+    .filter((recipe) => !EXISTING_RECIPE_KEYS.has(buildRecipeKey(recipe.title, recipe.ingredientCanonicals)))
+    .sort(compareRecipeFocusPriority);
   const limitedCatalogDocs = MAX_RECIPES != null ? catalogDocs.slice(0, MAX_RECIPES) : catalogDocs;
+  const rawImportByFingerprint = new Map(rawImports.map((rawImport) => [rawImport.recipeFingerprint, rawImport]));
+  const stagingDocs = limitedCatalogDocs.map((recipe) => {
+    const fingerprint = buildRecipeFingerprint(recipe.title, recipe.ingredientCanonicals, recipe.steps);
+    const rawImport = rawImportByFingerprint.get(fingerprint);
+    const fallbackRawImport =
+      rawImport ??
+      buildRawImportDoc({
+        importBatchId,
+        record: {
+          title: recipe.title,
+          cuisine: recipe.cuisine,
+          ingredients: recipe.ingredientCanonicals,
+          steps: recipe.steps,
+          source: {
+            provider: recipe.source?.provider ?? "unknown",
+            externalId: recipe.source?.externalId,
+            url: recipe.source?.url,
+            license: recipe.source?.license
+          },
+          imageUrl: recipe.image.thumbPath
+        },
+        fetchedAt,
+        sourceId: recipe.source?.provider ?? "unknown"
+      });
+    return buildCanonicalStagingDoc({
+      importBatchId,
+      rawImport: fallbackRawImport,
+      recipe,
+      duplicateKey: buildRecipeKey(recipe.title, recipe.ingredientCanonicals),
+      qualityScore: recipe.qualityScore
+    });
+  });
 
   process.stdout.write(`Prepared ${limitedCatalogDocs.length} real-source recipes for import.\n`);
+  process.stdout.write(`Prepared ${rawImports.length} raw imports and ${stagingDocs.length} staging docs.\n`);
   logImportSummary(limitedCatalogDocs);
+
+  if (OUTPUT_ARTIFACTS) {
+    const artifactPath = await writeImportArtifacts({
+      importBatchId,
+      rawImports,
+      recipes: limitedCatalogDocs,
+      stagingDocs
+    });
+    process.stdout.write(`Wrote import artifact to ${artifactPath}\n`);
+  }
 
   if (DRY_RUN) {
     process.stdout.write("Dry run only. No Firestore writes were performed.\n");
     return;
   }
 
-  await seedRecipes(limitedCatalogDocs);
+  await seedRecipeSourceRegistry(REAL_RECIPE_SOURCE_REGISTRY, fetchedAt);
+  process.stdout.write(`Seeded ${REAL_RECIPE_SOURCE_REGISTRY.length} recipe sources.\n`);
+  await seedRawImportedRecipes(rawImports);
+  process.stdout.write(`Seeded ${rawImports.length} raw imported recipe docs.\n`);
+  await seedCanonicalRecipeStaging(stagingDocs);
+  process.stdout.write(`Seeded ${stagingDocs.length} canonical staging docs.\n`);
+  await seedFinalRecipes(limitedCatalogDocs);
   process.stdout.write("Imported real-source recipes into Firestore.\n");
 }
 
@@ -145,17 +217,41 @@ async function importWikibooks(): Promise<ExternalRecipeRecord[]> {
   return records;
 }
 
-async function seedRecipes(recipes: RecipeCatalogDoc[]) {
-  const db = getAdminDb();
-  for (let index = 0; index < recipes.length; index += WRITE_BATCH_SIZE) {
-    const chunk = recipes.slice(index, index + WRITE_BATCH_SIZE);
-    const batch = db.batch();
-    chunk.forEach((recipe) => {
-      batch.set(db.collection("recipes").doc(recipe.id), stripUndefinedDeep(recipe), { merge: true });
+async function importOpenRecipeData(): Promise<ExternalRecipeRecord[]> {
+  const targetCount = Math.max(MAX_RECIPES != null ? MAX_RECIPES * 2 : 2400, 2400);
+  const records: ExternalRecipeRecord[] = [];
+
+  await streamJsonGzipLines(OPENRECIPES_DATA_URL, (entry) => {
+    const title = cleanIngredient(readString(entry.name));
+    const ingredients = splitOpenRecipeIngredients(readString(entry.ingredients));
+    const steps = splitOpenRecipeDescription(readString(entry.description));
+    const sourceUrl = cleanIngredient(readString(entry.url));
+    const haystack = [title, readString(entry.ingredients), readString(entry.description), sourceUrl, readString(entry.source)]
+      .filter(Boolean)
+      .join(" ");
+    const cuisine = classifyOpenRecipeCuisine(haystack);
+
+    if (!cuisine) return records.length >= targetCount;
+    if (ingredients.length < 3 || steps.length < 2 || !sourceUrl) return records.length >= targetCount;
+
+    records.push({
+      title,
+      cuisine,
+      ingredients,
+      steps,
+      imageUrl: cleanIngredient(readString(entry.image)) || undefined,
+      source: {
+        provider: "openrecipes",
+        externalId: readOpenRecipeId(entry),
+        url: sourceUrl,
+        license: "CC BY 3.0"
+      }
     });
-    await batch.commit();
-    process.stdout.write(`Imported ${Math.min(index + chunk.length, recipes.length)}/${recipes.length} real-source recipes...\n`);
-  }
+
+    return records.length >= targetCount;
+  });
+
+  return records;
 }
 
 function buildCatalogDoc(record: ExternalRecipeRecord): RecipeCatalogDoc | null {
@@ -256,6 +352,12 @@ function dedupeExternalRecipes(records: ExternalRecipeRecord[]) {
   }
 
   return Array.from(deduped.values());
+}
+
+function compareRecipeFocusPriority(left: RecipeCatalogDoc, right: RecipeCatalogDoc) {
+  const cuisineDelta = getCuisinePriority(left.cuisine) - getCuisinePriority(right.cuisine);
+  if (cuisineDelta !== 0) return cuisineDelta;
+  return right.qualityScore - left.qualityScore || left.title.localeCompare(right.title);
 }
 
 async function fetchWikibooksCategoryMembers(categoryTitle: string) {
@@ -427,12 +529,7 @@ function inferCalorieBand(calories: number) {
 }
 
 function buildStableRecipeId(title: string, canonicals: string[]) {
-  const source = buildRecipeKey(title, canonicals);
-  let hash = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
-  }
-  return `src_${hash.toString(36)}`;
+  return `src_${stableHash(buildRecipeKey(title, canonicals))}`;
 }
 
 function buildRecipeKey(title: string, canonicals: string[]) {
@@ -466,22 +563,78 @@ function normalizeImportedCuisine(value: string) {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
+  for (let attempt = 0; attempt < FETCH_RETRY_LIMIT; attempt += 1) {
+    const response = await fetch(url, {
+      headers: {
+        "user-agent": "NutriMoment recipe importer"
+      }
+    });
+
+    if (response.ok) {
+      return (await response.json()) as T;
+    }
+
+    if ((response.status === 429 || response.status >= 500) && attempt < FETCH_RETRY_LIMIT - 1) {
+      const retryAfterSeconds = Number(response.headers.get("retry-after") ?? "0");
+      const delayMs =
+        retryAfterSeconds > 0
+          ? retryAfterSeconds * 1000
+          : FETCH_BASE_BACKOFF_MS * Math.max(1, attempt + 1);
+      process.stdout.write(
+        `Fetch retry ${attempt + 1}/${FETCH_RETRY_LIMIT - 1} for ${url} after ${delayMs}ms (${response.status}).\n`
+      );
+      await wait(delayMs);
+      continue;
+    }
+
+    throw new Error(`Failed to fetch ${url}: ${response.status}`);
+  }
+
+  throw new Error(`Failed to fetch ${url}: retry limit exceeded`);
+}
+
+async function streamJsonGzipLines(
+  url: string,
+  onRecord: (record: Record<string, unknown>) => boolean | void | Promise<boolean | void>
+) {
   const response = await fetch(url, {
     headers: {
       "user-agent": "NutriMoment recipe importer"
     }
   });
-  if (!response.ok) {
+  if (!response.ok || !response.body) {
     throw new Error(`Failed to fetch ${url}: ${response.status}`);
   }
-  return (await response.json()) as T;
-}
 
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "-")
-    .replace(/^-+|-+$/g, "");
+  const stream = response.body.pipeThrough(new DecompressionStream("gzip"));
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      const shouldStop = await onRecord(parsed);
+      if (shouldStop) {
+        await reader.cancel();
+        return;
+      }
+    }
+  }
 }
 
 function toTitleCase(value: string) {
@@ -501,6 +654,10 @@ function getNumericArg(flag: string) {
   if (!arg) return null;
   const parsed = Number(arg.split("=")[1]);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function logImportSummary(recipes: RecipeCatalogDoc[]) {
@@ -524,22 +681,86 @@ function formatTally(counts: Record<string, number>) {
     .join(", ");
 }
 
-function stripUndefinedDeep<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value
-      .filter((entry) => entry !== undefined)
-      .map((entry) => stripUndefinedDeep(entry)) as T;
-  }
+async function writeImportArtifacts(input: {
+  importBatchId: string;
+  rawImports: ReturnType<typeof buildRawImportDoc>[];
+  stagingDocs: ReturnType<typeof buildCanonicalStagingDoc>[];
+  recipes: RecipeCatalogDoc[];
+}) {
+  const generatedDir = path.join(process.cwd(), ".generated");
+  await mkdir(generatedDir, { recursive: true });
+  const artifactPath = path.join(generatedDir, `real-source-import-${input.importBatchId}.json`);
+  await writeFile(
+    artifactPath,
+    JSON.stringify(
+      {
+        importBatchId: input.importBatchId,
+        counts: {
+          rawImports: input.rawImports.length,
+          stagingDocs: input.stagingDocs.length,
+          recipes: input.recipes.length
+        },
+        byCuisine: tally(input.recipes.map((recipe) => recipe.cuisine)),
+        byProvider: tally(input.recipes.map((recipe) => recipe.source?.provider ?? "unknown")),
+        recipes: input.recipes,
+        stagingDocs: input.stagingDocs,
+        rawImports: input.rawImports
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  return artifactPath;
+}
 
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, entry]) => entry !== undefined)
-        .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
-    ) as T;
-  }
+function classifyOpenRecipeCuisine(value: string) {
+  if (OPEN_RECIPE_PATTERNS.egyptian.test(value)) return "egyptian";
+  if (OPEN_RECIPE_PATTERNS.middleEastern.test(value)) return "middle eastern";
+  if (OPEN_RECIPE_PATTERNS.italian.test(value)) return "italian";
+  return null;
+}
 
-  return value;
+function splitOpenRecipeIngredients(value: string) {
+  return value
+    .split(/\r?\n+/)
+    .map(cleanIngredient)
+    .filter((line) => line.length >= 2)
+    .slice(0, 20);
+}
+
+function splitOpenRecipeDescription(value: string) {
+  return value
+    .split(/(?<=[.!?])\s+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 20)
+    .slice(0, 8);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function readOpenRecipeId(entry: Record<string, unknown>) {
+  const rawId = entry._id;
+  if (rawId && typeof rawId === "object" && "$oid" in rawId) {
+    const oid = (rawId as { $oid?: unknown }).$oid;
+    return typeof oid === "string" ? oid : undefined;
+  }
+  return undefined;
+}
+
+function getCuisinePriority(value: string) {
+  switch (value.trim().toLowerCase()) {
+    case "egyptian":
+      return 0;
+    case "middle eastern":
+      return 1;
+    case "italian":
+      return 2;
+    default:
+      return 3;
+  }
 }
 
 main().catch((error) => {

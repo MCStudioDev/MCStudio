@@ -118,6 +118,12 @@ That means:
 
 Recommended Firestore / Storage shape:
 
+- `recipeSources`
+  - import registry and trust/licensing metadata for each external source
+- `recipeRawImports`
+  - raw imported recipe payloads before canonicalization or dedupe
+- `recipeCanonicalStaging`
+  - normalized and deduplicated recipes awaiting promotion into the serving catalog
 - `recipes`
   - canonical recipe catalog documents
 - `ingredientRecipeIndex`
@@ -270,6 +276,39 @@ Phase 3:
 Phase 4:
 
 - consider synthetic expansion toward `1M` if quality, storage cost, and ranking remain strong
+
+### Real-Source 200K Roadmap
+
+The practical path to `200K` recipes should be a real-source import pipeline, not hand-authored seeds.
+
+Recommended weighting:
+
+- `50K` Italian
+- `45K` Middle Eastern
+- `25K` Egyptian
+- `80K` broader global coverage
+
+Pipeline stages:
+
+1. source registry
+   - track provider, trust score, cuisine focus, language, license, and import priority
+2. raw import storage
+   - store fetched title, ingredients, steps, image URL, source URL, and fingerprint before normalization
+3. canonical staging
+   - normalize ingredients, language, cuisine, and duplicate keys before promotion
+4. serving promotion
+   - only write deduplicated, bilingual, metadata-rich recipes into `recipes`
+
+Quality gates before promotion:
+
+- must come from a real source with attribution
+- must have a stable source URL or external ID
+- must have enough ingredients and steps to be a real recipe
+- must pass duplicate clustering
+- must carry both `localized.English` and `localized.Arabic`
+- must carry health and search metadata
+
+The current importer should keep expanding by adapters, starting with sources that are strongest for Italian, Egyptian, and Middle Eastern cuisines, then wider global coverage after ranking quality is validated.
 
 ### Execution Checklist
 

@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
+import { logger } from "@/lib/logger";
 import type { HistoryItem, Recipe, RecipeImageSource } from "@/lib/types";
 
 interface UseHistoryResult {
@@ -22,6 +23,7 @@ interface UseHistoryResult {
   loading: boolean;
   error: Error | null;
   addEntry: (entry: Omit<HistoryItem, "id">) => Promise<string | null>;
+  replaceEntryRecipes: (entryId: string, recipes: Recipe[]) => Promise<void>;
   updateRecipeImage: (
     entryId: string,
     recipeIndex: number,
@@ -43,6 +45,7 @@ interface HistoryState {
 type HistoryAction =
   | { type: "loading"; payload: boolean }
   | { type: "items"; payload: HistoryItem[] }
+  | { type: "recipes"; payload: { entryId: string; recipes: Recipe[] } }
   | { type: "error"; payload: Error | null };
 
 const INITIAL_STATE: HistoryState = {
@@ -59,12 +62,26 @@ function stripUndefined<T extends object>(value: T): T {
   return next as T;
 }
 
+function isFirestoreQuotaError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /resource-exhausted|quota exceeded|too many requests|unavailable/i.test(error.message)
+  );
+}
+
 function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
   switch (action.type) {
     case "loading":
       return { ...state, loading: action.payload };
     case "items":
       return { ...state, items: action.payload, error: null };
+    case "recipes":
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.id === action.payload.entryId ? { ...item, recipes: action.payload.recipes } : item
+        )
+      };
     case "error":
       return { ...state, error: action.payload };
     default:
@@ -125,6 +142,22 @@ export function useHistory(): UseHistoryResult {
     return ref.id;
   };
 
+  const replaceEntryRecipes = async (entryId: string, recipes: Recipe[]) => {
+    if (!user) return;
+    const sanitizedRecipes = recipes.map(stripUndefined);
+    dispatch({ type: "recipes", payload: { entryId, recipes: sanitizedRecipes } });
+
+    try {
+      await updateDoc(doc(db, `users/${user.uid}/history`, entryId), { recipes: sanitizedRecipes });
+    } catch (error) {
+      if (isFirestoreQuotaError(error)) {
+        logger.warn("Skipping batched history recipe persistence after Firestore throttling", { entryId });
+        return;
+      }
+      throw error;
+    }
+  };
+
   const updateRecipeImage = async (
     entryId: string,
     recipeIndex: number,
@@ -138,17 +171,44 @@ export function useHistory(): UseHistoryResult {
     if (!current) return;
     const recipes = [...current.recipes];
     if (!recipes[recipeIndex]) return;
+    const currentRecipe = recipes[recipeIndex];
+    const nextImageUrl = imageUrl || currentRecipe.image_url;
+    const nextImageSource = imageSource ?? currentRecipe.image_source;
+    const nextAttributionName = imageAttribution?.name ?? currentRecipe.image_attribution_name;
+    const nextAttributionUrl = imageAttribution?.url ?? currentRecipe.image_attribution_url;
+
+    if (
+      currentRecipe.image_url === nextImageUrl &&
+      currentRecipe.image_error === errored &&
+      currentRecipe.image_loading === false &&
+      currentRecipe.image_source === nextImageSource &&
+      currentRecipe.image_attribution_name === nextAttributionName &&
+      currentRecipe.image_attribution_url === nextAttributionUrl
+    ) {
+      return;
+    }
+
     recipes[recipeIndex] = {
-      ...recipes[recipeIndex],
-      image_url: imageUrl || recipes[recipeIndex].image_url,
-      image_source: imageSource ?? recipes[recipeIndex].image_source,
-      image_attribution_name: imageAttribution?.name ?? recipes[recipeIndex].image_attribution_name,
-      image_attribution_url: imageAttribution?.url ?? recipes[recipeIndex].image_attribution_url,
+      ...currentRecipe,
+      image_url: nextImageUrl,
+      image_source: nextImageSource,
+      image_attribution_name: nextAttributionName,
+      image_attribution_url: nextAttributionUrl,
       image_loading: false,
       image_error: errored
     };
     const sanitizedRecipes = recipes.map(stripUndefined);
-    await updateDoc(doc(db, `users/${user.uid}/history`, entryId), { recipes: sanitizedRecipes });
+    dispatch({ type: "recipes", payload: { entryId, recipes: sanitizedRecipes } });
+
+    try {
+      await updateDoc(doc(db, `users/${user.uid}/history`, entryId), { recipes: sanitizedRecipes });
+    } catch (error) {
+      if (isFirestoreQuotaError(error)) {
+        logger.warn("Skipping history image persistence after Firestore throttling", { entryId, recipeIndex });
+        return;
+      }
+      throw error;
+    }
   };
 
   const removeEntry = async (id: string) => {
@@ -165,5 +225,14 @@ export function useHistory(): UseHistoryResult {
     await batch.commit();
   };
 
-  return { items, loading: effectiveLoading, error: state.error, addEntry, updateRecipeImage, removeEntry, clear };
+  return {
+    items,
+    loading: effectiveLoading,
+    error: state.error,
+    addEntry,
+    replaceEntryRecipes,
+    updateRecipeImage,
+    removeEntry,
+    clear
+  };
 }

@@ -1,31 +1,21 @@
-export const OFFLINE_INGREDIENT_RECIPE_INDEX: Record<string, string[]> = {
-  "chicken breast": ["r_1001", "r_1002", "r_1005", "r_1014", "r_1016"],
-  rice: ["r_1001", "r_1004", "r_1005", "r_1013", "r_1014", "r_1016", "r_1018", "r_1021", "r_1023", "r_1024"],
-  broccoli: ["r_1001", "r_1005", "r_1010"],
-  garlic: ["r_1001", "r_1002", "r_1003", "r_1014", "r_1020", "r_1024"],
-  tomato: ["r_1002", "r_1004", "r_1006", "r_1008", "r_1011", "r_1012", "r_1013", "r_1015", "r_1016", "r_1017", "r_1018", "r_1019", "r_1020", "r_1021", "r_1022", "r_1024"],
-  basil: ["r_1002", "r_1003"],
-  pasta: ["r_1003"],
-  spinach: ["r_1003", "r_0904"],
-  "canned beans": ["r_1004", "r_1019"],
-  "olive oil": ["r_1002", "r_1003", "r_1004", "r_1005", "r_0904", "r_1006", "r_1012", "r_1014", "r_1015", "r_1017", "r_1018", "r_1019", "r_1021", "r_1022", "r_1023"],
-  "greek yogurt": ["r_0901", "r_1022"],
-  "mixed berries": ["r_0901"],
-  granola: ["r_0901"],
-  oats: ["r_0902"],
-  banana: ["r_0902"],
-  cinnamon: ["r_0902"],
-  egg: ["r_0903", "r_1012", "r_1017"],
-  avocado: ["r_0903"],
-  bread: ["r_0903", "r_1012", "r_1017", "r_1019", "r_1022"],
-  tofu: ["r_0904", "r_1010"],
-  chickpeas: ["r_1006", "r_1011", "r_1013", "r_1015", "r_1016", "r_1021", "r_1024"],
-  cucumber: ["r_1006", "r_1007", "r_1015", "r_1016", "r_1018", "r_1021", "r_1022"],
-  "turkey breast": ["r_1007"],
-  quinoa: ["r_1007"],
-  lentils: ["r_1008", "r_1013", "r_1020", "r_1023"],
-  onion: ["r_1008", "r_1011", "r_1012", "r_1013", "r_1019", "r_1020", "r_1023", "r_1024"],
-  salmon: ["r_1009", "r_1018"],
-  asparagus: ["r_1009"],
-  cauliflower: ["r_1011"]
-};
+import { OFFLINE_RECIPES } from "@/data/offline/recipes";
+
+function buildIngredientRecipeIndex() {
+  const index = new Map<string, Set<string>>();
+
+  OFFLINE_RECIPES.forEach((recipe) => {
+    recipe.ingredientCanonicals.forEach((canonical) => {
+      const recipeIds = index.get(canonical) ?? new Set<string>();
+      recipeIds.add(recipe.id);
+      index.set(canonical, recipeIds);
+    });
+  });
+
+  return Object.fromEntries(
+    Array.from(index.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([canonical, recipeIds]) => [canonical, Array.from(recipeIds).sort()])
+  ) as Record<string, string[]>;
+}
+
+export const OFFLINE_INGREDIENT_RECIPE_INDEX = buildIngredientRecipeIndex();

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { buildPlateRecipeMatchVisionPrompt, buildRecipeGenerationPrompt } from "@/lib/aiPrompts";
+import {
+  buildPlateRecipeMatchVisionPrompt,
+  buildPromptOnlyRecipeGenerationPrompt,
+  buildRecipeGenerationPrompt
+} from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
 import {
   accessErrorResponse,
@@ -10,17 +14,21 @@ import {
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
+import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
 import { isArabicRecipeLanguage, localizeRecipeForArabic } from "@/lib/arabicRecipeLocalization";
+import { normalizeRecipeLanguage } from "@/lib/language";
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
 
-const RECIPE_RESULT_COUNT = 5;
+const DEFAULT_RECIPE_RESULT_COUNT = 5;
+const MIN_RECIPE_RESULT_COUNT = 1;
+const MAX_RECIPE_RESULT_COUNT = 10;
 
 const MOCK_RECIPES = {
   recipes: [
@@ -92,6 +100,7 @@ const requestSchema = z.object({
   ingredientQuantities: z.array(z.string()).optional(),
   prompt: z.string().min(20).optional(),
   referenceImage: z.string().min(10).optional(),
+  recipeCount: z.number().optional(),
   recipeLanguage: z.string().optional(),
   preferredCuisine: z.string().optional(),
   calorieTarget: z.number().optional(),
@@ -128,6 +137,8 @@ export async function POST(request: Request) {
     const ingredients = (parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""))
       .map((ingredient) => ingredient.trim())
       .filter(Boolean);
+    const recipeLanguage = normalizeRecipeLanguage(parsed.data.recipeLanguage, "English");
+    const recipeCount = clampRecipeCount(parsed.data.recipeCount);
     if (!ingredients.length && !parsed.data.referenceImage) {
       return Response.json(
         { error: "No ingredients or reference image provided" },
@@ -136,7 +147,7 @@ export async function POST(request: Request) {
     }
     const availableIngredients = await buildAvailableIngredientSet(ingredients);
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
-    const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+    const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const prepareRecipes = (recipes: Recipe[]) =>
       (wantsArabic ? recipes.map(localizeRecipeForArabic) : recipes).map((recipe) =>
         ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
@@ -149,10 +160,17 @@ export async function POST(request: Request) {
         : null;
       const strictRecipes = rankStrictRecipes(
         applyStrictIngredientOwnership(MOCK_RECIPES.recipes, availableIngredients),
-        { ...parsed.data, ingredients }
+        { ...parsed.data, ingredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
-      const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
+      const finalRecipes = prepareRecipes(
+        mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+      );
+      queueRecipeCachePersist({
+        uid: accessCheck.access.uid,
+        recipeLanguage,
+        recipes: finalRecipes
+      });
       return Response.json({
         recipes: finalRecipes,
         result: JSON.stringify(finalRecipes),
@@ -165,7 +183,7 @@ export async function POST(request: Request) {
       ? await buildExactScanMatchRecipe({
           availableIngredients,
           image: parsed.data.referenceImage,
-          language: parsed.data.recipeLanguage ?? "English"
+          language: recipeLanguage
         })
       : null;
 
@@ -176,7 +194,9 @@ export async function POST(request: Request) {
       diets: parsed.data.diets,
       conditions: parsed.data.conditions,
       allergens: parsed.data.allergens,
-      maxResults: RECIPE_RESULT_COUNT
+      maxResults: recipeCount,
+      recipeLanguage,
+      uid: accessCheck.access.uid
     });
 
     if (!accessCheck.allowed) {
@@ -186,15 +206,22 @@ export async function POST(request: Request) {
       });
       const strictRecipes = rankStrictRecipes(
         applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
-        { ...parsed.data, ingredients }
+        { ...parsed.data, ingredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
-      const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
+      const finalRecipes = prepareRecipes(
+        mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+      );
+      queueRecipeCachePersist({
+        uid: accessCheck.access.uid,
+        recipeLanguage,
+        recipes: finalRecipes
+      });
       return Response.json({
         result: JSON.stringify(finalRecipes),
         servedFrom: searchResult.servedFrom,
         canLoadMore: searchResult.canLoadMore,
-        fallbackNotice: "Your 5 free AI credits are used. These recipes are from the offline catalog.",
+        fallbackNotice: buildRecipeFallbackNotice("credits_used_offline_catalog", recipeLanguage),
         access: accessPayload(accessCheck.access)
       });
     }
@@ -210,16 +237,17 @@ export async function POST(request: Request) {
               quantity: readIngredientQuantity(parsed.data.ingredientQuantities?.[index])
             })),
             {
-              recipeLanguage: parsed.data.recipeLanguage ?? "English",
+              recipeLanguage,
               preferredCuisine: parsed.data.preferredCuisine ?? "Any",
               calorieTarget: parsed.data.calorieTarget ?? 2000,
               maxMissingIngredients: parsed.data.maxMissingIngredients ?? 3,
+              recipeCount,
               diets: parsed.data.diets ?? [],
               conditions: parsed.data.conditions ?? [],
               allergens: parsed.data.allergens ?? []
             }
           )
-        : parsed.data.prompt ?? "";
+        : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
       const text = await generateFallbackRecipes(prompt);
       const json = extractJson(text);
       const recipes = JSON.parse(json);
@@ -227,10 +255,17 @@ export async function POST(request: Request) {
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
         const strictRecipes = rankStrictRecipes(
           applyStrictIngredientOwnership(normalizedRecipes, availableIngredients),
-          { ...parsed.data, ingredients }
-        ).slice(0, RECIPE_RESULT_COUNT);
+          { ...parsed.data, ingredients, recipeCount }
+        ).slice(0, recipeCount);
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
-        const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
+        const finalRecipes = prepareRecipes(
+          mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+        );
+        queueRecipeCachePersist({
+          uid: accessCheck.access.uid,
+          recipeLanguage,
+          recipes: finalRecipes
+        });
         logger.info("Recipe generation served from Gemini fallback AI", {
           recipeCount: finalRecipes.length,
           hasExactScanMatch: Boolean(exactScanMatch)
@@ -253,15 +288,22 @@ export async function POST(request: Request) {
     });
     const strictRecipes = rankStrictRecipes(
       applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
-      { ...parsed.data, ingredients }
+      { ...parsed.data, ingredients, recipeCount }
     );
     const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
-    const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
+    const finalRecipes = prepareRecipes(
+      mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+    );
+    queueRecipeCachePersist({
+      uid: accessCheck.access.uid,
+      recipeLanguage,
+      recipes: finalRecipes
+    });
     return Response.json({
       result: JSON.stringify(finalRecipes),
       servedFrom: "offline_catalog",
       canLoadMore: searchResult.canLoadMore,
-      fallbackNotice: "AI recipe generation was unavailable, so we used offline catalog matches.",
+      fallbackNotice: buildRecipeFallbackNotice("ai_unavailable_offline_catalog", recipeLanguage),
       access: accessPayload(nextAccess)
     });
   } catch (error) {
@@ -400,13 +442,18 @@ function normalizeScannedDishRecipe(recipe: unknown, availableIngredients: Set<s
   };
 }
 
-function mergeRecipeResults(exactRecipe: Recipe | null, similarRecipes: Recipe[], markSimilarOrigins: boolean) {
+function mergeRecipeResults(
+  exactRecipe: Recipe | null,
+  similarRecipes: Recipe[],
+  markSimilarOrigins: boolean,
+  recipeCount: number
+) {
   const merged: Recipe[] = [];
   const seen = new Set<string>();
 
   const pushRecipe = (recipe: Recipe, fallbackOrigin?: Recipe["recipe_origin"]) => {
     const key = recipe.id ?? recipe.name.trim().toLowerCase();
-    if (!key || seen.has(key) || merged.length >= RECIPE_RESULT_COUNT) return;
+    if (!key || seen.has(key) || merged.length >= recipeCount) return;
     seen.add(key);
     merged.push({
       ...recipe,
@@ -518,6 +565,7 @@ function rankStrictRecipes(
     preferredCuisine?: string;
     calorieTarget?: number;
     maxMissingIngredients?: number;
+    recipeCount?: number;
     diets?: string[];
     conditions?: string[];
   }
@@ -541,7 +589,46 @@ function rankStrictRecipes(
     }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .map(({ recipe }) => recipe)
-    .slice(0, RECIPE_RESULT_COUNT);
+    .slice(0, clampRecipeCount(options.recipeCount));
+}
+
+function clampRecipeCount(value?: number) {
+  if (!Number.isFinite(value)) return DEFAULT_RECIPE_RESULT_COUNT;
+  return Math.min(MAX_RECIPE_RESULT_COUNT, Math.max(MIN_RECIPE_RESULT_COUNT, Number(value)));
+}
+
+function buildRecipeFallbackNotice(
+  kind: "credits_used_offline_catalog" | "ai_unavailable_offline_catalog",
+  recipeLanguage: string
+) {
+  const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
+  if (!wantsArabic) {
+    if (kind === "credits_used_offline_catalog") {
+      return "Your 5 free AI credits are used. These recipes are from the offline catalog.";
+    }
+
+    return "AI recipe generation was unavailable, so we used offline catalog matches.";
+  }
+
+  if (kind === "credits_used_offline_catalog") {
+    return "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. هذه الوصفات من الكتالوج غير المتصل.";
+  }
+
+  return "تعذر توليد الوصفات بالذكاء الاصطناعي، لذلك استخدمنا مطابقات من الكتالوج غير المتصل.";
+}
+
+function queueRecipeCachePersist(input: {
+  recipeLanguage: string;
+  recipes?: Recipe[];
+  uid?: string | null;
+}) {
+  void persistGeneratedRecipeCache(input).catch((error) => {
+    logger.warn("Recipe cache persistence failed", {
+      uid: input.uid ?? null,
+      recipeCount: input.recipes?.length ?? 0,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  });
 }
 
 function scoreStrictRecipe(

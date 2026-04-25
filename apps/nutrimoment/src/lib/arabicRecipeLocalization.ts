@@ -135,6 +135,11 @@ const STEP_TRANSLATIONS: Record<string, string> = {
   "Serve hot with bread.": "قدمه ساخنا مع الخبز."
 };
 
+const REVERSE_RECIPE_TITLES = reverseLookup(RECIPE_TITLES);
+const REVERSE_CUISINES = reverseLookup(CUISINES);
+const REVERSE_INGREDIENTS = reverseLookup(INGREDIENTS);
+const REVERSE_STEP_TRANSLATIONS = reverseLookup(STEP_TRANSLATIONS);
+
 export function localizeRecipeForArabic(recipe: Recipe): Recipe {
   return {
     ...recipe,
@@ -143,7 +148,23 @@ export function localizeRecipeForArabic(recipe: Recipe): Recipe {
     ingredients: recipe.ingredients.map(translateIngredient),
     missing_ingredients: recipe.missing_ingredients.map(translateIngredient),
     steps: recipe.steps.map(translateStep),
+    cook_time: translateCookTimeToArabic(recipe.cook_time),
+    difficulty: translateDifficultyToArabic(recipe.difficulty),
     preference_hits: recipe.preference_hits?.map(translatePreferenceHit)
+  };
+}
+
+export function localizeRecipeForEnglish(recipe: Recipe): Recipe {
+  return {
+    ...recipe,
+    name: translateRecipeTitleToEnglish(recipe.name, recipe.image_search_index),
+    cuisine: translateCuisineToEnglish(recipe.cuisine),
+    ingredients: recipe.ingredients.map(translateIngredientToEnglish),
+    missing_ingredients: recipe.missing_ingredients.map(translateIngredientToEnglish),
+    steps: recipe.steps.map(translateStepToEnglish),
+    cook_time: translateCookTimeToEnglish(recipe.cook_time),
+    difficulty: translateDifficultyToEnglish(recipe.difficulty),
+    preference_hits: recipe.preference_hits?.map(translatePreferenceHitToEnglish)
   };
 }
 
@@ -153,6 +174,15 @@ export function localizeMealForArabic(meal: MealPlanMeal): MealPlanMeal {
     name: translateRecipeTitle(meal.name),
     ingredients: meal.ingredients?.map(translateIngredient),
     steps: meal.steps?.map(translateStep)
+  };
+}
+
+export function localizeMealForEnglish(meal: MealPlanMeal): MealPlanMeal {
+  return {
+    ...meal,
+    name: translateRecipeTitleToEnglish(meal.name, meal.image_search_index),
+    ingredients: meal.ingredients?.map(translateIngredientToEnglish),
+    steps: meal.steps?.map(translateStepToEnglish)
   };
 }
 
@@ -176,11 +206,22 @@ export function isArabicRecipeLanguage(language?: string) {
 }
 
 function translateRecipeTitle(value: string) {
-  return RECIPE_TITLES[value] ?? value;
+  const exact = RECIPE_TITLES[value];
+  if (exact) return exact;
+  if (!/[A-Za-z]/.test(value)) return value;
+  return translateEnglishRecipeTitle(value);
+}
+
+function translateRecipeTitleToEnglish(value: string, fallbackQuery?: string) {
+  return REVERSE_RECIPE_TITLES[value] ?? toTitleCase(fallbackQuery ?? value);
 }
 
 function translateCuisine(value: string) {
   return CUISINES[value] ?? value;
+}
+
+function translateCuisineToEnglish(value: string) {
+  return REVERSE_CUISINES[value] ?? value;
 }
 
 function translateIngredient(value: string) {
@@ -188,8 +229,27 @@ function translateIngredient(value: string) {
   return INGREDIENTS[normalized] ?? value;
 }
 
+export function translateIngredientToArabic(value: string) {
+  return translateIngredient(value);
+}
+
+export function translateIngredientToEnglish(value: string) {
+  return REVERSE_INGREDIENTS[value] ?? value;
+}
+
 function translateStep(value: string) {
-  return STEP_TRANSLATIONS[value] ?? value;
+  const exact = STEP_TRANSLATIONS[value];
+  if (exact) return exact;
+
+  if (!/[A-Za-z]/.test(value)) {
+    return value;
+  }
+
+  return translateEnglishCookingStep(value);
+}
+
+function translateStepToEnglish(value: string) {
+  return REVERSE_STEP_TRANSLATIONS[value] ?? value;
 }
 
 function translatePreferenceHit(value: string) {
@@ -197,6 +257,13 @@ function translatePreferenceHit(value: string) {
     .replace("cuisine-aligned", "متوافق مع المطبخ المفضل")
     .replace("calorie-target", "مناسب لهدف السعرات")
     .replace("pantry", "مناسب للمكونات المتوفرة");
+}
+
+function translatePreferenceHitToEnglish(value: string) {
+  return value
+    .replace(translatePreferenceHit("cuisine-aligned"), "cuisine-aligned")
+    .replace(translatePreferenceHit("calorie-target"), "calorie-target")
+    .replace(translatePreferenceHit("pantry"), "pantry");
 }
 
 function translateShoppingItem(value: string) {
@@ -222,6 +289,36 @@ function translateUnitText(value: string) {
     .replace(/\bfillet\b/g, "شريحة");
 }
 
+function translateCookTimeToArabic(value: string) {
+  return value
+    .replace(/\bmins\b/gi, "Ø¯Ù‚Ø§Ø¦Ù‚")
+    .replace(/\bmin\b/gi, "Ø¯Ù‚ÙŠÙ‚Ø©")
+    .replace(/\bhours\b/gi, "Ø³Ø§Ø¹Ø§Øª")
+    .replace(/\bhour\b/gi, "Ø³Ø§Ø¹Ø©");
+}
+
+function translateCookTimeToEnglish(value: string) {
+  return value
+    .replace(new RegExp(escapeRegExp(translateCookTimeToArabic("mins")), "g"), "mins")
+    .replace(new RegExp(escapeRegExp(translateCookTimeToArabic("min")), "g"), "min")
+    .replace(new RegExp(escapeRegExp(translateCookTimeToArabic("hours")), "g"), "hours")
+    .replace(new RegExp(escapeRegExp(translateCookTimeToArabic("hour")), "g"), "hour");
+}
+
+function translateDifficultyToArabic(value: string) {
+  return value
+    .replace(/\beasy\b/gi, "Ø³Ù‡Ù„")
+    .replace(/\bmedium\b/gi, "Ù…ØªÙˆØ³Ø·")
+    .replace(/\bhard\b/gi, "ØµØ¹Ø¨");
+}
+
+function translateDifficultyToEnglish(value: string) {
+  return value
+    .replace(new RegExp(escapeRegExp(translateDifficultyToArabic("Easy")), "g"), "Easy")
+    .replace(new RegExp(escapeRegExp(translateDifficultyToArabic("Medium")), "g"), "Medium")
+    .replace(new RegExp(escapeRegExp(translateDifficultyToArabic("Hard")), "g"), "Hard");
+}
+
 function translateDay(value: string) {
   const days: Record<string, string> = {
     Monday: "الاثنين",
@@ -233,4 +330,165 @@ function translateDay(value: string) {
     Sunday: "الأحد"
   };
   return days[value] ?? value;
+}
+
+function translateEnglishCookingStep(value: string) {
+  let translated = ` ${value.trim()} `;
+
+  const phraseReplacements: Array<[RegExp, string]> = [
+    [/\baccording to package directions\b/gi, "وفق تعليمات العبوة"],
+    [/\bto your liking\b/gi, "حسب الرغبة"],
+    [/\buntil tender\b/gi, "حتى يطرى"],
+    [/\buntil soft\b/gi, "حتى يلين"],
+    [/\buntil warm\b/gi, "حتى يسخن"],
+    [/\buntil hot\b/gi, "حتى يصبح ساخنا"],
+    [/\buntil thickened\b/gi, "حتى يتماسك القوام"],
+    [/\buntil golden\b/gi, "حتى يكتسب لونا ذهبيا"],
+    [/\buntil glossy\b/gi, "حتى يصبح لامعا"],
+    [/\buntil fluffy\b/gi, "حتى يصبح هشا"],
+    [/\buntil almost tender\b/gi, "حتى يقترب من النضج"],
+    [/\buntil it flakes easily\b/gi, "حتى يتفتت بسهولة"],
+    [/\bfor serving\b/gi, "للتقديم"],
+    [/\bbefore serving\b/gi, "قبل التقديم"],
+    [/\band serve chilled\b/gi, "وقدمها باردة"],
+    [/\band serve\b/gi, "وقدمه"],
+    [/\bserve hot with\b/gi, "قدمها ساخنة مع"],
+    [/\bserve over\b/gi, "قدمه فوق"],
+    [/\bserve with\b/gi, "قدمه مع"],
+    [/\bserve in bowls with\b/gi, "قدمه في أوعية مع"],
+    [/\bserve in bowls\b/gi, "قدمه في أوعية"],
+    [/\btoss together and finish with\b/gi, "اخلط المكونات معا وأنه الطبق ب"],
+    [/\btoss everything with\b/gi, "اخلط كل المكونات مع"],
+    [/\btoss with\b/gi, "اخلطه مع"],
+    [/\btop with\b/gi, "أضف على الوجه"],
+    [/\bfinish with\b/gi, "أنهِ الطبق ب"],
+    [/\bfold in\b/gi, "أضف برفق"],
+    [/\bdrizzle with\b/gi, "أضف رشة من"],
+    [/\barrange\b/gi, "رتب"],
+    [/\bslice into\b/gi, "قطع إلى"],
+    [/\bslice and toss together\b/gi, "قطعه واخلطه مع بقية المكونات"],
+    [/\bslice\b/gi, "قطع"],
+    [/\bdice\b/gi, "قطع مكعبات"],
+    [/\bchop\b/gi, "قطع"],
+    [/\bmash\b/gi, "اهرِس"],
+    [/\bcrack in\b/gi, "أضف"],
+    [/\bcrumble\b/gi, "فتت"],
+    [/\btoast\b/gi, "حمص"],
+    [/\bcook\b/gi, "اطه"],
+    [/\bboil\b/gi, "اسلق"],
+    [/\bbake\b/gi, "اخبز"],
+    [/\broast\b/gi, "اشو"],
+    [/\bgrill\b/gi, "اشو"],
+    [/\bbrown\b/gi, "حمّر"],
+    [/\bsear\b/gi, "حمّر"],
+    [/\bsaute\b/gi, "شوّح"],
+    [/\bstir fry\b/gi, "شوّح بسرعة"],
+    [/\bsimmer\b/gi, "اتركه يطهى على نار هادئة"],
+    [/\bdrain\b/gi, "صفِّ"],
+    [/\bwarm\b/gi, "سخّن"],
+    [/\badd\b/gi, "أضف"],
+    [/\bmix\b/gi, "اخلط"],
+    [/\bcombine\b/gi, "اخلط"],
+    [/\bseason\b/gi, "تبّل"],
+    [/\busing\b/gi, "باستخدام"],
+    [/\bif desired\b/gi, "إذا رغبت"],
+    [/\bif using\b/gi, "إذا كنت تستخدمه"],
+    [/\blightly\b/gi, "بخفّة"],
+    [/\bbriefly\b/gi, "سريعا"],
+    [/\bseparately\b/gi, "على حدة"],
+    [/\btogether\b/gi, "معا"]
+  ];
+
+  for (const [pattern, replacement] of phraseReplacements) {
+    translated = translated.replace(pattern, replacement);
+  }
+
+  translated = replaceIngredientsInSentence(translated);
+  translated = translateUnitText(translated);
+  translated = translated
+    .replace(/\bminutes\b/gi, "دقائق")
+    .replace(/\bminute\b/gi, "دقيقة")
+    .replace(/\bhours\b/gi, "ساعات")
+    .replace(/\bhour\b/gi, "ساعة")
+    .replace(/\band\b/gi, "و")
+    .replace(/\bwith\b/gi, "مع")
+    .replace(/\bin\b/gi, "في")
+    .replace(/\bon\b/gi, "على")
+    .replace(/\binto\b/gi, "إلى")
+    .replace(/\buntil\b/gi, "حتى")
+    .replace(/\bthe\b/gi, "")
+    .replace(/\ba\b/gi, "")
+    .replace(/\ban\b/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,])/g, "$1")
+    .trim();
+
+  return translated || value;
+}
+
+function replaceIngredientsInSentence(value: string) {
+  return Object.entries(INGREDIENTS)
+    .sort((left, right) => right[0].length - left[0].length)
+    .reduce((current, [english, arabic]) => {
+      const escaped = escapeRegExp(english);
+      return current.replace(new RegExp(`\\b${escaped}\\b`, "gi"), arabic);
+    }, value);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function reverseLookup(source: Record<string, string>) {
+  return Object.fromEntries(Object.entries(source).map(([key, value]) => [value, key]));
+}
+
+function toTitleCase(value: string) {
+  return value
+    .trim()
+    .replace(/[_-]/g, " ")
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function translateEnglishRecipeTitle(value: string) {
+  let translated = ` ${value.trim()} `;
+
+  const phraseReplacements: Array<[RegExp, string]> = [
+    [/\bbreakfast\b/gi, " إفطار "],
+    [/\bbowl\b/gi, " وعاء "],
+    [/\bsalad\b/gi, " سلطة "],
+    [/\bsoup\b/gi, " شوربة "],
+    [/\bstew\b/gi, " طاجن "],
+    [/\bskillet\b/gi, " مقلاة "],
+    [/\bplate\b/gi, " طبق "],
+    [/\btoast\b/gi, " توست "],
+    [/\bpasta\b/gi, " مكرونة "],
+    [/\bcurry\b/gi, " كاري "],
+    [/\bpilaf\b/gi, " بيلاف "],
+    [/\btray bake\b/gi, " صينية مخبوزة "],
+    [/\bbake\b/gi, " صينية "],
+    [/\bpower\b/gi, " مشبع "],
+    [/\bpantry\b/gi, " مخزن "],
+    [/\binspired\b/gi, " مستوحى "],
+    [/\bmiddle eastern\b/gi, " شرق أوسطي "],
+    [/\bmediterranean\b/gi, " متوسطي "],
+    [/\begyptian\b/gi, " مصري "],
+    [/\bitalian\b/gi, " إيطالي "],
+    [/\band\b/gi, " و "],
+    [/\bwith\b/gi, " مع "]
+  ];
+
+  for (const [pattern, replacement] of phraseReplacements) {
+    translated = translated.replace(pattern, replacement);
+  }
+
+  translated = replaceIngredientsInSentence(translated)
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return translated || value;
 }

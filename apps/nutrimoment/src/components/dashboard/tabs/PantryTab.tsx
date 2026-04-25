@@ -233,8 +233,7 @@ export function PantryTab() {
             />
           </div>
           <div className="rounded-2xl border border-cyan-200/16 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/88">
-            {t("quantityGuide")}: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
-            olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
+            {t("quantityGuide")}: {t("quantityGuideDetails")}
           </div>
 
           <Button

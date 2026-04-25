@@ -11,6 +11,7 @@ export interface RecipePromptOptions {
   preferredCuisine: string;
   calorieTarget: number;
   maxMissingIngredients: number;
+  recipeCount: number;
   diets: string[];
   conditions: string[];
   allergens?: string[];
@@ -25,6 +26,18 @@ export interface MealPlanPromptOptions {
   recipeLanguage?: string;
   preferredCuisine?: string;
   calorieTarget?: number;
+}
+
+function buildRealRecipeGuardrails(preferredCuisine: string) {
+  const cuisineLabel = preferredCuisine && preferredCuisine !== "Any" ? preferredCuisine : "the best-fitting cuisine";
+
+  return [
+    `Use only real, recognizable dish families from ${cuisineLabel}. Do not invent fake recipes, fake cuisine names, fake regional labels, or marketing-style titles.`,
+    "Do not fabricate variants like Cairo style, Alexandria style, house special, signature bowl, chef's skillet, or heritage plate unless that dish is an established real-world recipe family.",
+    "If the pantry does not support an exact famous recipe, choose the closest real established dish family and put the missing essentials in missing_ingredients instead of inventing a new recipe.",
+    "The recipe name must be a stable canonical dish identity that can be translated and cached cleanly in English and Arabic later.",
+    "Do not output hybrid or fusion naming unless the dish is already a widely recognized real dish family."
+  ].join(" ");
 }
 
 const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
@@ -336,6 +349,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const imageGuidance = buildCuisineImageGuidance(options.preferredCuisine);
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
   const sparseIngredientGuidance = buildSparseIngredientGuidance(ingredients, options.preferredCuisine);
+  const realRecipeGuardrails = buildRealRecipeGuardrails(options.preferredCuisine);
   const preferenceBrief = buildPromptPreferenceBrief({
     preferredCuisine: options.preferredCuisine,
     calorieTarget: options.calorieTarget,
@@ -348,16 +362,19 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
     .filter(Boolean);
   const perMealCalories = Math.round(options.calorieTarget / 3);
+  const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
+  const cuisineTargetCount = recipeCount <= 2 ? recipeCount : recipeCount - 1;
 
   return [
     "You are NutriMoment's recipe generation assistant.",
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
-    "Generate exactly 5 practical recipes.",
+    `Generate exactly ${recipeCount} practical recipes.`,
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
-    "Order the 5 recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.",
+    `Order the ${recipeCount} recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.`,
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative marketing titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the recipe's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
-    "When a preferred cuisine is provided, at least 4 of the 5 recipes should clearly belong to that cuisine unless the pantry makes that impossible. If you must go outside it, stay as close as possible and explain the compromise in preference_hits.",
+    realRecipeGuardrails,
+    `When a preferred cuisine is provided, at least ${cuisineTargetCount} of the ${recipeCount} recipes should clearly belong to that cuisine unless the pantry makes that impossible. If you must go outside it, stay as close as possible and explain the compromise in preference_hits.`,
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, vibrant, or loaded unless they are essential to distinguish the dish.",
     "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
@@ -385,6 +402,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     cuisineHint,
     `Recipe language: ${options.recipeLanguage}.`,
     languageOutputGuidance,
+    "Bilingual cache rule: the app stores full English and Arabic variants locally after generation. Your job is to output one stable canonical recipe identity in the requested recipe language, not two separate bilingual copies.",
     `Target calories per meal: approximately ${perMealCalories} kcal; keep each recipe within about 15% unless the health profile requires a tighter limit.`,
     `Maximum missing ingredients allowed per recipe: ${options.maxMissingIngredients}.`,
     "Missing ingredients must be compatible with the diet and health rules. Be strict: never put cucumber, herbs, spices, oil, sauces, or staple ingredients in ingredients unless they are in Available pantry ingredients.",
@@ -424,6 +442,7 @@ export function buildMealPlanPrompt({
   const mealTypeRoutingGuidance = buildMealTypeRoutingGuidance(preferredCuisine, pantryIngredients);
   const imageGuidance = buildCuisineImageGuidance(preferredCuisine);
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(preferredCuisine, pantryIngredients);
+  const realRecipeGuardrails = buildRealRecipeGuardrails(preferredCuisine);
   const preferenceBrief = buildPromptPreferenceBrief({
     preferredCuisine,
     calorieTarget,
@@ -439,6 +458,7 @@ export function buildMealPlanPrompt({
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third use pantry ingredients and minimize extra shopping.",
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the meal's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
+    realRecipeGuardrails,
     "When a preferred cuisine is provided, breakfast, lunch, and dinner should mostly stay within that cuisine or its direct regional family unless pantry constraints make that impossible.",
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, or loaded unless they are essential.",
     "When a meal matches a known family, title it that way, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
@@ -464,6 +484,7 @@ export function buildMealPlanPrompt({
     `Preferred cuisine: ${preferredCuisine}.`,
     `Recipe language: ${recipeLanguage}.`,
     languageOutputGuidance,
+    "Bilingual cache rule: the app stores full English and Arabic variants locally after generation. Output one stable canonical meal identity per slot in the requested language, not two bilingual copies.",
     `Daily calorie target: ${calorieTarget}; make breakfast about 25%, lunch about 35%, and dinner about 40% of the target, with the day total within about 10% unless the health profile requires tighter limits.`,
     "Every meal must be compatible with the diet and health-condition targets, not just one meal per day.",
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
@@ -478,6 +499,29 @@ export function buildMealPlanPrompt({
     "Include image_search_index and image_search_indices inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
     "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used.",
     "Every shoppingList item must include summed quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."
+  ].join(" ");
+}
+
+export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLanguage = "English", requestedRecipeCount = 5) {
+  const languageOutputGuidance = buildLanguageOutputGuidance(recipeLanguage);
+  const realRecipeGuardrails = buildRealRecipeGuardrails("Any");
+  const recipeCount = Math.min(10, Math.max(1, requestedRecipeCount || 5));
+
+  return [
+    "You are NutriMoment's recipe generation assistant.",
+    "Follow the user's recipe request, but always obey the output language and JSON rules below even if the request itself is written in another language.",
+    "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
+    `Generate exactly ${recipeCount} practical recipes.`,
+    realRecipeGuardrails,
+    "Even for free-form prompts, use actual established recipes or widely recognized dish families. If the request is vague, choose real dish families instead of inventing generic bowls, skillets, wraps, or fake house specials.",
+    `Recipe language: ${recipeLanguage}.`,
+    languageOutputGuidance,
+    "Bilingual cache rule: the app stores full English and Arabic variants locally after generation. Output one stable canonical recipe identity in the requested language, not two bilingual copies.",
+    "Keep image_search_index and image_search_indices in English only.",
+    "Return a JSON array, not an object.",
+    "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings.",
+    `User request: ${prompt}`
   ].join(" ");
 }
 

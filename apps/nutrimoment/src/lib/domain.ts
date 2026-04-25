@@ -14,6 +14,125 @@ export interface RecipeIngredient {
   required: boolean;
 }
 
+export interface RecipeIngredientVariantDoc {
+  canonical: string;
+  locale: "en" | "ar";
+  region?: string;
+  variants: string[];
+}
+
+export interface RecipeHealthMetadata {
+  conditionTags: string[];
+  cautionFlags: string[];
+  nutritionClaims: string[];
+}
+
+export interface RecipeSearchMetadata {
+  aliasTokens: string[];
+  cuisineTokens?: string[];
+  ingredientVariants?: RecipeIngredientVariantDoc[];
+}
+
+export interface IngredientLexiconVariantDoc {
+  locale: "en" | "ar";
+  region?: string;
+  values: string[];
+}
+
+export interface IngredientLexiconDoc {
+  id: string;
+  canonical: string;
+  category: string;
+  broadCategory: string;
+  dietCompatibility: string[];
+  commonSubstitutes: string[];
+  variants: IngredientLexiconVariantDoc[];
+  misspellings: string[];
+  relatedCanonicals?: string[];
+  isActive: boolean;
+}
+
+export interface HealthTagDoc {
+  id: string;
+  type: "condition_support" | "caution" | "nutrition_claim";
+  label: string;
+  description: string;
+  localized?: Partial<
+    Record<
+      "English" | "Arabic",
+      {
+        label: string;
+        description: string;
+      }
+    >
+  >;
+  isActive: boolean;
+}
+
+export interface RecipeSourceDoc {
+  id: string;
+  name: string;
+  provider: string;
+  mode: "api" | "wiki" | "html" | "dataset";
+  baseUrl?: string;
+  focusCuisines: string[];
+  focusRegions?: string[];
+  languages: string[];
+  license?: string;
+  trustScore: number;
+  importPriority: number;
+  active: boolean;
+  notes?: string;
+  lastImportedAt?: number;
+}
+
+export interface RecipeRawImportDoc {
+  id: string;
+  sourceId: string;
+  importBatchId: string;
+  externalId?: string;
+  sourceUrl?: string;
+  title: string;
+  cuisine: string;
+  language: string;
+  ingredients: string[];
+  steps: string[];
+  imageUrl?: string;
+  license?: string;
+  recipeFingerprint: string;
+  fetchedAt: number;
+}
+
+export interface RecipeCanonicalStagingDoc {
+  id: string;
+  rawImportId: string;
+  sourceId: string;
+  importBatchId: string;
+  canonicalTitle: string;
+  normalizedTitle: string;
+  cuisine: string;
+  ingredientCanonicals: string[];
+  steps: string[];
+  duplicateKey: string;
+  source: {
+    provider: string;
+    externalId?: string;
+    url?: string;
+    license?: string;
+  };
+  localized?: Partial<Record<"English" | "Arabic", import("@/lib/types").Recipe>>;
+  image?: {
+    storagePath?: string;
+    thumbPath?: string;
+  };
+  qualityScore: number;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason?: string;
+  candidateRecipeId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface RecipeCatalogDoc {
   id: string;
   title: string;
@@ -44,7 +163,21 @@ export interface RecipeCatalogDoc {
   image: {
     storagePath: string;
     thumbPath?: string;
+    signature?: string;
+    sharedCacheKey?: string;
+    sourceQuery?: string;
   };
+  source?: {
+    provider: string;
+    externalId?: string;
+    url?: string;
+    license?: string;
+  };
+  localized?: Partial<Record<"English" | "Arabic", import("@/lib/types").Recipe>>;
+  regionalCuisines?: string[];
+  styleTags?: string[];
+  healthMetadata?: RecipeHealthMetadata;
+  searchMetadata?: RecipeSearchMetadata;
   searchTokens: string[];
   popularityScore: number;
   qualityScore: number;

@@ -4,6 +4,7 @@ import { useEffect, useReducer } from "react";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
+import { logger } from "@/lib/logger";
 import { normalizeMealPlanData, sanitizeMealPlanForFirestore } from "@/lib/mealPlan";
 import type { MealPlanData, RecipeImageSource } from "@/lib/types";
 
@@ -23,6 +24,13 @@ const INITIAL_STATE: MealPlanState = {
   loading: false,
   error: null
 };
+
+function isFirestoreQuotaError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /resource-exhausted|quota exceeded|too many requests|unavailable/i.test(error.message)
+  );
+}
 
 function mealPlanReducer(state: MealPlanState, action: MealPlanAction): MealPlanState {
   switch (action.type) {
@@ -112,16 +120,31 @@ export function useMealPlan() {
   ) => {
     const current = state.mealPlan;
     if (!current) return;
+    const currentMeal = current.plan[dayIndex]?.[mealType];
+    if (!currentMeal) return;
+    const nextImageSource = imageSource ?? currentMeal.image_source;
+    const nextAttributionName = imageAttribution?.name ?? currentMeal.image_attribution_name;
+    const nextAttributionUrl = imageAttribution?.url ?? currentMeal.image_attribution_url;
+
+    if (
+      currentMeal.image_url === imageUrl &&
+      currentMeal.image_source === nextImageSource &&
+      currentMeal.image_attribution_name === nextAttributionName &&
+      currentMeal.image_attribution_url === nextAttributionUrl
+    ) {
+      return;
+    }
+
     const nextPlan = current.plan.map((day, index) =>
       index === dayIndex
         ? {
             ...day,
             [mealType]: {
-              ...day[mealType],
+              ...currentMeal,
               image_url: imageUrl,
-              image_source: imageSource ?? day[mealType].image_source,
-              image_attribution_name: imageAttribution?.name ?? day[mealType].image_attribution_name,
-              image_attribution_url: imageAttribution?.url ?? day[mealType].image_attribution_url
+              image_source: nextImageSource,
+              image_attribution_name: nextAttributionName,
+              image_attribution_url: nextAttributionUrl
             }
           }
         : day
@@ -138,14 +161,22 @@ export function useMealPlan() {
     if (!user) return;
 
     const planRef = doc(db, "users", user.uid, "plans", "currentWeekly");
-    await setDoc(
-      planRef,
-      {
-        mealPlan: sanitized,
-        updatedAt: serverTimestamp()
-      },
-      { merge: true }
-    );
+    try {
+      await setDoc(
+        planRef,
+        {
+          mealPlan: sanitized,
+          updatedAt: serverTimestamp()
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      if (isFirestoreQuotaError(error)) {
+        logger.warn("Skipping meal-plan image persistence after Firestore throttling", { dayIndex, mealType });
+        return;
+      }
+      throw error;
+    }
   };
 
   return {

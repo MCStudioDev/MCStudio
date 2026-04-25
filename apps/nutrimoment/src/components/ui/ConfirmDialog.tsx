@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
@@ -36,18 +37,18 @@ export function ConfirmDialog({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open, onCancel]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[140] flex items-center justify-center bg-[#020807]/70 px-4 backdrop-blur-md"
+      className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-[#020807]/70 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md rounded-[2rem] border border-white/10 bg-[#081917]/96 p-6 text-emerald-50 shadow-2xl"
+        className="w-full max-w-md rounded-[2rem] border border-white/10 bg-[#081917]/96 p-6 text-emerald-50 shadow-2xl sm:p-7"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start gap-4">
@@ -71,6 +72,7 @@ export function ConfirmDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

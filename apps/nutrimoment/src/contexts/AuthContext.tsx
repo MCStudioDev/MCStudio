@@ -10,7 +10,7 @@ import {
   signOut as firebaseSignOut
 } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
-import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export interface UserAccessState {
   role: "admin" | "user";
@@ -63,17 +63,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const tokenResult = await getIdTokenResult(currentUser, true);
-    const tier = tokenResult.claims.tier === "premium" ? "premium" : "free";
-    const role = tokenResult.claims.role === "admin" ? "admin" : "user";
-    setAccess((current) => ({
-      ...current,
+    const [tokenResult, usageDoc, entitlementDoc] = await Promise.all([
+      getIdTokenResult(currentUser, true),
+      getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits")),
+      getDoc(doc(db, "entitlements", currentUser.uid))
+    ]);
+
+    const usage = usageDoc.data();
+    const entitlement = entitlementDoc.data();
+    const tier = entitlement?.tier === "premium" || tokenResult.claims.tier === "premium" ? "premium" : "free";
+    const role = entitlement?.role === "admin" || tokenResult.claims.role === "admin" ? "admin" : "user";
+    const aiCreditsUsed = Number(usage?.lifetimeUsed ?? 0);
+    const aiCreditsLimit = Number(usage?.lifetimeLimit ?? 5);
+
+    setAccess({
       role,
       tier,
-      aiCreditsRemaining:
-        tier === "premium" ? current.aiCreditsLimit : Math.max(current.aiCreditsLimit - current.aiCreditsUsed, 0),
+      aiCreditsLimit,
+      aiCreditsUsed,
+      aiCreditsRemaining: tier === "premium" ? aiCreditsLimit : Math.max(aiCreditsLimit - aiCreditsUsed, 0),
       loading: false
-    }));
+    });
   }, []);
 
   useEffect(() => {
@@ -101,53 +111,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => unsubscribe();
   }, [refreshAccessForUser]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const usageRef = doc(db, "users", user.uid, "usage", "aiCredits");
-    const unsubscribeUsage = onSnapshot(
-      usageRef,
-      (snapshot) => {
-        const data = snapshot.data();
-        const used = Number(data?.lifetimeUsed ?? 0);
-        const limit = Number(data?.lifetimeLimit ?? 5);
-        setAccess((current) => ({
-          ...current,
-          aiCreditsUsed: used,
-          aiCreditsLimit: limit,
-          aiCreditsRemaining: current.tier === "premium" ? limit : Math.max(limit - used, 0),
-          loading: false
-        }));
-      },
-      () => {
-        setAccess((current) => ({ ...current, loading: false }));
-      }
-    );
-
-    const entitlementRef = doc(db, "entitlements", user.uid);
-    const unsubscribeEntitlement = onSnapshot(
-      entitlementRef,
-      (snapshot) => {
-        const data = snapshot.data();
-        if (!data) return;
-        const tier = data.tier === "premium" ? "premium" : "free";
-        const role = data.role === "admin" ? "admin" : "user";
-        setAccess((current) => ({
-          ...current,
-          tier,
-          role,
-          aiCreditsRemaining: tier === "premium" ? current.aiCreditsLimit : Math.max(current.aiCreditsLimit - current.aiCreditsUsed, 0)
-        }));
-      },
-      () => {}
-    );
-
-    return () => {
-      unsubscribeUsage();
-      unsubscribeEntitlement();
-    };
-  }, [user]);
 
   const signInWithGoogle = useCallback(async () => {
     try {

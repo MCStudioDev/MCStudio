@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
-import { Flame, Languages, Scale, SlidersHorizontal, Utensils } from "lucide-react";
+import { ChefHat, Flame, Languages, Scale, SlidersHorizontal, Utensils } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
@@ -14,6 +14,7 @@ import { SectionHero } from "./shared";
 
 export function SettingsTab() {
   const { t, settings, saveSettings } = useApp();
+  const recipeLanguageLockedToArabic = settings.uiLanguage === "ar";
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -92,6 +93,7 @@ export function SettingsTab() {
               <Pill
                 key={language}
                 active={settings.recipeLanguage === language}
+                disabled={recipeLanguageLockedToArabic && language !== "Arabic"}
                 onClick={() => saveSettings({ recipeLanguage: language })}
               >
                 {language}
@@ -104,7 +106,6 @@ export function SettingsTab() {
           icon={<SlidersHorizontal className="h-5 w-5" />}
           eyebrow={t("maxMissingIngredients")}
           title={`${settings.maxMissingIngredients}`}
-          className="xl:col-span-2"
         >
           <label htmlFor="settings-max-missing-ingredients" className="sr-only">
             {t("maxMissingIngredients")}
@@ -123,6 +124,31 @@ export function SettingsTab() {
           />
           <p className="text-sm text-emerald-50/62">
             {t("recipesWillAllowUpTo")} {settings.maxMissingIngredients} {t("missingIngredients")}
+          </p>
+        </SettingCard>
+
+        <SettingCard
+          icon={<ChefHat className="h-5 w-5" />}
+          eyebrow={t("recipeCount")}
+          title={`${settings.recipeCount}`}
+        >
+          <label htmlFor="settings-recipe-count" className="sr-only">
+            {t("recipeCount")}
+          </label>
+          <input
+            id="settings-recipe-count"
+            name="recipeCount"
+            type="range"
+            min="1"
+            max="10"
+            step="1"
+            inputMode="decimal"
+            value={settings.recipeCount}
+            onChange={(event) => saveSettings({ recipeCount: Number(event.target.value) })}
+            className="focus-ring w-full accent-emerald-600"
+          />
+          <p className="text-sm text-emerald-50/62">
+            {t("recipesWillGenerate")} {settings.recipeCount} {t("recipesPerScan")}
           </p>
         </SettingCard>
 

@@ -97,6 +97,7 @@ export interface UserSettings {
   calorieTarget: number;
   preferredCuisine: string;
   maxMissingIngredients: number;
+  recipeCount: number;
   recipeLanguage: string;
   uiLanguage: Language;
 }

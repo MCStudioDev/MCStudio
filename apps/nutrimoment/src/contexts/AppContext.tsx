@@ -8,9 +8,9 @@ import type { HealthProfile, Language, UserSettings } from "@/lib/types";
 import {
   getStoredOrDetectedPilotLanguage,
   normalizePilotLanguage,
-  normalizeRecipeLanguage,
   persistPilotLanguage,
-  recipeLanguageFromUiLanguage
+  recipeLanguageFromUiLanguage,
+  resolveRecipeLanguageForUiLanguage
 } from "@/lib/language";
 import { isRtl, t as translate, type TranslationKey } from "@/lib/translations";
 
@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   calorieTarget: 2000,
   preferredCuisine: "Any",
   maxMissingIngredients: 2,
+  recipeCount: 5,
   recipeLanguage: "English",
   uiLanguage: "en"
 };
@@ -83,10 +84,18 @@ function normalizeSettings(
   fallbackLanguage: Language = "en"
 ): Partial<UserSettings> {
   const uiLanguage = normalizePilotLanguage(raw?.uiLanguage, fallbackLanguage);
+  const recipeCount = Number.isFinite(raw?.recipeCount)
+    ? Math.min(10, Math.max(1, Number(raw?.recipeCount)))
+    : DEFAULT_SETTINGS.recipeCount;
   return {
     ...raw,
+    recipeCount,
     uiLanguage,
-    recipeLanguage: normalizeRecipeLanguage(raw?.recipeLanguage, recipeLanguageFromUiLanguage(uiLanguage))
+    recipeLanguage: resolveRecipeLanguageForUiLanguage(
+      uiLanguage,
+      raw?.recipeLanguage,
+      recipeLanguageFromUiLanguage(uiLanguage)
+    )
   };
 }
 

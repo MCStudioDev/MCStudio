@@ -151,7 +151,7 @@ const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "chicken", pattern: /\bchicken\b/iu },
   { key: "shrimp", pattern: /\bshrimp|prawn\b/iu },
   { key: "lamb", pattern: /\blamb\b/iu },
-  { key: "beef", pattern: /\bbeef\b/iu },
+  { key: "beef", pattern: /\bbeef|steak|meat\b/iu },
   { key: "veal", pattern: /\bveal\b/iu },
   { key: "fish", pattern: /\bwhite fish|fish|cod|tilapia|sea bass|snapper|salmon\b/iu },
   { key: "tuna", pattern: /\btuna\b/iu },

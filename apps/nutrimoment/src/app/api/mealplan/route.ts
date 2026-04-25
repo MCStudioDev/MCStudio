@@ -9,7 +9,9 @@ import { logger } from "@/lib/logger";
 import { listSeededRecipes } from "@/repositories/recipeRepo";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
+import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
+import { normalizeRecipeLanguage } from "@/lib/language";
 import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 
@@ -90,6 +92,7 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return Response.json({ error: "Invalid request" }, { status: 400 });
     }
+    const recipeLanguage = normalizeRecipeLanguage(parsed.data.recipeLanguage, "English");
 
     if (!access.isPremium) {
       return Response.json(
@@ -103,11 +106,17 @@ export async function POST(request: Request) {
 
     if (USE_MOCK) {
       const mockPlan = { ...MOCK_MEAL_PLAN, servedFrom: "mock" as const };
-      const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+      const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
       const outputMockPlan = ensureDetailedMealPlanSteps(
         wantsArabic ? localizeMealPlanForArabic(mockPlan) : mockPlan,
         wantsArabic ? "Arabic" : "English"
       );
+      await persistGeneratedRecipeCache({
+        uid: access.uid,
+        recipeLanguage,
+        meals: outputMockPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
+        recipes: outputMockPlan.recommendedRecipes
+      });
       return Response.json({ result: JSON.stringify(outputMockPlan), access: accessPayload(access) });
     }
 
@@ -120,7 +129,9 @@ export async function POST(request: Request) {
       diets: parsed.data.diets,
       conditions: parsed.data.conditions,
       allergens: parsed.data.allergens,
-      maxResults: 21
+      maxResults: 21,
+      recipeLanguage,
+      uid: access.uid
     });
 
     const pantryStock = pantryItems.length ? pantryItems : pantry.map((name) => ({ name, quantity: "1" }));
@@ -142,7 +153,7 @@ export async function POST(request: Request) {
           pantryItems: pantryStock,
           diets: parsed.data.diets ?? [],
           conditions: parsed.data.conditions ?? [],
-          recipeLanguage: parsed.data.recipeLanguage,
+          recipeLanguage,
           preferredCuisine: parsed.data.preferredCuisine,
           calorieTarget: parsed.data.calorieTarget,
           allergens: parsed.data.allergens ?? []
@@ -155,11 +166,17 @@ export async function POST(request: Request) {
       if (aiMealPlan) {
         const reconciledShoppingList = reconcileShoppingListWithPantry(aiMealPlan.shoppingList, pantryStock);
         const reconciledMealPlan = { ...aiMealPlan, shoppingList: reconciledShoppingList };
-        const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+        const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
         const outputMealPlan = ensureDetailedMealPlanSteps(
           wantsArabic ? localizeMealPlanForArabic(reconciledMealPlan) : reconciledMealPlan,
           wantsArabic ? "Arabic" : "English"
         );
+        await persistGeneratedRecipeCache({
+          uid: access.uid,
+          recipeLanguage,
+          meals: outputMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
+          recipes: outputMealPlan.recommendedRecipes
+        });
         logger.info("Meal plan served from Gemini fallback AI", {
           days: outputMealPlan.plan.length,
           shoppingItems: outputMealPlan.shoppingList.length,
@@ -185,11 +202,17 @@ export async function POST(request: Request) {
       ...buildMealPlanData(catalogRecipes.length ? catalogRecipes : getCatalogFallbackRecipes(parsed.data.preferredCuisine), pantryStock),
       servedFrom: "offline_catalog" as const
     };
-    const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+    const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const outputEmergencyMealPlan = ensureDetailedMealPlanSteps(
       wantsArabic ? localizeMealPlanForArabic(emergencyMealPlan) : emergencyMealPlan,
       wantsArabic ? "Arabic" : "English"
     );
+    await persistGeneratedRecipeCache({
+      uid: access.uid,
+      recipeLanguage,
+      meals: outputEmergencyMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
+      recipes: outputEmergencyMealPlan.recommendedRecipes
+    });
     logger.info("Meal plan served from offline catalog after AI failure", {
       days: outputEmergencyMealPlan.plan.length,
       shoppingItems: outputEmergencyMealPlan.shoppingList.length

@@ -1,9 +1,11 @@
 {
-  "generatedAt": "2026-04-19T18:35:33.720Z",
+  "generatedAt": "2026-04-25T20:37:15.360Z",
   "collections": {
-    "recipes": 15,
-    "ingredients": 3,
-    "ingredientAliases": 4,
+    "recipes": 28,
+    "ingredients": 39,
+    "ingredientAliases": 42,
+    "ingredientLexicon": 39,
+    "healthTags": 10,
     "ingredientRecipeIndex": 29
   }
 }

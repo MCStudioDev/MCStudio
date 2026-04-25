@@ -34,6 +34,7 @@ interface LandingCopy {
     eyebrow: string;
     recipeName: string;
     matchScore: string;
+    matchUnit: string;
     matchLabel: string;
     macros: Array<{ label: string; value: string }>;
     flags: string[];
@@ -74,6 +75,7 @@ const LANDING_COPY: Record<Language, LandingCopy> = {
       eyebrow: "Just scanned",
       recipeName: "Lemon herb chicken bowl",
       matchScore: "93",
+      matchUnit: "Fit",
       matchLabel: "Great fit for your pantry",
       macros: [
         { label: "Kcal", value: "512" },
@@ -132,6 +134,7 @@ const LANDING_COPY: Record<Language, LandingCopy> = {
       eyebrow: "مسح جديد",
       recipeName: "وعاء دجاج بالليمون والأعشاب",
       matchScore: "93",
+      matchUnit: "توافق",
       matchLabel: "خيار ممتاز لمخزنك",
       macros: [
         { label: "سعرة", value: "512" },
@@ -507,7 +510,7 @@ function PhoneMockup({ copy, rtl }: { copy: LandingCopy; rtl: boolean }) {
             <div className="absolute right-3 top-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400 text-[#052017] shadow-[0_8px_24px_-6px_rgba(34,243,175,0.8)]">
               <div className="text-center leading-tight">
                 <div className="font-display text-base font-bold">{copy.preview.matchScore}</div>
-                <div className="text-[8px] font-bold uppercase tracking-widest">fit</div>
+                <div className="text-[8px] font-bold uppercase tracking-widest">{copy.preview.matchUnit}</div>
               </div>
             </div>
             <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2">

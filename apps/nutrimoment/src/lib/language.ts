@@ -51,6 +51,18 @@ export function recipeLanguageFromUiLanguage(language: Language): PilotRecipeLan
   return language === "ar" ? "Arabic" : "English";
 }
 
+export function resolveRecipeLanguageForUiLanguage(
+  uiLanguage: Language,
+  recipeLanguage: unknown,
+  fallback: PilotRecipeLanguage = recipeLanguageFromUiLanguage(uiLanguage)
+): PilotRecipeLanguage {
+  if (uiLanguage === "ar") {
+    return "Arabic";
+  }
+
+  return normalizeRecipeLanguage(recipeLanguage, fallback);
+}
+
 export function persistPilotLanguage(language: Language) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(PILOT_LANGUAGE_STORAGE_KEY, language);

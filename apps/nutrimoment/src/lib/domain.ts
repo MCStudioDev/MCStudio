@@ -14,6 +14,61 @@ export interface RecipeIngredient {
   required: boolean;
 }
 
+export interface RecipeIngredientVariantDoc {
+  canonical: string;
+  locale: "en" | "ar";
+  region?: string;
+  variants: string[];
+}
+
+export interface RecipeHealthMetadata {
+  conditionTags: string[];
+  cautionFlags: string[];
+  nutritionClaims: string[];
+}
+
+export interface RecipeSearchMetadata {
+  aliasTokens: string[];
+  cuisineTokens?: string[];
+  ingredientVariants?: RecipeIngredientVariantDoc[];
+}
+
+export interface IngredientLexiconVariantDoc {
+  locale: "en" | "ar";
+  region?: string;
+  values: string[];
+}
+
+export interface IngredientLexiconDoc {
+  id: string;
+  canonical: string;
+  category: string;
+  broadCategory: string;
+  dietCompatibility: string[];
+  commonSubstitutes: string[];
+  variants: IngredientLexiconVariantDoc[];
+  misspellings: string[];
+  relatedCanonicals?: string[];
+  isActive: boolean;
+}
+
+export interface HealthTagDoc {
+  id: string;
+  type: "condition_support" | "caution" | "nutrition_claim";
+  label: string;
+  description: string;
+  localized?: Partial<
+    Record<
+      "English" | "Arabic",
+      {
+        label: string;
+        description: string;
+      }
+    >
+  >;
+  isActive: boolean;
+}
+
 export interface RecipeCatalogDoc {
   id: string;
   title: string;
@@ -44,7 +99,21 @@ export interface RecipeCatalogDoc {
   image: {
     storagePath: string;
     thumbPath?: string;
+    signature?: string;
+    sharedCacheKey?: string;
+    sourceQuery?: string;
   };
+  source?: {
+    provider: string;
+    externalId?: string;
+    url?: string;
+    license?: string;
+  };
+  localized?: Partial<Record<"English" | "Arabic", import("@/lib/types").Recipe>>;
+  regionalCuisines?: string[];
+  styleTags?: string[];
+  healthMetadata?: RecipeHealthMetadata;
+  searchMetadata?: RecipeSearchMetadata;
   searchTokens: string[];
   popularityScore: number;
   qualityScore: number;

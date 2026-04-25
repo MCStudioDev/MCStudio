@@ -1,6 +1,7 @@
 import type { RecipeCatalogDoc } from "@/lib/domain";
+import { enrichOfflineRecipe } from "@/data/offline/recipeMetadata";
 
-export const OFFLINE_RECIPES: RecipeCatalogDoc[] = [
+const BASE_OFFLINE_RECIPES: RecipeCatalogDoc[] = [
   {
     id: "r_0901",
     title: "Greek Yogurt Berry Bowl",
@@ -1128,5 +1129,7 @@ export const OFFLINE_RECIPES: RecipeCatalogDoc[] = [
     isActive: true,
     createdAt: 1713412345,
     updatedAt: 1713412345
-  }
+  },
 ];
+
+export const OFFLINE_RECIPES: RecipeCatalogDoc[] = BASE_OFFLINE_RECIPES.map(enrichOfflineRecipe);

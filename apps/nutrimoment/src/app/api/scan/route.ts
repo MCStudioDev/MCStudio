@@ -9,6 +9,7 @@ import {
 import { extractPantryItemsFromImage } from "@/services/ingredientExtractionService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
+import { isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -46,9 +47,7 @@ export async function POST(request: Request) {
       return Response.json({
         result: "[]",
         pantryItems: [],
-        fallbackNotice: isPantry
-          ? "Your 5 free AI credits are used. Add pantry items manually or upgrade to premium for image scans."
-          : "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.",
+        fallbackNotice: buildScanFallbackNotice(language, isPantry),
         access: accessPayload(accessCheck.access)
       });
     }
@@ -93,4 +92,17 @@ export async function POST(request: Request) {
     const status = message.includes("GEMINI_API_KEY") ? 503 : 500;
     return Response.json({ error: message, result: "[]" }, { status });
   }
+}
+
+function buildScanFallbackNotice(language: string, isPantry: boolean) {
+  const wantsArabic = isArabicRecipeLanguage(language);
+  if (!wantsArabic) {
+    return isPantry
+      ? "Your 5 free AI credits are used. Add pantry items manually or upgrade to premium for image scans."
+      : "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.";
+  }
+
+  return isPantry
+    ? "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. أضف عناصر المخزن يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور."
+    : "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. أضف المكونات يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور.";
 }

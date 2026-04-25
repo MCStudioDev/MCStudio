@@ -21,6 +21,7 @@ export const Pill = forwardRef<HTMLButtonElement, PillProps>(function Pill(
         active
           ? "gradient-emerald text-[#032019] border-transparent shadow-glow"
           : "bg-white/[0.06] text-emerald-50/85 border-white/10 hover:border-cyan-300/30 hover:bg-white/[0.10]",
+        "disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.04] disabled:text-emerald-50/35 disabled:hover:border-white/8 disabled:hover:bg-white/[0.04]",
         className
       )}
       {...rest}

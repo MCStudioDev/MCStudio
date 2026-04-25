@@ -239,6 +239,7 @@ export function ScannerTab() {
           ingredients: ingredientNames.length ? ingredientNames : undefined,
           ingredientQuantities: ingredientQuantities.length ? ingredientQuantities : undefined,
           referenceImage: lastScanImage ?? undefined,
+          recipeCount: settings.recipeCount,
           recipeLanguage: settings.recipeLanguage,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
@@ -390,8 +391,7 @@ export function ScannerTab() {
               </Button>
             </div>
             <div className="rounded-2xl border border-cyan-200/14 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/86">
-              {t("quantityGuide")}: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
-              olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
+              {t("quantityGuide")}: {t("quantityGuideDetails")}
             </div>
           </div>
         </Card>
@@ -460,6 +460,10 @@ export function ScannerTab() {
             <Card variant="plain" className="rounded-[1.5rem] p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("dailyCalorieTarget")}</p>
               <p className="mt-2 text-lg font-semibold text-white">{settings.calorieTarget} kcal</p>
+            </Card>
+            <Card variant="plain" className="rounded-[1.5rem] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("recipeCount")}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{settings.recipeCount}</p>
             </Card>
           </div>
 

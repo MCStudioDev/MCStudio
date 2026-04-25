@@ -10,6 +10,9 @@
     "validate:prod-env": "tsx scripts/validate-production-env.ts",
     "predeploy:check": "npm run lint && npm run build && npm run validate:prod-env",
     "seed:offline-catalog": "tsx scripts/seed-offline-catalog.ts",
+    "backfill:bilingual-recipes": "tsx scripts/backfill-bilingual-recipes.ts",
+    "cleanup:synthetic-recipes": "tsx scripts/cleanup-synthetic-recipes.ts",
+    "import:real-recipes": "tsx scripts/import-real-recipes.ts",
     "set:user-access": "tsx scripts/set-user-access.ts"
   },
   "dependencies": {

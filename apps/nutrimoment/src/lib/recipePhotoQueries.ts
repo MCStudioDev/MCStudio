@@ -14,7 +14,7 @@ const PROTEIN_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "shrimp", pattern: /\bshrimp|prawn\b/i },
   { label: "salmon", pattern: /\bsalmon\b/i },
   { label: "fish", pattern: /\bfish|cod|tilapia|snapper|sea bass\b/i },
-  { label: "beef", pattern: /\bbeef|steak\b/i },
+  { label: "beef", pattern: /\bbeef|steak|meat\b/i },
   { label: "lamb", pattern: /\blamb\b/i },
   { label: "tofu", pattern: /\btofu\b/i },
   { label: "chickpea", pattern: /\bchickpea\b/i },
@@ -57,16 +57,26 @@ const DISH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 ];
 
 export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
-  const explicitQueries = normalizeQueryList([...(input.imageSearchIndices ?? []), input.imageSearchIndex]);
-  const ingredientLabels = [...(input.ingredients ?? []), ...(input.missingIngredients ?? [])]
+  const ownedIngredientLabels = [...(input.ingredients ?? [])]
     .map(getIngredientLabel)
     .filter(Boolean);
-  const context = [input.name, input.cuisine, ...ingredientLabels].filter(Boolean).join(" ");
+  const missingIngredientLabels = [...(input.missingIngredients ?? [])]
+    .map(getIngredientLabel)
+    .filter(Boolean);
+  const context = [input.name, input.cuisine, ...ownedIngredientLabels, ...missingIngredientLabels].filter(Boolean).join(" ");
   const protein = detectLabel(context, PROTEIN_PATTERNS);
   const starch = detectLabel(context, STARCH_PATTERNS);
   const sauce = detectSauce(context);
   const method = detectLabel(context, METHOD_PATTERNS);
   const dish = detectLabel(context, DISH_PATTERNS);
+  const explicitQueries = normalizeQueryList([...(input.imageSearchIndices ?? []), input.imageSearchIndex]).filter(
+    (query) =>
+      !isExplicitQueryTooGeneric(query, {
+        dish,
+        protein,
+        starch
+      })
+  );
   const cuisine = normalizePhrase(input.cuisine ?? "");
   const exactName = normalizePhrase(input.name);
   const simplifiedName = normalizePhrase(
@@ -78,6 +88,10 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
   const derivedCandidates = normalizeQueryList([
     exactName,
     simplifiedName,
+    joinRecipeQueryParts(method, protein, sauce?.label, starch ?? dish, "plate"),
+    joinRecipeQueryParts(protein, sauce?.label, starch ?? dish, "plate"),
+    joinRecipeQueryParts(method, protein, starch ?? dish, "plate"),
+    joinRecipeQueryParts(protein, starch ?? dish, "plate"),
     joinRecipeQueryParts(method, protein, sauce?.label, starch ?? dish),
     joinRecipeQueryParts(protein, sauce?.label, starch ?? dish),
     joinRecipeQueryParts(method, protein, starch ?? dish),
@@ -90,7 +104,7 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
       cuisine,
       dish,
       exactName,
-      ingredientLabels,
+      ingredientLabels: [...ownedIngredientLabels, ...missingIngredientLabels],
       method,
       protein,
       sauceLabel: sauce?.label,
@@ -134,11 +148,41 @@ function buildSparseIngredientQueries({
     joinRecipeQueryParts(cuisine, pair),
     joinRecipeQueryParts(pair, dish),
     joinRecipeQueryParts(pair, starch ?? dish),
+    joinRecipeQueryParts(protein, starch ?? dish, "plate"),
     joinRecipeQueryParts(method, pair, starch ?? dish),
     joinRecipeQueryParts(protein, sauceLabel, pair),
     joinRecipeQueryParts(leadIngredient, dish),
     joinRecipeQueryParts(leadIngredient, "dish")
   ]);
+}
+
+function isExplicitQueryTooGeneric(
+  query: string,
+  {
+    dish,
+    protein,
+    starch
+  }: {
+    dish?: string;
+    protein?: string;
+    starch?: string;
+  }
+) {
+  const normalized = normalizePhrase(query);
+  if (!normalized || !protein) return false;
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const hasProtein = normalized.includes(protein);
+  const hasStarch = Boolean(starch && normalized.includes(starch));
+  const hasDish = Boolean(dish && normalized.includes(dish));
+
+  if (hasProtein) return false;
+  if (starch && normalized === starch) return true;
+  if (dish && normalized === dish) return true;
+  if (hasStarch && tokens.length <= 2) return true;
+  if (hasDish && tokens.length <= 2) return true;
+
+  return false;
 }
 
 function detectLabel(value: string, patterns: Array<{ label: string; pattern: RegExp }>) {

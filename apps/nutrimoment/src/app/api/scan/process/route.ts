@@ -7,6 +7,7 @@ import {
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
+import { isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
         ingredients: [],
         recipes: [],
         servedFrom: "offline_catalog",
-        fallbackNotice: "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.",
+        fallbackNotice: buildScanProcessFallbackNotice(parsed.data.language),
         access: accessPayload(accessCheck.access)
       });
     }
@@ -75,4 +76,12 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Failed to process scan";
     return Response.json({ error: message }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
   }
+}
+
+function buildScanProcessFallbackNotice(language?: string) {
+  if (!isArabicRecipeLanguage(language ?? "English")) {
+    return "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.";
+  }
+
+  return "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. أضف المكونات يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور.";
 }

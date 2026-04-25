@@ -89,3 +89,195 @@ Optional:
 4. **Dependency audit**
    - Run `npm audit` before launch.
    - Plan any major dependency upgrades separately, especially Firebase packages.
+
+## Offline Catalog Expansion Plan
+
+### Goal
+
+Build NutriMoment toward a large offline-first recipe system with:
+
+- rich per-recipe metadata
+- bilingual English/Arabic recipe storage
+- dialect-aware ingredient indexing
+- separate shared image cache
+- strong offline ranking for pantry, cuisine, and health-condition matching
+
+### Core Principle
+
+The goal is not just "store many recipes." The goal is to store recipes in a way that makes offline search smart.
+
+That means:
+
+- one canonical recipe document
+- two localized recipe variants (`English`, `Arabic`)
+- rich search and health metadata
+- ingredient lexicon normalization before ranking
+- shared image references instead of one unique cached image per recipe
+
+### Target Collections
+
+Recommended Firestore / Storage shape:
+
+- `recipes`
+  - canonical recipe catalog documents
+- `ingredientRecipeIndex`
+  - canonical ingredient -> recipe ids
+- `ingredientAliases`
+  - raw user term / dialect term -> canonical ingredient
+- `recipePhotoCache`
+  - shared photo metadata by signature
+- `users/{uid}/offlineRecipeCache`
+  - user-specific cached recipes generated or touched in-app
+- Firebase Storage `recipe-photo-cache/...`
+  - only for generated or uploaded image assets when needed
+
+### Canonical Recipe Document
+
+Each recipe should keep the current shape and continue expanding toward:
+
+- base identity
+  - `id`, `title`, `slug`, `description`
+- ingredients
+  - `ingredients`
+  - `ingredientCanonicals`
+  - `requiredCanonicals`
+  - `optionalCanonicals`
+- nutrition
+  - calories, protein, carbs, fat, fiber, sugar, sodium
+  - calorie band
+- experience metadata
+  - `mealType`, `difficulty`, `prepMinutes`, `cookMinutes`, `totalMinutes`
+- cuisine metadata
+  - `cuisine`
+  - `regionalCuisines`
+  - `styleTags`
+- health metadata
+  - condition-safe tags
+  - condition caution flags
+  - nutrition claims like `high-protein`, `low-sodium`, `high-fiber`
+- search metadata
+  - generic `searchTokens`
+  - alias tokens
+  - cuisine tokens
+  - ingredient variant entries by locale/region
+- localization
+  - `localized.English`
+  - `localized.Arabic`
+- image metadata
+  - direct URL/path references
+  - shared image signature
+  - source query / cache key
+
+### Rich Metadata Requirements
+
+Rich metadata per recipe remains required. It is the foundation of the offline system.
+
+Each recipe should eventually carry:
+
+- health tags
+  - `diabetes-friendly`
+  - `low-sodium`
+  - `high-protein`
+  - `weight-loss-friendly`
+  - `renal-friendly` where appropriate
+- caution flags
+  - `high-potassium`
+  - `high-purine`
+  - `contains-dairy`
+  - `contains-gluten`
+  - `contains-egg`
+- style and context tags
+  - `egyptian-home-style`
+  - `street-food-inspired`
+  - `grilled`
+  - `one-pan`
+  - `high-volume-low-calorie`
+
+### Dialect-Aware Indexing
+
+Indexing must normalize language variants, not just translate labels.
+
+Examples:
+
+- beef / meat
+  - canonical: `beef`
+  - English variants: `beef`, `meat`, `beef cubes`, `stew beef`
+  - Arabic MSA variants: `لحم`, `لحم بقري`
+  - Arabic dialect variants: `لحمة`, `لحمه`, `لحوم`
+- chicken
+  - canonical: `chicken breast`
+  - English variants: `chicken`, `chicken breast`, `boneless chicken`
+  - Arabic variants: `دجاج`, `فراخ`, `صدر دجاج`, `صدور دجاج`
+- eggplant
+  - canonical: `eggplant`
+  - Arabic variants: `باذنجان`, `بتنجان`
+- potato
+  - canonical: `potato`
+  - Arabic variants: `بطاطس`, `بطاطا`
+
+The normalization pipeline should always resolve these variants to one canonical ingredient before retrieval and ranking.
+
+### Image Strategy
+
+Recipes and images should remain separate systems.
+
+Why:
+
+- recipe docs are content + metadata
+- image cache docs are shared assets
+- many similar recipes can reuse the same image cluster
+- image storage cost must stay independent from recipe growth
+
+Recipe docs should store:
+
+- `image.storagePath`
+- `image.thumbPath`
+- `image.signature`
+- `image.sharedCacheKey`
+
+Shared image cache should store:
+
+- resolved image URL
+- attribution name / URL
+- source (`generated`, `unsplash`, `pexels`, `wikimedia`, etc.)
+- query used
+- signature
+- optional cuisine/style tags for future reuse heuristics
+
+### Scaling Plan
+
+Do not jump directly to 1M recipes as a first migration.
+
+Phase 1:
+
+- expand the canonical schema
+- expand ingredient aliases for English, Arabic, and dialects
+- improve health metadata coverage
+- improve image signature reuse
+
+Phase 2:
+
+- seed `10k-50k` high-quality canonical recipes
+- validate ranking quality for pantry search and health filtering
+- validate Arabic and dialect matching
+
+Phase 3:
+
+- scale toward `100k+` recipes
+- add structured style/cuisine variants
+- add broader region-aware indexing
+
+Phase 4:
+
+- consider synthetic expansion toward `1M` if quality, storage cost, and ranking remain strong
+
+### Execution Checklist
+
+- [ ] Expand `RecipeCatalogDoc` with richer optional metadata.
+- [ ] Define canonical ingredient taxonomy and health-tag taxonomy.
+- [ ] Build bilingual + dialect ingredient alias seed lists.
+- [ ] Add region-aware ingredient variants for Egyptian, Levantine, Gulf, and generic MSA Arabic.
+- [ ] Add image signatures / shared cache keys to recipe docs.
+- [ ] Write seeding scripts for canonical recipes plus indexes.
+- [ ] Add retrieval tests for English, Arabic, and dialect terms such as `لحمة`, `فراخ`, and `بطاطس`.
+- [ ] Validate offline ranking quality before increasing catalog size aggressively.

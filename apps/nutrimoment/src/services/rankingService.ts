@@ -36,6 +36,7 @@ export function rankRecipes({
       const preferredDietTagMatches = preferences.preferredDietTags.filter((dietTag) => recipe.dietTags.includes(dietTag)).length;
       const calorieMatch = maxCalories ? Number(recipe.calories <= maxCalories) : 0;
       const cuisineMatch = preferredCuisine !== "Any" && cuisineMatchesPreference(recipe.cuisine, preferredCuisine) ? 1 : 0;
+      const regionalCuisineMatch = scoreRegionalCuisineMatch(recipe, preferredCuisine);
       const mealTypeMatch = mealType && recipe.mealType === mealType ? 1 : 0;
       const cuisineFit = scoreCuisineFit({
         preferredCuisine,
@@ -48,7 +49,16 @@ export function rankRecipes({
       const popularityBoost = normalizeBoost(recipe.popularityScore);
       const qualityBoost = normalizeBoost(recipe.qualityScore);
       const nutritionGoalScore = scoreNutritionGoals(recipe, preferences);
-      const preferenceHits = buildPreferenceHits(recipe, preferences, preferredDietTagMatches, calorieMatch, cuisineFit.hits);
+      const healthFit = scoreHealthMetadata(recipe, preferences);
+      const aliasOverlapScore = scoreAliasOverlap(recipe, normalizedIngredients);
+      const preferenceHits = buildPreferenceHits(
+        recipe,
+        preferences,
+        preferredDietTagMatches,
+        calorieMatch,
+        cuisineFit.hits,
+        healthFit.hits
+      );
 
       const score =
         8 * matchedRequired.length +
@@ -59,8 +69,11 @@ export function rankRecipes({
         2 * preferredDietTagMatches +
         3 * calorieMatch +
         2 * cuisineMatch +
+        regionalCuisineMatch +
         2 * mealTypeMatch +
         cuisineFit.score +
+        healthFit.score +
+        aliasOverlapScore +
         nutritionGoalScore +
         popularityBoost +
         qualityBoost -
@@ -129,9 +142,10 @@ function buildPreferenceHits(
   preferences: ResolvedPreferenceProfile,
   preferredDietTagMatches: number,
   calorieMatch: number,
-  cuisineHits: string[]
+  cuisineHits: string[],
+  healthHits: string[]
 ) {
-  const hits: string[] = [...cuisineHits];
+  const hits: string[] = [...cuisineHits, ...healthHits];
 
   for (const tag of preferences.requiredDietTags) {
     if (recipe.dietTags.includes(tag)) {
@@ -152,4 +166,99 @@ function buildPreferenceHits(
   }
 
   return hits.slice(0, 4);
+}
+
+function scoreRegionalCuisineMatch(recipe: RecipeCatalogDoc, preferredCuisine: string) {
+  if (!preferredCuisine || preferredCuisine === "Any") return 0;
+  const regionalCuisines = recipe.regionalCuisines ?? [];
+  return regionalCuisines.some((cuisine) => cuisineMatchesPreference(cuisine, preferredCuisine)) ? 1 : 0;
+}
+
+function scoreAliasOverlap(recipe: RecipeCatalogDoc, normalizedIngredients: string[]) {
+  const aliasTokens = recipe.searchMetadata?.aliasTokens ?? [];
+  if (!aliasTokens.length || !normalizedIngredients.length) return 0;
+
+  let overlap = 0;
+  for (const ingredient of normalizedIngredients) {
+    const normalizedIngredient = ingredient.trim().toLowerCase();
+    if (!normalizedIngredient) continue;
+    if (aliasTokens.some((token) => token === normalizedIngredient || token.includes(normalizedIngredient))) {
+      overlap += 1;
+    }
+  }
+
+  return Math.min(overlap, 3);
+}
+
+function scoreHealthMetadata(recipe: RecipeCatalogDoc, preferences: ResolvedPreferenceProfile) {
+  const conditionTags = new Set(recipe.healthMetadata?.conditionTags ?? []);
+  const cautionFlags = new Set(recipe.healthMetadata?.cautionFlags ?? []);
+  const nutritionClaims = new Set(recipe.healthMetadata?.nutritionClaims ?? []);
+  const hits: string[] = [];
+  let score = 0;
+
+  for (const condition of preferences.conditions) {
+    switch (condition) {
+      case "diabetes":
+        if (conditionTags.has("diabetes-friendly")) {
+          score += 4;
+          hits.push("condition:diabetes-friendly");
+        }
+        if (nutritionClaims.has("high-fiber")) {
+          score += 1;
+          hits.push("claim:high-fiber");
+        }
+        break;
+      case "highBloodPressure":
+        if (conditionTags.has("low-sodium")) {
+          score += 4;
+          hits.push("condition:low-sodium");
+        }
+        if (conditionTags.has("heart-healthy")) {
+          score += 2;
+          hits.push("condition:heart-healthy");
+        }
+        break;
+      case "cholesterol":
+        if (conditionTags.has("heart-healthy")) {
+          score += 4;
+          hits.push("condition:heart-healthy");
+        }
+        if (nutritionClaims.has("high-fiber")) {
+          score += 1;
+          hits.push("claim:high-fiber");
+        }
+        break;
+      case "weightLoss":
+        if (nutritionClaims.has("high-protein")) {
+          score += 2;
+          hits.push("claim:high-protein");
+        }
+        if (recipe.calories <= 450) {
+          score += 1;
+        }
+        break;
+      case "weightGain":
+        if (recipe.calories >= 450) {
+          score += 2;
+          hits.push("goal:higher-calorie");
+        }
+        if (nutritionClaims.has("high-protein")) {
+          score += 1;
+          hits.push("claim:high-protein");
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (cautionFlags.has("high-potassium")) {
+    score -= 1;
+  }
+
+  return {
+    score,
+    hits: Array.from(new Set(hits)).slice(0, 4)
+  };
 }

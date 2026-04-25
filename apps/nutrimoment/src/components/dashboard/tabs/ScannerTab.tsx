@@ -62,6 +62,7 @@ export function ScannerTab() {
   const [manualEntry, setManualEntry] = useState("");
   const [manualQuantity, setManualQuantity] = useState("");
   const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
+  const [lastScanImage, setLastScanImage] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -199,6 +200,12 @@ export function ScannerTab() {
         .map((item) => item.trim())
         .filter(Boolean);
 
+      setLastScanImage(image);
+      if (!scanned.length) {
+        setError(t("noIngredientsDetected"));
+        return;
+      }
+
       setIngredients((current) => {
         const existing = new Set(current.map((item) => item.name.toLowerCase()));
         const nextScanned = scanned
@@ -216,8 +223,8 @@ export function ScannerTab() {
   };
 
   const handleGenerateRecipes = async () => {
-    if (!ingredients.length) {
-      setError("Add or scan ingredients first.");
+    if (!ingredients.length && !lastScanImage) {
+      setError(t("addOrScanFirst"));
       return;
     }
 
@@ -229,8 +236,9 @@ export function ScannerTab() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
-          ingredients: ingredientNames,
-          ingredientQuantities,
+          ingredients: ingredientNames.length ? ingredientNames : undefined,
+          ingredientQuantities: ingredientQuantities.length ? ingredientQuantities : undefined,
+          referenceImage: lastScanImage ?? undefined,
           recipeLanguage: settings.recipeLanguage,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
@@ -277,22 +285,22 @@ export function ScannerTab() {
       <SectionHero
         title={t("heroTitle")}
         description={t("heroSub")}
-        eyebrow="Live recipe vision"
-        chips={["Scan", "Match", "Cook"]}
+        eyebrow={t("liveRecipeVision")}
+        chips={[t("scanChip"), t("matchChip"), t("cookChip")]}
         icon={<Camera className="h-6 w-6" />}
         stats={[
-          { label: "Ingredients", value: `${ingredients.length}` },
-          { label: "Recipes", value: recipes.length ? `${recipes.length} ready` : "Waiting" },
+          { label: t("ingredientsStat"), value: `${ingredients.length}` },
+          { label: t("recipesStat"), value: recipes.length ? `${recipes.length} ${t("readyStatus")}` : t("waitingStatus") },
           {
-            label: "Credits",
-            value: access.tier === "free" ? `${access.aiCreditsRemaining}/${access.aiCreditsLimit}` : "Premium"
+            label: t("creditsStat"),
+            value: access.tier === "free" ? `${access.aiCreditsRemaining}/${access.aiCreditsLimit}` : t("premiumStatus")
           }
         ]}
         aside={
           <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Flow</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("scannerFlow")}</p>
             <p className="text-sm leading-relaxed text-emerald-50/72">
-              Capture what you have, refine the list, then reveal recipe directions with richer image matching.
+              {t("scannerAside")}
             </p>
           </div>
         }
@@ -300,12 +308,13 @@ export function ScannerTab() {
 
       {access.tier === "free" ? (
         <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-amber-200/16 bg-amber-400/10 px-5 py-4 text-sm text-amber-50/90">
-          Free plan: {access.aiCreditsRemaining} of {access.aiCreditsLimit} shared AI uses left for scans and recipe generation.
-          Recipe photos use free public lookups.
+          {t("freePlanScanner")
+            .replace("{remaining}", String(access.aiCreditsRemaining))
+            .replace("{limit}", String(access.aiCreditsLimit))}
         </motion.div>
       ) : (
         <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-emerald-200/16 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-50/90">
-          Premium plan: API recipe generation and scans are enabled with offline fallback. Recipe photos use free public lookups.
+          {t("premiumPlanScanner")}
         </motion.div>
       )}
 
@@ -322,7 +331,7 @@ export function ScannerTab() {
           </div>
 
           <label htmlFor="scanner-photo-upload" className="block">
-            <span className="sr-only">Upload a fridge or ingredient photo</span>
+            <span className="sr-only">{t("uploadFridgePhoto")}</span>
             <input
               id="scanner-photo-upload"
               name="scanner-photo-upload"
@@ -330,12 +339,12 @@ export function ScannerTab() {
               accept="image/*"
               className="sr-only"
               onChange={handleImageUpload}
-              aria-label="Upload a fridge or ingredient photo"
+              aria-label={t("uploadFridgePhoto")}
             />
             <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-36 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-6 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
               <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
               <span className="text-sm font-semibold text-white" aria-live="polite">
-                {scanLoading ? t("identifying") : "Upload a fridge or ingredient photo"}
+                {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
               </span>
               <span className="text-xs text-emerald-50/55">{t("takePhoto")}</span>
             </span>
@@ -363,17 +372,17 @@ export function ScannerTab() {
                 className="focus-ring neo-input h-12 flex-1 rounded-2xl px-4 text-sm transition-ui"
               />
               <label htmlFor="scanner-manual-quantity" className="sr-only">
-                Ingredient quantity
+                {t("ingredientQuantity")}
               </label>
               <input
                 id="scanner-manual-quantity"
                 name="quantity"
                 value={manualQuantity}
                 onChange={(event) => setManualQuantity(event.target.value)}
-                placeholder={manualEntry.trim() ? getPantryQuantityHint(manualEntry) : "Quantity"}
+                placeholder={manualEntry.trim() ? getPantryQuantityHint(manualEntry) : t("quantity")}
                 autoComplete="off"
                 inputMode="text"
-                aria-label="Ingredient quantity"
+                aria-label={t("ingredientQuantity")}
                 className="focus-ring neo-input h-12 w-44 rounded-2xl px-4 text-sm transition-ui"
               />
               <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={addManualIngredient}>
@@ -381,7 +390,7 @@ export function ScannerTab() {
               </Button>
             </div>
             <div className="rounded-2xl border border-cyan-200/14 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/86">
-              Quantity guide: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
+              {t("quantityGuide")}: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
               olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
             </div>
           </div>
@@ -423,16 +432,16 @@ export function ScannerTab() {
                     type="button"
                     onClick={() =>
                       setConfirmState({
-                        title: "Remove ingredient?",
-                        description: `${ingredient.name} will be removed from this scan.`,
-                        confirmLabel: "Remove",
+                        title: t("removeIngredientTitle"),
+                        description: t("removeIngredientDescription"),
+                        confirmLabel: t("remove"),
                         action: () => removeIngredient(ingredient.id)
                       })
                     }
-                    aria-label={`Remove ${ingredient.name}`}
+                    aria-label={`${t("remove")} ${ingredient.name}`}
                     className="focus-ring rounded-2xl bg-white/[0.05] px-3 py-2 text-xs font-semibold text-emerald-50/65 transition-ui hover:bg-red-500/12 hover:text-red-100"
                   >
-                    Remove
+                    {t("remove")}
                   </button>
                 </div>
               ))}
@@ -475,9 +484,11 @@ export function ScannerTab() {
                 <MealRevealCard
                   key={recipe.name}
                   deferImageLookup={index >= 2}
+                  eyebrow={getRecipeEyebrow(recipe, t)}
                   name={recipe.name}
-                  summary={buildRecipeSummary(recipe)}
-                  previewLabel="Preview ingredients and macros"
+                  visualMatchLabel={recipe.visual_match_label}
+                  summary={buildRecipeSummary(recipe, t)}
+                  previewLabel={getRecipePreviewLabel(recipe, t)}
                   previewItems={buildRecipePreviewItems(recipe)}
                   imageUrl={recipe.image_url}
                   imageSource={recipe.image_source}
@@ -516,8 +527,8 @@ export function ScannerTab() {
           </div>
         ) : (
           <EmptyState
-            title="Ready to cook"
-            description="Scan a photo or add ingredients manually, then generate five recipe ideas ranked by ingredient fit and preferences. Always verify allergens, nutrition, and food safety before cooking."
+            title={t("readyToCook")}
+            description={t("readyToCookDesc")}
           />
         )}
       </motion.div>
@@ -581,9 +592,22 @@ function buildRecipeStats(recipe: Recipe) {
   ];
 }
 
-function buildRecipeSummary(recipe: Recipe) {
-  const preferenceHits = recipe.preference_hits?.length ? `${recipe.preference_hits.length} preference matches` : null;
-  return [recipe.cuisine, recipe.match_quality, preferenceHits].filter(Boolean).join(" / ");
+function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  const originLabel =
+    recipe.recipe_origin === "exact_scan_match"
+      ? t("exactScannedDish")
+      : recipe.recipe_origin === "similar_ingredients"
+        ? t("similarIngredients")
+        : null;
+  const preferenceHits = recipe.preference_hits?.length
+    ? t("preferenceMatches").replace("{count}", String(recipe.preference_hits.length))
+    : null;
+  const scanExplanation =
+    recipe.recipe_origin === "exact_scan_match" && recipe.scan_match_explanation
+      ? recipe.scan_match_explanation
+      : null;
+
+  return [originLabel, recipe.cuisine, recipe.match_quality, preferenceHits, scanExplanation].filter(Boolean).join(" / ");
 }
 
 function buildRecipePreviewItems(recipe: Recipe) {
@@ -608,4 +632,22 @@ function buildRecipeSections(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) 
       items: recipe.steps
     }
   ];
+}
+
+function getRecipeEyebrow(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  if (recipe.recipe_origin === "exact_scan_match") return t("exactScannedDish");
+  if (recipe.recipe_origin === "similar_ingredients") return t("similarIngredients");
+  return undefined;
+}
+
+function getRecipePreviewLabel(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  if (recipe.recipe_origin === "exact_scan_match") {
+    return t("exactRecipePreview");
+  }
+
+  if (recipe.recipe_origin === "similar_ingredients") {
+    return t("similarRecipePreview");
+  }
+
+  return t("previewIngredientsMacros");
 }

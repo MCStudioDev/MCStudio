@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChefHat, ChevronDown, Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useApp } from "@/contexts/AppContext";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,7 @@ interface MealRevealCardProps {
     imageUrl: string;
   }) => void | Promise<void>;
   eyebrow?: string;
+  visualMatchLabel?: string;
   summary?: string;
   previewLabel?: string;
   previewItems?: string[];
@@ -72,13 +74,15 @@ export function MealRevealCard({
   imageQuery,
   onImageResolved,
   eyebrow,
+  visualMatchLabel,
   summary,
-  previewLabel = "Ingredient snapshot",
+  previewLabel,
   previewItems,
   stats = [],
   sections = [],
   className
 }: MealRevealCardProps) {
+  const { t } = useApp();
   const { getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
   const [lookupActivated, setLookupActivated] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -123,7 +127,6 @@ export function MealRevealCard({
     [stats]
   );
   const headlineStats = useMemo(() => visibleStats.slice(0, 2), [visibleStats]);
-  const detailStats = useMemo(() => visibleStats.slice(0, 4), [visibleStats]);
   const detailSections = useMemo(() => sections.filter((section) => section.items.length), [sections]);
   const derivedPreviewItems = useMemo(() => {
     if (previewItems?.length) return previewItems.slice(0, 5);
@@ -133,6 +136,7 @@ export function MealRevealCard({
       .slice(0, 5);
   }, [detailSections, previewItems]);
   const cardSummary = summary ?? derivedPreviewItems.slice(0, 2).join(" / ");
+  const resolvedPreviewLabel = previewLabel ?? t("ingredientSnapshot");
   const detailId = useMemo(() => `meal-details-${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, [name]);
 
   useEffect(() => {
@@ -294,7 +298,7 @@ export function MealRevealCard({
     >
       <div className="relative">
         <div
-          className="relative h-[23rem] [perspective:1600px] sm:h-[24rem]"
+          className="relative h-[24rem] [perspective:1600px] sm:h-[25rem]"
           onClick={handleSurfaceClick}
         >
           <div
@@ -306,6 +310,7 @@ export function MealRevealCard({
             <div className="absolute inset-0 [backface-visibility:hidden]">
               <RecipeFrontFace
                 eyebrow={eyebrow}
+                visualMatchLabel={visualMatchLabel}
                 name={name}
                 summary={cardSummary}
                 headlineStats={headlineStats}
@@ -320,9 +325,8 @@ export function MealRevealCard({
               <RecipeBackFace
                 eyebrow={eyebrow}
                 name={name}
-                previewLabel={previewLabel}
+                previewLabel={resolvedPreviewLabel}
                 previewItems={derivedPreviewItems}
-                detailStats={detailStats}
                 isOpen={isOpen}
                 onToggleOpen={() =>
                   setIsOpen((value) => {
@@ -363,23 +367,16 @@ export function MealRevealCard({
           id={detailId}
           className={cn(
             "overflow-hidden border-t border-white/8 bg-[linear-gradient(180deg,rgba(5,17,15,0.98)_0%,rgba(7,27,22,0.98)_100%)] transition-[max-height,opacity] duration-300",
-            isOpen ? "max-h-[48rem] opacity-100" : "max-h-0 opacity-0"
+            isOpen ? "max-h-[180rem] opacity-100" : "max-h-0 opacity-0"
           )}
         >
           <div className="space-y-5 p-5">
-            {detailStats.length ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {detailStats.map((stat) => (
-                  <div
-                    key={`detail-${stat.label}-${stat.value}`}
-                    className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3"
-                  >
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-200">{stat.label}</p>
-                    <p className="mt-1 text-lg font-semibold text-white tabular-nums">{stat.value}</p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.04] px-4 py-4">
+              {eyebrow ? (
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{eyebrow}</p>
+              ) : null}
+              <h4 className="mt-1 text-xl font-display font-bold leading-tight text-white">{name}</h4>
+            </div>
 
             <div className="space-y-4">
               {detailSections.map((section) => (
@@ -426,6 +423,7 @@ export function MealRevealCard({
 
 function RecipeFrontFace({
   eyebrow,
+  visualMatchLabel,
   name,
   summary,
   headlineStats,
@@ -435,6 +433,7 @@ function RecipeFrontFace({
   showNoExactPhoto
 }: {
   eyebrow?: string;
+  visualMatchLabel?: string;
   name: string;
   summary: string;
   headlineStats: MealRevealStat[];
@@ -443,6 +442,8 @@ function RecipeFrontFace({
   imageLoading?: boolean;
   showNoExactPhoto: boolean;
 }) {
+  const { t } = useApp();
+
   return (
     <div className="relative h-full overflow-hidden">
       {resolvedImage ? (
@@ -461,9 +462,27 @@ function RecipeFrontFace({
       <div className="absolute inset-0 bg-gradient-to-t from-[#040c0a] via-[#040c0a]/36 to-transparent" />
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 to-transparent" />
 
+      {!resolvedImage ? (
+        <div className="absolute inset-x-0 top-[4.8rem] flex justify-center px-5">
+          <div className="w-full max-w-[15rem] rounded-[1.8rem] border border-white/12 bg-[#f5fffc]/8 p-5 text-center text-white/86 backdrop-blur-md">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-white/10 text-cyan-100 shadow-[0_18px_40px_rgba(3,18,16,0.28)]">
+              <ChefHat className="h-8 w-8" />
+            </div>
+            <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-cyan-200/18 bg-cyan-300/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+              <Sparkles className="h-3.5 w-3.5" />
+              {t("curatedFallback")}
+            </div>
+            <p className="mt-3 text-sm font-semibold text-white">{t("awaitingPlatedMatch")}</p>
+            <p className="mt-1 text-xs leading-relaxed text-white/62">
+              {t("hideWeakMatches")}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {imageLoading ? (
         <div className="absolute right-4 top-4 rounded-full border border-white/10 bg-[#f5fffc]/88 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#07201a]">
-          Finding photo
+          {t("findingPhoto")}
         </div>
       ) : null}
 
@@ -493,9 +512,18 @@ function RecipeFrontFace({
         )
       ) : null}
 
+      {visualMatchLabel ? (
+        <div className="absolute right-4 top-4 max-w-[11rem] rounded-full border border-cyan-200/35 bg-cyan-300/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#06201b] shadow-[0_12px_30px_rgba(60,255,230,0.2)] backdrop-blur-md">
+          {visualMatchLabel}
+        </div>
+      ) : null}
+
       {showNoExactPhoto ? (
-        <div className="absolute right-4 top-4 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800">
-          No exact photo
+        <div className={cn(
+          "absolute rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800",
+          visualMatchLabel ? "right-4 top-14" : "right-4 top-4"
+        )}>
+          {t("noExactPhoto")}
         </div>
       ) : null}
 
@@ -523,7 +551,7 @@ function RecipeFrontFace({
         ) : null}
 
         <div className="inline-flex items-center rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80 backdrop-blur-md">
-          Hover for preview, click for full recipe
+          {t("hoverPreview")}
         </div>
       </div>
     </div>
@@ -535,7 +563,6 @@ function RecipeBackFace({
   name,
   previewLabel,
   previewItems,
-  detailStats,
   isOpen,
   onToggleOpen
 }: {
@@ -543,12 +570,13 @@ function RecipeBackFace({
   name: string;
   previewLabel: string;
   previewItems: string[];
-  detailStats: MealRevealStat[];
   isOpen: boolean;
   onToggleOpen: () => void;
 }) {
+  const { t } = useApp();
+
   return (
-    <div className="relative flex h-full flex-col justify-between overflow-hidden bg-[linear-gradient(180deg,#081d19_0%,#071310_55%,#061a25_100%)] p-5 text-white">
+    <div className="relative flex h-full flex-col justify-between overflow-y-auto bg-[linear-gradient(180deg,#081d19_0%,#071310_55%,#061a25_100%)] p-5 text-white scrollbar-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(84,255,209,0.2),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(102,196,255,0.18),transparent_26%)]" />
 
       <div className="relative z-10 space-y-4">
@@ -572,26 +600,15 @@ function RecipeBackFace({
             ))
           ) : (
             <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-white/70">
-              Full recipe details available inside
+              {t("fullRecipeDetails")}
             </span>
           )}
         </div>
-
-        {detailStats.length ? (
-          <div className="grid grid-cols-2 gap-2">
-            {detailStats.map((stat) => (
-              <div key={`preview-stat-${stat.label}-${stat.value}`} className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">{stat.label}</p>
-                <p className="mt-1 text-sm font-semibold tabular-nums text-white">{stat.value}</p>
-              </div>
-            ))}
-          </div>
-        ) : null}
       </div>
 
       <div className="relative z-10 flex items-center justify-between gap-3 pt-5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
-          {isOpen ? "Click card again to close" : "Click card or use plus"}
+          {isOpen ? t("clickAgainClose") : t("clickCardPlus")}
         </span>
         <button
           type="button"
@@ -602,7 +619,7 @@ function RecipeBackFace({
           className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.09] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.14]"
         >
           <Plus className={cn("h-4 w-4 transition-transform", isOpen && "rotate-45")} />
-          {isOpen ? "Hide recipe" : "Show recipe"}
+          {isOpen ? t("hideRecipe") : t("showRecipe")}
           <ChevronDown className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} />
         </button>
       </div>

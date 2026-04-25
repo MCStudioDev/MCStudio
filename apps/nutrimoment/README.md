@@ -27,6 +27,24 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Public Deployment
+
+Use the deployment guide for Firebase, Vercel, environment variables, Firestore rules, and the current 5-credit Google account beta flow:
+
+- `docs/PUBLIC_DEPLOYMENT_GUIDE.md`
+
+Before sharing the app publicly, run:
+
+```bash
+npm run predeploy:check
+```
+
+From the monorepo root, the same check is available as:
+
+```bash
+npm run predeploy:nutrimoment
+```
+
 ## Offline Catalog Seed
 
 Generate the offline catalog manifest:

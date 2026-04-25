@@ -1,4 +1,5 @@
 import { cuisineMatchesPreference } from "@/lib/cuisines";
+import { getCuisineDishCatalog } from "@/lib/cuisineDishCatalog";
 
 interface CuisineHeuristicProfile {
   dishNames: string[];
@@ -26,7 +27,7 @@ export interface CuisineScoreResult {
 
 const CUISINE_HEURISTICS: Record<string, CuisineHeuristicProfile> = {
   egyptian: {
-    dishNames: ["kofta", "kafta", "hawawshi", "koshary", "shakshuka", "shakshouka", "taameya", "tameya", "ful", "fasolia", "molokhia", "eggah", "macarona bechamel"],
+    dishNames: getCuisineDishCatalog("egyptian")?.iconicDishes ?? ["kofta", "hawawshi", "koshary"],
     breakfastDishNames: ["shakshuka", "shakshouka", "taameya", "tameya", "ful", "eggah"],
     dinnerDishNames: ["kofta", "kafta", "hawawshi", "koshary", "fasolia", "molokhia", "macarona bechamel"],
     breakfastSignals: ["egg", "tomato", "bell pepper", "fava bean", "bread", "pita", "cheese"],
@@ -41,7 +42,7 @@ const CUISINE_HEURISTICS: Record<string, CuisineHeuristicProfile> = {
     ]
   },
   italian: {
-    dishNames: ["pomodoro", "arrabbiata", "aglio e olio", "frittata", "risotto", "minestrone", "alfredo", "baked pasta", "chicken parmesan", "piccata"],
+    dishNames: getCuisineDishCatalog("italian")?.iconicDishes ?? ["pomodoro", "arrabbiata", "risotto"],
     breakfastDishNames: ["frittata"],
     dinnerDishNames: ["pomodoro", "arrabbiata", "risotto", "alfredo", "baked pasta", "piccata"],
     breakfastSignals: ["egg", "cheese", "tomato"],
@@ -54,7 +55,7 @@ const CUISINE_HEURISTICS: Record<string, CuisineHeuristicProfile> = {
     ]
   },
   middleeastern: {
-    dishNames: ["mujadara", "kofta", "kafta", "shawarma", "shakshuka", "hummus", "fattoush", "tabbouleh", "lentil soup", "fasolia"],
+    dishNames: getCuisineDishCatalog("middle eastern")?.iconicDishes ?? ["mujadara", "shawarma", "hummus"],
     breakfastDishNames: ["shakshuka", "hummus"],
     dinnerDishNames: ["mujadara", "kofta", "kafta", "shawarma", "fasolia"],
     breakfastSignals: ["egg", "chickpea", "fava bean", "bread"],
@@ -66,7 +67,7 @@ const CUISINE_HEURISTICS: Record<string, CuisineHeuristicProfile> = {
     ]
   },
   indian: {
-    dishNames: ["dal", "chana masala", "rajma", "bhurji", "paneer", "keema", "pulao", "upma", "poha"],
+    dishNames: getCuisineDishCatalog("indian")?.iconicDishes ?? ["dal", "chana masala", "rajma"],
     breakfastDishNames: ["bhurji", "upma", "poha", "omelette"],
     dinnerDishNames: ["dal", "chana masala", "rajma", "paneer", "keema", "pulao"],
     breakfastSignals: ["egg", "semolina", "flattened rice"],
@@ -78,7 +79,7 @@ const CUISINE_HEURISTICS: Record<string, CuisineHeuristicProfile> = {
     ]
   },
   thai: {
-    dishNames: ["pad krapow", "basil chicken", "fried rice", "red curry", "green curry", "larb", "tom yum", "thai omelette"],
+    dishNames: getCuisineDishCatalog("thai")?.iconicDishes ?? ["pad krapow", "green curry", "tom yum"],
     breakfastDishNames: ["thai omelette"],
     dinnerDishNames: ["pad krapow", "fried rice", "red curry", "green curry", "larb", "tom yum"],
     breakfastSignals: ["egg", "rice"],
@@ -87,6 +88,54 @@ const CUISINE_HEURISTICS: Record<string, CuisineHeuristicProfile> = {
       { name: "pad krapow", ingredients: ["ground meat", "basil", "chili"] },
       { name: "red curry", ingredients: ["coconut milk", "chicken"] },
       { name: "thai noodle stir fry", ingredients: ["rice noodle", "egg"] }
+    ]
+  },
+  mediterranean: {
+    dishNames: getCuisineDishCatalog("mediterranean")?.iconicDishes ?? ["greek salad", "moussaka", "souvlaki"],
+    breakfastDishNames: ["greek salad", "spanakopita", "shakshuka"],
+    dinnerDishNames: ["moussaka", "souvlaki", "grilled sea bass", "ratatouille", "spanakopita"],
+    breakfastSignals: ["egg", "tomato", "feta", "olive", "yogurt"],
+    dinnerSignals: ["fish", "chickpea", "eggplant", "olive oil", "lemon", "lamb"],
+    triggerGroups: [
+      { name: "greek salad", ingredients: ["tomato", "cucumber", "feta"] },
+      { name: "souvlaki", ingredients: ["chicken", "lemon", "oregano"] },
+      { name: "ratatouille", ingredients: ["eggplant", "zucchini", "tomato"] }
+    ]
+  },
+  mexican: {
+    dishNames: getCuisineDishCatalog("mexican")?.iconicDishes ?? ["taco", "enchilada", "pozole"],
+    breakfastDishNames: ["chilaquiles", "huevos rancheros", "huevos a la mexicana", "molletes"],
+    dinnerDishNames: ["tacos al pastor", "birria", "enchiladas", "pozole", "mole poblano"],
+    breakfastSignals: ["egg", "tortilla", "bean", "salsa"],
+    dinnerSignals: ["corn tortilla", "chili", "tomato", "bean", "lime", "beef", "chicken"],
+    triggerGroups: [
+      { name: "chilaquiles", ingredients: ["tortilla", "salsa", "egg"] },
+      { name: "enchiladas", ingredients: ["tortilla", "chicken", "salsa"] },
+      { name: "quesadillas", ingredients: ["tortilla", "cheese"] }
+    ]
+  },
+  american: {
+    dishNames: getCuisineDishCatalog("american")?.iconicDishes ?? ["cheeseburger", "fried chicken", "chili"],
+    breakfastDishNames: ["pancakes", "waffles", "eggs benedict", "biscuits and gravy", "breakfast hash"],
+    dinnerDishNames: ["meatloaf", "pot roast", "barbecue ribs", "fried chicken", "chili"],
+    breakfastSignals: ["egg", "bread", "potato", "sausage"],
+    dinnerSignals: ["ground beef", "chicken", "potato", "barbecue sauce", "cheddar"],
+    triggerGroups: [
+      { name: "cheeseburger", ingredients: ["ground beef", "cheddar", "bread"] },
+      { name: "meatloaf", ingredients: ["ground beef", "egg", "bread"] },
+      { name: "fried chicken", ingredients: ["chicken", "flour"] }
+    ]
+  },
+  asian: {
+    dishNames: getCuisineDishCatalog("asian")?.iconicDishes ?? ["fried rice", "ramen", "bibimbap"],
+    breakfastDishNames: ["congee", "onigiri", "miso soup"],
+    dinnerDishNames: ["fried rice", "ramen", "bibimbap", "pho", "pad thai", "bulgogi"],
+    breakfastSignals: ["egg", "rice", "broth"],
+    dinnerSignals: ["rice", "noodle", "soy sauce", "ginger", "garlic", "tofu", "scallion"],
+    triggerGroups: [
+      { name: "fried rice", ingredients: ["rice", "egg", "soy sauce"] },
+      { name: "stir fry", ingredients: ["soy sauce", "garlic", "ginger"] },
+      { name: "noodle bowl", ingredients: ["noodle", "broth"] }
     ]
   }
 };
@@ -100,9 +149,15 @@ export function scoreCuisineFit(input: CuisineScoreInput): CuisineScoreResult {
   const cuisineKey = normalizeCuisineKey(preferredCuisine);
   const profile = CUISINE_HEURISTICS[cuisineKey];
   if (!profile) {
+    const catalog = getCuisineDishCatalog(preferredCuisine);
+    const fallbackDish = catalog?.iconicDishes.find((dish) => normalizeText(input.recipeName ?? "").includes(normalizeText(dish)));
     return {
-      score: cuisineMatchesPreference(input.recipeCuisine ?? "", preferredCuisine) ? 2 : 0,
-      hits: cuisineMatchesPreference(input.recipeCuisine ?? "", preferredCuisine) ? ["cuisine-aligned"] : []
+      score: cuisineMatchesPreference(input.recipeCuisine ?? "", preferredCuisine) ? (fallbackDish ? 5 : 2) : 0,
+      hits: cuisineMatchesPreference(input.recipeCuisine ?? "", preferredCuisine)
+        ? fallbackDish
+          ? ["cuisine-aligned", `dish-family:${fallbackDish}`]
+          : ["cuisine-aligned"]
+        : []
     };
   }
 

@@ -82,7 +82,7 @@ function normalizeDetectedIngredientName(value: string, options: { isPantry: boo
     .replace(/[_]/g, " ")
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")
     .replace(/\b(pack|packet|box|jar|bottle|container|brand|label|plate|bowl|dish|meal|food|ingredient mix)\b/g, " ")
-    .replace(/[^\w\s-]/g, " ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .replace(/\bgrilled chicken breast\b/g, "chicken breast")
     .replace(/\bfried chicken breast\b/g, "chicken breast")
     .replace(/\bgrilled chicken\b/g, "chicken")

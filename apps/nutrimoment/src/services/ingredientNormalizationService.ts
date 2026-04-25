@@ -68,7 +68,7 @@ function normalizeFreeText(value: string): string {
   return value
     .toLowerCase()
     .replace(/[_-]/g, " ")
-    .replace(/[^\w\s]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

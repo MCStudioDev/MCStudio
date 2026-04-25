@@ -51,6 +51,14 @@ const INITIAL_STATE: HistoryState = {
   error: null
 };
 
+function stripUndefined<T extends object>(value: T): T {
+  const next: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v !== undefined) next[key] = v;
+  }
+  return next as T;
+}
+
 function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
   switch (action.type) {
     case "loading":
@@ -139,7 +147,8 @@ export function useHistory(): UseHistoryResult {
       image_loading: false,
       image_error: errored
     };
-    await updateDoc(doc(db, `users/${user.uid}/history`, entryId), { recipes });
+    const sanitizedRecipes = recipes.map(stripUndefined);
+    await updateDoc(doc(db, `users/${user.uid}/history`, entryId), { recipes: sanitizedRecipes });
   };
 
   const removeEntry = async (id: string) => {

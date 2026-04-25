@@ -21,6 +21,8 @@ export interface Recipe {
   id?: string;
   name: string;
   cuisine: string;
+  recipe_origin?: "exact_scan_match" | "similar_ingredients";
+  scan_match_explanation?: string;
   image_search_index?: string;
   image_search_indices?: string[];
   ingredients: string[];
@@ -45,6 +47,7 @@ export interface Recipe {
   matched_required_count?: number;
   matched_optional_count?: number;
   preference_hits?: string[];
+  visual_match_label?: string;
 }
 
 export interface MealPlanMeal {
@@ -56,6 +59,7 @@ export interface MealPlanMeal {
   carbs: string;
   fat: string;
   ingredients?: string[];
+  steps?: string[];
   image_url?: string;
   image_source?: RecipeImageSource;
   image_attribution_name?: string;

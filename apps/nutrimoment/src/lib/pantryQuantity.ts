@@ -72,7 +72,7 @@ export function normalizePantryIngredientName(value: string) {
   const normalized = value
     .toLowerCase()
     .replace(/[_-]/g, " ")
-    .replace(/[^\w\s]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\bbreasts\b/g, "breast")
     .replace(/\btomatoes\b/g, "tomato")
     .replace(/\beggs\b/g, "egg")

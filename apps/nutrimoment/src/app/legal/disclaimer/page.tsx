@@ -2,30 +2,30 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "AI Disclaimer | NutriMoment",
-  description: "Important limitations and safety guidance for NutriMoment recipe and meal-planning outputs."
+  title: "إخلاء مسؤولية الذكاء الاصطناعي | NutriMoment",
+  description: "حدود مهمة وإرشادات سلامة لمخرجات وصفات NutriMoment وخطط الوجبات."
 };
 
 const sections = [
   {
-    title: "Informational only",
+    title: "للاستخدام المعلوماتي فقط",
     body:
-      "NutriMoment provides recipe, pantry, and meal-planning suggestions for informational and general wellness purposes only. It does not provide medical advice, diagnosis, treatment, or emergency guidance."
+      "يوفر NutriMoment اقتراحات للوصفات والمخزون وتخطيط الوجبات لأغراض معلوماتية وعافية عامة فقط. لا يقدم نصيحة طبية أو تشخيصاً أو علاجاً أو إرشاداً للطوارئ."
   },
   {
-    title: "Output limitations",
+    title: "حدود المخرجات",
     body:
-      "AI-generated and catalog-matched results can be incomplete, outdated, or inaccurate. Ingredient identification, nutrition estimates, allergen handling, and cooking instructions may contain mistakes."
+      "قد تكون النتائج التي ينشئها الذكاء الاصطناعي أو يطابقها الكتالوج غير مكتملة أو قديمة أو غير دقيقة. قد تحتوي معرفة المكونات وتقديرات التغذية والتعامل مع الحساسية وخطوات الطبخ على أخطاء."
   },
   {
-    title: "User verification required",
+    title: "التحقق من المستخدم مطلوب",
     body:
-      "You are responsible for verifying ingredient safety, allergens, substitutions, portion sizes, safe temperatures, nutrition facts, and whether a recipe is appropriate for your own circumstances before cooking or eating."
+      "أنت مسؤول عن التحقق من سلامة المكونات والحساسيات والبدائل وحجم الحصص ودرجات الحرارة الآمنة والقيم الغذائية ومدى ملاءمة الوصفة لظروفك قبل الطبخ أو الأكل."
   },
   {
-    title: "Higher-risk situations",
+    title: "الحالات الأعلى خطورة",
     body:
-      "Do not rely on NutriMoment alone for pregnancy, pediatric nutrition, eating disorders, severe allergies, chronic disease management, medication interactions, or any urgent health concern. Consult a qualified healthcare professional for those situations."
+      "لا تعتمد على NutriMoment وحده في الحمل أو تغذية الأطفال أو اضطرابات الأكل أو الحساسية الشديدة أو إدارة الأمراض المزمنة أو تداخلات الأدوية أو أي قلق صحي عاجل. استشر مختصاً صحياً مؤهلاً في هذه الحالات."
   }
 ];
 
@@ -35,12 +35,11 @@ export default function DisclaimerPage() {
       <div className="mx-auto max-w-3xl space-y-8">
         <div className="space-y-3">
           <Link href="/" className="text-sm font-semibold text-emerald-700 hover:text-emerald-900">
-            Back to NutriMoment
+            العودة إلى NutriMoment
           </Link>
-          <h1 className="text-4xl font-display font-bold tracking-tight">AI Disclaimer</h1>
+          <h1 className="text-4xl font-display font-bold tracking-tight">إخلاء مسؤولية الذكاء الاصطناعي</h1>
           <p className="text-base leading-relaxed text-stone-600">
-            This page explains the limits of NutriMoment so users can make informed decisions before relying on recipe
-            or meal-planning output.
+            تشرح هذه الصفحة حدود NutriMoment حتى يتمكن المستخدمون من اتخاذ قرارات واعية قبل الاعتماد على مخرجات الوصفات أو تخطيط الوجبات.
           </p>
         </div>
 

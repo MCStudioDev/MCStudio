@@ -155,7 +155,7 @@ export function AppProvider({ children }: AppProviderProps) {
     };
   }, [user]);
 
-  const settings = user ? state.settings : DEFAULT_SETTINGS;
+  const settings = state.settings;
   const health = user ? state.health : DEFAULT_HEALTH;
 
   const saveSettings = useCallback(

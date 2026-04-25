@@ -60,7 +60,8 @@ function ensureAdminApp() {
 
 export function getAdminDb() {
   ensureAdminApp();
-  return getFirestore();
+  const databaseId = cleanEnvValue(process.env.NEXT_PUBLIC_FIRESTORE_DATABASE_ID);
+  return databaseId ? getFirestore(databaseId) : getFirestore();
 }
 
 export function getAdminAuth() {

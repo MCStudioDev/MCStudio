@@ -6,6 +6,7 @@ import {
   canUseApiFeature,
   consumeFreeAiCredit
 } from "@/services/authService";
+import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -86,6 +87,16 @@ const MOCK_RECIPES = [
 export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "recipe_generation");
+    const rl = applyRateLimit({
+      uid: accessCheck.access.uid,
+      feature: "recipe_generation",
+      isPremium: accessCheck.access.isPremium,
+      bypass: accessCheck.access.isAdmin
+    });
+    if (!rl.decision.allowed) {
+      return rateLimitedResponse(rl.decision, rl.config);
+    }
+
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {

@@ -4,9 +4,13 @@ import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson } from "@/lib/
 import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { accessErrorResponse, accessPayload, requireUser } from "@/services/authService";
+import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
+import { logger } from "@/lib/logger";
 import { listSeededRecipes } from "@/repositories/recipeRepo";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
+import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
+import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 
 export const runtime = "nodejs";
@@ -27,9 +31,33 @@ const requestSchema = z.object({
 const MOCK_MEAL_PLAN = {
   plan: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => ({
     day,
-    breakfast: { name: "Greek yogurt with berries and granola", calories: 380, protein: "20g", carbs: "45g", fat: "10g" },
-    lunch: { name: "Quinoa salad with grilled chicken", calories: 520, protein: "38g", carbs: "55g", fat: "16g" },
-    dinner: { name: "Salmon with roasted vegetables", calories: 580, protein: "42g", carbs: "30g", fat: "26g" }
+    breakfast: {
+      name: "Greek yogurt with berries and granola",
+      calories: 380,
+      protein: "20g",
+      carbs: "45g",
+      fat: "10g",
+      ingredients: ["greek yogurt", "berries", "granola"],
+      steps: ["Spoon yogurt into a bowl.", "Top with berries.", "Finish with granola and serve."]
+    },
+    lunch: {
+      name: "Quinoa salad with grilled chicken",
+      calories: 520,
+      protein: "38g",
+      carbs: "55g",
+      fat: "16g",
+      ingredients: ["quinoa", "grilled chicken", "greens", "olive oil"],
+      steps: ["Cook the quinoa until fluffy.", "Season and grill the chicken.", "Slice the chicken and toss with quinoa and greens.", "Dress lightly and serve."]
+    },
+    dinner: {
+      name: "Salmon with roasted vegetables",
+      calories: 580,
+      protein: "42g",
+      carbs: "30g",
+      fat: "26g",
+      ingredients: ["salmon fillets", "asparagus", "sweet potato", "olive oil", "lemon"],
+      steps: ["Heat the oven and prep the vegetables.", "Roast the vegetables until almost tender.", "Add the salmon and bake until it flakes easily.", "Finish with lemon before serving."]
+    }
   })),
   shoppingList: [
     "Greek yogurt - 14 cup",
@@ -48,6 +76,15 @@ const MOCK_MEAL_PLAN = {
 export async function POST(request: Request) {
   try {
     const access = await requireUser(request);
+    const rl = applyRateLimit({
+      uid: access.uid,
+      feature: "meal_plan",
+      isPremium: access.isPremium,
+      bypass: access.isAdmin
+    });
+    if (!rl.decision.allowed) {
+      return rateLimitedResponse(rl.decision, rl.config);
+    }
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
@@ -65,7 +102,13 @@ export async function POST(request: Request) {
     }
 
     if (USE_MOCK) {
-      return Response.json({ result: JSON.stringify({ ...MOCK_MEAL_PLAN, servedFrom: "mock" }), access: accessPayload(access) });
+      const mockPlan = { ...MOCK_MEAL_PLAN, servedFrom: "mock" as const };
+      const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+      const outputMockPlan = ensureDetailedMealPlanSteps(
+        wantsArabic ? localizeMealPlanForArabic(mockPlan) : mockPlan,
+        wantsArabic ? "Arabic" : "English"
+      );
+      return Response.json({ result: JSON.stringify(outputMockPlan), access: accessPayload(access) });
     }
 
     const pantryItems = parsed.data.pantryItems ?? [];
@@ -112,37 +155,47 @@ export async function POST(request: Request) {
       if (aiMealPlan) {
         const reconciledShoppingList = reconcileShoppingListWithPantry(aiMealPlan.shoppingList, pantryStock);
         const reconciledMealPlan = { ...aiMealPlan, shoppingList: reconciledShoppingList };
-        console.info("Meal plan served from Gemini fallback AI", {
-          days: reconciledMealPlan.plan.length,
-          shoppingItems: reconciledMealPlan.shoppingList.length,
+        const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+        const outputMealPlan = ensureDetailedMealPlanSteps(
+          wantsArabic ? localizeMealPlanForArabic(reconciledMealPlan) : reconciledMealPlan,
+          wantsArabic ? "Arabic" : "English"
+        );
+        logger.info("Meal plan served from Gemini fallback AI", {
+          days: outputMealPlan.plan.length,
+          shoppingItems: outputMealPlan.shoppingList.length,
           shoppingItemsBeforeReconcile: aiMealPlan.shoppingList.length
         });
         return Response.json({
-          result: JSON.stringify({ ...reconciledMealPlan, servedFrom: "fallback_ai" }),
+          result: JSON.stringify({ ...outputMealPlan, servedFrom: "fallback_ai" }),
           servedFrom: "fallback_ai",
           access: accessPayload(access)
         });
       }
 
-      console.error("Premium meal plan AI response was not usable; using offline fallback", {
+      logger.warn("Premium meal plan AI response was not usable; using offline fallback", {
         topLevelType: Array.isArray(rawMealPlan) ? "array" : typeof rawMealPlan,
         keys: rawMealPlan && typeof rawMealPlan === "object" && !Array.isArray(rawMealPlan) ? Object.keys(rawMealPlan).slice(0, 10) : [],
         preview: json.slice(0, 600)
       });
     } catch (aiError) {
-      console.error("Premium meal plan API failed; using offline fallback:", aiError);
+      logger.error("Premium meal plan API failed; using offline fallback", aiError);
     }
 
     const emergencyMealPlan = {
       ...buildMealPlanData(catalogRecipes.length ? catalogRecipes : getCatalogFallbackRecipes(parsed.data.preferredCuisine), pantryStock),
       servedFrom: "offline_catalog" as const
     };
-    console.info("Meal plan served from offline catalog after AI failure", {
-      days: emergencyMealPlan.plan.length,
-      shoppingItems: emergencyMealPlan.shoppingList.length
+    const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+    const outputEmergencyMealPlan = ensureDetailedMealPlanSteps(
+      wantsArabic ? localizeMealPlanForArabic(emergencyMealPlan) : emergencyMealPlan,
+      wantsArabic ? "Arabic" : "English"
+    );
+    logger.info("Meal plan served from offline catalog after AI failure", {
+      days: outputEmergencyMealPlan.plan.length,
+      shoppingItems: outputEmergencyMealPlan.shoppingList.length
     });
     return Response.json({
-      result: JSON.stringify(emergencyMealPlan),
+      result: JSON.stringify(outputEmergencyMealPlan),
       servedFrom: "offline_catalog",
       fallbackNotice: "The premium AI meal plan service was unavailable, so we used offline catalog recipes.",
       access: accessPayload(access)

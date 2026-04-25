@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AlertTriangle, ShieldAlert, X } from "lucide-react";
+import { useApp } from "@/contexts/AppContext";
 
 const DISMISS_KEY = "nutrimoment-legal-banner-dismissed-v1";
 
 export function AppLegalBanner() {
+  const { t } = useApp();
   const [dismissed, setDismissed] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -25,49 +27,44 @@ export function AppLegalBanner() {
   }
 
   return (
-    <div className="border-b border-amber-200 bg-amber-50/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-start justify-between gap-4 px-4 py-3 text-sm text-amber-950 sm:px-6">
-        <div className="flex items-start gap-3">
-          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-          <div className="space-y-1">
-            <p className="font-semibold">Informational use only</p>
-            <p className="leading-relaxed text-amber-900">
-              NutriMoment offers recipe and meal-planning support, not medical advice or guaranteed nutrition accuracy.
-              Always verify allergens, ingredient suitability, food safety, and health impact before relying on any output.
+    <div className="px-3 pt-2 sm:px-4">
+      <div className="shell-frame">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-amber-400/8 px-3 py-2 text-[12px] text-amber-100/90 backdrop-blur sm:px-4">
+          <div className="flex items-center gap-2.5">
+            <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-300" aria-hidden="true" />
+            <p className="leading-snug">
+              <span className="font-semibold text-amber-100">{t("informationalOnly")}</span>{" "}
+              <span className="text-amber-100/75">{t("legalBannerText")}</span>
+              <span className="ms-2 hidden sm:inline-flex"><LegalLinksRow inline /></span>
             </p>
-            <LegalLinksRow />
           </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={handleDismiss}
-          className="rounded-full p-1 text-amber-700 transition hover:bg-amber-100"
-          aria-label="Dismiss legal notice"
-        >
-          <X className="h-4 w-4" />
-        </button>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="focus-ring flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-amber-200/70 transition hover:bg-amber-300/15 hover:text-amber-100"
+            aria-label={t("dismissLegalNotice")}
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 export function ResultLegalNotice({ mode }: { mode: "recipes" | "mealplan" }) {
-  const message =
-    mode === "recipes"
-      ? "Generated recipes may miss allergens, substitutions, safe temperatures, or accurate nutrition values. Review the ingredients and cooking steps yourself before preparing food."
-      : "Meal plans reflect saved preferences and pantry matches, but they are not individualized medical nutrition therapy. Review portions, allergies, medications, pregnancy, pediatric, and disease-specific needs with a qualified clinician.";
+  const { t } = useApp();
+  const message = mode === "recipes" ? t("recipeSafetyNotice") : t("mealPlanSafetyNotice");
 
   return (
     <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-950">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
         <div className="space-y-2">
-          <p className="font-semibold">Important safety notice</p>
+          <p className="font-semibold">{t("importantSafetyNotice")}</p>
           <p className="text-amber-900">{message}</p>
-          <p className="text-amber-900">
-            NutriMoment does not diagnose, treat, or prevent disease. Use results as planning support only.
-          </p>
+          <p className="text-amber-900">{t("legalFooterText")}</p>
           <LegalLinksRow />
         </div>
       </div>
@@ -75,18 +72,33 @@ export function ResultLegalNotice({ mode }: { mode: "recipes" | "mealplan" }) {
   );
 }
 
-export function LegalLinksRow() {
+interface LegalLinksRowProps {
+  inline?: boolean;
+}
+
+export function LegalLinksRow({ inline = false }: LegalLinksRowProps) {
+  const { t } = useApp();
+  const linkClass = inline
+    ? "text-amber-200/80 hover:text-amber-100 transition"
+    : "text-amber-700 hover:text-amber-900";
+
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
-      <Link href="/legal/disclaimer" className="hover:text-amber-900">
-        AI Disclaimer
+    <span
+      className={
+        inline
+          ? "inline-flex flex-wrap gap-x-3 text-[10px] font-semibold uppercase tracking-[0.18em]"
+          : "flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700"
+      }
+    >
+      <Link href="/legal/disclaimer" className={linkClass}>
+        {t("aiDisclaimerShort")}
       </Link>
-      <Link href="/legal/terms" className="hover:text-amber-900">
-        Terms
+      <Link href="/legal/terms" className={linkClass}>
+        {t("termsShort")}
       </Link>
-      <Link href="/legal/privacy" className="hover:text-amber-900">
-        Privacy
+      <Link href="/legal/privacy" className={linkClass}>
+        {t("privacyShort")}
       </Link>
-    </div>
+    </span>
   );
 }

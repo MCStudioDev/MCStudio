@@ -1,15 +1,26 @@
 import { buildIngredientVisionPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
+import { logger } from "@/lib/logger";
 import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
   consumeFreeAiCredit
 } from "@/services/authService";
+import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 
 export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
+    const rl = applyRateLimit({
+      uid: accessCheck.access.uid,
+      feature: "image_scan",
+      isPremium: accessCheck.access.isPremium,
+      bypass: accessCheck.access.isAdmin
+    });
+    if (!rl.decision.allowed) {
+      return rateLimitedResponse(rl.decision, rl.config);
+    }
     const { image } = await request.json();
 
     if (!image) {
@@ -45,7 +56,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials"))) {
       return accessErrorResponse(error);
     }
-    console.error("Error analyzing image:", error);
+    logger.error("Error analyzing image", error);
     const message = error instanceof Error ? error.message : "Failed to analyze image";
 
     return Response.json(

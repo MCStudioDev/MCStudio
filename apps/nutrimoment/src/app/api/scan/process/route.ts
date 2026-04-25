@@ -5,6 +5,7 @@ import {
   canUseApiFeature,
   consumeFreeAiCredit
 } from "@/services/authService";
+import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
 
 export const runtime = "nodejs";
@@ -26,6 +27,15 @@ const requestSchema = z.object({
 export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
+    const rl = applyRateLimit({
+      uid: accessCheck.access.uid,
+      feature: "image_scan",
+      isPremium: accessCheck.access.isPremium,
+      bypass: accessCheck.access.isAdmin
+    });
+    if (!rl.decision.allowed) {
+      return rateLimitedResponse(rl.decision, rl.config);
+    }
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {

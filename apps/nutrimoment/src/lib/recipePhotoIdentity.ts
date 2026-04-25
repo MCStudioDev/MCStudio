@@ -44,6 +44,9 @@ const TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bkposhary\b/gi, "koshary"],
   [/\bkoshari\b/gi, "koshary"],
   [/\bkushari\b/gi, "koshary"],
+  [/\bborghol\b/gi, "bulgur"],
+  [/\bburghul\b/gi, "bulgur"],
+  [/\bburghol\b/gi, "bulgur"],
   [/\bkofta\b/gi, "kafta"],
   [/\bkofte\b/gi, "kafta"],
   [/\bkefta\b/gi, "kafta"],
@@ -146,6 +149,7 @@ const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 
 const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "chicken", pattern: /\bchicken\b/iu },
+  { key: "shrimp", pattern: /\bshrimp|prawn\b/iu },
   { key: "lamb", pattern: /\blamb\b/iu },
   { key: "beef", pattern: /\bbeef\b/iu },
   { key: "veal", pattern: /\bveal\b/iu },
@@ -180,6 +184,7 @@ const STARCH_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/iu },
   { key: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/iu },
   { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") },
+  { key: "bulgur", pattern: /\bbulgur|burghul|borghol\b/iu },
   { key: "potato", pattern: /\bpotato|potatoes\b/iu },
   { key: "bread", pattern: /\bbread|toast|bun|roll|wrap\b/iu }
 ];

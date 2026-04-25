@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { logger } from "@/lib/logger";
 
 const apiKey = process.env.GEMINI_API_KEY ?? "";
 const defaultTextModel = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
@@ -101,7 +102,7 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
       return text;
     } catch (error) {
       lastError = error;
-      console.error("Gemini text generation attempt failed", {
+      logger.error("Gemini text generation attempt failed", error, {
         model,
         attempt: index + 1,
         attempts: modelAttempts.length,

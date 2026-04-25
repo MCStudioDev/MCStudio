@@ -11,6 +11,7 @@ const firebaseConfig = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
+const firestoreDatabaseId = process.env.NEXT_PUBLIC_FIRESTORE_DATABASE_ID;
 
 let app: FirebaseApp;
 let auth: Auth;
@@ -21,7 +22,7 @@ let storage: FirebaseStorage;
 if (firebaseConfig.apiKey && firebaseConfig.apiKey !== 'your_api_key_here') {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  db = firestoreDatabaseId ? getFirestore(app, firestoreDatabaseId) : getFirestore(app);
   storage = getStorage(app);
 } else {
   console.warn("Firebase config is missing or invalid. Check your .env file.");

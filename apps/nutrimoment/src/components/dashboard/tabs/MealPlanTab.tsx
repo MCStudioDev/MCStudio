@@ -96,19 +96,19 @@ export function MealPlanTab() {
       <SectionHero
         title={t("mealPlanTitle")}
         description={t("mealPlanDesc")}
-        eyebrow="Weekly nutrition rhythm"
-        chips={["Balanced", "Pantry-aware", "Visual"]}
+        eyebrow={t("weeklyNutritionRhythm")}
+        chips={[t("balancedChip"), t("pantryAwareChip"), t("visualChip")]}
         icon={<CalendarDays className="h-6 w-6" />}
         stats={[
-          { label: "Plan status", value: mealPlan ? "Active" : "Not generated" },
-          { label: "Shopping", value: shoppingList.length ? `${shoppingList.length} items` : "Minimal" },
-          { label: "Access", value: access.tier === "premium" ? "Premium" : "Upgrade" }
+          { label: t("planStatus"), value: mealPlan ? t("activeStatus") : t("notGeneratedStatus") },
+          { label: t("shoppingStat"), value: shoppingList.length ? `${shoppingList.length} ${t("items")}` : t("minimalStatus") },
+          { label: t("accessStat"), value: access.tier === "premium" ? t("premiumStatus") : t("upgradeStatus") }
         ]}
         aside={
           <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Planning lane</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("planningLane")}</p>
             <p className="text-sm leading-relaxed text-emerald-50/72">
-              Shape breakfast, lunch, and dinner into one calmer weekly flow with pantry context built in.
+              {t("mealPlanAside")}
             </p>
           </div>
         }
@@ -118,15 +118,17 @@ export function MealPlanTab() {
         <div className="space-y-3">
           {access.tier !== "premium" ? (
             <div className="rounded-[1.5rem] border border-amber-200/16 bg-amber-400/10 px-5 py-4 text-sm text-amber-50/88">
-              Weekly plans are premium because they use API-first planning across pantry, health, cuisine, and shopping-list quantities.
+              {t("freeMealPlanNotice")
+                .replace("{remaining}", String(access.aiCreditsRemaining))
+                .replace("{limit}", String(access.aiCreditsLimit))}
             </div>
           ) : (
             <div className="rounded-[1.5rem] border border-emerald-200/16 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-50/88">
-              Premium weekly plans use API generation first and offline catalog recipes if the API is unavailable.
+              {t("premiumMealPlanNotice")}
             </div>
           )}
           <Button size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={access.tier !== "premium"}>
-            {access.tier !== "premium" ? "Premium required" : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+            {access.tier !== "premium" ? t("premiumRequired") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
           </Button>
         </div>
       </motion.div>
@@ -145,6 +147,7 @@ export function MealPlanTab() {
                     title={t("breakfast")}
                     meal={day.breakfast}
                     pantryKeys={pantryKeys}
+                    t={t}
                     onImageResolved={
                       user
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -168,6 +171,7 @@ export function MealPlanTab() {
                     title={t("lunch")}
                     meal={day.lunch}
                     pantryKeys={pantryKeys}
+                    t={t}
                     onImageResolved={
                       user
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -191,6 +195,7 @@ export function MealPlanTab() {
                     title={t("dinner")}
                     meal={day.dinner}
                     pantryKeys={pantryKeys}
+                    t={t}
                     onImageResolved={
                       user
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -229,7 +234,7 @@ export function MealPlanTab() {
                 ))
               ) : (
                 <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-emerald-50/58">
-                  No extra shopping items needed.
+                  {t("noExtraShoppingItems")}
                 </div>
               )}
             </div>
@@ -248,11 +253,13 @@ function MealPlanRevealCard({
   title,
   meal,
   pantryKeys,
+  t,
   onImageResolved
 }: {
   title: string;
   meal: MealPlanMeal;
   pantryKeys: Set<string>;
+  t: ReturnType<typeof useApp>["t"];
   onImageResolved?: (payload: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
@@ -266,18 +273,21 @@ function MealPlanRevealCard({
 
   const sections = [];
   if (haveIngredients.length) {
-    sections.push({ title: "In your pantry", tone: "have" as const, items: haveIngredients });
+    sections.push({ title: t("inYourPantry"), tone: "have" as const, items: haveIngredients });
   }
   if (needIngredients.length) {
-    sections.push({ title: "To shop", tone: "need" as const, items: needIngredients });
+    sections.push({ title: t("toShop"), tone: "need" as const, items: needIngredients });
+  }
+  if (meal.steps?.length) {
+    sections.push({ title: t("preparation"), tone: "steps" as const, items: meal.steps });
   }
 
   return (
     <MealRevealCard
       name={meal.name}
       eyebrow={title}
-      summary={buildMealSummary(ingredients, haveIngredients, needIngredients)}
-      previewLabel="Pantry and nutrition preview"
+      summary={buildMealSummary(ingredients, haveIngredients, needIngredients, t)}
+      previewLabel={t("pantryNutritionPreview")}
       previewItems={[...haveIngredients, ...needIngredients].slice(0, 5)}
       imageUrl={meal.image_url}
       imageSource={meal.image_source}
@@ -301,10 +311,15 @@ function indexOfDay(plan: Array<{ day: string }>, day: string) {
   return plan.findIndex((entry) => entry.day === day);
 }
 
-function buildMealSummary(allIngredients: string[], haveIngredients: string[], needIngredients: string[]) {
-  const total = allIngredients.length ? `${allIngredients.length} planned ingredients` : "Pantry-aware meal";
-  const have = haveIngredients.length ? `${haveIngredients.length} on hand` : null;
-  const need = needIngredients.length ? `${needIngredients.length} to shop` : null;
+function buildMealSummary(
+  allIngredients: string[],
+  haveIngredients: string[],
+  needIngredients: string[],
+  t: ReturnType<typeof useApp>["t"]
+) {
+  const total = allIngredients.length ? `${allIngredients.length} ${t("plannedIngredients")}` : t("pantryAwareMeal");
+  const have = haveIngredients.length ? `${haveIngredients.length} ${t("onHand")}` : null;
+  const need = needIngredients.length ? `${needIngredients.length} ${t("toShopSummary")}` : null;
   return [total, have, need].filter(Boolean).join(" / ");
 }
 

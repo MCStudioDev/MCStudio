@@ -12,6 +12,8 @@ import {
   canUseApiFeature,
   consumeFreeAiCredit
 } from "@/services/authService";
+import { logger } from "@/lib/logger";
+import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -72,6 +74,10 @@ const MAX_RECIPE_PHOTO_FAILURE_CACHE_ITEMS = 120;
 const STRICT_NO_MATCH_TTL_MS = 30 * 60 * 1000;
 const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const WIKIMEDIA_ENABLED = false;
+const MIN_ACCEPTED_PROVIDER_SCORE = {
+  pexels_search: 11,
+  unsplash_search: 11
+} as const;
 
 export async function GET(request: Request) {
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>>;
@@ -79,6 +85,15 @@ export async function GET(request: Request) {
     accessCheck = await canUseApiFeature(request, "recipe_image");
   } catch (error) {
     return accessErrorResponse(error);
+  }
+  const rl = applyRateLimit({
+    uid: accessCheck.access.uid,
+    feature: "recipe_photo",
+    isPremium: accessCheck.access.isPremium,
+    bypass: accessCheck.access.isAdmin
+  });
+  if (!rl.decision.allowed) {
+    return rateLimitedResponse(rl.decision, rl.config);
   }
 
   const { searchParams } = new URL(request.url);
@@ -107,7 +122,7 @@ export async function GET(request: Request) {
   const cached = forceUnsplashFirst ? null : getRecipePhotoCacheBySignatures(signatureCandidates);
   if (cached && (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates))) {
     rememberRecipePhotoSelection(cached.imageUrl, cached.signature);
-    console.info("Recipe photo served", {
+    logger.info("Recipe photo served", {
       source: cached.source,
       query,
       cached: true,
@@ -141,7 +156,7 @@ export async function GET(request: Request) {
     setRecipePhotoCacheAliases(signatureCandidates, sharedPhoto);
     rememberRecipePhotoSelection(sharedPhoto.imageUrl, sharedPhoto.signature);
 
-    console.info("Recipe photo served", {
+    logger.info("Recipe photo served", {
       source: sharedPhoto.source,
       query,
       cached: true,
@@ -159,7 +174,7 @@ export async function GET(request: Request) {
 
   const cachedFailure = getRecipePhotoFailure(failureCacheKey);
   if (cachedFailure) {
-    console.info("Recipe photo request skipped", {
+    logger.info("Recipe photo request skipped", {
       source: cachedFailure.source,
       query,
       status: cachedFailure.status,
@@ -174,7 +189,7 @@ export async function GET(request: Request) {
   try {
     const joinedLookup = inFlightRecipePhotoLookups.get(failureCacheKey);
     if (joinedLookup) {
-      console.info("Recipe photo request joined in-flight lookup", {
+      logger.info("Recipe photo request joined in-flight lookup", {
         query,
         imageMode,
         signature: identity.signature
@@ -203,9 +218,8 @@ export async function GET(request: Request) {
     return buildRecipePhotoLookupResponse(result, accessCheck.access);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to look up a recipe photo.";
-    console.error("Recipe photo generation failed", {
+    logger.error("Recipe photo generation failed", error, {
       query,
-      message,
       signature: identity.signature
     });
 
@@ -362,7 +376,7 @@ async function performRecipePhotoLookup({
     }
   }
 
-  if (bestMatch) {
+  if (bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) {
     const persistedSearchPhoto = await persistSharedRecipePhotoAliases(
       {
         imageAttributionName: bestMatch.attributionName,
@@ -386,7 +400,7 @@ async function performRecipePhotoLookup({
 
     setRecipePhotoCacheAliases([bestMatch.signature, ...bestMatch.alternateSignatures], selectedPhoto);
     rememberRecipePhotoSelection(selectedPhoto.imageUrl, bestMatch.signature);
-    console.info("Recipe photo served", {
+    logger.info("Recipe photo served", {
       source: selectedPhoto.source,
       query,
       matchedQuery: bestMatch.matchedQuery,
@@ -405,13 +419,13 @@ async function performRecipePhotoLookup({
   }
 
   const noMatchFailure = createRecipePhotoFailure(
-    "No exact recipe photo was found from cache, Unsplash, or Pexels search.",
+    "No strong plated recipe photo was found from cache, Unsplash, or Pexels search.",
     404,
     STRICT_NO_MATCH_TTL_MS
   );
 
   setRecipePhotoFailureCache(failureCacheKey, noMatchFailure);
-  console.info("Recipe photo served", {
+  logger.info("Recipe photo served", {
     source: "unavailable",
     query,
     queryCandidates,
@@ -435,7 +449,7 @@ async function buildRecipePhotoLookupResponse(
   }
 
   const nextAccess = result.consumeFreeCredit ? await consumeFreeAiCredit(access, "recipe_image") : access;
-  console.info("Recipe photo served", {
+  logger.info("Recipe photo served", {
     source: result.photo.source,
     model: result.photo.model,
     cached: false,
@@ -523,4 +537,8 @@ function isRecipePhotoRecentlyUsedForDifferentSignature(imageUrl: string, signat
   }
 
   return !signatureCandidates.includes(existing.signature);
+}
+
+function meetsRecipePhotoConfidenceThreshold(candidate: ProviderRecipePhotoCandidate) {
+  return candidate.score >= MIN_ACCEPTED_PROVIDER_SCORE[candidate.source];
 }

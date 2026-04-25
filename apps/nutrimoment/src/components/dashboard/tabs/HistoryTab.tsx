@@ -42,19 +42,19 @@ export function HistoryTab() {
       <SectionHero
         title={t("recipeHistory")}
         description={t("recipeHistoryDesc")}
-        eyebrow="Memory lane"
-        chips={["Saved", "Revisit", "Compare"]}
+        eyebrow={t("memoryLane")}
+        chips={[t("savedChip"), t("revisitChip"), t("compareChip")]}
         icon={<History className="h-6 w-6" />}
         stats={[
-          { label: "Sessions", value: `${items.length}` },
-          { label: "Latest", value: items[0] ? formatDate(items[0].timestamp) : "No entries" },
-          { label: "Status", value: loading ? "Syncing" : "Ready" }
+          { label: t("sessionsStat"), value: `${items.length}` },
+          { label: t("latestStat"), value: items[0] ? formatDate(items[0].timestamp) : t("noEntries") },
+          { label: t("statusStat"), value: loading ? t("syncingStatus") : t("readyStatus") }
         ]}
         aside={
           <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Recall</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("recall")}</p>
             <p className="text-sm leading-relaxed text-emerald-50/72">
-              Return to past scans, compare recipe ideas, and keep your stronger matches easy to revisit.
+              {t("historyAside")}
             </p>
           </div>
         }
@@ -62,7 +62,7 @@ export function HistoryTab() {
 
       {loading ? (
         <motion.div variants={itemVariants}>
-          <Card className="rounded-[2rem] text-sm text-emerald-50/58">Loading history...</Card>
+          <Card className="rounded-[2rem] text-sm text-emerald-50/58">{t("loadingHistory")}</Card>
         </motion.div>
       ) : items.length ? (
         <motion.div variants={itemVariants} className="space-y-4">
@@ -71,8 +71,8 @@ export function HistoryTab() {
               variant="ghost"
               onClick={() =>
                 setConfirmState({
-                  title: "Clear history?",
-                  description: "This removes every saved recipe session from your history.",
+                  title: t("clearHistoryTitle"),
+                  description: t("clearHistoryDescription"),
                   confirmLabel: t("clearAll"),
                   action: handleClear
                 })
@@ -89,20 +89,20 @@ export function HistoryTab() {
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{formatDate(entry.timestamp)}</p>
                     <h3 className="mt-2 text-2xl font-display font-bold text-white">
-                      {entry.recipes[0]?.name ?? "Saved recipe session"}
+                      {entry.recipes[0]?.name ?? t("savedRecipeSession")}
                     </h3>
                   </div>
                   <button
                     type="button"
                     onClick={() =>
                       setConfirmState({
-                        title: "Remove history entry?",
-                        description: "This saved recipe session will be removed from your history.",
-                        confirmLabel: "Remove",
+                        title: t("removeHistoryTitle"),
+                        description: t("removeHistoryDescription"),
+                        confirmLabel: t("remove"),
                         action: () => removeEntry(entry.id)
                       })
                     }
-                    aria-label="Remove history entry"
+                    aria-label={t("removeHistoryTitle")}
                     className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -113,9 +113,11 @@ export function HistoryTab() {
                   {entry.recipes.map((recipe) => (
                     <MealRevealCard
                       key={`${entry.id}-${recipe.name}`}
+                      eyebrow={getRecipeEyebrow(recipe, t)}
                       name={recipe.name}
-                      summary={buildRecipeSummary(recipe)}
-                      previewLabel="Saved recipe preview"
+                      visualMatchLabel={recipe.visual_match_label}
+                      summary={buildRecipeSummary(recipe, t)}
+                      previewLabel={getRecipePreviewLabel(recipe, t)}
                       previewItems={buildRecipePreviewItems(recipe)}
                       imageUrl={recipe.image_url}
                       imageSource={recipe.image_source}
@@ -215,8 +217,19 @@ function buildRecipeStats(recipe: Recipe) {
   ];
 }
 
-function buildRecipeSummary(recipe: Recipe) {
-  return [recipe.cuisine, recipe.match_quality].filter(Boolean).join(" / ");
+function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  const originLabel =
+    recipe.recipe_origin === "exact_scan_match"
+      ? t("exactScannedDish")
+      : recipe.recipe_origin === "similar_ingredients"
+        ? t("similarIngredients")
+        : null;
+  const scanExplanation =
+    recipe.recipe_origin === "exact_scan_match" && recipe.scan_match_explanation
+      ? recipe.scan_match_explanation
+      : null;
+
+  return [originLabel, recipe.cuisine, recipe.match_quality, scanExplanation].filter(Boolean).join(" / ");
 }
 
 function buildRecipePreviewItems(recipe: Recipe) {
@@ -241,4 +254,22 @@ function buildRecipeSections(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) 
       items: recipe.steps
     }
   ];
+}
+
+function getRecipeEyebrow(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  if (recipe.recipe_origin === "exact_scan_match") return t("exactScannedDish");
+  if (recipe.recipe_origin === "similar_ingredients") return t("similarIngredients");
+  return undefined;
+}
+
+function getRecipePreviewLabel(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  if (recipe.recipe_origin === "exact_scan_match") {
+    return t("exactRecipePreview");
+  }
+
+  if (recipe.recipe_origin === "similar_ingredients") {
+    return t("similarRecipePreview");
+  }
+
+  return t("savedRecipePreview");
 }

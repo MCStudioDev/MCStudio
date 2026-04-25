@@ -105,7 +105,8 @@ function normalizeMeal(value: unknown) {
       protein: "0g",
       carbs: "0g",
       fat: "0g",
-      ingredients: []
+      ingredients: [],
+      steps: []
     };
   }
 
@@ -116,6 +117,7 @@ function normalizeMeal(value: unknown) {
   const imageSearchIndices = readStringArray(value, ["image_search_indices", "photo_queries", "search_indices"]);
   const imageSearchIndex = readString(value, ["image_search_index", "photo_query", "search_index"]) || imageSearchIndices?.[0];
   const ingredients = readIngredientList(value, ["ingredients", "items", "ingredient_list"]);
+  const steps = readStringList(value, ["steps", "instructions", "prep_steps", "preparation"]);
 
   return {
     ...value,
@@ -123,6 +125,7 @@ function normalizeMeal(value: unknown) {
     image_search_index: imageSearchIndex,
     image_search_indices: imageSearchIndices,
     ingredients,
+    steps,
     calories: readNumber(value, ["calories", "kcal"]),
     protein: readMacro(value, ["protein"]),
     carbs: readMacro(value, ["carbs", "carbohydrates"]),
@@ -168,13 +171,17 @@ function readMacro(record: UnknownRecord, keys: string[]) {
 }
 
 function readIngredientList(record: UnknownRecord, keys: string[]): string[] {
+  return readStringList(record, keys, ["name", "ingredient", "item", "canonical"]);
+}
+
+function readStringList(record: UnknownRecord, keys: string[], objectKeys: string[] = []) {
   for (const key of keys) {
     const value = record[key];
     if (Array.isArray(value)) {
       const items = value
         .map((entry) => {
           if (typeof entry === "string") return entry.trim();
-          if (isRecord(entry)) return readString(entry, ["name", "ingredient", "item", "canonical"]);
+          if (isRecord(entry) && objectKeys.length) return readString(entry, objectKeys);
           return "";
         })
         .filter(Boolean);

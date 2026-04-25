@@ -7,6 +7,7 @@ import {
   consumeFreeAiCredit
 } from "@/services/authService";
 import { extractPantryItemsFromImage } from "@/services/ingredientExtractionService";
+import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
 
 export const runtime = "nodejs";
@@ -24,6 +25,16 @@ const MOCK_PANTRY = ["rice", "pasta", "canned beans", "olive oil", "salt", "blac
 export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
+    const rl = applyRateLimit({
+      uid: accessCheck.access.uid,
+      feature: "image_scan",
+      isPremium: accessCheck.access.isPremium,
+      bypass: accessCheck.access.isAdmin
+    });
+    if (!rl.decision.allowed) {
+      return rateLimitedResponse(rl.decision, rl.config);
+    }
+
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {

@@ -29,6 +29,44 @@ interface PexelsSearchResponse {
 const pexelsApiKey = process.env.PEXELS_API_KEY ?? "";
 
 const BLOCKED_TERMS = ["dessert", "cake", "cookie", "pancake"];
+const NON_FOOD_TERMS = [
+  "ancient",
+  "artifact",
+  "drawing",
+  "hieroglyph",
+  "illustration",
+  "library",
+  "manuscript",
+  "museum",
+  "painting",
+  "papyrus",
+  "poster",
+  "sculpture",
+  "statue",
+  "temple"
+];
+const FOOD_CONTEXT_TERMS = [
+  "bowl",
+  "breakfast",
+  "cooked",
+  "cuisine",
+  "dinner",
+  "dish",
+  "food",
+  "ingredient",
+  "kitchen",
+  "lunch",
+  "meal",
+  "plate",
+  "plated",
+  "recipe",
+  "salad",
+  "seafood",
+  "serving",
+  "skillet",
+  "soup",
+  "stew"
+];
 
 export function isPexelsRecipePhotoSearchConfigured() {
   return Boolean(pexelsApiKey);
@@ -99,10 +137,11 @@ async function searchPexelsPhotos(
           photo.src?.small ??
           photo.src?.portrait ??
           "";
-        const haystack = normalizeRecipePhotoQuery([photo.alt, photo.photographer, photo.url].filter(Boolean).join(" "));
+        const descriptiveHaystack = normalizeRecipePhotoQuery([photo.alt, photo.url].filter(Boolean).join(" "));
+        const attributionHaystack = normalizeRecipePhotoQuery([photo.photographer].filter(Boolean).join(" "));
         return {
           matchedQuery: requestQuery,
-          score: scorePexelsCandidate(haystack, imageUrl, identity, requestQuery, photo),
+          score: scorePexelsCandidate(descriptiveHaystack, attributionHaystack, imageUrl, identity, requestQuery, photo),
           url: imageUrl
         };
       })
@@ -130,7 +169,8 @@ function getRequiredPexelsScore(identity: ReturnType<typeof buildRecipePhotoIden
 }
 
 function scorePexelsCandidate(
-  haystack: string,
+  descriptiveHaystack: string,
+  attributionHaystack: string,
   imageUrl: string,
   identity: ReturnType<typeof buildRecipePhotoIdentity>,
   requestQuery: string,
@@ -139,9 +179,12 @@ function scorePexelsCandidate(
   let score = 0;
   const lowerUrl = imageUrl.toLowerCase();
   const normalizedRequestQuery = normalizeRecipePhotoQuery(requestQuery);
+  const haystack = descriptiveHaystack;
 
   if (!/^https:\/\//i.test(imageUrl)) return -100;
   if (!/pexels\.com|images\.pexels\.com/i.test(lowerUrl)) return -100;
+  if (NON_FOOD_TERMS.some((term) => haystack.includes(term) || attributionHaystack.includes(term))) return -100;
+  if (!looksLikeFoodPhoto(haystack, identity, normalizedRequestQuery)) return -100;
 
   if (identity.canonicalDishKey && haystack.includes(identity.canonicalDishKey.replace(/-/g, " "))) {
     score += 8;
@@ -179,18 +222,20 @@ function scorePexelsCandidate(
     score += 2;
   }
 
-  score += Math.min(identity.coreTokens.filter((token) => haystack.includes(token)).length, 5);
-  score += Math.min(
-    normalizedRequestQuery
-      .split(/\s+/)
-      .filter((token) => token.length >= 4)
-      .filter((token) => haystack.includes(token)).length,
-    4
-  );
+  const semanticTokenHits = identity.coreTokens.filter((token) => haystack.includes(token)).length;
+  const requestTokenHits = normalizedRequestQuery
+    .split(/\s+/)
+    .filter((token) => token.length >= 4)
+    .filter((token) => haystack.includes(token)).length;
+  score += Math.min(semanticTokenHits, 5);
+  score += Math.min(requestTokenHits, 4);
 
   if (identity.mainIngredientKey === "fish" && /\b(chicken|beef|lamb)\b/.test(haystack)) score -= 5;
+  if (identity.mainIngredientKey === "shrimp" && !/\bshrimp|prawn\b/.test(haystack)) score -= 5;
   if (identity.mainIngredientKey === "tuna" && !/\btuna\b/.test(haystack)) score -= 4;
   if (identity.mainIngredientKey === "bean" && BLOCKED_TERMS.some((term) => haystack.includes(term))) score -= 8;
+
+  if (semanticTokenHits < 2 && requestTokenHits < 2 && !hasFoodContext(haystack)) return -100;
 
   score += scorePexelsImageQuality(photo, imageUrl);
 
@@ -281,4 +326,37 @@ function buildPexelsRequestQueries(query: string, identity: ReturnType<typeof bu
     .filter((value) => value.length >= 3);
 
   return Array.from(new Set(values)).slice(0, 5);
+}
+
+function looksLikeFoodPhoto(
+  haystack: string,
+  identity: ReturnType<typeof buildRecipePhotoIdentity>,
+  normalizedRequestQuery: string
+) {
+  const semanticHits = [
+    identity.canonicalDishKey?.replace(/-/g, " "),
+    identity.familyKey?.replace(/-/g, " "),
+    identity.cuisineKey?.replace(/-/g, " "),
+    identity.mainIngredientKey?.replace(/-/g, " "),
+    identity.beanTypeKey?.replace(/-/g, " "),
+    identity.mealTypeKey?.replace(/-/g, " "),
+    identity.starchKey?.replace(/-/g, " "),
+    identity.sauceKey?.replace(/-/g, " "),
+    identity.cookingMethodKey?.replace(/-/g, " "),
+    ...identity.coreTokens
+  ]
+    .filter(Boolean)
+    .filter((token, index, values) => values.indexOf(token) === index)
+    .filter((token) => haystack.includes(token as string)).length;
+
+  const requestHits = normalizedRequestQuery
+    .split(/\s+/)
+    .filter((token) => token.length >= 4)
+    .filter((token) => haystack.includes(token)).length;
+
+  return semanticHits >= 2 || requestHits >= 2 || hasFoodContext(haystack);
+}
+
+function hasFoodContext(haystack: string) {
+  return FOOD_CONTEXT_TERMS.some((term) => haystack.includes(term));
 }

@@ -1,4 +1,5 @@
 import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
+import { getCuisineDishReferenceText, getCuisinePantryAnchors } from "@/lib/cuisineDishCatalog";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -328,10 +329,13 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const cuisineHint = options.preferredCuisine === "Any" ? "Use any cuisine." : `Prefer ${options.preferredCuisine} cuisine.`;
   const cuisineSpecificGuidance = buildCuisineSpecificGuidance(options.preferredCuisine);
   const cuisineKnowledgeGuidance = buildCuisineKnowledgeGuidance(options.preferredCuisine);
+  const cuisineDishCatalogGuidance = buildCuisineDishCatalogGuidance(options.preferredCuisine);
+  const languageOutputGuidance = buildLanguageOutputGuidance(options.recipeLanguage);
   const substyleGuidance = buildCuisineSubstyleGuidance(options.preferredCuisine, ingredients);
   const mealTypeRoutingGuidance = buildMealTypeRoutingGuidance(options.preferredCuisine, ingredients);
   const imageGuidance = buildCuisineImageGuidance(options.preferredCuisine);
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
+  const sparseIngredientGuidance = buildSparseIngredientGuidance(ingredients, options.preferredCuisine);
   const preferenceBrief = buildPromptPreferenceBrief({
     preferredCuisine: options.preferredCuisine,
     calorieTarget: options.calorieTarget,
@@ -362,9 +366,11 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Infer meal context when possible. If the pantry strongly suggests breakfast ingredients, prefer real breakfast dishes from the selected cuisine; if it suggests grilled meats, rice, stews, or pasta, prefer lunch or dinner families from that cuisine.",
     cuisineSpecificGuidance,
     cuisineKnowledgeGuidance,
+    cuisineDishCatalogGuidance,
     substyleGuidance,
     mealTypeRoutingGuidance,
     ingredientDrivenCuisineGuidance,
+    sparseIngredientGuidance,
     "For every recipe also output image_search_indices: an array of 3 to 5 short English food-photo search phrases tuned for Unsplash first and Pexels second, ordered from most exact to broader backup searches.",
     "Each image_search_indices item should be 2 to 6 words, use canonical dish nouns first, add cuisine, protein, sauce, cooking method, or starch only when they improve image accuracy, and avoid quantities, health claims, macro words, filler adjectives, and branding.",
     "When the dish has an important visual variant, encode it in the search phrases. Examples: use red sauce pasta vs white sauce pasta, grilled chicken vs fried chicken, rice noodles vs pasta, tomato soup vs creamy soup.",
@@ -378,13 +384,19 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     preferenceBrief,
     cuisineHint,
     `Recipe language: ${options.recipeLanguage}.`,
+    languageOutputGuidance,
     `Target calories per meal: approximately ${perMealCalories} kcal; keep each recipe within about 15% unless the health profile requires a tighter limit.`,
     `Maximum missing ingredients allowed per recipe: ${options.maxMissingIngredients}.`,
     "Missing ingredients must be compatible with the diet and health rules. Be strict: never put cucumber, herbs, spices, oil, sauces, or staple ingredients in ingredients unless they are in Available pantry ingredients.",
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
+    "Step detail requirement: every recipe steps array must contain 7 to 10 detailed home-cooking steps.",
+    "Every step string must include: the action, exact ingredient quantities used in that step, pan/oven/heat level when relevant, timing in minutes, and the target visual or texture cue.",
+    "Use the available ingredient quantities when provided. If quantity is not provided, choose realistic single-meal quantities and make them explicit inside the step text.",
+    "Do not write vague steps like 'cook until done', 'season to taste', or 'serve'. Replace them with specific timing, doneness cues, and quantities.",
+    "Include prep, cooking, finishing, and plating steps; if a sauce, dressing, spice mix, or garnish is needed, tell the user exactly when and how much to add.",
     "Return a JSON array, not an object.",
     "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of concise strings. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings."
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings."
   ].join(" ");
 }
 
@@ -406,6 +418,8 @@ export function buildMealPlanPrompt({
     : pantry.map((name) => ({ name }));
   const cuisineSpecificGuidance = buildCuisineSpecificGuidance(preferredCuisine);
   const cuisineKnowledgeGuidance = buildCuisineKnowledgeGuidance(preferredCuisine);
+  const cuisineDishCatalogGuidance = buildCuisineDishCatalogGuidance(preferredCuisine);
+  const languageOutputGuidance = buildLanguageOutputGuidance(recipeLanguage);
   const substyleGuidance = buildCuisineSubstyleGuidance(preferredCuisine, pantryIngredients);
   const mealTypeRoutingGuidance = buildMealTypeRoutingGuidance(preferredCuisine, pantryIngredients);
   const imageGuidance = buildCuisineImageGuidance(preferredCuisine);
@@ -433,6 +447,7 @@ export function buildMealPlanPrompt({
     "Use breakfast, lunch, and dinner patterns that make sense for the selected cuisine rather than repeating the same generic bowl structure every day.",
     cuisineSpecificGuidance,
     cuisineKnowledgeGuidance,
+    cuisineDishCatalogGuidance,
     substyleGuidance,
     mealTypeRoutingGuidance,
     ingredientDrivenCuisineGuidance,
@@ -448,13 +463,18 @@ export function buildMealPlanPrompt({
     preferenceBrief,
     `Preferred cuisine: ${preferredCuisine}.`,
     `Recipe language: ${recipeLanguage}.`,
+    languageOutputGuidance,
     `Daily calorie target: ${calorieTarget}; make breakfast about 25%, lunch about 35%, and dinner about 40% of the target, with the day total within about 10% unless the health profile requires tighter limits.`,
     "Every meal must be compatible with the diet and health-condition targets, not just one meal per day.",
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Return an object with exactly these top-level keys: plan, shoppingList.",
     "plan must be an array of 7 days.",
-    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
+    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
     "Each meal MUST include an ingredients array of short canonical lowercase names that lists every ingredient the meal uses, including pantry items the diner already owns. This is needed for shopping coverage display.",
+    "Each meal MUST also include a steps array with 7 to 10 detailed preparation instructions suitable for home cooking.",
+    "Every meal step string must include the action, exact ingredient quantities used in that step, heat level or tool when relevant, timing in minutes, and the visual/texture cue for moving to the next step.",
+    "Use pantry quantities when provided and choose realistic per-meal quantities for missing ingredients. Be specific enough that a beginner can cook without guessing.",
+    "Do not use vague meal-plan steps like 'cook the chicken', 'prepare vegetables', 'mix together', or 'serve'. Break prep, cooking, finishing, and plating into separate explicit steps.",
     "Include image_search_index and image_search_indices inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
     "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used.",
     "Every shoppingList item must include summed quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."
@@ -544,6 +564,33 @@ function buildCuisineKnowledgeGuidance(preferredCuisine: string) {
   ].filter(Boolean);
 
   return sections.join(" ");
+}
+
+function buildLanguageOutputGuidance(recipeLanguage: string) {
+  if (recipeLanguage.toLowerCase() !== "arabic") {
+    return "Write all user-facing recipe text in the requested recipe language. Keep image_search_index and image_search_indices in English.";
+  }
+
+  return [
+    "Arabic output rule: write every user-facing field in Arabic, including name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day labels, and scan_match_explanation.",
+    "Keep only image_search_index and image_search_indices in English because those fields are used for public image search.",
+    "Do not mix English dish names into Arabic text unless the dish has no common Arabic rendering; in that case use an Arabic transliteration.",
+    "Use natural Arabic cooking language, not word-for-word translation."
+  ].join(" ");
+}
+
+function buildCuisineDishCatalogGuidance(preferredCuisine: string) {
+  if (!preferredCuisine || preferredCuisine === "Any") return "";
+
+  const referenceDishes = getCuisineDishReferenceText(preferredCuisine, 50);
+  if (!referenceDishes) return "";
+
+  return [
+    `Famous ${preferredCuisine} dish reference set for authenticity and recall: ${referenceDishes}.`,
+    "Use this reference set as the target dish universe when naming recipes.",
+    "When the pantry is sparse, choose the closest authentic dish family from this cuisine reference set instead of inventing a generic bowl, skillet, wrap, or salad.",
+    "If the pantry only supports part of a classic dish, keep the authentic dish family and move the missing support items into missing_ingredients."
+  ].join(" ");
 }
 
 function buildCuisineSubstyleGuidance(
@@ -695,6 +742,53 @@ function buildIngredientDrivenCuisineGuidance(
   return hints.join(" ");
 }
 
+function buildSparseIngredientGuidance(
+  ingredients: Array<{ name: string; quantity?: string }>,
+  preferredCuisine: string
+) {
+  if (ingredients.length > 2) return "";
+
+  const normalizedCuisine = normalizeCuisinePromptKey(preferredCuisine);
+  const pantry = buildNormalizedPantrySet(ingredients);
+  const pantryAnchors = getCuisinePantryAnchors(preferredCuisine);
+  const ingredientList = ingredients.map((item) => item.name).filter(Boolean).join(", ") || "the provided ingredients";
+  const baseGuidance = [
+    `Sparse pantry guidance: the user only provided ${ingredients.length} ingredient${ingredients.length === 1 ? "" : "s"} (${ingredientList}).`,
+    "Start from the strongest authentic dish family that naturally centers those ingredients, then list missing support items in missing_ingredients instead of forcing a generic recipe.",
+    "When only one or two ingredients are available, it is acceptable for missing_ingredients to carry the aromatics, sauce components, starches, bread, herbs, or garnish that make the dish authentic.",
+    "Do not pretend the user already owns support ingredients. Keep ingredients strictly limited to the provided pantry items, but still choose the most recognizable real dish family those items suggest.",
+    "For image_search_indices in sparse-pantries, keep the first phrase exact if a real iconic dish family fits, then add one or two broader ingredient-led food-photo phrases so image lookup can still succeed."
+  ];
+
+  if (pantryAnchors.length) {
+    baseGuidance.push(
+      `Sparse pantry anchors for ${preferredCuisine}: ${pantryAnchors.join(", ")}. When one of these staples appears, strongly prefer authentic dishes built around it.`
+    );
+  }
+
+  if (normalizedCuisine === "egyptian") {
+    if (hasAny(pantry, ["ground meat", "minced meat", "beef mince", "lamb mince", "mince"])) {
+      baseGuidance.push(
+        "Sparse Egyptian logic: ground meat alone can still justify kofta, hawawshi, or macarona bechamel if the missing aromatics, bread, pasta, or bechamel staples are listed in missing_ingredients."
+      );
+    }
+
+    if (hasAny(pantry, ["egg", "eggs"])) {
+      baseGuidance.push(
+        "Sparse Egyptian logic: eggs alone or eggs with tomato/pepper can still justify shakshuka or eggah-style families if the missing vegetables, herbs, or bread are listed explicitly."
+      );
+    }
+
+    if (hasAny(pantry, ["fava bean", "broad bean", "ful"])) {
+      baseGuidance.push(
+        "Sparse Egyptian logic: fava beans alone can still justify ful medames or taameya-style dishes if the missing aromatics and herbs are listed explicitly."
+      );
+    }
+  }
+
+  return baseGuidance.join(" ");
+}
+
 function buildNormalizedPantrySet(ingredients: Array<{ name: string; quantity?: string }>) {
   return new Set(
     ingredients
@@ -724,7 +818,7 @@ function normalizePantryIngredient(value: string) {
     .toLowerCase()
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")
     .replace(/\b(cup|cups|tbsp|tsp|g|gram|grams|kg|lb|oz|bag|bottle|jar|can|cans|carton|pack|package|whole|fresh|dried|dry|frozen|cooked|raw|minced|chopped|diced|sliced)\b/g, " ")
-    .replace(/[^\w\s]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -772,6 +866,33 @@ export function buildIngredientNameArrayVisionPrompt(language = "English", isPan
       ? "Prefer generic grocery names over brands, and include packaged foods only when the food type is clear."
       : "If the image shows a plated meal, output only the dominant visible components such as grilled chicken, pasta, egg noodles, tomato sauce, white sauce, rice, broccoli, or mushrooms. Prefer the ingredient form over the recipe title.",
     "Do not include quantities, brands, cookware, tableware, or speculative ingredients that are not visually clear.",
+    `Use ${language}.`
+  ].join(" ");
+}
+
+export function buildPlateRecipeMatchVisionPrompt(language = "English") {
+  const languageOutputGuidance = buildLanguageOutputGuidance(language);
+
+  return [
+    "You are NutriMoment's plated-dish reconstruction assistant.",
+    "Analyze the uploaded image and decide whether it shows a plated prepared meal that can be recreated as a recipe.",
+    "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
+    "Use this exact top-level shape: {\"isPlatedDish\":true,\"recipe\":{...}} or {\"isPlatedDish\":false,\"reason\":\"...\"}.",
+    "If the image is not a plated meal, or it is too ambiguous to infer a likely recipe, return isPlatedDish false.",
+    "If it is a plated meal, return exactly one likely recipe that recreates the visible dish as closely as possible.",
+    "Prefer canonical dish names over generic names. Example: use chicken alfredo pasta, shakshuka, fried rice, grilled salmon with rice, not delicious dinner bowl.",
+    "Base the recipe on clearly visible food components and likely cooking structure. It is acceptable to infer a small number of support ingredients when they are necessary to recreate the dish faithfully.",
+    "Visible dominant components should go in ingredients. Likely but not clearly visible support items should go in missing_ingredients.",
+    "Do not include brands, cookware, plates, utensils, tables, garnish guesses with low confidence, or speculative hidden ingredients that are not needed to reconstruct the dish.",
+    "Return 7 to 10 detailed recipe steps that are practical for home cooking.",
+    "Every step string must include the action, exact ingredient quantities used in that step, heat level or tool when relevant, timing in minutes, and the visual/texture cue for moving on.",
+    "Also include image_search_index and image_search_indices so photo lookup can find the same dish style later.",
+    languageOutputGuidance,
+    "Set scan_match_explanation to one short sentence explaining why this recipe matches the plated dish visually.",
+    "The recipe object must include exactly these keys: name, cuisine, recipe_origin, scan_match_explanation, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, match_quality, preference_hits.",
+    "Set recipe_origin to exact_scan_match.",
+    "Set match_quality to great when the dish family is clear, good when plausible, possible when somewhat uncertain.",
+    "Return ingredients and missing_ingredients as arrays of short strings. Return steps as an array of detailed strings with timing and quantities. Return preference_hits as an empty array if none apply.",
     `Use ${language}.`
   ].join(" ");
 }

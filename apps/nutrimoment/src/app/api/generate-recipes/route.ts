@@ -1,18 +1,24 @@
 import { z } from "zod";
-import { buildRecipeGenerationPrompt } from "@/lib/aiPrompts";
-import { USE_MOCK, ensureAiAvailable, extractJson } from "@/lib/openai";
+import { buildPlateRecipeMatchVisionPrompt, buildRecipeGenerationPrompt } from "@/lib/aiPrompts";
+import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
 import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
   consumeFreeAiCredit
 } from "@/services/authService";
+import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
+import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
+import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
+import { isArabicRecipeLanguage, localizeRecipeForArabic } from "@/lib/arabicRecipeLocalization";
+import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
+import { logger } from "@/lib/logger";
 
 const RECIPE_RESULT_COUNT = 5;
 
@@ -82,9 +88,10 @@ const MOCK_RECIPES = {
 };
 
 const requestSchema = z.object({
-  ingredients: z.array(z.string()).min(1).optional(),
+  ingredients: z.array(z.string()).optional(),
   ingredientQuantities: z.array(z.string()).optional(),
   prompt: z.string().min(20).optional(),
+  referenceImage: z.string().min(10).optional(),
   recipeLanguage: z.string().optional(),
   preferredCuisine: z.string().optional(),
   calorieTarget: z.number().optional(),
@@ -100,6 +107,15 @@ export async function POST(request: Request) {
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
+    const rl = applyRateLimit({
+      uid: accessCheck.access.uid,
+      feature: "recipe_generation",
+      isPremium: accessCheck.access.isPremium,
+      bypass: accessCheck.access.isAdmin
+    });
+    if (!rl.decision.allowed) {
+      return rateLimitedResponse(rl.decision, rl.config);
+    }
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
@@ -109,22 +125,49 @@ export async function POST(request: Request) {
       );
     }
 
-    const ingredients = parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? "");
+    const ingredients = (parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""))
+      .map((ingredient) => ingredient.trim())
+      .filter(Boolean);
+    if (!ingredients.length && !parsed.data.referenceImage) {
+      return Response.json(
+        { error: "No ingredients or reference image provided" },
+        { status: 400 }
+      );
+    }
     const availableIngredients = await buildAvailableIngredientSet(ingredients);
+    const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
+    const wantsArabic = isArabicRecipeLanguage(parsed.data.recipeLanguage);
+    const prepareRecipes = (recipes: Recipe[]) =>
+      (wantsArabic ? recipes.map(localizeRecipeForArabic) : recipes).map((recipe) =>
+        ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
+      );
 
     if (USE_MOCK && accessCheck.allowed) {
       const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
+      const exactScanMatch = parsed.data.referenceImage
+        ? buildMockExactScanRecipe(availableIngredients)
+        : null;
       const strictRecipes = rankStrictRecipes(
         applyStrictIngredientOwnership(MOCK_RECIPES.recipes, availableIngredients),
         { ...parsed.data, ingredients }
       );
+      const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
+      const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
       return Response.json({
-        recipes: strictRecipes,
-        result: JSON.stringify(strictRecipes),
+        recipes: finalRecipes,
+        result: JSON.stringify(finalRecipes),
         servedFrom: "mock",
         access: accessPayload(nextAccess)
       });
     }
+
+    const exactScanMatch = accessCheck.allowed && parsed.data.referenceImage
+      ? await buildExactScanMatchRecipe({
+          availableIngredients,
+          image: parsed.data.referenceImage,
+          language: parsed.data.recipeLanguage ?? "English"
+        })
+      : null;
 
     const searchResult = await searchCatalogRecipes({
       ingredients,
@@ -137,7 +180,7 @@ export async function POST(request: Request) {
     });
 
     if (!accessCheck.allowed) {
-      console.info("Recipe generation served from offline catalog because access is not allowed", {
+      logger.info("Recipe generation served from offline catalog because access is not allowed", {
         reason: accessCheck.reason,
         recipeCount: searchResult.recipes.length
       });
@@ -145,8 +188,10 @@ export async function POST(request: Request) {
         applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
         { ...parsed.data, ingredients }
       );
+      const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
+      const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
       return Response.json({
-        result: JSON.stringify(strictRecipes),
+        result: JSON.stringify(finalRecipes),
         servedFrom: searchResult.servedFrom,
         canLoadMore: searchResult.canLoadMore,
         fallbackNotice: "Your 5 free AI credits are used. These recipes are from the offline catalog.",
@@ -184,22 +229,25 @@ export async function POST(request: Request) {
           applyStrictIngredientOwnership(normalizedRecipes, availableIngredients),
           { ...parsed.data, ingredients }
         ).slice(0, RECIPE_RESULT_COUNT);
-        console.info("Recipe generation served from Gemini fallback AI", {
-          recipeCount: strictRecipes.length
+        const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
+        const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
+        logger.info("Recipe generation served from Gemini fallback AI", {
+          recipeCount: finalRecipes.length,
+          hasExactScanMatch: Boolean(exactScanMatch)
         });
         return Response.json({
           ...recipes,
-          recipes: strictRecipes,
+          recipes: finalRecipes,
           servedFrom: "fallback_ai",
-          result: JSON.stringify(strictRecipes),
+          result: JSON.stringify(finalRecipes),
           access: accessPayload(nextAccess)
         });
       }
     } catch (aiError) {
-      console.error("AI recipe generation failed; using offline catalog fallback:", aiError);
+      logger.error("AI recipe generation failed; using offline catalog fallback", aiError);
     }
 
-    console.info("Recipe generation served from offline catalog after AI failure", {
+    logger.info("Recipe generation served from offline catalog after AI failure", {
       recipeCount: searchResult.recipes.length,
       canLoadMore: searchResult.canLoadMore
     });
@@ -207,8 +255,10 @@ export async function POST(request: Request) {
       applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
       { ...parsed.data, ingredients }
     );
+    const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
+    const finalRecipes = prepareRecipes(mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes));
     return Response.json({
-      result: JSON.stringify(strictRecipes),
+      result: JSON.stringify(finalRecipes),
       servedFrom: "offline_catalog",
       canLoadMore: searchResult.canLoadMore,
       fallbackNotice: "AI recipe generation was unavailable, so we used offline catalog matches.",
@@ -218,7 +268,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Admin") || error.message.includes("Premium") || error.message.includes("Firebase Admin credentials"))) {
       return accessErrorResponse(error);
     }
-    console.error("Error generating recipes:", error);
+    logger.error("Error generating recipes", error);
     const message = error instanceof Error ? error.message : "Failed to generate recipes";
     return Response.json(
       { error: message },
@@ -245,6 +295,134 @@ function readIngredientQuantity(value?: string) {
   if (!value) return undefined;
   const [, quantity] = value.split(/\s+-\s+/, 2);
   return quantity?.trim() || undefined;
+}
+
+async function buildExactScanMatchRecipe(input: {
+  availableIngredients: Set<string>;
+  image: string;
+  language: string;
+}) {
+  try {
+    ensureAiAvailable();
+    const text = await callOpenAIVision(buildPlateRecipeMatchVisionPrompt(input.language), input.image);
+    const json = extractJson(text);
+    const parsed = JSON.parse(json) as { isPlatedDish?: boolean; recipe?: unknown };
+
+    if (!parsed?.isPlatedDish || !parsed.recipe) {
+      return null;
+    }
+
+    const exactRecipe = normalizeScannedDishRecipe(parsed.recipe, input.availableIngredients);
+    return exactRecipe?.name ? exactRecipe : null;
+  } catch (error) {
+    logger.warn("Exact scan-match generation failed; continuing with similar-ingredient recipes only", {
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+function buildMockExactScanRecipe(availableIngredients: Set<string>) {
+  const [firstRecipe] = applyStrictIngredientOwnership([MOCK_RECIPES.recipes[0]], availableIngredients);
+  if (!firstRecipe) return null;
+
+  return {
+    ...firstRecipe,
+    recipe_origin: "exact_scan_match" as const,
+    scan_match_explanation: "Recreated from the plated dish structure in the scan.",
+    match_quality: "great" as const,
+    preference_hits: Array.isArray(firstRecipe.preference_hits) ? firstRecipe.preference_hits : []
+  };
+}
+
+function normalizeScannedDishRecipe(recipe: unknown, availableIngredients: Set<string>) {
+  const baseRecipe = (recipe ?? {}) as Partial<Recipe>;
+  const normalizedName = typeof baseRecipe.name === "string" ? baseRecipe.name.trim() : "";
+  if (!normalizedName) return null;
+
+  const coercedRecipe: Recipe = {
+    name: normalizedName,
+    cuisine: typeof baseRecipe.cuisine === "string" && baseRecipe.cuisine.trim() ? baseRecipe.cuisine.trim() : "Unknown",
+    recipe_origin: "exact_scan_match",
+    scan_match_explanation:
+      typeof baseRecipe.scan_match_explanation === "string" && baseRecipe.scan_match_explanation.trim()
+        ? baseRecipe.scan_match_explanation.trim()
+        : "Likely recreation of the plated dish from the scan.",
+    image_search_index: typeof baseRecipe.image_search_index === "string" ? baseRecipe.image_search_index.trim() : undefined,
+    image_search_indices: Array.isArray(baseRecipe.image_search_indices)
+      ? baseRecipe.image_search_indices.filter((value): value is string => typeof value === "string" && value.trim().length >= 3)
+      : undefined,
+    ingredients: Array.isArray(baseRecipe.ingredients)
+      ? baseRecipe.ingredients.filter((value): value is string => typeof value === "string")
+      : [],
+    missing_ingredients: Array.isArray(baseRecipe.missing_ingredients)
+      ? baseRecipe.missing_ingredients.filter((value): value is string => typeof value === "string")
+      : [],
+    steps: Array.isArray(baseRecipe.steps)
+      ? baseRecipe.steps.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : [],
+    calories: typeof baseRecipe.calories === "number" ? baseRecipe.calories : 0,
+    protein: typeof baseRecipe.protein === "string" ? baseRecipe.protein : "0g",
+    carbs: typeof baseRecipe.carbs === "string" ? baseRecipe.carbs : "0g",
+    fat: typeof baseRecipe.fat === "string" ? baseRecipe.fat : "0g",
+    fiber: typeof baseRecipe.fiber === "string" ? baseRecipe.fiber : undefined,
+    sugar: typeof baseRecipe.sugar === "string" ? baseRecipe.sugar : undefined,
+    sodium: typeof baseRecipe.sodium === "string" ? baseRecipe.sodium : undefined,
+    cook_time: typeof baseRecipe.cook_time === "string" && baseRecipe.cook_time.trim() ? baseRecipe.cook_time : "30 mins",
+    difficulty: typeof baseRecipe.difficulty === "string" && baseRecipe.difficulty.trim() ? baseRecipe.difficulty : "Medium",
+    match_quality:
+      baseRecipe.match_quality === "great" || baseRecipe.match_quality === "good" || baseRecipe.match_quality === "possible"
+        ? baseRecipe.match_quality
+        : "good",
+    preference_hits: Array.isArray(baseRecipe.preference_hits)
+      ? baseRecipe.preference_hits.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : []
+  };
+
+  const [strictRecipe] = applyStrictIngredientOwnership([coercedRecipe], availableIngredients);
+  if (!strictRecipe) return null;
+
+  const imageSearchIndices = buildRecipePhotoQueryCandidates({
+    cuisine: strictRecipe.cuisine,
+    imageSearchIndex: strictRecipe.image_search_index,
+    imageSearchIndices: strictRecipe.image_search_indices,
+    ingredients: strictRecipe.ingredients,
+    missingIngredients: strictRecipe.missing_ingredients,
+    name: strictRecipe.name
+  });
+
+  return {
+    ...strictRecipe,
+    recipe_origin: "exact_scan_match" as const,
+    image_search_index: imageSearchIndices[0],
+    image_search_indices: imageSearchIndices.length ? imageSearchIndices : undefined,
+    preference_hits: strictRecipe.preference_hits ?? []
+  };
+}
+
+function mergeRecipeResults(exactRecipe: Recipe | null, similarRecipes: Recipe[], markSimilarOrigins: boolean) {
+  const merged: Recipe[] = [];
+  const seen = new Set<string>();
+
+  const pushRecipe = (recipe: Recipe, fallbackOrigin?: Recipe["recipe_origin"]) => {
+    const key = recipe.id ?? recipe.name.trim().toLowerCase();
+    if (!key || seen.has(key) || merged.length >= RECIPE_RESULT_COUNT) return;
+    seen.add(key);
+    merged.push({
+      ...recipe,
+      recipe_origin: recipe.recipe_origin ?? fallbackOrigin
+    });
+  };
+
+  if (exactRecipe) {
+    pushRecipe(exactRecipe, "exact_scan_match");
+  }
+
+  for (const recipe of similarRecipes) {
+    pushRecipe(recipe, markSimilarOrigins ? "similar_ingredients" : undefined);
+  }
+
+  return merged;
 }
 
 async function buildAvailableIngredientSet(inputIngredients: string[]) {
@@ -479,10 +657,107 @@ function normalizeIngredientForStrictMatch(value: string) {
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")
     .replace(/\b(cup|cups|tbsp|tsp|g|gram|grams|kg|lb|oz|can|cans|large|small|medium|whole|clove|cloves|fresh|cooked|dry|rinsed|drained|chopped|diced|sliced|pressed|crumbled|optional)\b/g, " ")
     .replace(/\b(canned|white|brown|green|red|yellow|firm|low sodium|no salt added|any color)\b/g, " ")
-    .replace(/[^\w\s]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\bbeans\b/g, "bean")
     .replace(/\btomatoes\b/g, "tomato")
     .replace(/\beggs\b/g, "egg")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+async function applyImageFirstRecipeRanking(recipes: Recipe[], availableIngredientCount = 0) {
+  const scoredRecipes = await Promise.all(
+    recipes.map(async (recipe, index) => {
+      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe);
+      const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
+      const weightedPhotoFitScore = resolvedPhoto.photoFitScore * sparsePantryBonus;
+
+      return {
+        index,
+        photoFitScore: weightedPhotoFitScore,
+        rawPhotoFitScore: resolvedPhoto.photoFitScore,
+        recipe: {
+          ...recipe,
+          ...(resolvedPhoto.recipePatch ?? {})
+        }
+      };
+    })
+  );
+
+  const sortedRecipes = scoredRecipes
+    .sort((left, right) => right.photoFitScore - left.photoFitScore || left.index - right.index)
+    .map(({ rawPhotoFitScore, recipe }, index, all) => ({
+      recipe: {
+        ...recipe,
+        visual_match_label: getVisualMatchLabel(rawPhotoFitScore, index, all[0]?.rawPhotoFitScore ?? 0)
+      },
+      rawPhotoFitScore
+    }));
+
+  return sortedRecipes.map(({ recipe }) => recipe);
+}
+
+async function resolveRecipePhotoCandidate(recipe: Recipe) {
+  if (recipe.image_url) {
+    return {
+      photoFitScore: 100,
+      recipePatch: null as Partial<Recipe> | null
+    };
+  }
+
+  const queries = buildRecipePhotoQueriesForRanking(recipe);
+  let bestScore = 0;
+  let recipePatch: Partial<Recipe> | null = null;
+
+  for (const query of queries) {
+    if (isUnsplashRecipePhotoSearchConfigured()) {
+      const unsplash = await findUnsplashRecipePhoto(query);
+      if (unsplash) {
+        const score = unsplash.score + 2;
+        if (score > bestScore) {
+          bestScore = score;
+          recipePatch = {
+            image_attribution_name: unsplash.attributionName,
+            image_attribution_url: unsplash.attributionUrl,
+            image_source: "unsplash",
+            image_url: unsplash.imageUrl
+          };
+        }
+      }
+    }
+
+    if (bestScore < 1 && isPexelsRecipePhotoSearchConfigured()) {
+      const pexels = await findPexelsRecipePhoto(query);
+      if (pexels) {
+        if (pexels.score > bestScore) {
+          bestScore = pexels.score;
+          recipePatch = {
+            image_source: "search",
+            image_url: pexels.imageUrl
+          };
+        }
+      }
+    }
+  }
+
+  return { photoFitScore: bestScore, recipePatch };
+}
+
+function buildRecipePhotoQueriesForRanking(recipe: Recipe) {
+  return buildRecipePhotoQueryCandidates({
+    cuisine: recipe.cuisine,
+    imageSearchIndex: recipe.image_search_index,
+    imageSearchIndices: recipe.image_search_indices,
+    ingredients: recipe.ingredients,
+    missingIngredients: recipe.missing_ingredients,
+    name: recipe.name
+  }).slice(0, 3);
+}
+
+function getVisualMatchLabel(score: number, index: number, topScore: number) {
+  if (score <= 0) return undefined;
+  if (index === 0 && topScore >= 8) return "Best visual match";
+  if (index === 0 && topScore >= 5) return "Top image match";
+  if (index > 0 && score >= 8 && score >= topScore - 1) return "Strong visual match";
+  return undefined;
 }

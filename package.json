@@ -14,6 +14,8 @@
     "build:nemt": "npm run build --workspace=apps/nemt",
     "build:nutrimoment": "npm run build --workspace=apps/nutrimoment",
     "build:realestate": "npm run build --workspace=apps/realestate",
+    "predeploy:nutrimoment": "npm run predeploy:check --workspace=apps/nutrimoment",
+    "validate:nutrimoment-env": "npm run validate:prod-env --workspace=apps/nutrimoment",
     "build:all": "npm run build --workspaces --if-present",
     "lint:all": "npm run lint --workspaces --if-present",
     "clean": "npx rimraf apps/*/node_modules apps/*/dist apps/*/.next packages/*/node_modules"

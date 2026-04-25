@@ -16,7 +16,7 @@ import type { PantryItem } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
 export function PantryTab() {
-  const { t, setError } = useApp();
+  const { t, settings, setError } = useApp();
   const { access, getAuthHeaders, refreshAccess } = useAuth();
   const { items, addItem, removeItem, clear, loading } = usePantry();
   const [name, setName] = useState("");
@@ -65,7 +65,7 @@ export function PantryTab() {
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           image,
-          language: "English",
+          language: settings.recipeLanguage,
           isPantry: true
         })
       });
@@ -135,19 +135,19 @@ export function PantryTab() {
       <SectionHero
         title={t("myPantry")}
         description={t("keepTrack")}
-        eyebrow="Kitchen inventory"
-        chips={["Track", "Scan", "Restock"]}
+        eyebrow={t("kitchenInventory")}
+        chips={[t("trackChip"), t("scanChip"), t("restockChip")]}
         icon={<ShoppingCart className="h-6 w-6" />}
         stats={[
-          { label: "Saved items", value: `${items.length}` },
-          { label: "Scan queue", value: scannedItems.length ? `${scannedItems.length} reviewing` : "Clear" },
-          { label: "Mode", value: access.tier === "premium" ? "API vision" : "Manual + AI" }
+          { label: t("savedItems"), value: `${items.length}` },
+          { label: t("scanQueue"), value: scannedItems.length ? `${scannedItems.length} ${t("reviewingStatus")}` : t("clearStatus") },
+          { label: t("modeStat"), value: access.tier === "premium" ? t("apiVision") : t("manualAi") }
         ]}
         aside={
           <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Kitchen signal</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("kitchenSignal")}</p>
             <p className="text-sm leading-relaxed text-emerald-50/72">
-              Keep quantities fresh so recipe ranking and meal planning can react to what is actually in your kitchen.
+              {t("pantryAside")}
             </p>
           </div>
         }
@@ -157,22 +157,23 @@ export function PantryTab() {
         <Card className="rounded-[2rem] space-y-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("addItem")}</p>
-            <h3 className="mt-2 text-2xl font-display font-bold text-white">Add to your pantry</h3>
+            <h3 className="mt-2 text-2xl font-display font-bold text-white">{t("addToPantry")}</h3>
           </div>
 
           {access.tier === "free" ? (
             <div className="rounded-2xl border border-amber-200/16 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-50/88">
-              Free plan: pantry image scans use your shared AI credits ({access.aiCreditsRemaining}/{access.aiCreditsLimit} left).
-              Manual pantry entry always stays available.
+              {t("freePantryNotice")
+                .replace("{remaining}", String(access.aiCreditsRemaining))
+                .replace("{limit}", String(access.aiCreditsLimit))}
             </div>
           ) : (
             <div className="rounded-2xl border border-emerald-200/16 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-50/88">
-              Premium plan: pantry image scans are API-first with manual fallback.
+              {t("premiumPantryNotice")}
             </div>
           )}
 
           <label htmlFor="pantry-photo-upload" className="block">
-            <span className="sr-only">Upload a pantry image</span>
+            <span className="sr-only">{t("uploadPantryImage")}</span>
             <input
               id="pantry-photo-upload"
               name="pantry-photo-upload"
@@ -180,14 +181,14 @@ export function PantryTab() {
               accept="image/*"
               className="sr-only"
               onChange={handleScanPantry}
-              aria-label="Upload a pantry image"
+              aria-label={t("uploadPantryImage")}
             />
             <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-6 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
               <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
               <span className="text-sm font-semibold text-white" aria-live="polite">
-                {scanLoading ? t("analyzingPantry") : "Upload a pantry image"}
+                {scanLoading ? t("analyzingPantry") : t("uploadPantryImage")}
               </span>
-              <span className="text-xs text-emerald-50/55">We will estimate pantry items and approximate quantities.</span>
+              <span className="text-xs text-emerald-50/55">{t("pantryImageHelper")}</span>
             </span>
           </label>
 
@@ -232,7 +233,7 @@ export function PantryTab() {
             />
           </div>
           <div className="rounded-2xl border border-cyan-200/16 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/88">
-            Quantity guide: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
+            {t("quantityGuide")}: rice/oats/lentils use cups, tomato/onion/egg use whole/items, garlic uses cloves,
             olive oil uses tbsp, chicken breast uses lb, yogurt uses cups.
           </div>
 
@@ -258,8 +259,8 @@ export function PantryTab() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("pantryScan")}</p>
-                  <h3 className="mt-2 text-2xl font-display font-bold text-white">Review scanned pantry items</h3>
-                  <p className="mt-2 text-sm text-emerald-50/60">Adjust names or quantities before saving them to your pantry.</p>
+                  <h3 className="mt-2 text-2xl font-display font-bold text-white">{t("reviewScannedPantryItems")}</h3>
+                  <p className="mt-2 text-sm text-emerald-50/60">{t("reviewScannedPantryDesc")}</p>
                 </div>
                 <Button variant="ghost" onClick={addManualScannedItem}>
                   {t("add")}
@@ -296,15 +297,13 @@ export function PantryTab() {
                         type="button"
                         onClick={() =>
                           openConfirm({
-                            title: "Remove scanned item?",
-                            description: item.name
-                              ? `${item.name} will be removed from this review list.`
-                              : `Scanned item ${index + 1} will be removed from this review list.`,
-                            confirmLabel: "Remove",
+                            title: t("removeScannedItemTitle"),
+                            description: t("removeScannedItemDescription"),
+                            confirmLabel: t("remove"),
                             action: () => removeScannedItem(index)
                           })
                         }
-                        aria-label={item.name ? `Remove ${item.name}` : `Remove scanned item ${index + 1}`}
+                        aria-label={item.name ? `${t("remove")} ${item.name}` : `${t("remove")} ${index + 1}`}
                         className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -319,7 +318,7 @@ export function PantryTab() {
               </Button>
             </Card>
           ) : loading ? (
-            <Card className="rounded-[2rem] text-sm text-emerald-50/58">Loading pantry...</Card>
+            <Card className="rounded-[2rem] text-sm text-emerald-50/58">{t("loadingPantry")}</Card>
           ) : items.length ? (
             <div className="space-y-4">
               <div className="flex justify-end">
@@ -327,8 +326,8 @@ export function PantryTab() {
                   variant="ghost"
                   onClick={() =>
                     openConfirm({
-                      title: "Clear pantry?",
-                      description: "This removes every pantry item from your saved list.",
+                      title: t("clearPantryTitle"),
+                      description: t("clearPantryDescription"),
                       confirmLabel: t("clearAll"),
                       action: async () => {
                         try {
@@ -350,22 +349,22 @@ export function PantryTab() {
                     <div className="min-w-0">
                       <p className="truncate text-lg font-semibold text-white">{item.name}</p>
                       <p className="text-sm text-emerald-50/62">{item.quantity || "1"}</p>
-                      {item.expiration ? <p className="text-xs text-emerald-50/42">Expires {item.expiration}</p> : null}
+                      {item.expiration ? <p className="text-xs text-emerald-50/42">{t("expires")} {item.expiration}</p> : null}
                     </div>
                     {item.id ? (
                       <button
                         type="button"
                         onClick={() =>
                           openConfirm({
-                            title: "Remove pantry item?",
-                            description: `${item.name} will be removed from your pantry.`,
-                            confirmLabel: "Remove",
+                            title: t("removePantryItemTitle"),
+                            description: t("removePantryItemDescription"),
+                            confirmLabel: t("remove"),
                             action: async () => {
                               await removeItem(item.id!);
                             }
                           })
                         }
-                        aria-label={`Remove ${item.name}`}
+                        aria-label={`${t("remove")} ${item.name}`}
                         className="focus-ring rounded-2xl bg-red-50 p-3 text-red-600 transition-ui hover:bg-red-100"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden="true" />

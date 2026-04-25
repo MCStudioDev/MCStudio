@@ -121,7 +121,8 @@ export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): Me
     protein: `${recipe.protein}g`,
     carbs: `${recipe.carbs}g`,
     fat: `${recipe.fat}g`,
-    ingredients: recipe.ingredientCanonicals
+    ingredients: recipe.ingredientCanonicals,
+    steps: recipe.steps
   };
 }
 

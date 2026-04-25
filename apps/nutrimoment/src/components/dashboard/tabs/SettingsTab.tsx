@@ -20,19 +20,19 @@ export function SettingsTab() {
       <SectionHero
         title={t("preferences")}
         description={t("preferencesDesc")}
-        eyebrow="Control center"
-        chips={["Calories", "Cuisine", "Output"]}
+        eyebrow={t("controlCenter")}
+        chips={[t("caloriesChip"), t("cuisineChip"), t("outputChip")]}
         icon={<SlidersHorizontal className="h-6 w-6" />}
         stats={[
-          { label: "Target", value: `${settings.calorieTarget} kcal` },
-          { label: "Cuisine", value: normalizeCuisineLabel(settings.preferredCuisine) },
-          { label: "Recipe lang", value: settings.recipeLanguage }
+          { label: t("targetStat"), value: `${settings.calorieTarget} kcal` },
+          { label: t("cuisineChip"), value: normalizeCuisineLabel(settings.preferredCuisine) },
+          { label: t("recipeLangStat"), value: settings.recipeLanguage }
         ]}
         aside={
           <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Personal tuning</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("personalTuning")}</p>
             <p className="text-sm leading-relaxed text-emerald-50/72">
-              Fine-tune how the app thinks so your recipe output feels faster, clearer, and more aligned to your goals.
+              {t("settingsAside")}
             </p>
           </div>
         }
@@ -128,18 +128,17 @@ export function SettingsTab() {
 
         <SettingCard
           icon={<Scale className="h-5 w-5" />}
-          eyebrow="Legal & Safety"
-          title="Use with verification"
+          eyebrow={t("legalSafety")}
+          title={t("useWithVerification")}
           className="xl:col-span-2"
         >
           <p className="text-sm leading-relaxed text-emerald-50/62">
-            NutriMoment is designed for informational meal support. Review the disclaimer, terms, and privacy details
-            before relying on generated recipes or meal plans.
+            {t("settingsLegalDesc")}
           </p>
           <div className="flex flex-wrap gap-3">
-            <LegalLink href="/legal/disclaimer">AI Disclaimer</LegalLink>
-            <LegalLink href="/legal/terms">Terms of Service</LegalLink>
-            <LegalLink href="/legal/privacy">Privacy Policy</LegalLink>
+            <LegalLink href="/legal/disclaimer">{t("aiDisclaimerShort")}</LegalLink>
+            <LegalLink href="/legal/terms">{t("termsOfService")}</LegalLink>
+            <LegalLink href="/legal/privacy">{t("privacyPolicy")}</LegalLink>
           </div>
         </SettingCard>
       </motion.div>

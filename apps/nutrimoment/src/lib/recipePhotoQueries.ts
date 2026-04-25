@@ -85,10 +85,60 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
     joinRecipeQueryParts(cuisine, protein, dish),
     ...((sauce?.aliases ?? []).map((alias) => joinRecipeQueryParts(protein, alias, starch ?? dish))),
     joinRecipeQueryParts(protein, dish),
-    joinRecipeQueryParts(cuisine, exactName)
+    joinRecipeQueryParts(cuisine, exactName),
+    ...buildSparseIngredientQueries({
+      cuisine,
+      dish,
+      exactName,
+      ingredientLabels,
+      method,
+      protein,
+      sauceLabel: sauce?.label,
+      starch
+    })
   ]);
 
   return Array.from(new Set([...explicitQueries, ...derivedCandidates])).slice(0, 5);
+}
+
+function buildSparseIngredientQueries({
+  cuisine,
+  dish,
+  exactName,
+  ingredientLabels,
+  method,
+  protein,
+  sauceLabel,
+  starch
+}: {
+  cuisine: string;
+  dish?: string;
+  exactName: string;
+  ingredientLabels: string[];
+  method?: string;
+  protein?: string;
+  sauceLabel?: string;
+  starch?: string;
+}) {
+  if (ingredientLabels.length === 0 || ingredientLabels.length > 2) return [];
+
+  const normalizedIngredients = ingredientLabels
+    .map((label) => normalizePhrase(label))
+    .filter((label) => label.length >= 3)
+    .slice(0, 2);
+  const leadIngredient = normalizedIngredients[0];
+  const pair = normalizedIngredients.join(" ");
+
+  return normalizeQueryList([
+    joinRecipeQueryParts(cuisine, exactName),
+    joinRecipeQueryParts(cuisine, pair),
+    joinRecipeQueryParts(pair, dish),
+    joinRecipeQueryParts(pair, starch ?? dish),
+    joinRecipeQueryParts(method, pair, starch ?? dish),
+    joinRecipeQueryParts(protein, sauceLabel, pair),
+    joinRecipeQueryParts(leadIngredient, dish),
+    joinRecipeQueryParts(leadIngredient, "dish")
+  ]);
 }
 
 function detectLabel(value: string, patterns: Array<{ label: string; pattern: RegExp }>) {

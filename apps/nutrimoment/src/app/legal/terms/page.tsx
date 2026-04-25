@@ -2,16 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Terms of Service | NutriMoment",
-  description: "Core usage terms for NutriMoment."
+  title: "شروط الخدمة | NutriMoment",
+  description: "شروط الاستخدام الأساسية لـ NutriMoment."
 };
 
 const clauses = [
-  "NutriMoment is provided for general informational and meal-planning support.",
-  "You are responsible for reviewing every recipe, ingredient, and meal plan before use.",
-  "Do not use NutriMoment as a substitute for professional medical, dietetic, or allergy advice.",
-  "You agree not to rely on the service for emergencies or situations where inaccurate food guidance could create serious harm without independent verification.",
-  "The operator may change, suspend, or remove features at any time."
+  "يتم توفير NutriMoment لدعم معلوماتي عام وتخطيط الوجبات.",
+  "أنت مسؤول عن مراجعة كل وصفة ومكون وخطة وجبات قبل الاستخدام.",
+  "لا تستخدم NutriMoment بديلاً عن النصيحة الطبية أو التغذوية أو نصائح الحساسية من مختص.",
+  "توافق على عدم الاعتماد على الخدمة في الطوارئ أو الحالات التي قد يؤدي فيها الإرشاد الغذائي غير الدقيق إلى ضرر خطير دون تحقق مستقل.",
+  "قد يغيّر المشغل الميزات أو يعلّقها أو يزيلها في أي وقت."
 ];
 
 export default function TermsPage() {
@@ -20,11 +20,11 @@ export default function TermsPage() {
       <div className="mx-auto max-w-3xl space-y-8">
         <div className="space-y-3">
           <Link href="/" className="text-sm font-semibold text-emerald-700 hover:text-emerald-900">
-            Back to NutriMoment
+            العودة إلى NutriMoment
           </Link>
-          <h1 className="text-4xl font-display font-bold tracking-tight">Terms of Service</h1>
+          <h1 className="text-4xl font-display font-bold tracking-tight">شروط الخدمة</h1>
           <p className="text-base leading-relaxed text-stone-600">
-            These terms summarize how NutriMoment should be used and where responsibility stays with the user.
+            تلخص هذه الشروط كيفية استخدام NutriMoment وأين تبقى المسؤولية على المستخدم.
           </p>
         </div>
 

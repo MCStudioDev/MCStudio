@@ -13,40 +13,45 @@ import {
 } from "@/data/offline/recipeMetadata";
 import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
+import { logger } from "@/lib/logger";
 
 type CacheRecipeLanguage = "English" | "Arabic";
 
 const CACHE_COLLECTION = "offlineRecipeCache";
 const MAX_CACHE_DOCS = 120;
+const CACHE_READ_TIMEOUT_MS = 2500;
 
 export async function listUserCachedRecipes(uid?: string | null): Promise<RecipeCatalogDoc[]> {
   if (!uid) return [];
 
   try {
     const db = getAdminDb();
-    let snapshot = await db
+    const cacheQuery = db
       .collection("users")
       .doc(uid)
       .collection(CACHE_COLLECTION)
       .orderBy("updatedAt", "desc")
-      .limit(MAX_CACHE_DOCS)
-      .get();
+      .limit(MAX_CACHE_DOCS);
+    const snapshot = await withTimeout(cacheQuery.get(), CACHE_READ_TIMEOUT_MS, "load cached recipes");
 
     if (snapshot.empty) {
-      await hydrateUserRecipeCacheFromSavedAppData(uid);
-      snapshot = await db
-        .collection("users")
-        .doc(uid)
-        .collection(CACHE_COLLECTION)
-        .orderBy("updatedAt", "desc")
-        .limit(MAX_CACHE_DOCS)
-        .get();
+      void hydrateUserRecipeCacheFromSavedAppData(uid).catch((error) => {
+        logger.warn("Background cache hydration failed", {
+          uid,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+      });
+      return [];
     }
 
     return snapshot.docs
       .map((docSnap) => ensureBilingualRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
       .filter((recipe) => recipe?.isActive);
-  } catch {
+  } catch (error) {
+    logger.warn("Loading user cached recipes failed", {
+      uid,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
     return [];
   }
 }
@@ -209,8 +214,16 @@ async function buildCacheDocFromRecipe(
 
 async function hydrateUserRecipeCacheFromSavedAppData(uid: string) {
   const db = getAdminDb();
-  const historySnapshot = await db.collection("users").doc(uid).collection("history").limit(40).get();
-  const planSnapshot = await db.collection("users").doc(uid).collection("plans").doc("currentWeekly").get();
+  const historySnapshot = await withTimeout(
+    db.collection("users").doc(uid).collection("history").limit(40).get(),
+    CACHE_READ_TIMEOUT_MS,
+    "load history for cache hydration"
+  );
+  const planSnapshot = await withTimeout(
+    db.collection("users").doc(uid).collection("plans").doc("currentWeekly").get(),
+    CACHE_READ_TIMEOUT_MS,
+    "load meal plan for cache hydration"
+  );
 
   const historyRecipes = historySnapshot.docs.flatMap((docSnap, entryIndex) => {
     const data = docSnap.data() as { recipes?: Recipe[] };
@@ -364,4 +377,18 @@ function stripUndefinedDeep<T>(value: T): T {
   }
 
   return value;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }) as Promise<T>;
 }

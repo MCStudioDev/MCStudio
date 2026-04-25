@@ -58,7 +58,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 export function ScannerTab() {
   const { t, settings, health, setError } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
-  const { addEntry, updateRecipeImage } = useHistory();
+  const { addEntry, replaceEntryRecipes, updateRecipeImage } = useHistory();
   const [manualEntry, setManualEntry] = useState("");
   const [manualQuantity, setManualQuantity] = useState("");
   const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
@@ -110,17 +110,7 @@ export function ScannerTab() {
             await refreshAccess();
 
             if (!response.ok || !data.imageUrl) {
-              if (historyEntryId) {
-                await updateRecipeImage(historyEntryId, index, "", true);
-              }
               return { ...recipe, image_loading: false, image_error: true };
-            }
-
-            if (historyEntryId && /^https?:/.test(data.imageUrl)) {
-              await updateRecipeImage(historyEntryId, index, data.imageUrl, false, data.imageSource, {
-                name: data.imageAttributionName,
-                url: data.imageAttributionUrl
-              });
             }
 
             return {
@@ -133,17 +123,18 @@ export function ScannerTab() {
               image_error: false
             };
           } catch {
-            if (historyEntryId) {
-              await updateRecipeImage(historyEntryId, index, "", true);
-            }
             return { ...recipe, image_loading: false, image_error: true };
           }
         })
       );
 
+      if (historyEntryId) {
+        await replaceEntryRecipes(historyEntryId, resolved);
+      }
+
       setRecipes(resolved);
     },
-    [getAuthHeaders, refreshAccess, updateRecipeImage]
+    [getAuthHeaders, refreshAccess, replaceEntryRecipes]
   );
 
   const addManualIngredient = () => {

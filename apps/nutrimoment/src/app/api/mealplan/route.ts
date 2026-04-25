@@ -111,7 +111,7 @@ export async function POST(request: Request) {
         wantsArabic ? localizeMealPlanForArabic(mockPlan) : mockPlan,
         wantsArabic ? "Arabic" : "English"
       );
-      await persistGeneratedRecipeCache({
+      queueMealPlanCachePersist({
         uid: access.uid,
         recipeLanguage,
         meals: outputMockPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
@@ -171,7 +171,7 @@ export async function POST(request: Request) {
           wantsArabic ? localizeMealPlanForArabic(reconciledMealPlan) : reconciledMealPlan,
           wantsArabic ? "Arabic" : "English"
         );
-        await persistGeneratedRecipeCache({
+        queueMealPlanCachePersist({
           uid: access.uid,
           recipeLanguage,
           meals: outputMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
@@ -207,7 +207,7 @@ export async function POST(request: Request) {
       wantsArabic ? localizeMealPlanForArabic(emergencyMealPlan) : emergencyMealPlan,
       wantsArabic ? "Arabic" : "English"
     );
-    await persistGeneratedRecipeCache({
+    queueMealPlanCachePersist({
       uid: access.uid,
       recipeLanguage,
       meals: outputEmergencyMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
@@ -251,4 +251,20 @@ function getCatalogFallbackRecipes(preferredCuisine?: string): RecipeCatalogDoc[
     .slice()
     .sort((left, right) => right.qualityScore + right.popularityScore - (left.qualityScore + left.popularityScore))
     .slice(0, 21);
+}
+
+function queueMealPlanCachePersist(input: {
+  recipeLanguage: string;
+  meals?: import("@/lib/types").MealPlanMeal[];
+  recipes?: import("@/lib/types").Recipe[];
+  uid?: string | null;
+}) {
+  void persistGeneratedRecipeCache(input).catch((error) => {
+    logger.warn("Meal-plan cache persistence failed", {
+      uid: input.uid ?? null,
+      mealCount: input.meals?.length ?? 0,
+      recipeCount: input.recipes?.length ?? 0,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  });
 }

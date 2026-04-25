@@ -166,7 +166,7 @@ export async function POST(request: Request) {
       const finalRecipes = prepareRecipes(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
       );
-      await persistGeneratedRecipeCache({
+      queueRecipeCachePersist({
         uid: accessCheck.access.uid,
         recipeLanguage,
         recipes: finalRecipes
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
       const finalRecipes = prepareRecipes(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
       );
-      await persistGeneratedRecipeCache({
+      queueRecipeCachePersist({
         uid: accessCheck.access.uid,
         recipeLanguage,
         recipes: finalRecipes
@@ -261,7 +261,7 @@ export async function POST(request: Request) {
         const finalRecipes = prepareRecipes(
           mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
         );
-        await persistGeneratedRecipeCache({
+        queueRecipeCachePersist({
           uid: accessCheck.access.uid,
           recipeLanguage,
           recipes: finalRecipes
@@ -294,7 +294,7 @@ export async function POST(request: Request) {
     const finalRecipes = prepareRecipes(
       mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
     );
-    await persistGeneratedRecipeCache({
+    queueRecipeCachePersist({
       uid: accessCheck.access.uid,
       recipeLanguage,
       recipes: finalRecipes
@@ -615,6 +615,20 @@ function buildRecipeFallbackNotice(
   }
 
   return "تعذر توليد الوصفات بالذكاء الاصطناعي، لذلك استخدمنا مطابقات من الكتالوج غير المتصل.";
+}
+
+function queueRecipeCachePersist(input: {
+  recipeLanguage: string;
+  recipes?: Recipe[];
+  uid?: string | null;
+}) {
+  void persistGeneratedRecipeCache(input).catch((error) => {
+    logger.warn("Recipe cache persistence failed", {
+      uid: input.uid ?? null,
+      recipeCount: input.recipes?.length ?? 0,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  });
 }
 
 function scoreStrictRecipe(

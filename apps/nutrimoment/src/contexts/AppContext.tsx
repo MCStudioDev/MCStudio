@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from "react";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import type { HealthProfile, Language, UserSettings } from "@/lib/types";
@@ -104,6 +104,54 @@ export function AppProvider({ children }: AppProviderProps) {
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE);
   const [error, setError] = useState<string | null>(null);
 
+  const loadProfileForUser = useCallback(async () => {
+    if (!user) {
+      dispatch({ type: "profile/loading", payload: false });
+      return;
+    }
+
+    dispatch({ type: "profile/loading", payload: true });
+
+    try {
+      const [settingsSnap, healthSnap] = await Promise.all([
+        getDoc(doc(db, "users", user.uid, "profile", "settings")),
+        getDoc(doc(db, "users", user.uid, "profile", "health"))
+      ]);
+      const fallbackLanguage = getStoredOrDetectedPilotLanguage();
+
+      if (settingsSnap.exists()) {
+        const data = normalizeSettings(settingsSnap.data() as Partial<UserSettings>, fallbackLanguage);
+        dispatch({ type: "settings/merge", payload: data });
+        persistPilotLanguage(data.uiLanguage ?? fallbackLanguage);
+      } else {
+        dispatch({
+          type: "settings/merge",
+          payload: {
+            uiLanguage: fallbackLanguage,
+            recipeLanguage: recipeLanguageFromUiLanguage(fallbackLanguage)
+          }
+        });
+        persistPilotLanguage(fallbackLanguage);
+      }
+
+      if (healthSnap.exists()) {
+        const data = healthSnap.data() as Partial<HealthProfile>;
+        dispatch({
+          type: "health/set",
+          payload: {
+            diets: Array.isArray(data.diets) ? data.diets : [],
+            conditions: Array.isArray(data.conditions) ? data.conditions : [],
+            allergens: Array.isArray(data.allergens) ? data.allergens : []
+          }
+        });
+      } else {
+        dispatch({ type: "health/set", payload: DEFAULT_HEALTH });
+      }
+    } finally {
+      dispatch({ type: "profile/loading", payload: false });
+    }
+  }, [user]);
+
   useEffect(() => {
     const preferredLanguage = getStoredOrDetectedPilotLanguage();
     dispatch({
@@ -121,48 +169,8 @@ export function AppProvider({ children }: AppProviderProps) {
       dispatch({ type: "profile/loading", payload: false });
       return;
     }
-    dispatch({ type: "profile/loading", payload: true });
-    const settingsRef = doc(db, "users", user.uid, "profile", "settings");
-    const healthRef = doc(db, "users", user.uid, "profile", "health");
-
-    const unsubSettings = onSnapshot(settingsRef, (snap) => {
-      const fallbackLanguage = getStoredOrDetectedPilotLanguage();
-      if (snap.exists()) {
-        const data = normalizeSettings(snap.data() as Partial<UserSettings>, fallbackLanguage);
-        dispatch({ type: "settings/merge", payload: data });
-        persistPilotLanguage(data.uiLanguage ?? fallbackLanguage);
-      } else {
-        dispatch({
-          type: "settings/merge",
-          payload: {
-            uiLanguage: fallbackLanguage,
-            recipeLanguage: recipeLanguageFromUiLanguage(fallbackLanguage)
-          }
-        });
-        persistPilotLanguage(fallbackLanguage);
-      }
-      dispatch({ type: "profile/loading", payload: false });
-    });
-
-    const unsubHealth = onSnapshot(healthRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as Partial<HealthProfile>;
-        dispatch({
-          type: "health/set",
-          payload: {
-            diets: Array.isArray(data.diets) ? data.diets : [],
-            conditions: Array.isArray(data.conditions) ? data.conditions : [],
-            allergens: Array.isArray(data.allergens) ? data.allergens : []
-          }
-        });
-      }
-    });
-
-    return () => {
-      unsubSettings();
-      unsubHealth();
-    };
-  }, [user]);
+    void loadProfileForUser();
+  }, [loadProfileForUser, user]);
 
   const settings = state.settings;
   const health = user ? state.health : DEFAULT_HEALTH;

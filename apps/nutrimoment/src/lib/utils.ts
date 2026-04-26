@@ -23,8 +23,7 @@ export function fileToBase64(file: File): Promise<string> {
         reject(new Error("Failed to read file"));
         return;
       }
-      const base64 = result.split(",")[1] ?? "";
-      resolve(base64);
+      resolve(result);
     };
     reader.onerror = () => reject(reader.error ?? new Error("File read error"));
     reader.readAsDataURL(file);

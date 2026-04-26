@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useReducer } from "react";
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { useCallback, useEffect, useReducer } from "react";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { logger } from "@/lib/logger";
@@ -32,6 +32,15 @@ function isFirestoreQuotaError(error: unknown) {
   );
 }
 
+function isTransientSyncError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /resource-exhausted|quota exceeded|too many requests|unavailable|network-request-failed|load failed|failed to fetch|offline/i.test(
+      error.message
+    )
+  );
+}
+
 function mealPlanReducer(state: MealPlanState, action: MealPlanAction): MealPlanState {
   switch (action.type) {
     case "loading":
@@ -49,7 +58,7 @@ export function useMealPlan() {
   const { user } = useAuth();
   const [state, dispatch] = useReducer(mealPlanReducer, INITIAL_STATE);
 
-  useEffect(() => {
+  const loadMealPlan = useCallback(async () => {
     if (!user) {
       dispatch({ type: "plan", payload: null });
       dispatch({ type: "loading", payload: false });
@@ -58,27 +67,31 @@ export function useMealPlan() {
 
     dispatch({ type: "loading", payload: true });
     const planRef = doc(db, "users", user.uid, "plans", "currentWeekly");
-    const unsubscribe = onSnapshot(
-      planRef,
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          dispatch({ type: "plan", payload: null });
-          dispatch({ type: "loading", payload: false });
-          return;
-        }
 
+    try {
+      const snapshot = await getDoc(planRef);
+      if (!snapshot.exists()) {
+        dispatch({ type: "plan", payload: null });
+      } else {
         const data = snapshot.data() as { mealPlan?: unknown };
         dispatch({ type: "plan", payload: normalizeMealPlanData(data.mealPlan) });
-        dispatch({ type: "loading", payload: false });
-      },
-      (error) => {
-        dispatch({ type: "error", payload: error });
-        dispatch({ type: "loading", payload: false });
       }
-    );
-
-    return () => unsubscribe();
+      dispatch({ type: "error", payload: null });
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error("Failed to load meal plan");
+      if (isTransientSyncError(normalizedError)) {
+        logger.warn("Meal plan sync read failed; keeping local state", { message: normalizedError.message });
+      } else {
+        dispatch({ type: "error", payload: normalizedError });
+      }
+    } finally {
+      dispatch({ type: "loading", payload: false });
+    }
   }, [user]);
+
+  useEffect(() => {
+    void loadMealPlan();
+  }, [loadMealPlan]);
 
   const saveMealPlan = async (mealPlan: MealPlanData) => {
     const normalized = normalizeMealPlanData(mealPlan);
@@ -104,9 +117,14 @@ export function useMealPlan() {
         { merge: true }
       );
     } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error("Generated plan displayed locally, but saving failed.");
+      if (isTransientSyncError(normalizedError)) {
+        logger.warn("Meal plan sync write failed; keeping local plan only", { message: normalizedError.message });
+        return;
+      }
       dispatch({
         type: "error",
-        payload: error instanceof Error ? error : new Error("Generated plan displayed locally, but saving failed.")
+        payload: normalizedError
       });
     }
   };

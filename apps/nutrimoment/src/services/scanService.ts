@@ -2,6 +2,7 @@ import { saveScan } from "@/repositories/scanRepo";
 import type { ScanDoc, ScanFilters, ServedFrom } from "@/lib/domain";
 import { extractIngredientsFromImage } from "@/services/ingredientExtractionService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
+import { logger } from "@/lib/logger";
 
 export interface ProcessScanInput {
   uid?: string | null;
@@ -47,7 +48,12 @@ export async function processScan({
     createdAt: Date.now()
   };
 
-  await saveScan(scanDoc);
+  void saveScan(scanDoc).catch((error) => {
+    logger.warn("Scan persistence failed; returning extracted ingredients anyway", {
+      scanId,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  });
 
   return {
     scanId,

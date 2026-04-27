@@ -4,7 +4,8 @@ import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/li
 import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import {
   getSharedRecipePhotoBySignatures,
-  persistSharedRecipePhotoAliases
+  persistSharedRecipePhotoAliases,
+  type SharedRecipePhotoEntry
 } from "@/lib/sharedRecipePhotoCache";
 import {
   accessErrorResponse,
@@ -377,17 +378,29 @@ async function performRecipePhotoLookup({
   }
 
   if (bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) {
-    const persistedSearchPhoto = await persistSharedRecipePhotoAliases(
-      {
-        imageAttributionName: bestMatch.attributionName,
-        imageAttributionUrl: bestMatch.attributionUrl,
-        imageUrl: bestMatch.imageUrl,
-        query: bestMatch.matchedQuery,
+    let persistedSearchPhoto: SharedRecipePhotoEntry = {
+      imageAttributionName: bestMatch.attributionName,
+      imageAttributionUrl: bestMatch.attributionUrl,
+      imageUrl: bestMatch.imageUrl,
+      query: bestMatch.matchedQuery,
+      signature: bestMatch.signature,
+      source: bestMatch.source
+    };
+
+    try {
+      persistedSearchPhoto = await persistSharedRecipePhotoAliases(
+        persistedSearchPhoto,
+        bestMatch.alternateSignatures
+      );
+    } catch (error) {
+      logger.warn("Recipe photo cache persistence failed; returning provider result", {
+        query,
+        matchedQuery: bestMatch.matchedQuery,
         signature: bestMatch.signature,
-        source: bestMatch.source
-      },
-      bestMatch.alternateSignatures
-    );
+        source: bestMatch.source,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    }
     const selectedPhoto = {
       imageAttributionName: persistedSearchPhoto.imageAttributionName,
       imageAttributionUrl: persistedSearchPhoto.imageAttributionUrl,

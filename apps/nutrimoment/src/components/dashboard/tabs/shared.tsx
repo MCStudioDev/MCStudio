@@ -31,15 +31,15 @@ export function SectionHero({
     <motion.div variants={itemVariants}>
       <section
         className={cn(
-          "section-band relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[linear-gradient(115deg,rgba(7,19,21,0.98)_0%,rgba(8,29,30,0.94)_34%,rgba(9,45,39,0.88)_62%,rgba(7,24,36,0.94)_100%)] p-4 text-white shadow-soft md:p-5",
+          "section-band section-hero relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-[linear-gradient(115deg,rgba(7,19,21,0.98)_0%,rgba(8,29,30,0.94)_34%,rgba(9,45,39,0.88)_62%,rgba(7,24,36,0.94)_100%)] p-3 text-white shadow-soft md:rounded-[1.6rem] md:p-4.5",
           className
         )}
       >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(139,255,217,0.12),transparent_28%),radial-gradient(circle_at_85%_80%,rgba(105,196,255,0.10),transparent_30%)]" />
         <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(144,255,223,0.55),transparent)]" />
 
-        <div className="relative grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(16rem,20rem)] lg:items-center">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="relative grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(14rem,18rem)] lg:items-center">
+          <div className="flex min-w-0 items-start gap-3">
             {icon ? (
               <div className="rounded-2xl border border-white/12 bg-white/[0.08] p-2.5 text-white shadow-glow ring-1 ring-white/15">
                 {icon}
@@ -47,11 +47,11 @@ export function SectionHero({
             ) : null}
 
             <div className="min-w-0 space-y-1.5">
-              <div className="inline-flex items-center rounded-full border border-emerald-200/18 bg-white/[0.05] px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.22em] text-emerald-50/70">
+              <div className="inline-flex items-center rounded-full border border-emerald-200/18 bg-white/[0.05] px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-emerald-50/70 sm:tracking-[0.22em]">
                 {eyebrow}
               </div>
-              <h2 className="font-display text-xl font-bold tracking-tight text-white md:text-2xl">{title}</h2>
-              <p className="max-w-2xl text-[13px] leading-relaxed text-emerald-50/65">{description}</p>
+              <h2 className="font-display text-base font-bold tracking-tight text-white sm:text-lg md:text-[1.55rem]">{title}</h2>
+              <p className="max-w-2xl text-[12px] leading-relaxed text-emerald-50/65 sm:text-[13px]">{description}</p>
               {chips.length ? (
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {chips.map((chip) => (
@@ -65,7 +65,7 @@ export function SectionHero({
           {(stats.length || aside) ? (
             <div className="flex w-full flex-col gap-2 border-t border-white/10 pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
               {stats.length ? (
-                <div className="grid gap-1.5 grid-cols-3">
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                   {stats.map((stat) => (
                     <div
                       key={`${stat.label}-${stat.value}`}

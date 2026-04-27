@@ -62,7 +62,7 @@ export function HistoryTab() {
 
       {loading ? (
         <motion.div variants={itemVariants}>
-          <Card className="rounded-[2rem] text-sm text-emerald-50/58">{t("loadingHistory")}</Card>
+          <Card className="theme-history-entry rounded-[2rem] text-sm text-emerald-50/58">{t("loadingHistory")}</Card>
         </motion.div>
       ) : items.length ? (
         <motion.div variants={itemVariants} className="space-y-4">
@@ -84,11 +84,13 @@ export function HistoryTab() {
 
           <div className="grid gap-4">
             {items.map((entry) => (
-              <Card key={entry.id} className="rounded-[2rem] space-y-4">
+              <Card key={entry.id} className="theme-history-entry rounded-[2rem] space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{formatDate(entry.timestamp)}</p>
-                    <h3 className="mt-2 text-2xl font-display font-bold text-white">
+                    <p className="theme-history-entry-kicker text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                      {formatDate(entry.timestamp)}
+                    </p>
+                    <h3 className="theme-history-entry-title mt-2 text-2xl font-display font-bold text-white">
                       {entry.recipes[0]?.name ?? t("savedRecipeSession")}
                     </h3>
                   </div>

@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
+import { ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -12,7 +12,7 @@ import { containerVariants, itemVariants } from "@/lib/animations";
 import { getPantryQuantityHint, getPreferredPantryUnit } from "@/lib/pantryQuantity";
 import { fileToBase64 } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
-import { EmptyState, SectionHero } from "./shared";
+import { EmptyState } from "./shared";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
@@ -273,200 +273,191 @@ export function ScannerTab() {
   };
 
   return (
-    <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
-      <SectionHero
-        title={t("heroTitle")}
-        description={t("heroSub")}
-        eyebrow={t("liveRecipeVision")}
-        chips={[t("scanChip"), t("matchChip"), t("cookChip")]}
-        icon={<Camera className="h-6 w-6" />}
-        stats={[
-          { label: t("ingredientsStat"), value: `${ingredients.length}` },
-          { label: t("recipesStat"), value: recipes.length ? `${recipes.length} ${t("readyStatus")}` : t("waitingStatus") },
-          {
-            label: t("creditsStat"),
-            value: access.tier === "free" ? `${access.aiCreditsRemaining}/${access.aiCreditsLimit}` : t("premiumStatus")
-          }
-        ]}
-        aside={
-          <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("scannerFlow")}</p>
-            <p className="text-sm leading-relaxed text-emerald-50/72">
-              {t("scannerAside")}
-            </p>
-          </div>
-        }
-      />
-
-      {access.tier === "free" ? (
-        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-amber-200/16 bg-amber-400/10 px-5 py-4 text-sm text-amber-50/90">
-          {t("freePlanScanner")
-            .replace("{remaining}", String(access.aiCreditsRemaining))
-            .replace("{limit}", String(access.aiCreditsLimit))}
-        </motion.div>
-      ) : (
-        <motion.div variants={itemVariants} className="rounded-[1.5rem] border border-emerald-200/16 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-50/90">
-          {t("premiumPlanScanner")}
-        </motion.div>
-      )}
-
-      <motion.div variants={itemVariants} className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card className="space-y-5 rounded-[2rem]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">{t("scanIng")}</p>
-              <h3 className="text-2xl font-display font-bold text-white">{t("whatIng")}</h3>
+    <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">
+      <motion.div variants={itemVariants}>
+        <Card className="space-y-3.5 rounded-[1.4rem] p-3.5 sm:rounded-[1.7rem] sm:p-4.5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-200">
+                <span>{t("scanIng")}</span>
+                <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] tracking-[0.14em] text-emerald-50/72">
+                  {ingredients.length} {t("ingredientsStat")}
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] tracking-[0.14em] text-emerald-50/72">
+                  {recipes.length ? `${recipes.length} ${t("readyStatus")}` : t("waitingStatus")}
+                </span>
+              </div>
+              <h3 className="text-base font-display font-bold text-white sm:text-lg">{t("whatIng")}</h3>
+              <p className="max-w-2xl text-sm leading-relaxed text-emerald-50/62">{t("scannerCompactLead")}</p>
             </div>
-            <div className="rounded-2xl bg-white/[0.08] p-3 text-cyan-100">
-              <Utensils className="h-5 w-5" />
+            <div className="rounded-2xl bg-white/[0.08] p-2.5 text-cyan-100">
+              <Utensils className="h-4.5 w-4.5" />
             </div>
           </div>
 
-          <label htmlFor="scanner-photo-upload" className="block">
-            <span className="sr-only">{t("uploadFridgePhoto")}</span>
-            <input
-              id="scanner-photo-upload"
-              name="scanner-photo-upload"
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleImageUpload}
-              aria-label={t("uploadFridgePhoto")}
-            />
-            <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-36 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-6 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
-              <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
-              <span className="text-sm font-semibold text-white" aria-live="polite">
-                {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
-              </span>
-              <span className="text-xs text-emerald-50/55">{t("takePhoto")}</span>
-            </span>
-          </label>
+          <div
+            className={
+              access.tier === "free"
+                ? "rounded-[1.2rem] border border-amber-200/16 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-50/90"
+                : "rounded-[1.2rem] border border-emerald-200/16 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-50/90"
+            }
+          >
+            {access.tier === "free"
+              ? t("freePlanScanner")
+                  .replace("{remaining}", String(access.aiCreditsRemaining))
+                  .replace("{limit}", String(access.aiCreditsLimit))
+              : t("premiumPlanScanner")}
+          </div>
 
-          <div className="space-y-3">
-            <label htmlFor="scanner-manual-ingredient" className="text-sm font-semibold text-emerald-50/88">
-              {t("typeIng")}
-            </label>
-            <div className="flex gap-3">
-              <input
-                id="scanner-manual-ingredient"
-                name="ingredient"
-                value={manualEntry}
-                onChange={(event) => setManualEntry(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addManualIngredient();
-                  }
-                }}
-                placeholder={t("quickAdd")}
-                autoComplete="off"
-                spellCheck
-                className="focus-ring neo-input h-12 flex-1 rounded-2xl px-4 text-sm transition-ui"
-              />
-              <label htmlFor="scanner-manual-quantity" className="sr-only">
-                {t("ingredientQuantity")}
+          <div className="grid gap-3.5 xl:grid-cols-[1.08fr_0.92fr]">
+            <div className="space-y-3.5">
+              <label htmlFor="scanner-photo-upload" className="block">
+                <span className="sr-only">{t("uploadFridgePhoto")}</span>
+                <input
+                  id="scanner-photo-upload"
+                  name="scanner-photo-upload"
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleImageUpload}
+                  aria-label={t("uploadFridgePhoto")}
+                />
+                <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[1.25rem] border border-dashed border-white/12 bg-white/[0.04] px-5 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
+                  <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
+                  <span className="text-sm font-semibold text-white" aria-live="polite">
+                    {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
+                  </span>
+                  <span className="text-xs text-emerald-50/55">{t("scannerCompactActions")}</span>
+                </span>
               </label>
-              <input
-                id="scanner-manual-quantity"
-                name="quantity"
-                value={manualQuantity}
-                onChange={(event) => setManualQuantity(event.target.value)}
-                placeholder={manualEntry.trim() ? getPantryQuantityHint(manualEntry) : t("quantity")}
-                autoComplete="off"
-                inputMode="text"
-                aria-label={t("ingredientQuantity")}
-                className="focus-ring neo-input h-12 w-44 rounded-2xl px-4 text-sm transition-ui"
-              />
-              <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={addManualIngredient}>
-                {t("add")}
+
+              <div className="space-y-2.5">
+                <label htmlFor="scanner-manual-ingredient" className="text-sm font-semibold text-emerald-50/88">
+                  {t("typeIng")}
+                </label>
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_auto]">
+                  <input
+                    id="scanner-manual-ingredient"
+                    name="ingredient"
+                    value={manualEntry}
+                    onChange={(event) => setManualEntry(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addManualIngredient();
+                      }
+                    }}
+                    placeholder={t("quickAdd")}
+                    autoComplete="off"
+                    spellCheck
+                    className="focus-ring neo-input h-12 rounded-2xl px-4 text-sm transition-ui"
+                  />
+                  <label htmlFor="scanner-manual-quantity" className="sr-only">
+                    {t("ingredientQuantity")}
+                  </label>
+                  <input
+                    id="scanner-manual-quantity"
+                    name="quantity"
+                    value={manualQuantity}
+                    onChange={(event) => setManualQuantity(event.target.value)}
+                    placeholder={manualEntry.trim() ? getPantryQuantityHint(manualEntry) : t("quantity")}
+                    autoComplete="off"
+                    inputMode="text"
+                    aria-label={t("ingredientQuantity")}
+                    className="focus-ring neo-input h-12 rounded-2xl px-4 text-sm transition-ui"
+                  />
+                  <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={addManualIngredient}>
+                    {t("add")}
+                  </Button>
+                </div>
+                <div className="theme-callout-info rounded-[1.15rem] border border-cyan-200/14 bg-cyan-400/10 px-4 py-3 text-sm font-medium leading-relaxed text-cyan-50/92">
+                  {t("quantityGuide")}: {t("quantityGuideDetails")}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("reviewIng")}</p>
+                  <h3 className="text-base font-display font-bold text-white sm:text-lg">{t("detectedIng")}</h3>
+                </div>
+                <div className="rounded-2xl bg-white/[0.08] p-2.5 text-cyan-100">
+                  <Sparkles className="h-4.5 w-4.5" />
+                </div>
+              </div>
+
+              {ingredients.length ? (
+                <div className="grid gap-2.5">
+                  {ingredients.map((ingredient) => (
+                    <div
+                      key={ingredient.id}
+                      className="grid gap-2.5 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/82 sm:grid-cols-[1fr_180px_auto]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-white">{ingredient.name}</p>
+                        <p className="text-xs text-emerald-50/50">{getPantryQuantityHint(ingredient.name)}</p>
+                      </div>
+                      <input
+                        id={`scanner-quantity-${ingredient.id}`}
+                        name={`quantity-${ingredient.name}`}
+                        value={ingredient.quantity}
+                        onChange={(event) => updateIngredientQuantity(ingredient.id, event.target.value)}
+                        placeholder={getPantryQuantityHint(ingredient.name)}
+                        aria-label={`Quantity for ${ingredient.name}`}
+                        autoComplete="off"
+                        className="focus-ring neo-input h-11 rounded-2xl px-4 text-sm transition-ui"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setConfirmState({
+                            title: t("removeIngredientTitle"),
+                            description: t("removeIngredientDescription"),
+                            confirmLabel: t("remove"),
+                            action: () => removeIngredient(ingredient.id)
+                          })
+                        }
+                        aria-label={`${t("remove")} ${ingredient.name}`}
+                        className="focus-ring rounded-2xl bg-white/[0.05] px-3 py-2 text-xs font-semibold text-emerald-50/65 transition-ui hover:bg-red-500/12 hover:text-red-100"
+                      >
+                        {t("remove")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-[1.25rem] border border-dashed border-white/12 bg-white/[0.04] px-4 py-5 text-sm text-emerald-50/55">
+                  {t("scanFridgeStart")}
+                </div>
+              )}
+
+              <div className="grid gap-2.5 sm:grid-cols-3">
+                <Card variant="plain" className="rounded-[1.2rem] p-3.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("preferredCuisine")}</p>
+                  <p className="mt-1.5 text-base font-semibold text-white">{settings.preferredCuisine}</p>
+                </Card>
+                <Card variant="plain" className="rounded-[1.2rem] p-3.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("dailyCalorieTarget")}</p>
+                  <p className="mt-1.5 text-base font-semibold text-white">{settings.calorieTarget} kcal</p>
+                </Card>
+                <Card variant="plain" className="rounded-[1.2rem] p-3.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("recipeCount")}</p>
+                  <p className="mt-1.5 text-base font-semibold text-white">{settings.recipeCount}</p>
+                </Card>
+              </div>
+
+              <Button
+                fullWidth
+                size="lg"
+                loading={recipeLoading}
+                leftIcon={<ChefHat className="h-5 w-5" />}
+                onClick={handleGenerateRecipes}
+              >
+                {recipeLoading ? t("aiThinking") : t("generateRecipes")}
               </Button>
             </div>
-            <div className="rounded-2xl border border-cyan-200/14 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/86">
-              {t("quantityGuide")}: {t("quantityGuideDetails")}
-            </div>
           </div>
-        </Card>
-
-        <Card className="space-y-5 rounded-[2rem]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">{t("reviewIng")}</p>
-              <h3 className="text-2xl font-display font-bold text-white">{t("detectedIng")}</h3>
-            </div>
-            <div className="rounded-2xl bg-white/[0.08] p-3 text-cyan-100">
-              <Sparkles className="h-5 w-5" />
-            </div>
-          </div>
-
-          {ingredients.length ? (
-            <div className="grid gap-3">
-              {ingredients.map((ingredient) => (
-                <div
-                  key={ingredient.id}
-                  className="grid gap-3 rounded-[1.25rem] border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/82 sm:grid-cols-[1fr_190px_auto]"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-white">{ingredient.name}</p>
-                    <p className="text-xs text-emerald-50/50">{getPantryQuantityHint(ingredient.name)}</p>
-                  </div>
-                  <input
-                    id={`scanner-quantity-${ingredient.id}`}
-                    name={`quantity-${ingredient.name}`}
-                    value={ingredient.quantity}
-                    onChange={(event) => updateIngredientQuantity(ingredient.id, event.target.value)}
-                    placeholder={getPantryQuantityHint(ingredient.name)}
-                    aria-label={`Quantity for ${ingredient.name}`}
-                    autoComplete="off"
-                    className="focus-ring neo-input h-11 rounded-2xl px-4 text-sm transition-ui"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setConfirmState({
-                        title: t("removeIngredientTitle"),
-                        description: t("removeIngredientDescription"),
-                        confirmLabel: t("remove"),
-                        action: () => removeIngredient(ingredient.id)
-                      })
-                    }
-                    aria-label={`${t("remove")} ${ingredient.name}`}
-                    className="focus-ring rounded-2xl bg-white/[0.05] px-3 py-2 text-xs font-semibold text-emerald-50/65 transition-ui hover:bg-red-500/12 hover:text-red-100"
-                  >
-                    {t("remove")}
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-5 py-6 text-sm text-emerald-50/55">
-              {t("scanFridgeStart")}
-            </div>
-          )}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Card variant="plain" className="rounded-[1.5rem] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("preferredCuisine")}</p>
-              <p className="mt-2 text-lg font-semibold text-white">{settings.preferredCuisine}</p>
-            </Card>
-            <Card variant="plain" className="rounded-[1.5rem] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("dailyCalorieTarget")}</p>
-              <p className="mt-2 text-lg font-semibold text-white">{settings.calorieTarget} kcal</p>
-            </Card>
-            <Card variant="plain" className="rounded-[1.5rem] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("recipeCount")}</p>
-              <p className="mt-2 text-lg font-semibold text-white">{settings.recipeCount}</p>
-            </Card>
-          </div>
-
-          <Button
-            fullWidth
-            size="lg"
-            loading={recipeLoading}
-            leftIcon={<ChefHat className="h-5 w-5" />}
-            onClick={handleGenerateRecipes}
-          >
-            {recipeLoading ? t("aiThinking") : t("generateRecipes")}
-          </Button>
         </Card>
       </motion.div>
 

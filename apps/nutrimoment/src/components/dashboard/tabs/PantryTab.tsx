@@ -232,7 +232,7 @@ export function PantryTab() {
               className="focus-ring neo-input h-12 w-full rounded-2xl px-4 text-sm transition-ui"
             />
           </div>
-          <div className="rounded-2xl border border-cyan-200/16 bg-cyan-400/10 px-4 py-3 text-xs leading-relaxed text-cyan-50/88">
+          <div className="theme-callout-info rounded-2xl border border-cyan-200/16 bg-cyan-400/10 px-4 py-3 text-sm font-medium leading-relaxed text-cyan-50/92">
             {t("quantityGuide")}: {t("quantityGuideDetails")}
           </div>
 

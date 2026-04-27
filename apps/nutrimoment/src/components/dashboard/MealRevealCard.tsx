@@ -292,7 +292,7 @@ export function MealRevealCard({
       onTouchStart={() => setLookupActivated(true)}
       onKeyDown={handleSurfaceKeyDown}
       className={cn(
-        "focus-ring group relative overflow-hidden rounded-[1.7rem] border border-white/10 bg-[#041411] shadow-soft transition-ui hover:-translate-y-1 hover:shadow-xl",
+        "focus-ring theme-recipe-card group relative overflow-hidden rounded-[1.7rem] border border-white/10 bg-[#041411] shadow-soft transition-ui hover:-translate-y-1 hover:shadow-xl",
         className
       )}
     >
@@ -341,7 +341,7 @@ export function MealRevealCard({
         </div>
 
         {resolvedSource === "unsplash" && resolvedAttributionName && resolvedAttributionUrl ? (
-          <div className="border-t border-white/8 bg-[#071714]/86 px-5 py-3 text-[11px] text-white/65">
+          <div className="theme-recipe-attribution border-t border-white/8 bg-[#071714]/86 px-5 py-3 text-[11px] text-white/65">
             Photo by{" "}
             <a
               href={resolvedAttributionUrl}
@@ -366,7 +366,7 @@ export function MealRevealCard({
         <div
           id={detailId}
           className={cn(
-            "overflow-hidden border-t border-white/8 bg-[linear-gradient(180deg,rgba(5,17,15,0.98)_0%,rgba(7,27,22,0.98)_100%)] transition-[max-height,opacity] duration-300",
+            "theme-recipe-detail overflow-hidden border-t border-white/8 bg-[linear-gradient(180deg,rgba(5,17,15,0.98)_0%,rgba(7,27,22,0.98)_100%)] transition-[max-height,opacity] duration-300",
             isOpen ? "max-h-[180rem] opacity-100" : "max-h-0 opacity-0"
           )}
         >
@@ -381,13 +381,13 @@ export function MealRevealCard({
             <div className="space-y-4">
               {detailSections.map((section) => (
                 <div key={section.title} className="space-y-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">{section.title}</p>
+              <p className="theme-recipe-detail-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">{section.title}</p>
                   {section.tone === "steps" ? (
                     <div className="space-y-2">
                       {section.items.map((item, index) => (
                         <div
                           key={`${section.title}-${index}-${item}`}
-                          className="rounded-[1.2rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-relaxed text-white/88"
+                          className="theme-recipe-detail-copy rounded-[1.2rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-relaxed text-white/88"
                         >
                           <span className="mr-2 text-cyan-200">{index + 1}.</span>
                           {item}
@@ -403,7 +403,7 @@ export function MealRevealCard({
                             "rounded-full px-3 py-1.5 text-xs font-semibold",
                             section.tone === "have" && "border border-emerald-200/20 bg-emerald-300/14 text-emerald-50",
                             section.tone === "need" && "border border-amber-200/18 bg-amber-200/14 text-amber-50",
-                            !section.tone && "border border-white/10 bg-white/[0.05] text-white/88"
+                            !section.tone && "theme-recipe-chip border border-white/10 bg-white/[0.05] text-white/88"
                           )}
                         >
                           {item}
@@ -492,7 +492,7 @@ function RecipeFrontFace({
             href="https://www.pexels.com"
             target="_blank"
             rel="noreferrer"
-            className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+            className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
           >
             {formatImageSourceLabel(resolvedSource)}
           </a>
@@ -501,19 +501,19 @@ function RecipeFrontFace({
             href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
             target="_blank"
             rel="noreferrer"
-            className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+            className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
           >
             {formatImageSourceLabel(resolvedSource)}
           </a>
         ) : (
-          <div className="absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md">
+          <div className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md">
             {formatImageSourceLabel(resolvedSource)}
           </div>
         )
       ) : null}
 
       {visualMatchLabel ? (
-        <div className="absolute right-4 top-4 max-w-[11rem] rounded-full border border-cyan-200/35 bg-cyan-300/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#06201b] shadow-[0_12px_30px_rgba(60,255,230,0.2)] backdrop-blur-md">
+          <div className="theme-recipe-match-pill absolute right-4 top-4 max-w-[11rem] rounded-full border border-cyan-200/35 bg-cyan-300/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#06201b] shadow-[0_12px_30px_rgba(60,255,230,0.2)] backdrop-blur-md">
           {visualMatchLabel}
         </div>
       ) : null}
@@ -527,13 +527,13 @@ function RecipeFrontFace({
         </div>
       ) : null}
 
-      <div className="absolute inset-x-0 bottom-0 space-y-4 p-5 text-white">
+      <div className="theme-recipe-front absolute inset-x-0 bottom-0 space-y-4 p-5 text-white">
         <div className="space-y-2">
           {eyebrow ? (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100/82">{eyebrow}</p>
+            <p className="theme-recipe-front-eyebrow text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100/82">{eyebrow}</p>
           ) : null}
-          <h3 className="text-2xl font-display font-bold leading-tight drop-shadow-sm">{name}</h3>
-          {summary ? <p className="max-w-xl text-sm leading-relaxed text-white/74">{summary}</p> : null}
+          <h3 className="theme-recipe-front-title text-2xl font-display font-bold leading-tight drop-shadow-sm">{name}</h3>
+          {summary ? <p className="theme-recipe-front-summary max-w-xl text-sm leading-relaxed text-white/74">{summary}</p> : null}
         </div>
 
         {headlineStats.length ? (
@@ -541,16 +541,16 @@ function RecipeFrontFace({
             {headlineStats.map((stat) => (
               <div
                 key={`headline-${stat.label}-${stat.value}`}
-                className="inline-flex items-baseline gap-1 rounded-full border border-white/10 bg-white/12 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
+                className="theme-recipe-front-stat inline-flex items-baseline gap-1 rounded-full border border-white/10 bg-white/12 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
               >
-                <span className="text-white">{stat.value}</span>
-                <span className="text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
+                <span className="theme-recipe-front-stat-value text-white">{stat.value}</span>
+                <span className="theme-recipe-front-stat-label text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
               </div>
             ))}
           </div>
         ) : null}
 
-        <div className="inline-flex items-center rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80 backdrop-blur-md">
+        <div className="theme-recipe-front-badge inline-flex items-center rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80 backdrop-blur-md">
           {t("hoverPreview")}
         </div>
       </div>
@@ -576,7 +576,7 @@ function RecipeBackFace({
   const { t } = useApp();
 
   return (
-    <div className="relative flex h-full flex-col justify-between overflow-y-auto bg-[linear-gradient(180deg,#081d19_0%,#071310_55%,#061a25_100%)] p-5 text-white scrollbar-hidden">
+    <div className="theme-recipe-back relative flex h-full flex-col justify-between overflow-y-auto bg-[linear-gradient(180deg,#081d19_0%,#071310_55%,#061a25_100%)] p-5 text-white scrollbar-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(84,255,209,0.2),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(102,196,255,0.18),transparent_26%)]" />
 
       <div className="relative z-10 space-y-4">
@@ -616,7 +616,7 @@ function RecipeBackFace({
             event.stopPropagation();
             onToggleOpen();
           }}
-          className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.09] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.14]"
+          className="focus-ring theme-recipe-cta inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.09] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.14]"
         >
           <Plus className={cn("h-4 w-4 transition-transform", isOpen && "rotate-45")} />
           {isOpen ? t("hideRecipe") : t("showRecipe")}

@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import type { HealthProfile, Language, UserSettings } from "@/lib/types";
+import type { DashboardTheme, HealthProfile, Language, UserSettings } from "@/lib/types";
 import {
   getStoredOrDetectedPilotLanguage,
   normalizePilotLanguage,
@@ -20,13 +20,18 @@ const DEFAULT_SETTINGS: UserSettings = {
   maxMissingIngredients: 2,
   recipeCount: 5,
   recipeLanguage: "English",
-  uiLanguage: "en"
+  uiLanguage: "en",
+  themeMode: "auroraDark",
+  targetWeightKg: null,
+  goalTimelineMonths: null
 };
 
 const DEFAULT_HEALTH: HealthProfile = {
   diets: [],
   conditions: [],
-  allergens: []
+  allergens: [],
+  weightKg: null,
+  heightCm: null
 };
 
 interface AppContextValue {
@@ -84,18 +89,52 @@ function normalizeSettings(
   fallbackLanguage: Language = "en"
 ): Partial<UserSettings> {
   const uiLanguage = normalizePilotLanguage(raw?.uiLanguage, fallbackLanguage);
+  const themeMode = normalizeThemeMode(raw?.themeMode);
   const recipeCount = Number.isFinite(raw?.recipeCount)
     ? Math.min(10, Math.max(1, Number(raw?.recipeCount)))
     : DEFAULT_SETTINGS.recipeCount;
+  const targetWeightKg =
+    typeof raw?.targetWeightKg === "number" && Number.isFinite(raw.targetWeightKg) && raw.targetWeightKg > 0
+      ? Math.round(raw.targetWeightKg * 10) / 10
+      : null;
+  const goalTimelineMonths =
+    typeof raw?.goalTimelineMonths === "number" &&
+    Number.isFinite(raw.goalTimelineMonths) &&
+    raw.goalTimelineMonths > 0
+      ? Math.min(24, Math.max(1, Math.round(raw.goalTimelineMonths)))
+      : null;
+
   return {
     ...raw,
     recipeCount,
+    themeMode,
+    targetWeightKg,
+    goalTimelineMonths,
     uiLanguage,
     recipeLanguage: resolveRecipeLanguageForUiLanguage(
       uiLanguage,
       raw?.recipeLanguage,
       recipeLanguageFromUiLanguage(uiLanguage)
     )
+  };
+}
+
+function normalizeThemeMode(value: unknown): DashboardTheme {
+  return value === "mintWhite" ? "mintWhite" : "auroraDark";
+}
+
+function normalizeMetric(value: unknown, max: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return Math.min(max, Math.round(value * 10) / 10);
+}
+
+function normalizeHealth(raw: Partial<HealthProfile> | undefined): HealthProfile {
+  return {
+    diets: Array.isArray(raw?.diets) ? raw.diets : [],
+    conditions: Array.isArray(raw?.conditions) ? raw.conditions : [],
+    allergens: Array.isArray(raw?.allergens) ? raw.allergens : [],
+    weightKg: normalizeMetric(raw?.weightKg, 400),
+    heightCm: normalizeMetric(raw?.heightCm, 260)
   };
 }
 
@@ -135,15 +174,7 @@ export function AppProvider({ children }: AppProviderProps) {
       }
 
       if (healthSnap.exists()) {
-        const data = healthSnap.data() as Partial<HealthProfile>;
-        dispatch({
-          type: "health/set",
-          payload: {
-            diets: Array.isArray(data.diets) ? data.diets : [],
-            conditions: Array.isArray(data.conditions) ? data.conditions : [],
-            allergens: Array.isArray(data.allergens) ? data.allergens : []
-          }
-        });
+        dispatch({ type: "health/set", payload: normalizeHealth(healthSnap.data() as Partial<HealthProfile>) });
       } else {
         dispatch({ type: "health/set", payload: DEFAULT_HEALTH });
       }
@@ -194,11 +225,13 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const saveHealth = useCallback(
     async (next: Partial<HealthProfile>) => {
-      const merged: HealthProfile = {
+      const merged = normalizeHealth({
         diets: next.diets ?? health.diets,
         conditions: next.conditions ?? health.conditions,
-        allergens: next.allergens ?? health.allergens ?? []
-      };
+        allergens: next.allergens ?? health.allergens ?? [],
+        weightKg: next.weightKg ?? health.weightKg ?? null,
+        heightCm: next.heightCm ?? health.heightCm ?? null
+      });
       dispatch({ type: "health/set", payload: merged });
       if (!user) return;
       try {

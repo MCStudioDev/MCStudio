@@ -2,6 +2,7 @@ export type Tab = "scanner" | "pantry" | "mealplan" | "health" | "history" | "se
 
 export type Language = "en" | "ar";
 export type RecipeImageSource = "api" | "cache" | "search" | "unsplash" | "wikimedia";
+export type DashboardTheme = "auroraDark" | "mintWhite";
 
 export interface PantryItem {
   id?: string;
@@ -91,6 +92,8 @@ export interface HealthProfile {
   diets: string[];
   conditions: string[];
   allergens?: string[];
+  weightKg?: number | null;
+  heightCm?: number | null;
 }
 
 export interface UserSettings {
@@ -100,4 +103,7 @@ export interface UserSettings {
   recipeCount: number;
   recipeLanguage: string;
   uiLanguage: Language;
+  themeMode?: DashboardTheme;
+  targetWeightKg?: number | null;
+  goalTimelineMonths?: number | null;
 }

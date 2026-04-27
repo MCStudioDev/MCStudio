@@ -289,8 +289,15 @@ function translateUnitText(value: string) {
     .replace(/\bfillet\b/g, "شريحة");
 }
 
+function coerceTextValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (value == null) return "";
+  return String(value);
+}
+
 function translateCookTimeToArabic(value: string) {
-  return value
+  return coerceTextValue(value)
     .replace(/\bmins\b/gi, "Ø¯Ù‚Ø§Ø¦Ù‚")
     .replace(/\bmin\b/gi, "Ø¯Ù‚ÙŠÙ‚Ø©")
     .replace(/\bhours\b/gi, "Ø³Ø§Ø¹Ø§Øª")
@@ -298,7 +305,7 @@ function translateCookTimeToArabic(value: string) {
 }
 
 function translateCookTimeToEnglish(value: string) {
-  return value
+  return coerceTextValue(value)
     .replace(new RegExp(escapeRegExp(translateCookTimeToArabic("mins")), "g"), "mins")
     .replace(new RegExp(escapeRegExp(translateCookTimeToArabic("min")), "g"), "min")
     .replace(new RegExp(escapeRegExp(translateCookTimeToArabic("hours")), "g"), "hours")
@@ -306,14 +313,14 @@ function translateCookTimeToEnglish(value: string) {
 }
 
 function translateDifficultyToArabic(value: string) {
-  return value
+  return coerceTextValue(value)
     .replace(/\beasy\b/gi, "Ø³Ù‡Ù„")
     .replace(/\bmedium\b/gi, "Ù…ØªÙˆØ³Ø·")
     .replace(/\bhard\b/gi, "ØµØ¹Ø¨");
 }
 
 function translateDifficultyToEnglish(value: string) {
-  return value
+  return coerceTextValue(value)
     .replace(new RegExp(escapeRegExp(translateDifficultyToArabic("Easy")), "g"), "Easy")
     .replace(new RegExp(escapeRegExp(translateDifficultyToArabic("Medium")), "g"), "Medium")
     .replace(new RegExp(escapeRegExp(translateDifficultyToArabic("Hard")), "g"), "Hard");

@@ -84,49 +84,61 @@ export function ScannerTab() {
 
       setRecipes(seeded);
 
-      const resolved = await Promise.all(
-        seeded.map(async (recipe, index) => {
-          if (index >= 2) {
-            return { ...recipe, image_loading: false, image_error: false };
-          }
-
-          if (hasRenderableImage(recipe.image_url)) {
-            return recipe;
-          }
-
-          try {
-            const authHeaders = await getAuthHeaders();
-            const response = await fetch(buildRecipePhotoRequestUrl(buildRecipePhotoQuery(recipe)), {
-              headers: authHeaders
-            });
-            const data = (await response.json()) as {
-              imageAttributionName?: string;
-              imageAttributionUrl?: string;
-              imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
-              imageUrl?: string;
-              fallbackNotice?: string;
-              source?: string;
-            };
-            await refreshAccess();
-
-            if (!response.ok || !data.imageUrl) {
-              return { ...recipe, image_loading: false, image_error: true };
-            }
-
-            return {
-              ...recipe,
-              image_attribution_name: data.imageAttributionName,
-              image_attribution_url: data.imageAttributionUrl,
-              image_source: data.imageSource,
-              image_url: data.imageUrl,
-              image_loading: false,
-              image_error: false
-            };
-          } catch {
-            return { ...recipe, image_loading: false, image_error: true };
-          }
-        })
+      const usedImageUrls = new Set(
+        seeded
+          .map((recipe) => recipe.image_url)
+          .filter((imageUrl): imageUrl is string => hasRenderableImage(imageUrl))
       );
+      const resolved: Recipe[] = [];
+
+      for (const [index, recipe] of seeded.entries()) {
+        if (index >= 2) {
+          resolved.push({ ...recipe, image_loading: false, image_error: false });
+          continue;
+        }
+
+        if (hasRenderableImage(recipe.image_url)) {
+          resolved.push(recipe);
+          continue;
+        }
+
+        try {
+          const authHeaders = await getAuthHeaders();
+          const response = await fetch(
+            buildRecipePhotoRequestUrl(buildRecipePhotoQuery(recipe), Array.from(usedImageUrls)),
+            {
+              headers: authHeaders
+            }
+          );
+          const data = (await response.json()) as {
+            imageAttributionName?: string;
+            imageAttributionUrl?: string;
+            imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+            imageUrl?: string;
+            fallbackNotice?: string;
+            source?: string;
+          };
+          await refreshAccess();
+
+          if (!response.ok || !data.imageUrl) {
+            resolved.push({ ...recipe, image_loading: false, image_error: true });
+            continue;
+          }
+
+          usedImageUrls.add(data.imageUrl);
+          resolved.push({
+            ...recipe,
+            image_attribution_name: data.imageAttributionName,
+            image_attribution_url: data.imageAttributionUrl,
+            image_source: data.imageSource,
+            image_url: data.imageUrl,
+            image_loading: false,
+            image_error: false
+          });
+        } catch {
+          resolved.push({ ...recipe, image_loading: false, image_error: true });
+        }
+      }
 
       if (historyEntryId) {
         await replaceEntryRecipes(historyEntryId, resolved);
@@ -553,7 +565,7 @@ function buildRecipePhotoQuery(recipe: Recipe) {
   });
 }
 
-function buildRecipePhotoRequestUrl(queries: string[]) {
+function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = []) {
   const params = new URLSearchParams();
   queries.slice(0, 5).forEach((query, index) => {
     if (index === 0) {
@@ -562,6 +574,7 @@ function buildRecipePhotoRequestUrl(queries: string[]) {
       params.append("alt", query);
     }
   });
+  excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
 }

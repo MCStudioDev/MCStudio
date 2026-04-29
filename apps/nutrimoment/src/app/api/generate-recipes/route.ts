@@ -25,6 +25,7 @@ import {
 } from "@/lib/recipeDishIntelligence";
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
+import { getKnownDishRecipePhoto } from "@/lib/freeRecipePhotos";
 import { isArabicRecipeLanguage, localizeRecipeForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizeRecipeLanguage } from "@/lib/language";
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
@@ -808,23 +809,34 @@ function normalizeIngredientForStrictMatch(value: string) {
 }
 
 async function applyImageFirstRecipeRanking(recipes: Recipe[], availableIngredientCount = 0) {
-  const scoredRecipes = await Promise.all(
-    recipes.map(async (recipe, index) => {
-      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe);
-      const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
-      const weightedPhotoFitScore = resolvedPhoto.photoFitScore * sparsePantryBonus;
+  const usedImageUrls = new Set<string>();
+  const scoredRecipes: Array<{
+    index: number;
+    photoFitScore: number;
+    rawPhotoFitScore: number;
+    recipe: Recipe;
+  }> = [];
 
-      return {
-        index,
-        photoFitScore: weightedPhotoFitScore,
-        rawPhotoFitScore: resolvedPhoto.photoFitScore,
-        recipe: {
-          ...recipe,
-          ...(resolvedPhoto.recipePatch ?? {})
-        }
-      };
-    })
-  );
+  for (const [index, recipe] of recipes.entries()) {
+    const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls);
+    const nextRecipe = {
+      ...recipe,
+      ...(resolvedPhoto.recipePatch ?? {})
+    };
+    const nextImageUrl = nextRecipe.image_url;
+    if (nextImageUrl) {
+      usedImageUrls.add(nextImageUrl);
+    }
+    const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
+    const weightedPhotoFitScore = resolvedPhoto.photoFitScore * sparsePantryBonus;
+
+    scoredRecipes.push({
+      index,
+      photoFitScore: weightedPhotoFitScore,
+      rawPhotoFitScore: resolvedPhoto.photoFitScore,
+      recipe: nextRecipe
+    });
+  }
 
   const sortedRecipes = scoredRecipes
     .sort((left, right) => right.photoFitScore - left.photoFitScore || left.index - right.index)
@@ -839,8 +851,8 @@ async function applyImageFirstRecipeRanking(recipes: Recipe[], availableIngredie
   return sortedRecipes.map(({ recipe }) => recipe);
 }
 
-async function resolveRecipePhotoCandidate(recipe: Recipe) {
-  if (recipe.image_url) {
+async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<string> = new Set()) {
+  if (recipe.image_url && !excludedUrls.has(recipe.image_url)) {
     return {
       photoFitScore: 100,
       recipePatch: null as Partial<Recipe> | null
@@ -852,8 +864,17 @@ async function resolveRecipePhotoCandidate(recipe: Recipe) {
   let recipePatch: Partial<Recipe> | null = null;
 
   for (const query of queries) {
+    const knownDishPhoto = getKnownDishRecipePhoto(query);
+    if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl) && 18 > bestScore) {
+      bestScore = 18;
+      recipePatch = {
+        image_source: "wikimedia",
+        image_url: knownDishPhoto.imageUrl
+      };
+    }
+
     if (isUnsplashRecipePhotoSearchConfigured()) {
-      const unsplash = await findUnsplashRecipePhoto(query);
+      const unsplash = await findUnsplashRecipePhoto(query, { excludeUrls });
       if (unsplash) {
         const score = unsplash.score + 2;
         if (score > bestScore) {
@@ -868,8 +889,8 @@ async function resolveRecipePhotoCandidate(recipe: Recipe) {
       }
     }
 
-    if (bestScore < 1 && isPexelsRecipePhotoSearchConfigured()) {
-      const pexels = await findPexelsRecipePhoto(query);
+    if (isPexelsRecipePhotoSearchConfigured()) {
+      const pexels = await findPexelsRecipePhoto(query, { excludeUrls });
       if (pexels) {
         if (pexels.score > bestScore) {
           bestScore = pexels.score;

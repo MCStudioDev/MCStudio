@@ -84,6 +84,22 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "koshary"
   },
   {
+    aliases: [/\b(roz bel ads|ruz bel ads|rice with lentils|lentils and rice)\b/i],
+    canonicalName: "mujadara",
+    cuisineKey: "middle-eastern",
+    imageUrl:
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Mujaddara.jpg/960px-Mujaddara.jpg",
+    key: "mujadara"
+  },
+  {
+    aliases: [/\b(macarona bel ads|macarona bel adas|pasta and lentils)\b/i],
+    canonicalName: "koshary",
+    cuisineKey: "egyptian",
+    imageUrl:
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
+    key: "koshary"
+  },
+  {
     aliases: [/\b(ful|medames)\b/i, /\bfava bean/i, new RegExp(ARABIC.fava, "iu")],
     canonicalName: "ful medames",
     cuisineKey: "egyptian",
@@ -260,7 +276,8 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
       beanTypeKey,
       cuisineKey,
       mainIngredientKey,
-      mealTypeKey
+      mealTypeKey,
+      starchKey
     });
   const coreTokens = getCoreTokens(cleanQuery, knownDish?.canonicalName);
   const searchQueries = buildSearchQueries(cleanQuery, {
@@ -375,6 +392,7 @@ function detectRecipePhotoFamily(
     cuisineKey?: string;
     mainIngredientKey?: string;
     mealTypeKey?: string;
+    starchKey?: string;
   }
 ) {
   if (details.mealTypeKey === "shakshuka") return "shakshuka";
@@ -401,6 +419,19 @@ function detectRecipePhotoFamily(
     return "fish-rice-pilaf";
   }
   if (details.mealTypeKey === "pilaf") return "rice-pilaf";
+  if (
+    details.mainIngredientKey === "lentil" &&
+    details.mealTypeKey === "pasta" &&
+    (details.cuisineKey === "egyptian" || /\b(macarona bel ads|pasta and lentils)\b/iu.test(cleanQuery))
+  ) {
+    return "koshary";
+  }
+  if (
+    details.mainIngredientKey === "lentil" &&
+    (details.starchKey === "rice" || details.mealTypeKey === "pilaf" || /\b(rice with lentils|lentils and rice|roz bel ads)\b/iu.test(cleanQuery))
+  ) {
+    return "mujadara";
+  }
   if (details.mainIngredientKey === "tuna" && details.mealTypeKey === "salad") return "tuna-rice-salad";
   if (details.mainIngredientKey === "chicken" && details.mealTypeKey === "salad") {
     return "chicken-rice-salad";
@@ -524,6 +555,10 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("chicken rice salad"), withCuisine("salad with rice"), withCuisine("chicken salad")];
     case "shakshuka":
       return [withCuisine("shakshuka")];
+    case "mujadara":
+      return [withCuisine("mujadara"), withCuisine("lentils and rice"), withCuisine("roz bel ads")];
+    case "koshary":
+      return [withCuisine("koshary"), withCuisine("egyptian pasta lentils"), withCuisine("macarona bel ads")];
     case "besara":
       return [withCuisine("besara"), withCuisine("fava bean soup")];
     case "balila":

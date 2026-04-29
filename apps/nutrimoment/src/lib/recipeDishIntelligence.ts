@@ -26,6 +26,7 @@ export interface DishCandidate {
   excludeKeywords: string[];
   hits: string[];
   mealType: RecipeMealType;
+  seasoningProfile?: string[];
   searchPhrases?: string[];
   score: number;
   supportMatchCount: number;
@@ -42,6 +43,7 @@ interface DishBlueprint {
   ingredientAnchors: string[];
   mealType: RecipeMealType;
   popularity: number;
+  seasoningProfile?: string[];
   searchPhrases?: string[];
   supportAnchors?: string[];
   visualKeywords: string[];
@@ -63,11 +65,12 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     mealType: "dinner",
     cookingMethod: "baked",
     ingredientAnchors: ["ground meat", "bread", "pita"],
-    supportAnchors: ["onion", "garlic", "parsley", "tomato"],
+    supportAnchors: ["onion", "garlic", "parsley", "tomato", "cumin", "coriander", "allspice"],
     visualKeywords: ["stuffed bread", "meat filled pita", "baked bread wedges"],
     excludeKeywords: ["dessert", "burger", "cookie"],
     healthStyles: ["comfort", "protein-forward"],
     popularity: 98,
+    seasoningProfile: ["cumin", "coriander", "allspice", "black pepper", "parsley"],
     searchPhrases: ["hawawshi egyptian food", "hawawshi stuffed bread", "egyptian meat stuffed pita"]
   },
   {
@@ -90,12 +93,13 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     mealType: "dinner",
     cookingMethod: "grilled",
     ingredientAnchors: ["ground meat"],
-    supportAnchors: ["onion", "parsley", "garlic", "cilantro", "rice", "tomato"],
+    supportAnchors: ["onion", "parsley", "garlic", "cilantro", "rice", "tomato", "cumin", "coriander", "sumac"],
     visualKeywords: ["grilled kofta skewers", "kofta platter", "charred minced meat kebabs"],
     excludeKeywords: ["dessert", "meatballs pasta"],
     healthStyles: ["lighter", "protein-forward"],
     dietTags: ["high-protein", "low-carb"],
     popularity: 97,
+    seasoningProfile: ["cumin", "coriander", "sumac", "parsley", "garlic"],
     searchPhrases: ["egyptian kofta grilled platter", "kofta kebab egyptian", "grilled kofta plate"]
   },
   {
@@ -104,11 +108,12 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     mealType: "dinner",
     cookingMethod: "baked",
     ingredientAnchors: ["ground meat", "pasta"],
-    supportAnchors: ["milk", "butter", "flour", "onion", "tomato sauce"],
+    supportAnchors: ["milk", "butter", "flour", "onion", "tomato sauce", "allspice", "nutmeg", "black pepper"],
     visualKeywords: ["baked pasta squares", "golden bechamel crust", "layered meat pasta bake"],
     excludeKeywords: ["lasagna", "dessert"],
     healthStyles: ["comfort"],
     popularity: 95,
+    seasoningProfile: ["black pepper", "allspice", "nutmeg", "onion", "tomato sauce"],
     searchPhrases: ["macarona bechamel egyptian pasta bake", "egyptian bechamel pasta", "baked macarona bechamel"]
   },
   {
@@ -117,11 +122,12 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     mealType: "dinner",
     cookingMethod: "baked",
     ingredientAnchors: ["ground meat", "bell pepper"],
-    supportAnchors: ["rice", "tomato", "onion", "parsley"],
+    supportAnchors: ["rice", "tomato", "onion", "parsley", "cinnamon", "cumin"],
     visualKeywords: ["stuffed bell peppers", "baked peppers with rice", "tomato baked mahshi"],
     excludeKeywords: ["salad", "dessert"],
     healthStyles: ["balanced"],
     popularity: 90,
+    seasoningProfile: ["cinnamon", "cumin", "parsley", "black pepper", "tomato"],
     searchPhrases: ["mahshi bell peppers egyptian", "egyptian stuffed peppers", "stuffed peppers with meat"]
   },
   {
@@ -130,11 +136,12 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     mealType: "dinner",
     cookingMethod: "baked",
     ingredientAnchors: ["ground meat", "eggplant"],
-    supportAnchors: ["tomato", "onion", "garlic"],
+    supportAnchors: ["tomato", "onion", "garlic", "cumin", "cinnamon"],
     visualKeywords: ["layered eggplant bake", "tomato eggplant casserole", "baked moussaka tray"],
     excludeKeywords: ["greek salad", "dessert"],
     healthStyles: ["balanced"],
     popularity: 91,
+    seasoningProfile: ["cumin", "cinnamon", "garlic", "black pepper", "tomato"],
     searchPhrases: ["egyptian moussaka", "eggplant meat tomato bake", "egyptian baked eggplant"]
   },
   {
@@ -208,6 +215,21 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     searchPhrases: ["egyptian lentil soup", "red lentil soup bowl", "middle eastern lentil soup"]
   },
   {
+    dishName: "Sayadeya",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["fish", "rice"],
+    supportAnchors: ["onion", "tomato", "garlic", "cumin", "coriander"],
+    visualKeywords: ["egyptian fish rice", "sayadeya fish plate", "spiced fish with rice"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 87,
+    seasoningProfile: ["cumin", "coriander", "garlic", "onion", "lemon"],
+    searchPhrases: ["sayadeya egyptian fish rice", "egyptian fish rice", "spiced fish rice plate"]
+  },
+  {
     dishName: "Pasta al Pomodoro",
     cuisine: "Italian",
     mealType: "dinner",
@@ -260,6 +282,21 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     popularity: 78
   },
   {
+    dishName: "Shrimp Linguine",
+    cuisine: "Italian",
+    mealType: "dinner",
+    cookingMethod: "pan-seared",
+    ingredientAnchors: ["shrimp", "pasta"],
+    supportAnchors: ["garlic", "lemon", "parsley", "olive oil"],
+    visualKeywords: ["shrimp linguine", "garlic shrimp spaghetti", "italian shrimp pasta"],
+    excludeKeywords: ["dessert", "beef", "fried chicken"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 83,
+    seasoningProfile: ["garlic", "lemon zest", "parsley", "black pepper", "olive oil"],
+    searchPhrases: ["shrimp linguine", "garlic shrimp spaghetti", "italian shrimp pasta"]
+  },
+  {
     dishName: "Minestrone",
     cuisine: "Italian",
     mealType: "lunch",
@@ -291,12 +328,13 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     mealType: "dinner",
     cookingMethod: "grilled",
     ingredientAnchors: ["ground meat"],
-    supportAnchors: ["parsley", "onion", "garlic"],
+    supportAnchors: ["parsley", "onion", "garlic", "cumin", "allspice", "sumac"],
     visualKeywords: ["grilled kofta skewers", "middle eastern kebab plate", "charred minced meat kebabs"],
     excludeKeywords: ["dessert", "meatballs pasta"],
     healthStyles: ["lighter", "protein-forward"],
     dietTags: ["high-protein", "low-carb"],
-    popularity: 90
+    popularity: 90,
+    seasoningProfile: ["cumin", "allspice", "sumac", "parsley", "garlic"]
   },
   {
     dishName: "Shawarma Plate",
@@ -363,6 +401,21 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     popularity: 80
   },
   {
+    dishName: "Garlic Shrimp Pasta",
+    cuisine: "Mediterranean",
+    mealType: "dinner",
+    cookingMethod: "pan-seared",
+    ingredientAnchors: ["shrimp", "pasta"],
+    supportAnchors: ["garlic", "olive oil", "lemon", "parsley"],
+    visualKeywords: ["shrimp linguine", "garlic shrimp pasta", "lemon shrimp spaghetti"],
+    excludeKeywords: ["dessert", "beef", "fried chicken"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 84,
+    seasoningProfile: ["garlic", "lemon zest", "parsley", "black pepper", "olive oil"],
+    searchPhrases: ["shrimp linguine mediterranean", "garlic shrimp pasta", "lemon shrimp spaghetti"]
+  },
+  {
     dishName: "Dal Tadka",
     cuisine: "Indian",
     mealType: "dinner",
@@ -394,12 +447,102 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     mealType: "dinner",
     cookingMethod: "simmered",
     ingredientAnchors: ["ground meat"],
-    supportAnchors: ["pea", "tomato", "onion", "garlic", "ginger"],
+    supportAnchors: ["pea", "tomato", "onion", "garlic", "ginger", "garam masala", "cumin", "turmeric"],
     visualKeywords: ["spiced minced meat curry", "keema bowl", "ground meat masala"],
     excludeKeywords: ["dessert", "burger"],
     healthStyles: ["protein-forward"],
     dietTags: ["high-protein", "low-carb"],
-    popularity: 85
+    popularity: 85,
+    seasoningProfile: ["garam masala", "cumin", "turmeric", "ginger", "cilantro"]
+  },
+  {
+    dishName: "Fish Curry",
+    cuisine: "Indian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["tomato", "onion", "garlic", "ginger", "turmeric", "cumin"],
+    visualKeywords: ["indian fish curry", "fish curry rice", "spiced fish gravy"],
+    excludeKeywords: ["dessert", "pasta", "cream pasta"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 82,
+    seasoningProfile: ["turmeric", "cumin", "coriander", "ginger", "cilantro"],
+    searchPhrases: ["indian fish curry", "fish curry with rice", "spiced fish gravy"]
+  },
+  {
+    dishName: "Turkish Kofte",
+    cuisine: "Turkish",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["onion", "garlic", "parsley", "bread crumb", "sumac", "cumin"],
+    visualKeywords: ["turkish kofte meatballs", "grilled kofte platter", "turkish meatball kebabs"],
+    excludeKeywords: ["dessert", "meatballs pasta"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein", "low-carb"],
+    popularity: 91,
+    seasoningProfile: ["cumin", "sumac", "paprika", "aleppo pepper", "parsley"],
+    searchPhrases: ["turkish kofte", "izgara kofte", "turkish meatballs platter"]
+  },
+  {
+    dishName: "Karniyarik",
+    cuisine: "Turkish",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["eggplant", "ground meat"],
+    supportAnchors: ["tomato", "onion", "garlic", "parsley", "cumin"],
+    visualKeywords: ["stuffed eggplant halves", "turkish eggplant meat bake", "karniyarik tray"],
+    excludeKeywords: ["dessert", "salad"],
+    healthStyles: ["balanced"],
+    popularity: 84,
+    seasoningProfile: ["cumin", "paprika", "parsley", "black pepper", "tomato paste"],
+    searchPhrases: ["karniyarik turkish food", "turkish stuffed eggplant", "eggplant minced meat bake"]
+  },
+  {
+    dishName: "Adana Kebab",
+    cuisine: "Turkish",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["pepper paste", "paprika", "onion", "parsley", "cumin"],
+    visualKeywords: ["adana kebab skewers", "turkish minced meat kebab", "grilled kebab platter"],
+    excludeKeywords: ["dessert", "burger"],
+    healthStyles: ["protein-forward"],
+    dietTags: ["high-protein", "low-carb"],
+    popularity: 88,
+    seasoningProfile: ["paprika", "aleppo pepper", "cumin", "sumac", "parsley"],
+    searchPhrases: ["adana kebab", "turkish kebab skewers", "spicy minced meat kebab"]
+  },
+  {
+    dishName: "Menemen",
+    cuisine: "Turkish",
+    mealType: "breakfast",
+    cookingMethod: "skillet",
+    ingredientAnchors: ["egg", "tomato"],
+    supportAnchors: ["bell pepper", "onion", "butter", "aleppo pepper"],
+    visualKeywords: ["menemen pan", "turkish tomato eggs", "soft scrambled eggs with tomato"],
+    excludeKeywords: ["dessert", "pancake"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["vegetarian", "high-protein"],
+    popularity: 87,
+    seasoningProfile: ["aleppo pepper", "black pepper", "butter", "tomato", "parsley"],
+    searchPhrases: ["menemen turkish breakfast", "turkish tomato eggs", "menemen skillet"]
+  },
+  {
+    dishName: "Balik Ekmek",
+    cuisine: "Turkish",
+    mealType: "lunch",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["fish", "bread"],
+    supportAnchors: ["onion", "lemon", "parsley", "tomato"],
+    visualKeywords: ["turkish fish sandwich", "balik ekmek", "grilled fish in bread"],
+    excludeKeywords: ["dessert", "burger beef", "pasta"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 80,
+    seasoningProfile: ["lemon", "parsley", "sumac", "black pepper", "olive oil"],
+    searchPhrases: ["balik ekmek", "turkish fish sandwich", "grilled fish in bread"]
   },
   {
     dishName: "Masala Omelette",
@@ -449,6 +592,21 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     excludeKeywords: ["dessert", "pasta"],
     healthStyles: ["balanced", "protein-forward"],
     popularity: 81
+  },
+  {
+    dishName: "Camarones al Ajo",
+    cuisine: "Mexican",
+    mealType: "dinner",
+    cookingMethod: "pan-seared",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["garlic", "lime", "butter", "rice", "cilantro"],
+    visualKeywords: ["garlic shrimp plate", "mexican garlic shrimp", "shrimp rice platter"],
+    excludeKeywords: ["dessert", "pasta alfredo"],
+    healthStyles: ["protein-forward", "balanced"],
+    dietTags: ["high-protein", "gluten-free"],
+    popularity: 79,
+    seasoningProfile: ["garlic", "lime", "cilantro", "paprika", "butter"],
+    searchPhrases: ["camarones al ajo", "mexican garlic shrimp", "garlic shrimp rice plate"]
   },
   {
     dishName: "Breakfast Hash",
@@ -511,6 +669,21 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     popularity: 83
   },
   {
+    dishName: "Garlic Honey Shrimp",
+    cuisine: "Asian",
+    mealType: "dinner",
+    cookingMethod: "stir-fried",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["garlic", "honey", "soy sauce", "rice"],
+    visualKeywords: ["garlic honey shrimp", "sticky shrimp rice", "asian glazed shrimp plate"],
+    excludeKeywords: ["dessert", "pasta", "beef stew"],
+    healthStyles: ["protein-forward", "balanced"],
+    dietTags: ["high-protein"],
+    popularity: 85,
+    seasoningProfile: ["garlic", "soy sauce", "honey", "ginger", "scallion"],
+    searchPhrases: ["garlic honey shrimp", "asian glazed shrimp", "shrimp rice plate"]
+  },
+  {
     dishName: "Teriyaki Chicken",
     cuisine: "Asian",
     mealType: "dinner",
@@ -560,6 +733,36 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     excludeKeywords: ["dessert", "soup"],
     healthStyles: ["balanced"],
     popularity: 80
+  },
+  {
+    dishName: "Tom Yum Shrimp",
+    cuisine: "Thai",
+    mealType: "lunch",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["lemongrass", "lime", "chili", "fish sauce", "mushroom"],
+    visualKeywords: ["tom yum shrimp soup", "thai shrimp soup", "hot sour shrimp broth"],
+    excludeKeywords: ["dessert", "cream pasta"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["gluten-free", "high-protein"],
+    popularity: 86,
+    seasoningProfile: ["lemongrass", "lime", "fish sauce", "chili", "cilantro"],
+    searchPhrases: ["tom yum goong", "thai shrimp soup", "hot sour shrimp broth"]
+  },
+  {
+    dishName: "Thai Garlic Shrimp",
+    cuisine: "Thai",
+    mealType: "dinner",
+    cookingMethod: "stir-fried",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["garlic", "rice", "fish sauce", "pepper", "cilantro"],
+    visualKeywords: ["thai garlic shrimp", "garlic shrimp rice plate", "stir fried shrimp with rice"],
+    excludeKeywords: ["dessert", "pasta", "beef stew"],
+    healthStyles: ["protein-forward", "balanced"],
+    dietTags: ["gluten-free", "high-protein"],
+    popularity: 81,
+    seasoningProfile: ["garlic", "white pepper", "fish sauce", "cilantro", "lime"],
+    searchPhrases: ["thai garlic shrimp", "garlic shrimp with rice", "stir fried shrimp thai"]
   }
 ];
 
@@ -585,7 +788,7 @@ export function buildDishCandidatePromptSummary(candidates: DishCandidate[]) {
     .slice(0, 10)
     .map(
       (candidate, index) =>
-        `${index + 1}. ${candidate.dishName} (${candidate.cuisine}; ${candidate.mealType}; ${candidate.cookingMethod}; signals: ${candidate.hits.join(", ")})`
+        `${index + 1}. ${candidate.dishName} (${candidate.cuisine}; ${candidate.mealType}; ${candidate.cookingMethod}; seasonings: ${(candidate.seasoningProfile ?? []).slice(0, 5).join(", ") || "none"}; signals: ${candidate.hits.join(", ")})`
     )
     .join(" | ");
 }
@@ -701,6 +904,7 @@ function scoreDishBlueprint(
     excludeKeywords: dish.excludeKeywords,
     hits: uniqueKeywords(hits).slice(0, 5),
     mealType: dish.mealType,
+    seasoningProfile: dish.seasoningProfile,
     searchPhrases: dish.searchPhrases,
     score,
     supportMatchCount: supportMatches,
@@ -849,7 +1053,7 @@ function scoreIngredientIntent(dish: DishBlueprint, normalizedIngredients: strin
   let score = 0;
 
   if (includesIngredient(normalizedIngredients, "ground meat")) {
-    if (/\b(hawawshi|kofta|macarona bechamel|moussaka|keema|meatloaf|chili|pad krapow)\b/.test(lowerDish)) {
+    if (/\b(hawawshi|kofta|macarona bechamel|moussaka|keema|meatloaf|chili|pad krapow|kofte|adana kebab)\b/.test(lowerDish)) {
       score += 18;
       hits.push("intent-ground-meat");
     }
@@ -866,6 +1070,20 @@ function scoreIngredientIntent(dish: DishBlueprint, normalizedIngredients: strin
     if (/\b(koshary|mujadara|dal|lentil soup)\b/.test(lowerDish)) {
       score += 13;
       hits.push("intent-lentil");
+    }
+  }
+
+  if (includesIngredient(normalizedIngredients, "fish")) {
+    if (/\b(sayadeya|fish curry|baked white fish|balik ekmek)\b/.test(lowerDish)) {
+      score += 14;
+      hits.push("intent-fish");
+    }
+  }
+
+  if (includesIngredient(normalizedIngredients, "shrimp")) {
+    if (/\b(shrimp linguine|garlic shrimp pasta|camarones al ajo|garlic honey shrimp|tom yum shrimp|thai garlic shrimp)\b/.test(lowerDish)) {
+      score += 15;
+      hits.push("intent-shrimp");
     }
   }
 

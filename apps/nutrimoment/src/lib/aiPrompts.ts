@@ -48,14 +48,14 @@ const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
   ],
   egyptian: [
     "Use clearly Egyptian dish logic, not just generic Middle Eastern labeling.",
-    "Prefer real Egyptian dish families when the ingredients fit, such as ful medames, taameya or tameya, shakshuka or shakshouka, eggah, koshary, lentil soup, fasolia, molokhia, hawawshi, kofta kebab, macarona bechamel, or rice-based stews.",
+    "Prefer real Egyptian dish families when the ingredients fit, such as ful medames, taameya or tameya, shakshuka or shakshouka, eggah, koshary, lentil soup, fasolia, molokhia, hawawshi, kofta kebab, macarona bechamel, sayadeya, or rice-based stews.",
     "Egyptian breakfast patterns often center on eggs with tomato and pepper, ful, taameya, cheese, tomato, cucumber, bread, and legumes; lunch and dinner often center on rice, legumes, tomato-based stews, grilled meats, kofta, or baked casseroles.",
     "Taameya is traditionally made with fava beans; do not call a recipe taameya unless fava beans or a clearly Egyptian taameya-style base is plausible.",
     "Use Egyptian flavor logic such as onion, garlic, tomato, cumin, coriander, parsley, cilantro, lemon, tahini, rice, vermicelli, lentils, and fava beans where appropriate."
   ],
   italian: [
     "Use clearly Italian or Italian-American dish families only when the ingredients support them.",
-    "Prefer specific dishes such as pasta al pomodoro, arrabbiata, aglio e olio, frittata, minestrone, risotto, caprese salad, baked pasta, chicken piccata, or chicken parmesan when those structures genuinely fit.",
+    "Prefer specific dishes such as pasta al pomodoro, arrabbiata, aglio e olio, shrimp linguine, frittata, minestrone, risotto, caprese salad, baked pasta, chicken piccata, or chicken parmesan when those structures genuinely fit.",
     "Distinguish tomato pasta from creamy pasta, risotto from plain rice, and Italian from Italian-American; for example, creamy chicken pasta should not be labeled as a classic Italian dish unless the structure really fits.",
     "Use Italian pantry logic such as olive oil, garlic, onion, basil, oregano, parsley, tomato, parmesan, mozzarella, pasta shapes, arborio rice, beans, zucchini, eggplant, and lemon where appropriate."
   ],
@@ -66,17 +66,17 @@ const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
   ],
   mediterranean: [
     "Use a clearly Mediterranean pattern centered on olive oil, vegetables, legumes, seafood or grilled proteins, yogurt, herbs, grains, and salads.",
-    "Prefer dishes such as Greek salad, baked fish with vegetables, chickpea bowls, lentil salad, grilled chicken with rice, stuffed vegetables, shakshuka-style eggs, bean stew, or mezze-inspired plates when ingredients fit.",
+    "Prefer dishes such as Greek salad, baked fish with vegetables, garlic shrimp pasta, chickpea bowls, lentil salad, grilled chicken with rice, stuffed vegetables, shakshuka-style eggs, bean stew, or mezze-inspired plates when ingredients fit.",
     "Do not call a dish Mediterranean if it is structurally closer to a different cuisine family without Mediterranean staples."
   ],
   indian: [
     "Use clearly Indian dish families and naming, not a generic curry label.",
-    "Prefer dishes such as dal, chana masala, rajma, egg bhurji, paneer curry, palak paneer, vegetable pulao, chicken curry, keema, upma, poha, or masala omelette when ingredients fit.",
+    "Prefer dishes such as dal, chana masala, rajma, fish curry, egg bhurji, paneer curry, palak paneer, vegetable pulao, chicken curry, keema, upma, poha, or masala omelette when ingredients fit.",
     "Use Indian flavor logic such as onion, tomato, ginger, garlic, cumin, coriander, turmeric, chili, garam masala, lentils, chickpeas, rice, yogurt, spinach, paneer, and cilantro where appropriate."
   ],
   mexican: [
     "Use clearly Mexican dish families and naming rather than generic wraps or bowls.",
-    "Prefer dishes such as huevos rancheros, chilaquiles, quesadillas, tacos, enchiladas, arroz con pollo, sopa de fideo, frijoles, fajitas, or caldos when ingredients fit.",
+    "Prefer dishes such as huevos rancheros, chilaquiles, quesadillas, tacos, enchiladas, arroz con pollo, camarones al ajo, sopa de fideo, frijoles, fajitas, or caldos when ingredients fit.",
     "Use Mexican pantry logic such as corn tortillas, beans, tomato, onion, jalapeno, cilantro, lime, queso, rice, avocado, and roasted or stewed salsas where appropriate."
   ],
   american: [
@@ -86,13 +86,18 @@ const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
   ],
   asian: [
     "Treat Asian as a broad umbrella. When ingredients point clearly to a substyle such as Chinese, Japanese, Korean, Thai, or Vietnamese, choose that substyle and reflect it in the recipe name and cuisine field.",
-    "Prefer dishes such as fried rice, noodle stir fry, congee, teriyaki chicken, vegetable stir fry, rice bowls, miso-style soups, or bibimbap-inspired bowls when ingredients fit.",
+    "Prefer dishes such as fried rice, noodle stir fry, garlic honey shrimp, congee, teriyaki chicken, vegetable stir fry, rice bowls, miso-style soups, or bibimbap-inspired bowls when ingredients fit.",
     "Use Asian flavor logic such as soy sauce, sesame, ginger, garlic, scallion, rice, noodles, mushrooms, chili, and broths where appropriate."
   ],
   thai: [
     "Use clearly Thai dish families and bright Thai balance rather than a generic Asian stir-fry label.",
-    "Prefer dishes such as pad krapow, basil chicken, fried rice, red curry, green curry, tom yum style soup, larb, noodle stir fry, or Thai omelette when ingredients fit.",
+    "Prefer dishes such as pad krapow, basil chicken, fried rice, red curry, green curry, tom yum shrimp, Thai garlic shrimp, larb, noodle stir fry, or Thai omelette when ingredients fit.",
     "Use Thai flavor logic such as garlic, chili, lime, fish sauce, basil, coconut milk, curry paste, rice, rice noodles, cilantro, and lemongrass where appropriate."
+  ],
+  turkish: [
+    "Use clearly Turkish dish families rather than broad Middle Eastern labels when Turkish is selected.",
+    "Prefer dishes such as kofte, adana kebab, menemen, karniyarik, mercimek corbasi, pide-style bakes, rice pilaf, or yogurt-led grilled meat plates when ingredients fit.",
+    "Use Turkish flavor logic such as onion, garlic, parsley, cumin, sumac, paprika, aleppo pepper, tomato paste, pepper paste, yogurt, lemon, rice, and flatbread where appropriate."
   ]
 };
 
@@ -128,6 +133,7 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
       "kofta with rice or tomato sauce",
       "hawawshi with stuffed bread",
       "macarona bechamel with ground meat",
+      "sayadeya fish rice",
       "koshary with lentils, rice, pasta, and tomato sauce",
       "fasolia or tomato-based bean stews"
     ],
@@ -135,6 +141,7 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
       "ground meat + parsley/onion/garlic -> kofta",
       "ground meat + bread/pita -> hawawshi",
       "ground meat + pasta + milk or flour or butter -> macarona bechamel",
+      "fish + rice + onion -> sayadeya",
       "egg + tomato + bell pepper/onion -> shakshuka",
       "fava bean + herbs + onion/garlic -> taameya",
       "lentil + rice + pasta -> koshary"
@@ -157,10 +164,11 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     stapleSauces: ["pomodoro", "arrabbiata", "cream sauce", "pesto", "butter sauce"],
     visualAnchors: ["red tomato-coated pasta", "creamy white-sauce pasta", "golden baked pasta tops", "herb-finished skillet chicken"],
     breakfastPatterns: ["frittata", "ricotta toast", "savory egg skillet"],
-    lunchDinnerPatterns: ["tomato pasta", "creamy pasta", "risotto", "minestrone", "baked pasta", "piccata-style skillet dishes"],
+    lunchDinnerPatterns: ["tomato pasta", "creamy pasta", "shrimp linguine", "risotto", "minestrone", "baked pasta", "piccata-style skillet dishes"],
     dishTriggers: [
       "pasta + tomato -> pomodoro/arrabbiata/baked tomato pasta",
       "pasta + dairy -> creamy pasta or alfredo-style family",
+      "shrimp + pasta + garlic/lemon -> shrimp linguine or garlic shrimp pasta",
       "egg + vegetables + cheese -> frittata",
       "rice + broth + parmesan -> risotto"
     ],
@@ -205,9 +213,10 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     stapleSauces: ["olive oil-lemon dressing", "yogurt sauce", "tomato braise"],
     visualAnchors: ["olive-oil gloss", "lemon-herb grilled proteins", "feta-topped salads", "roasted vegetables"],
     breakfastPatterns: ["egg and tomato skillets", "yogurt bowls", "feta and vegetable plates"],
-    lunchDinnerPatterns: ["grilled fish", "stuffed vegetables", "bean salad", "lentil salad", "grilled chicken with rice", "vegetable stew"],
+    lunchDinnerPatterns: ["grilled fish", "garlic shrimp pasta", "stuffed vegetables", "bean salad", "lentil salad", "grilled chicken with rice", "vegetable stew"],
     dishTriggers: [
       "fish + lemon + herbs -> baked or grilled Mediterranean fish",
+      "shrimp + pasta + garlic + lemon -> garlic shrimp pasta",
       "chickpea + cucumber/tomato/herbs -> Mediterranean chickpea salad",
       "yogurt + cucumber/garlic -> yogurt sauce plate",
       "egg + tomato + feta -> Mediterranean egg skillet"
@@ -228,11 +237,12 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     stapleSauces: ["masala gravy", "yogurt marinade", "spinach gravy"],
     visualAnchors: ["deep orange-red masala", "tempered lentils", "cilantro finish", "rice with curry spooned over"],
     breakfastPatterns: ["poha", "upma", "masala omelette", "egg bhurji"],
-    lunchDinnerPatterns: ["dal", "chana masala", "rajma", "paneer curry", "keema", "chicken curry", "pulao"],
+    lunchDinnerPatterns: ["dal", "chana masala", "rajma", "fish curry", "paneer curry", "keema", "chicken curry", "pulao"],
     dishTriggers: [
       "lentil + cumin/turmeric/aromatics -> dal",
       "chickpea + tomato/onion/ginger/garlic -> chana masala",
       "kidney bean + tomato/onion/aromatics -> rajma",
+      "fish + tomato/onion/ginger/garlic -> fish curry",
       "ground meat + peas/spices -> keema",
       "paneer + spinach -> palak paneer"
     ],
@@ -252,11 +262,12 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     stapleSauces: ["salsa roja", "salsa verde", "chipotle-tomato base"],
     visualAnchors: ["charred tortillas", "salsa spooned eggs", "rice-and-bean sides", "cilantro-lime garnish"],
     breakfastPatterns: ["huevos rancheros", "chilaquiles", "breakfast tacos", "bean and egg plates"],
-    lunchDinnerPatterns: ["tacos", "quesadillas", "enchiladas", "fajitas", "arroz con pollo", "sopa de fideo"],
+    lunchDinnerPatterns: ["tacos", "quesadillas", "enchiladas", "fajitas", "arroz con pollo", "camarones al ajo", "sopa de fideo"],
     dishTriggers: [
       "egg + tortilla + salsa -> huevos rancheros or breakfast tacos",
       "tortilla + cheese -> quesadilla family",
       "chicken + rice + tomato -> arroz con pollo",
+      "shrimp + garlic + lime -> camarones al ajo",
       "fideo + tomato broth -> sopa de fideo"
     ],
     substitutionRules: [
@@ -299,10 +310,11 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     stapleSauces: ["soy-ginger sauce", "oyster-style sauce", "broth", "teriyaki-style glaze"],
     visualAnchors: ["glossy stir-fry finish", "scallion and sesame garnish", "brothy noodle bowls", "rice topped with sliced protein"],
     breakfastPatterns: ["congee", "savory egg rice bowls"],
-    lunchDinnerPatterns: ["fried rice", "stir-fried noodles", "rice bowls", "brothy noodle soups", "teriyaki-style proteins"],
+    lunchDinnerPatterns: ["fried rice", "stir-fried noodles", "garlic honey shrimp", "rice bowls", "brothy noodle soups", "teriyaki-style proteins"],
     dishTriggers: [
       "rice + egg + soy/scallion -> fried rice family",
       "noodle + soy/ginger/garlic -> stir-fried noodle family",
+      "shrimp + garlic + honey + soy -> garlic honey shrimp",
       "rice + broth + aromatics -> congee or rice soup family"
     ],
     substitutionRules: [
@@ -321,11 +333,13 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     stapleSauces: ["red curry", "green curry", "fish sauce-lime dressing", "coconut curry base"],
     visualAnchors: ["holy basil and chili flecks", "coconut-rich curry bowls", "lime wedges", "rice noodle wok-char"],
     breakfastPatterns: ["Thai omelette with rice", "savory rice-based breakfasts"],
-    lunchDinnerPatterns: ["pad krapow", "fried rice", "curry", "larb", "tom yum style soups", "rice noodle stir fry"],
+    lunchDinnerPatterns: ["pad krapow", "fried rice", "curry", "larb", "tom yum shrimp", "thai garlic shrimp", "rice noodle stir fry"],
     dishTriggers: [
       "rice noodle + egg/protein + lime/fish sauce -> Thai noodle stir fry family",
       "ground meat + basil + chili -> pad krapow style dish",
       "coconut milk + curry aromatics + protein -> Thai curry family",
+      "shrimp + lemongrass + lime + chili -> tom yum shrimp",
+      "shrimp + garlic + fish sauce + rice -> thai garlic shrimp",
       "lime + chili + herbs + minced meat -> larb-style salad"
     ],
     substitutionRules: [
@@ -335,6 +349,30 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     guardrails: [
       "Do not call a dish pad thai unless tamarind/noodle/egg/Thai stir-fry structure fits.",
       "Do not label any coconut stew Thai curry unless curry aromatics or Thai markers are plausible."
+    ]
+  },
+  turkish: {
+    substyles: ["grill-house kofte and kebabs", "home-style tomato and egg pans", "eggplant and pilaf comfort dishes"],
+    stapleProteins: ["ground meat", "lamb", "beef", "egg", "yogurt", "lentil", "chicken"],
+    stapleStarches: ["rice", "flatbread", "bulgur", "pide"],
+    stapleAromatics: ["onion", "garlic", "parsley", "cumin", "sumac", "paprika", "aleppo pepper", "tomato paste"],
+    stapleSauces: ["pepper paste", "tomato sauce", "yogurt sauce", "butter-paprika drizzle"],
+    visualAnchors: ["grilled kofte logs", "charred kebab skewers", "tomato-rich egg pans", "yogurt-finished meat plates", "rice pilaf beside kebabs"],
+    breakfastPatterns: ["menemen", "egg and pepper skillets", "cheese and tomato breakfast plates"],
+    lunchDinnerPatterns: ["kofte", "adana kebab", "karniyarik", "lentil soup", "pilaf plates", "yogurt-led grill plates"],
+    dishTriggers: [
+      "ground meat + onion + parsley + cumin -> kofte",
+      "ground meat + paprika or pepper paste -> adana kebab style dish",
+      "egg + tomato + pepper -> menemen",
+      "eggplant + ground meat + tomato -> karniyarik"
+    ],
+    substitutionRules: [
+      "If a Turkish dish needs pepper paste, sumac, yogurt, or flatbread to feel authentic, keep the dish family and place those items in missing_ingredients.",
+      "For ground meat, favor kofte or kebab families before generic meatballs unless the pantry clearly points elsewhere."
+    ],
+    guardrails: [
+      "Do not label a dish Turkish kofte unless the meat mixture has a plausible onion-herb-spice structure.",
+      "Do not call a dish adana kebab unless a spicy minced-meat skewer or kebab structure is plausible."
     ]
   }
 };
@@ -382,6 +420,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
     "When the pantry strongly matches a known cuisine-specific dish, prefer that exact dish family over a generic fallback. Example: Egyptian plus ground meat should bias toward kofta, hawawshi, or macarona bechamel when the supporting starches and aromatics fit.",
+    "Think like a chef finishing a real plate from that cuisine. Every dish should have the right aromatics, spice base, herbs, acid, and finishing garnish that make the cuisine recognizable.",
     candidateDishHints
       ? `Internally generate at least 10 dish-family candidates first, then rerank them before writing the final recipes. Use this ranked candidate universe as the starting point: ${candidateDishHints}.`
       : "Internally generate at least 10 dish-family candidates first, then rerank them before writing the final recipes.",
@@ -403,6 +442,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
+    "If the recipe needs canonical spices, herbs, pepper paste, yogurt sauce, tahini, butter, citrus, or finishing oil to feel authentic, include those exact items in missing_ingredients instead of silently omitting them or replacing them with generic 'seasoning'.",
     `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`,
     `Available ingredient quantities: ${ingredientQuantities.join(", ") || "not provided"}.`,
     preferenceBrief,
@@ -419,6 +459,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Use the available ingredient quantities when provided. If quantity is not provided, choose realistic single-meal quantities and make them explicit inside the step text.",
     "Do not write vague steps like 'cook until done', 'season to taste', or 'serve'. Replace them with specific timing, doneness cues, and quantities.",
     "Include prep, cooking, finishing, and plating steps; if a sauce, dressing, spice mix, or garnish is needed, tell the user exactly when and how much to add.",
+    "For cuisine-authentic recipes, build the seasoning profile explicitly in the steps. State the spice amounts, when they bloom or get mixed in, and what flavor role they play on the final plate.",
+    "For ground meat or chopped meat, translate the protein into cuisine-native dish forms and names. Examples: Egyptian kofta or hawawshi, Turkish kofte or adana kebab, Middle Eastern kebab or kofta, Indian keema.",
+    "For seafood, choose the correct dish form instead of a generic fish or shrimp recipe. Use cuisine plus starch plus method reasoning to decide between grilled fish, fish rice, fish soup, shrimp linguine, garlic shrimp rice, curry shrimp, fried shrimp, or sandwich-style fish dishes.",
     "Return a JSON array, not an object.",
     "Each recipe object must include: name, cuisine, dish_intent, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
     "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent.visual_keywords and dish_intent.exclude_keywords must both be arrays of short English strings."
@@ -703,6 +746,10 @@ function buildMealTypeRoutingGuidance(
     return `${mealBias} For Indian cuisine, breakfast can lean toward bhurji, poha, upma, or masala omelette, while lunch and dinner should lean toward dal, pulao, curry, keema, rajma, or chana masala.`;
   }
 
+  if (normalizedCuisine === "turkish") {
+    return `${mealBias} For Turkish cuisine, breakfast should lean toward menemen or egg-and-cheese plates, while lunch and dinner should lean toward kofte, adana kebab, lentil soup, pilaf plates, or eggplant-based mains.`;
+  }
+
   return mealBias;
 }
 
@@ -761,6 +808,10 @@ function buildIngredientDrivenCuisineGuidance(
     if (hasAny(pantry, ["lentil", "brown lentil"]) && hasAny(pantry, ["rice"]) && hasAny(pantry, ["pasta", "macaroni", "spaghetti"])) {
       hints.push("Egyptian ingredient reasoning: lentils plus rice plus pasta strongly suggest koshary, especially if tomato sauce, chickpeas, or fried onion are plausible missing ingredients.");
     }
+
+    if (hasAny(pantry, ["fish", "tilapia", "sea bass", "snapper"]) && hasAny(pantry, ["rice", "vermicelli", "onion"])) {
+      hints.push("Egyptian ingredient reasoning: fish plus rice and onion should strongly suggest sayadeya before a generic grilled fish plate.");
+    }
   }
 
   if (cuisineKey === "italian") {
@@ -769,6 +820,18 @@ function buildIngredientDrivenCuisineGuidance(
     }
     if (hasAny(pantry, ["pasta", "spaghetti", "penne", "macaroni"]) && hasAny(pantry, ["milk", "cream", "parmesan", "mozzarella", "butter"])) {
       hints.push("Italian ingredient reasoning: pasta plus dairy should favor creamy pasta or baked pasta families and should be clearly distinguished from red sauce pasta.");
+    }
+    if (hasAny(pantry, ["shrimp", "prawn"]) && hasAny(pantry, ["pasta", "spaghetti", "linguine", "fettuccine"])) {
+      hints.push("Italian ingredient reasoning: shrimp plus pasta should favor shrimp linguine or garlic shrimp pasta before a generic seafood pasta label.");
+    }
+  }
+
+  if (cuisineKey === "mediterranean") {
+    if (hasAny(pantry, ["fish", "sea bass", "cod", "snapper"]) && hasAny(pantry, ["lemon", "olive oil", "oregano", "parsley"])) {
+      hints.push("Mediterranean ingredient reasoning: fish plus lemon, olive oil, and herbs should favor baked or grilled Mediterranean fish.");
+    }
+    if (hasAny(pantry, ["shrimp", "prawn"]) && hasAny(pantry, ["pasta", "spaghetti", "linguine", "orzo", "garlic"])) {
+      hints.push("Mediterranean ingredient reasoning: shrimp plus pasta and garlic should favor garlic shrimp pasta or lemon shrimp pasta instead of a generic shrimp plate.");
     }
   }
 
@@ -779,6 +842,27 @@ function buildIngredientDrivenCuisineGuidance(
     if (hasAny(pantry, ["chickpea", "garbanzo"]) && hasAny(pantry, ["tomato", "onion", "garlic", "ginger"])) {
       hints.push("Indian ingredient reasoning: chickpeas plus tomato, onion, and aromatics should favor chana masala-style dishes.");
     }
+    if (hasAny(pantry, ["fish"]) && hasAny(pantry, ["tomato", "onion", "ginger", "garlic"])) {
+      hints.push("Indian ingredient reasoning: fish plus tomato, onion, ginger, and garlic should favor fish curry rather than a generic fish stew.");
+    }
+  }
+
+  if (cuisineKey === "turkish") {
+    if (hasAny(pantry, ["ground meat", "minced meat", "ground beef", "beef mince", "lamb mince", "chopped meat"])) {
+      hints.push("Turkish ingredient reasoning: ground or chopped meat should strongly favor kofte or kebab families before generic meatballs.");
+
+      if (hasAny(pantry, ["paprika", "pepper paste", "tomato paste", "chili", "aleppo pepper"])) {
+        hints.push("Turkish ingredient reasoning: ground meat plus paprika or pepper-paste ingredients should strongly suggest adana kebab-style or spicy kofte-style dishes.");
+      }
+
+      if (hasAny(pantry, ["onion", "parsley", "garlic", "cumin", "sumac"])) {
+        hints.push("Turkish ingredient reasoning: ground meat plus onion, parsley, garlic, cumin, or sumac should push image and naming language toward kofte, izgara kofte, or kebab.");
+      }
+    }
+
+    if (hasAny(pantry, ["egg", "eggs"]) && hasAny(pantry, ["tomato", "pepper", "bell pepper", "onion"])) {
+      hints.push("Turkish ingredient reasoning: eggs plus tomato and peppers should suggest menemen before a generic tomato egg skillet.");
+    }
   }
 
   if (cuisineKey === "thai") {
@@ -787,6 +871,18 @@ function buildIngredientDrivenCuisineGuidance(
     }
     if (hasAny(pantry, ["coconut milk"]) && hasAny(pantry, ["chicken", "shrimp", "vegetable"])) {
       hints.push("Thai ingredient reasoning: coconut milk plus protein or vegetables should favor curry or coconut soup families when the rest of the pantry fits.");
+    }
+    if (hasAny(pantry, ["shrimp", "prawn"]) && hasAny(pantry, ["lemongrass", "lime", "chili", "fish sauce"])) {
+      hints.push("Thai ingredient reasoning: shrimp plus lemongrass, lime, chili, or fish sauce should strongly suggest tom yum shrimp or Thai garlic shrimp before a generic shrimp stir-fry.");
+    }
+  }
+
+  if (cuisineKey === "asian") {
+    if (hasAny(pantry, ["shrimp", "prawn"]) && hasAny(pantry, ["garlic", "soy sauce", "honey"])) {
+      hints.push("Asian ingredient reasoning: shrimp plus garlic, soy sauce, and honey should favor garlic honey shrimp rather than a generic seafood bowl.");
+    }
+    if (hasAny(pantry, ["fish"]) && hasAny(pantry, ["broth", "ginger", "scallion"])) {
+      hints.push("Asian ingredient reasoning: fish plus broth and aromatics can justify a fish soup or brothy rice bowl instead of only grilled fish.");
     }
   }
 

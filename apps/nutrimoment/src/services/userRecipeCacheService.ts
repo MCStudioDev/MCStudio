@@ -264,14 +264,14 @@ function inferMealType(title: string): MealType {
 }
 
 function inferDifficulty(value: string): Difficulty {
-  const normalized = value.toLowerCase();
+  const normalized = coerceText(value).toLowerCase();
   if (normalized.includes("hard")) return "hard";
   if (normalized.includes("medium")) return "medium";
   return "easy";
 }
 
-function inferTotalMinutes(value: string) {
-  const match = value.match(/(\d+)/);
+function inferTotalMinutes(value: string | number | null | undefined) {
+  const match = coerceText(value).match(/(\d+)/);
   const minutes = match ? Number.parseInt(match[1], 10) : 30;
   return Number.isFinite(minutes) ? minutes : 30;
 }
@@ -291,9 +291,11 @@ function inferCalorieBand(calories: number) {
   return "701_plus" as const;
 }
 
-function readMacroNumber(value: string | undefined, fallback?: number) {
-  if (!value) return fallback;
-  const parsed = Number.parseFloat(value);
+function readMacroNumber(value: string | number | undefined, fallback?: number) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const normalized = coerceText(value);
+  if (!normalized) return fallback;
+  const parsed = Number.parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -359,6 +361,12 @@ function buildImageSignature(id: string, cuisine: string, ingredientCanonicals: 
     hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
   }
   return `recipe-photo-${hash.toString(36)}`;
+}
+
+function coerceText(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
 }
 
 function stripUndefinedDeep<T>(value: T): T {

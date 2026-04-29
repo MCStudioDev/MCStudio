@@ -275,8 +275,7 @@ export async function POST(request: Request) {
           )
         : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
       const text = await generateFallbackRecipes(prompt);
-      const json = extractJson(text);
-      const recipes = JSON.parse(json);
+      const recipes = parseAiJsonPayload(text, "recipe_generation");
       const normalizedRecipes = recipes.recipes ?? recipes;
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
         const strictRecipes = rankStrictRecipes(
@@ -383,8 +382,7 @@ async function buildExactScanMatchRecipe(input: {
   try {
     ensureAiAvailable();
     const text = await callOpenAIVision(buildPlateRecipeMatchVisionPrompt(input.language), input.image);
-    const json = extractJson(text);
-    const parsed = JSON.parse(json) as { isPlatedDish?: boolean; recipe?: unknown };
+    const parsed = parseAiJsonPayload(text, "scan_match") as { isPlatedDish?: boolean; recipe?: unknown };
 
     if (!parsed?.isPlatedDish || !parsed.recipe) {
       return null;
@@ -411,6 +409,91 @@ function buildMockExactScanRecipe(availableIngredients: Set<string>) {
     match_quality: "great" as const,
     preference_hits: Array.isArray(firstRecipe.preference_hits) ? firstRecipe.preference_hits : []
   };
+}
+
+function parseAiJsonPayload(text: string, context: "recipe_generation" | "scan_match") {
+  const directCandidate = extractJson(text);
+  const balancedCandidate = extractBalancedJsonCandidate(text);
+  const candidates = Array.from(
+    new Set(
+      [directCandidate, balancedCandidate]
+        .flatMap((candidate) => [candidate, cleanJsonCandidate(candidate)])
+        .map((candidate) => candidate.trim())
+        .filter(Boolean)
+    )
+  );
+
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  logger.warn("AI JSON parse failed", {
+    context,
+    candidateCount: candidates.length,
+    preview: text.slice(0, 1200),
+    errorMessage: lastError instanceof Error ? lastError.message : String(lastError)
+  });
+
+  throw lastError instanceof Error ? lastError : new Error("Failed to parse AI JSON payload");
+}
+
+function extractBalancedJsonCandidate(text: string) {
+  const source = text.trim();
+  const start = source.search(/[\[{]/);
+  if (start < 0) return source;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{" || char === "[") {
+      stack.push(char);
+      continue;
+    }
+
+    if (char === "}" || char === "]") {
+      const expected = char === "}" ? "{" : "[";
+      if (stack[stack.length - 1] === expected) {
+        stack.pop();
+        if (stack.length === 0) {
+          return source.slice(start, index + 1);
+        }
+      }
+    }
+  }
+
+  return source.slice(start);
+}
+
+function cleanJsonCandidate(candidate: string) {
+  return candidate
+    .replace(/^\uFEFF/, "")
+    .replace(/,\s*([}\]])/g, "$1")
+    .trim();
 }
 
 function normalizeScannedDishRecipe(recipe: unknown, availableIngredients: Set<string>) {

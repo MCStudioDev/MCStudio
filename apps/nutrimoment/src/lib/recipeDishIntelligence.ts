@@ -531,6 +531,21 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     searchPhrases: ["menemen turkish breakfast", "turkish tomato eggs", "menemen skillet"]
   },
   {
+    dishName: "Cilbir",
+    cuisine: "Turkish",
+    mealType: "breakfast",
+    cookingMethod: "assembled",
+    ingredientAnchors: ["egg", "yogurt"],
+    supportAnchors: ["garlic", "butter", "aleppo pepper", "dill", "bread"],
+    visualKeywords: ["poached eggs over yogurt", "turkish yogurt eggs", "cilbir breakfast bowl"],
+    excludeKeywords: ["dessert", "berry yogurt bowl", "oatmeal", "pancake"],
+    healthStyles: ["balanced", "protein-forward", "lighter"],
+    dietTags: ["vegetarian", "gluten-free", "high-protein"],
+    popularity: 85,
+    seasoningProfile: ["garlic", "aleppo pepper", "butter", "dill", "black pepper"],
+    searchPhrases: ["cilbir turkish breakfast", "turkish poached eggs yogurt", "eggs with garlic yogurt"]
+  },
+  {
     dishName: "Balik Ekmek",
     cuisine: "Turkish",
     mealType: "lunch",

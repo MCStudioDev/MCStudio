@@ -26,7 +26,7 @@ import {
 } from "@/lib/recipeDishIntelligence";
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
-import { getKnownDishRecipePhoto } from "@/lib/freeRecipePhotos";
+import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
 import { isArabicRecipeLanguage, localizeRecipeForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizeRecipeLanguage } from "@/lib/language";
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
@@ -36,6 +36,22 @@ import { logger } from "@/lib/logger";
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
 const MIN_RECIPE_RESULT_COUNT = 1;
 const MAX_RECIPE_RESULT_COUNT = 10;
+const MIN_ACCEPTED_PROVIDER_SCORE = {
+  wikimedia: 12,
+  pexels_search: 11,
+  unsplash_search: 11
+} as const;
+const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
+  "cilbir",
+  "shakshuka",
+  "mujadara",
+  "koshary",
+  "besara",
+  "balila",
+  "fasolia",
+  "loubia-bzeit",
+  "kafta"
+]);
 
 const MOCK_RECIPES = {
   recipes: [
@@ -946,19 +962,25 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
   const queries = buildRecipePhotoQueriesForRanking(recipe);
   const baseIdentity = buildRecipePhotoIdentity(recipe.image_search_index ?? queries[0] ?? recipe.name);
   let bestScore = 0;
+  let bestSource: keyof typeof MIN_ACCEPTED_PROVIDER_SCORE | null = null;
+  let bestSourceScore = 0;
   let recipePatch: Partial<Recipe> | null = null;
 
   for (const [index, query] of queries.entries()) {
     const queryIdentity = buildRecipePhotoIdentity(query);
     const queryPriorityAdjustment = getPhotoQueryPriorityAdjustment(baseIdentity, queryIdentity, index);
-    const knownDishPhoto = getKnownDishRecipePhoto(query);
-    const knownDishScore = 18 + queryPriorityAdjustment;
-    if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl) && knownDishScore > bestScore) {
-      bestScore = knownDishScore;
-      recipePatch = {
-        image_source: "wikimedia",
-        image_url: knownDishPhoto.imageUrl
-      };
+    if (shouldTryWikimediaRecipePhoto(queryIdentity, index)) {
+      const freePhoto = await findFreeRecipePhoto(query);
+      const knownDishScore = 18 + queryPriorityAdjustment;
+      if (freePhoto && !excludedUrls.has(freePhoto.imageUrl) && knownDishScore > bestScore) {
+        bestScore = knownDishScore;
+        bestSource = "wikimedia";
+        bestSourceScore = 18;
+        recipePatch = {
+          image_source: "wikimedia",
+          image_url: freePhoto.imageUrl
+        };
+      }
     }
 
     if (isUnsplashRecipePhotoSearchConfigured()) {
@@ -967,6 +989,8 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
         const score = unsplash.score + 2 + queryPriorityAdjustment;
         if (score > bestScore) {
           bestScore = score;
+          bestSource = "unsplash_search";
+          bestSourceScore = unsplash.score;
           recipePatch = {
             image_attribution_name: unsplash.attributionName,
             image_attribution_url: unsplash.attributionUrl,
@@ -983,6 +1007,8 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
         const score = pexels.score + queryPriorityAdjustment;
         if (score > bestScore) {
           bestScore = score;
+          bestSource = "pexels_search";
+          bestSourceScore = pexels.score;
           recipePatch = {
             image_source: "search",
             image_url: pexels.imageUrl
@@ -990,6 +1016,10 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
         }
       }
     }
+  }
+
+  if (!recipePatch || !bestSource || bestSourceScore < MIN_ACCEPTED_PROVIDER_SCORE[bestSource]) {
+    return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
   }
 
   return { photoFitScore: bestScore, recipePatch };
@@ -1043,4 +1073,10 @@ function getVisualMatchLabel(score: number, index: number, topScore: number) {
   if (index === 0 && topScore >= 5) return "Top image match";
   if (index > 0 && score >= 8 && score >= topScore - 1) return "Strong visual match";
   return undefined;
+}
+
+function shouldTryWikimediaRecipePhoto(identity: ReturnType<typeof buildRecipePhotoIdentity>, index: number) {
+  if (index > 1) return false;
+  if (identity.canonicalDishKey) return true;
+  return Boolean(identity.familyKey && WIKIMEDIA_FAMILY_ALLOWLIST.has(identity.familyKey));
 }

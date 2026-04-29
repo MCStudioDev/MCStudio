@@ -2,7 +2,7 @@ import { z } from "zod";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
-import { getKnownDishRecipePhoto } from "@/lib/freeRecipePhotos";
+import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
 import {
   getSharedRecipePhotoBySignatures,
   persistSharedRecipePhotoAliases,
@@ -80,6 +80,17 @@ const MIN_ACCEPTED_PROVIDER_SCORE = {
   pexels_search: 11,
   unsplash_search: 11
 } as const;
+const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
+  "cilbir",
+  "shakshuka",
+  "mujadara",
+  "koshary",
+  "besara",
+  "balila",
+  "fasolia",
+  "loubia-bzeit",
+  "kafta"
+]);
 
 export async function GET(request: Request) {
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>>;
@@ -351,7 +362,8 @@ async function performRecipePhotoLookup({
     for (const [index, candidateQuery] of queryCandidates.entries()) {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
-      const knownDishPhoto = getKnownDishRecipePhoto(candidateQuery);
+      if (!shouldTryWikimediaRecipePhoto(candidateIdentity, index)) continue;
+      const knownDishPhoto = await findFreeRecipePhoto(candidateQuery);
       if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl)) {
         bestMatch = chooseBetterRecipePhoto(bestMatch, {
           attributionName: undefined,
@@ -618,4 +630,10 @@ function isRecipePhotoRecentlyUsedForDifferentSignature(imageUrl: string, signat
 
 function meetsRecipePhotoConfidenceThreshold(candidate: ProviderRecipePhotoCandidate) {
   return candidate.score >= MIN_ACCEPTED_PROVIDER_SCORE[candidate.source];
+}
+
+function shouldTryWikimediaRecipePhoto(identity: ReturnType<typeof buildRecipePhotoIdentity>, index: number) {
+  if (index > 1) return false;
+  if (identity.canonicalDishKey) return true;
+  return Boolean(identity.familyKey && WIKIMEDIA_FAMILY_ALLOWLIST.has(identity.familyKey));
 }

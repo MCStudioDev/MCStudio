@@ -37,7 +37,8 @@ const ARABIC = {
   chickpea: "\u062d\u0645\u0635",
   lentil: "\u0639\u062f\u0633",
   rice: "\u0631\u0632",
-  shakshuka: "\u0634\u0643\u0634\u0648\u0643\u0629"
+  shakshuka: "\u0634\u0643\u0634\u0648\u0643\u0629",
+  yogurt: "\u0632\u0628\u0627\u062f\u064a"
 } as const;
 
 const TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
@@ -98,6 +99,12 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "sucuklu yumurta",
     cuisineKey: "turkish",
     key: "sucuklu-yumurta"
+  },
+  {
+    aliases: [/\bcilbir\b/i, /\bçılbır\b/i, /\b(poached eggs? with yogurt|eggs? with yogurt|yogurt eggs?)\b/i],
+    canonicalName: "cilbir",
+    cuisineKey: "turkish",
+    key: "cilbir"
   },
   {
     aliases: [/\bmenemen\b/i],
@@ -324,7 +331,7 @@ const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "fish", pattern: /\bwhite fish|fish|cod|tilapia|sea bass|snapper|salmon\b/iu },
   { key: "tuna", pattern: /\btuna\b/iu },
   { key: "tofu", pattern: /\btofu\b/iu },
-  { key: "yogurt", pattern: /\byogurt|labneh\b/iu },
+  { key: "yogurt", pattern: new RegExp(`\\byogurt|labneh\\b|${ARABIC.yogurt}`, "iu") },
   { key: "egg", pattern: new RegExp(`\\begg\\b|${ARABIC.egg}`, "iu") },
   { key: "chickpea", pattern: new RegExp(`\\bchickpea|chickpeas\\b|${ARABIC.chickpea}`, "iu") },
   { key: "lentil", pattern: new RegExp(`\\blentil|lentils\\b|${ARABIC.lentil}`, "iu") },
@@ -554,6 +561,12 @@ function detectRecipePhotoFamily(
   if (/\bfasolia\b/i.test(cleanQuery) || cleanQuery.includes(ARABIC.bean)) return "fasolia";
   if (/\bloubia\b/i.test(cleanQuery) || cleanQuery.includes(ARABIC.loubia)) return "loubia-bzeit";
   if (details.mealTypeKey === "kofta") return "kafta";
+  if (
+    ((details.mainIngredientKey === "egg" || /\begg|eggs\b/iu.test(cleanQuery) || cleanQuery.includes(ARABIC.egg)) &&
+      (details.mainIngredientKey === "yogurt" || /\byogurt|labneh\b/iu.test(cleanQuery) || cleanQuery.includes(ARABIC.yogurt)))
+  ) {
+    return "cilbir";
+  }
   if (/\blabneh\b/iu.test(cleanQuery)) return "labneh-bowl";
   if (/\bgreek yogurt\b/iu.test(cleanQuery) || (details.mainIngredientKey === "yogurt" && /\bberries|walnuts|chia\b/iu.test(cleanQuery))) {
     return "yogurt-bowl";
@@ -677,6 +690,8 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("greek yogurt berries"), withCuisine("yogurt bowl"), withCuisine("breakfast yogurt bowl")];
     case "labneh-bowl":
       return [withCuisine("labneh"), withCuisine("labneh cucumber zaatar"), withCuisine("middle eastern yogurt dip")];
+    case "cilbir":
+      return [withCuisine("cilbir"), withCuisine("turkish poached eggs yogurt"), withCuisine("eggs with garlic yogurt")];
     case "vegetable-omelet":
       return [withCuisine("vegetable omelet"), withCuisine("spinach omelet"), withCuisine("bell pepper omelet")];
     case "egg-scramble":

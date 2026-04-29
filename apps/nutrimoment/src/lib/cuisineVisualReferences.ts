@@ -164,6 +164,14 @@ const TURKISH_VISUAL_REFERENCES: CuisineVisualReference[] = [
     imageQueries: ["menemen", "turkish menemen", "turkish tomato egg skillet"]
   },
   {
+    key: "cilbir",
+    canonicalName: "cilbir",
+    cuisine: "Turkish",
+    pantrySignals: ["egg", "yogurt", "garlic", "butter"],
+    visualForms: ["poached eggs over yogurt", "savory yogurt egg bowl", "Turkish breakfast yogurt eggs"],
+    imageQueries: ["cilbir", "turkish poached eggs yogurt", "eggs with garlic yogurt turkish"]
+  },
+  {
     key: "gozleme",
     canonicalName: "gozleme",
     cuisine: "Turkish",

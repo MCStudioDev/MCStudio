@@ -252,6 +252,9 @@ function buildCuisineIngredientHeuristicQueries({
   const hasPasta = normalizedIngredients.some((label) => /\bpasta|macaroni|macarona\b/.test(label)) || starch === "pasta";
   const hasLentils = normalizedIngredients.some((label) => /\blentil|lentils\b/.test(label)) || protein === "lentil";
   const hasChickpeas = normalizedIngredients.some((label) => /\bchickpea|chickpeas\b/.test(label)) || protein === "chickpea";
+  const hasEgg = normalizedIngredients.some((label) => /\begg|eggs\b/.test(label)) || /\begg|eggs\b/.test(exactName);
+  const hasYogurt =
+    normalizedIngredients.some((label) => /\byogurt|labneh\b/.test(label)) || /\byogurt|labneh\b/.test(exactName);
   const hasTomato = normalizedIngredients.some((label) => /\btomato|tomatoes\b/.test(label)) || sauceLabel === "red sauce";
   const hasOnion = normalizedIngredients.some((label) => /\bonion|onions\b/.test(label));
   const hasBread = normalizedIngredients.some((label) => /\bbread|pita|flatbread\b/.test(label)) || starch === "bread";
@@ -304,6 +307,9 @@ function buildCuisineIngredientHeuristicQueries({
   return normalizeQueryList([
     ...groundMeatQueries,
     ...seafoodQueries,
+    hasEgg && hasYogurt && !hasTomato ? "cilbir" : "",
+    hasEgg && hasYogurt && !hasTomato ? "turkish poached eggs yogurt" : "",
+    hasEgg && hasYogurt && !hasTomato ? "eggs with garlic yogurt" : "",
     hasRice && hasLentils ? "roz bel ads" : "",
     hasRice && hasLentils ? "mujadara" : "",
     hasRice && hasLentils ? "lentils and rice" : "",
@@ -318,6 +324,7 @@ function buildCuisineIngredientHeuristicQueries({
     isTurkishLike && hasGroundMeat ? "turkish kofte" : "",
     isTurkishLike && hasGroundMeat ? "izgara kofte" : "",
     isTurkishLike && hasGroundMeat && hasTomato ? "adana kebab" : "",
+    isTurkishLike && hasEgg && hasYogurt && !hasTomato ? "cilbir turkish breakfast" : "",
     joinRecipeQueryParts(cuisine, exactName),
     joinRecipeQueryParts(method, protein, sauceLabel, starch ?? dish),
     joinRecipeQueryParts(protein, sauceLabel, starch ?? dish)

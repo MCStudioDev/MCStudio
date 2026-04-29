@@ -3,20 +3,20 @@ import { OFFLINE_HEALTH_TAGS } from "@/data/offline/healthTags";
 import { OFFLINE_INGREDIENT_RECIPE_INDEX } from "@/data/offline/ingredientIndex";
 import { OFFLINE_INGREDIENTS } from "@/data/offline/ingredients";
 import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
-import { ensureBilingualRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
+import { enrichOfflineRecipe } from "@/data/offline/recipeMetadata";
 import { OFFLINE_RECIPES } from "@/data/offline/recipes";
 
 export function buildOfflineCatalogSeed() {
   const now = Date.now();
 
   const recipes = OFFLINE_RECIPES.map((recipe) => ({
-    collection: "recipes",
-    id: recipe.id,
-    data: {
-      ...ensureBilingualRecipeCatalogDoc(recipe),
-      updatedAt: now
-    }
-  }));
+      collection: "recipes",
+      id: recipe.id,
+      data: {
+        ...enrichOfflineRecipe(recipe),
+        updatedAt: now
+      }
+    }));
 
   const ingredients = OFFLINE_INGREDIENTS.map((ingredient) => ({
     collection: "ingredients",

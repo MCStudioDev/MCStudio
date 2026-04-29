@@ -8,7 +8,7 @@ import {
 import {
   buildRecipeHealthMetadata,
   buildRecipeSearchMetadata,
-  ensureBilingualRecipeCatalogDoc,
+  enrichOfflineRecipe,
   ensureCompleteLocalizedRecipe
 } from "@/data/offline/recipeMetadata";
 import type { MealPlanMeal, Recipe } from "@/lib/types";
@@ -45,7 +45,7 @@ export async function listUserCachedRecipes(uid?: string | null): Promise<Recipe
     }
 
     return snapshot.docs
-      .map((docSnap) => ensureBilingualRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+      .map((docSnap) => enrichOfflineRecipe(docSnap.data() as RecipeCatalogDoc))
       .filter((recipe) => recipe?.isActive);
   } catch (error) {
     logger.warn("Loading user cached recipes failed", {
@@ -79,7 +79,7 @@ export async function persistGeneratedRecipeCache(input: {
   const cacheCollection = db.collection("users").doc(input.uid).collection(CACHE_COLLECTION);
 
   for (const recipe of cacheDocs) {
-    batch.set(cacheCollection.doc(recipe.id), stripUndefinedDeep(recipe), { merge: true });
+    batch.set(cacheCollection.doc(recipe.id), stripUndefinedDeep(recipe));
   }
 
   await batch.commit();
@@ -205,7 +205,7 @@ async function buildCacheDocFromRecipe(
     updatedAt: timestamp
   };
 
-  return ensureBilingualRecipeCatalogDoc({
+  return enrichOfflineRecipe({
     ...baseRecipe,
     healthMetadata: buildRecipeHealthMetadata(baseRecipe),
     searchMetadata: buildRecipeSearchMetadata(baseRecipe)

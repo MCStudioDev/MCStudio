@@ -174,6 +174,7 @@ export interface RecipeCatalogDoc {
     license?: string;
   };
   localized?: Partial<Record<"English" | "Arabic", import("@/lib/types").Recipe>>;
+  dishIntent?: import("@/lib/types").RecipeDishIntent;
   regionalCuisines?: string[];
   styleTags?: string[];
   healthMetadata?: RecipeHealthMetadata;

@@ -110,7 +110,7 @@ async function setDocWithRetry(
 ) {
   for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt += 1) {
     try {
-      await ref.set(data, { merge: true });
+      await ref.set(data);
       return;
     } catch (error) {
       if (!isRetryableWriteError(error) || attempt === MAX_WRITE_ATTEMPTS) {
@@ -140,7 +140,7 @@ function normalizeRecipe(recipe: RecipeCatalogDoc) {
 }
 
 function isSameRecipeDoc(left: RecipeCatalogDoc, right: RecipeCatalogDoc) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return stableStringify(left) === stableStringify(right);
 }
 
 function stripUndefinedDeep<T>(value: T): T {
@@ -156,6 +156,26 @@ function stripUndefinedDeep<T>(value: T): T {
         .filter(([, entry]) => entry !== undefined)
         .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
     ) as T;
+  }
+
+  return value;
+}
+
+function stableStringify(value: unknown) {
+  return JSON.stringify(sortKeysDeep(value));
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sortKeysDeep(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entry]) => [key, sortKeysDeep(entry)])
+    );
   }
 
   return value;

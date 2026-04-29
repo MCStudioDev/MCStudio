@@ -544,6 +544,7 @@ function hasRenderableImage(imageUrl?: string) {
 function buildRecipePhotoQuery(recipe: Recipe) {
   return buildRecipePhotoQueryCandidates({
     cuisine: recipe.cuisine,
+    dishIntent: recipe.dish_intent,
     imageSearchIndex: recipe.image_search_index,
     imageSearchIndices: recipe.image_search_indices,
     ingredients: recipe.ingredients,
@@ -585,6 +586,7 @@ function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
       : recipe.recipe_origin === "similar_ingredients"
         ? t("similarIngredients")
         : null;
+  const dishStyle = [recipe.dish_intent?.meal_type, recipe.dish_intent?.cooking_method].filter(Boolean).join(" ");
   const preferenceHits = recipe.preference_hits?.length
     ? t("preferenceMatches").replace("{count}", String(recipe.preference_hits.length))
     : null;
@@ -593,7 +595,7 @@ function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
       ? recipe.scan_match_explanation
       : null;
 
-  return [originLabel, recipe.cuisine, recipe.match_quality, preferenceHits, scanExplanation].filter(Boolean).join(" / ");
+  return [originLabel, recipe.cuisine, dishStyle, recipe.match_quality, preferenceHits, scanExplanation].filter(Boolean).join(" / ");
 }
 
 function buildRecipePreviewItems(recipe: Recipe) {

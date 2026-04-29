@@ -15,6 +15,7 @@ export interface RecipePromptOptions {
   diets: string[];
   conditions: string[];
   allergens?: string[];
+  candidateDishHints?: string;
 }
 
 export interface MealPlanPromptOptions {
@@ -364,6 +365,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const perMealCalories = Math.round(options.calorieTarget / 3);
   const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
   const cuisineTargetCount = recipeCount <= 2 ? recipeCount : recipeCount - 1;
+  const candidateDishHints = options.candidateDishHints?.trim();
 
   return [
     "You are NutriMoment's recipe generation assistant.",
@@ -380,6 +382,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
     "When the pantry strongly matches a known cuisine-specific dish, prefer that exact dish family over a generic fallback. Example: Egyptian plus ground meat should bias toward kofta, hawawshi, or macarona bechamel when the supporting starches and aromatics fit.",
+    candidateDishHints
+      ? `Internally generate at least 10 dish-family candidates first, then rerank them before writing the final recipes. Use this ranked candidate universe as the starting point: ${candidateDishHints}.`
+      : "Internally generate at least 10 dish-family candidates first, then rerank them before writing the final recipes.",
     "Infer meal context when possible. If the pantry strongly suggests breakfast ingredients, prefer real breakfast dishes from the selected cuisine; if it suggests grilled meats, rice, stews, or pasta, prefer lunch or dinner families from that cuisine.",
     cuisineSpecificGuidance,
     cuisineKnowledgeGuidance,
@@ -394,6 +399,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     imageGuidance,
     "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
     "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"white bean stew\",\"fasolia\",\"bean tomato stew\"], [\"grilled chicken red sauce pasta\",\"chicken tomato pasta\",\"grilled chicken pasta\"], [\"creamy chicken pasta\",\"white sauce pasta\",\"chicken alfredo pasta\"], [\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"].",
+    "Every recipe must also include dish_intent with exactly these keys: dish_name, cuisine, meal_type, diet_type, cooking_method, visual_keywords, exclude_keywords.",
+    "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
     `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`,
@@ -413,8 +420,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Do not write vague steps like 'cook until done', 'season to taste', or 'serve'. Replace them with specific timing, doneness cues, and quantities.",
     "Include prep, cooking, finishing, and plating steps; if a sauce, dressing, spice mix, or garnish is needed, tell the user exactly when and how much to add.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings."
+    "Each recipe object must include: name, cuisine, dish_intent, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent.visual_keywords and dish_intent.exclude_keywords must both be arrays of short English strings."
   ].join(" ");
 }
 

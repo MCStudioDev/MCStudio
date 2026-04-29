@@ -1,5 +1,8 @@
+import type { RecipeDishIntent } from "@/lib/types";
+
 interface RecipePhotoQueryInput {
   cuisine?: string;
+  dishIntent?: RecipeDishIntent;
   imageSearchIndex?: string;
   imageSearchIndices?: string[];
   ingredients?: unknown[];
@@ -57,6 +60,7 @@ const DISH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 ];
 
 export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
+  const dishIntentQueries = buildDishIntentQueries(input.dishIntent);
   const ownedIngredientLabels = [...(input.ingredients ?? [])]
     .map(getIngredientLabel)
     .filter(Boolean);
@@ -112,7 +116,27 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
     })
   ]);
 
-  return Array.from(new Set([...explicitQueries, ...derivedCandidates])).slice(0, 5);
+  return Array.from(new Set([...dishIntentQueries, ...explicitQueries, ...derivedCandidates])).slice(0, 5);
+}
+
+function buildDishIntentQueries(dishIntent?: RecipeDishIntent) {
+  if (!dishIntent) return [];
+
+  const dishName = normalizePhrase(dishIntent.dish_name);
+  const cuisine = normalizePhrase(dishIntent.cuisine);
+  const method = normalizePhrase(dishIntent.cooking_method ?? "");
+  const diet = normalizePhrase(dishIntent.diet_type ?? "");
+  const [leadVisual, secondVisual] = dishIntent.visual_keywords.map((value) => normalizePhrase(value));
+
+  return normalizeQueryList([
+    joinRecipeQueryParts(dishName, cuisine, "food"),
+    joinRecipeQueryParts(dishName, method, "plate"),
+    joinRecipeQueryParts(cuisine, "traditional", dishName),
+    joinRecipeQueryParts(cuisine, method, leadVisual || dishName),
+    joinRecipeQueryParts(diet, cuisine, leadVisual || dishName),
+    joinRecipeQueryParts(leadVisual, cuisine),
+    joinRecipeQueryParts(secondVisual, cuisine)
+  ]);
 }
 
 function buildSparseIngredientQueries({

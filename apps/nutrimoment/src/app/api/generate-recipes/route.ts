@@ -874,7 +874,7 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
     }
 
     if (isUnsplashRecipePhotoSearchConfigured()) {
-      const unsplash = await findUnsplashRecipePhoto(query, { excludeUrls });
+      const unsplash = await findUnsplashRecipePhoto(query, { excludeUrls: excludedUrls });
       if (unsplash) {
         const score = unsplash.score + 2;
         if (score > bestScore) {
@@ -890,7 +890,7 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
     }
 
     if (isPexelsRecipePhotoSearchConfigured()) {
-      const pexels = await findPexelsRecipePhoto(query, { excludeUrls });
+      const pexels = await findPexelsRecipePhoto(query, { excludeUrls: excludedUrls });
       if (pexels) {
         if (pexels.score > bestScore) {
           bestScore = pexels.score;

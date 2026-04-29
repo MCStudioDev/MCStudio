@@ -11,14 +11,17 @@ import {
   Camera,
   ChefHat,
   Leaf,
+  MoonStar,
   Scan,
   ShieldCheck,
   Sparkles,
+  SunMedium,
   Utensils
 } from "lucide-react";
 import { Loader } from "@/components/ui/Loader";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 import type { Language } from "@/lib/types";
 
 interface LandingCopy {
@@ -184,12 +187,14 @@ const LANGUAGE_OPTIONS: Array<{ code: Language; label: string }> = [
 
 export default function Landing() {
   const { user, loading, signInWithGoogle } = useAuth();
-  const { rtl, language, setLanguage, t } = useApp();
+  const { rtl, language, setLanguage, settings, saveSettings, t } = useApp();
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const copy = LANDING_COPY[language];
+  const themeMode = settings.themeMode ?? "auroraDark";
+  const isMintTheme = themeMode === "mintWhite";
 
   useEffect(() => {
     setIsMounted(true);
@@ -200,6 +205,13 @@ export default function Landing() {
       router.replace("/dashboard");
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    document.body.setAttribute("data-dashboard-theme", themeMode);
+    return () => {
+      document.body.removeAttribute("data-dashboard-theme");
+    };
+  }, [themeMode]);
 
   const handleSignIn = async () => {
     setSigningIn(true);
@@ -215,9 +227,15 @@ export default function Landing() {
     }
   };
 
+  const handleThemeToggle = async () => {
+    await saveSettings({
+      themeMode: isMintTheme ? "auroraDark" : "mintWhite"
+    });
+  };
+
   if (loading || !isMounted) {
     return (
-      <div className="dashboard-shell flex min-h-screen items-center justify-center px-4">
+      <div className="dashboard-shell flex min-h-screen items-center justify-center px-4" data-dashboard-theme={themeMode}>
         <Loader label="Checking your session..." />
       </div>
     );
@@ -225,7 +243,7 @@ export default function Landing() {
 
   if (user) {
     return (
-      <div className="dashboard-shell flex min-h-screen items-center justify-center px-4">
+      <div className="dashboard-shell flex min-h-screen items-center justify-center px-4" data-dashboard-theme={themeMode}>
         <Loader label="Redirecting to your kitchen..." />
       </div>
     );
@@ -234,6 +252,7 @@ export default function Landing() {
   return (
     <main
       className="dashboard-shell interactive-shell relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 sm:py-8"
+      data-dashboard-theme={themeMode}
       dir={rtl ? "rtl" : "ltr"}
       lang={language}
     >
@@ -253,9 +272,27 @@ export default function Landing() {
               <span className="gradient-emerald flex h-11 w-11 items-center justify-center rounded-2xl shadow-glow">
                 <ChefHat className="h-5 w-5 text-[#032019]" aria-hidden="true" />
               </span>
-              <span className="font-display text-xl font-bold text-white">NutriMoment</span>
+              <span className={cn("font-display text-xl font-bold", isMintTheme ? "text-[#173a31]" : "text-white")}>
+                NutriMoment
+              </span>
             </Link>
-            <LanguageToggle copy={copy} language={language} setLanguage={setLanguage} compact />
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto sm:justify-end">
+              <button
+                type="button"
+                onClick={() => void handleThemeToggle()}
+                className={cn(
+                  "focus-ring flex h-11 items-center justify-center rounded-full border px-4 transition-ui",
+                  isMintTheme
+                    ? "border-emerald-300/20 bg-white/78 text-[#35695d] hover:bg-white"
+                    : "border-white/12 bg-white/[0.06] text-emerald-50/82 hover:bg-white/[0.12]"
+                )}
+                aria-label={isMintTheme ? t("switchToDarkTheme") : t("switchToMintTheme")}
+                title={isMintTheme ? t("switchToDarkTheme") : t("switchToMintTheme")}
+              >
+                {isMintTheme ? <MoonStar className="h-4 w-4" aria-hidden="true" /> : <SunMedium className="h-4 w-4" aria-hidden="true" />}
+              </button>
+              <LanguageToggle copy={copy} language={language} setLanguage={setLanguage} compact themeMode={themeMode} />
+            </div>
           </header>
 
           <section className="floating-shell section-band rounded-[2.2rem] p-6 md:p-9 lg:p-11">
@@ -263,7 +300,14 @@ export default function Landing() {
               {/* Left column: hero copy + CTA */}
               <div className="flex flex-col gap-7">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-100">
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em]",
+                      isMintTheme
+                        ? "border-emerald-300/30 bg-white/72 text-[#1d7f84]"
+                        : "border-emerald-300/30 bg-emerald-400/10 text-emerald-100"
+                    )}
+                  >
                     <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                     {copy.badge}
                   </span>
@@ -278,22 +322,34 @@ export default function Landing() {
                 </div>
 
                 <div className="space-y-4">
-                  <h1 className="font-display text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-5xl md:text-6xl">
+                  <h1
+                    className={cn(
+                      "font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl",
+                      isMintTheme ? "text-[#173a31]" : "text-white"
+                    )}
+                  >
                     <span className="block">{copy.heroLead}</span>
                     <span className="text-gradient block">{copy.heroAccent}</span>
                   </h1>
-                  <p className="max-w-xl text-base leading-relaxed text-emerald-50/75 md:text-lg">
+                  <p className={cn("max-w-xl text-base leading-relaxed md:text-lg", isMintTheme ? "text-[#45655d]" : "text-emerald-50/75")}>
                     {copy.subtitle}
                   </p>
                 </div>
 
-                <dl className="grid grid-cols-3 gap-3 rounded-[1.4rem] border border-white/10 bg-white/[0.04] p-4">
+                <dl
+                  className={cn(
+                    "grid grid-cols-3 gap-3 rounded-[1.4rem] border p-4",
+                    isMintTheme
+                      ? "border-emerald-300/20 bg-white/78 shadow-[0_24px_60px_-42px_rgba(70,140,120,0.24)]"
+                      : "border-white/10 bg-white/[0.04]"
+                  )}
+                >
                   {copy.trust.map((item) => (
                     <div key={item.label} className="space-y-1">
-                      <dt className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-200/80">
+                      <dt className={cn("text-[10px] font-semibold uppercase tracking-[0.2em]", isMintTheme ? "text-[#1d7f84]/80" : "text-cyan-200/80")}>
                         {item.label}
                       </dt>
-                      <dd className="text-lg font-display font-semibold text-white">{item.value}</dd>
+                      <dd className={cn("text-lg font-display font-semibold", isMintTheme ? "text-[#173a31]" : "text-white")}>{item.value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -310,7 +366,7 @@ export default function Landing() {
                     <GoogleIcon />
                     {signingIn ? copy.signInBusy : copy.signIn}
                   </motion.button>
-                  <p className="max-w-xs text-xs leading-relaxed text-emerald-50/60">
+                  <p className={cn("max-w-xs text-xs leading-relaxed", isMintTheme ? "text-[#56766d]" : "text-emerald-50/60")}>
                     {copy.disclaimer}
                   </p>
                 </div>
@@ -318,23 +374,28 @@ export default function Landing() {
                 {error ? (
                   <div
                     role="alert"
-                    className="flex items-start gap-3 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100"
+                    className={cn(
+                      "flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm",
+                      isMintTheme
+                        ? "border-rose-300/35 bg-white/86 text-rose-700 shadow-[0_18px_40px_-28px_rgba(191,86,65,0.35)]"
+                        : "border-rose-300/30 bg-rose-400/10 text-rose-100"
+                    )}
                   >
                     <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
                     <span>{error}</span>
                   </div>
                 ) : null}
 
-                <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-50/50">
+                <div className={cn("flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.2em]", isMintTheme ? "text-[#5b7b73]" : "text-emerald-50/50")}>
                   <span>{copy.footer.poweredBy}</span>
                   <span aria-hidden="true">·</span>
-                  <Link href="/legal/disclaimer" className="transition-ui hover:text-emerald-50">
+                  <Link href="/legal/disclaimer" className={cn("transition-ui", isMintTheme ? "hover:text-[#173a31]" : "hover:text-emerald-50")}>
                     {copy.footer.aiDisclaimer}
                   </Link>
-                  <Link href="/legal/privacy" className="transition-ui hover:text-emerald-50">
+                  <Link href="/legal/privacy" className={cn("transition-ui", isMintTheme ? "hover:text-[#173a31]" : "hover:text-emerald-50")}>
                     {copy.footer.privacy}
                   </Link>
-                  <Link href="/legal/terms" className="transition-ui hover:text-emerald-50">
+                  <Link href="/legal/terms" className={cn("transition-ui", isMintTheme ? "hover:text-[#173a31]" : "hover:text-emerald-50")}>
                     {copy.footer.terms}
                   </Link>
                 </div>
@@ -344,7 +405,7 @@ export default function Landing() {
               <div className="relative flex items-center justify-center">
                 <div className="pointer-events-none absolute -left-6 top-6 h-40 w-40 rounded-full bg-emerald-400/20 blur-3xl" aria-hidden="true" />
                 <div className="pointer-events-none absolute -right-4 bottom-8 h-36 w-36 rounded-full bg-cyan-400/20 blur-3xl" aria-hidden="true" />
-                <PhoneMockup copy={copy} rtl={rtl} />
+                <PhoneMockup copy={copy} rtl={rtl} themeMode={themeMode} />
               </div>
             </div>
           </section>
@@ -359,11 +420,18 @@ export default function Landing() {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
                   {language === "ar" ? "ثلاث خطوات" : "Three steps"}
                 </p>
-                <h2 className="mt-2 font-display text-2xl font-bold text-white md:text-3xl">
+                <h2 className={cn("mt-2 font-display text-2xl font-bold md:text-3xl", isMintTheme ? "text-[#173a31]" : "text-white")}>
                   {language === "ar" ? "من الثلاجة إلى الطبق" : "From fridge to plate"}
                 </h2>
               </div>
-              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-50/70">
+              <div
+                className={cn(
+                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.2em]",
+                  isMintTheme
+                    ? "border-emerald-300/20 bg-white/72 text-[#35695d]"
+                    : "border-white/10 bg-white/[0.05] text-emerald-50/70"
+                )}
+              >
                 <Scan className="h-3.5 w-3.5" aria-hidden="true" />
                 {language === "ar" ? "بسيط" : "Simple flow"}
               </div>
@@ -377,21 +445,10 @@ export default function Landing() {
                   title={step.title}
                   description={step.description}
                   icon={STEP_ICONS[index]}
+                  themeMode={themeMode}
                 />
               ))}
             </ol>
-          </section>
-
-          {/* Language picker */}
-          <section
-            aria-label={copy.languageLabel}
-            className="floating-shell section-band flex flex-col gap-3 rounded-[1.6rem] p-5 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{copy.languageLabel}</p>
-              <p className="text-sm text-emerald-50/65">{copy.languageHelper}</p>
-            </div>
-            <LanguageToggle copy={copy} language={language} setLanguage={setLanguage} />
           </section>
 
           {/* Visible app title for screen readers / SEO */}
@@ -412,13 +469,17 @@ function LanguageToggle({
   copy,
   language,
   setLanguage,
-  compact = false
+  compact = false,
+  themeMode
 }: {
   copy: LandingCopy;
   language: Language;
   setLanguage: (lang: Language) => Promise<void>;
   compact?: boolean;
+  themeMode: "auroraDark" | "mintWhite";
 }) {
+  const isMintTheme = themeMode === "mintWhite";
+
   return (
     <div
       className={`flex flex-wrap items-center gap-2 ${compact ? "justify-start sm:justify-end" : ""}`}
@@ -432,11 +493,14 @@ function LanguageToggle({
             type="button"
             onClick={() => void setLanguage(option.code)}
             aria-pressed={active}
-            className={`focus-ring rounded-full px-4 py-2 text-sm font-semibold transition-ui ${
+            className={cn(
+              "focus-ring rounded-full px-4 py-2 text-sm font-semibold transition-ui",
               active
                 ? "gradient-emerald text-[#032019] shadow-glow"
-                : "border border-white/10 bg-white/[0.05] text-emerald-50/82 hover:bg-white/[0.1]"
-            }`}
+                : isMintTheme
+                  ? "border border-emerald-300/20 bg-white/72 text-[#35695d] hover:bg-white"
+                  : "border border-white/12 bg-white/[0.06] text-emerald-50/82 hover:bg-white/[0.12]"
+            )}
           >
             <span>{option.label}</span>
             {active ? <span className="sr-only"> {copy.languageDetected}</span> : null}
@@ -451,28 +515,42 @@ function StepCard({
   index,
   title,
   description,
-  icon
+  icon,
+  themeMode
 }: {
   index: number;
   title: string;
   description: string;
   icon: ReactNode;
+  themeMode: "auroraDark" | "mintWhite";
 }) {
+  const isMintTheme = themeMode === "mintWhite";
+
   return (
     <li className="glass-card section-band relative rounded-[1.4rem] p-5">
       <div className="flex items-start justify-between gap-3">
-        <div className="rounded-2xl bg-white/[0.08] p-2.5 text-cyan-100">{icon}</div>
-        <span className="font-display text-3xl font-bold text-white/15 tabular-nums">
+        <div className={cn("rounded-2xl p-2.5", isMintTheme ? "bg-white/78 text-[#1d7f84]" : "bg-white/[0.1] text-cyan-50")}>{icon}</div>
+        <span className={cn("tabular-nums font-display text-3xl font-bold", isMintTheme ? "text-[#7eb8aa]/35" : "text-white/30")}>
           0{index}
         </span>
       </div>
-      <h3 className="mt-4 font-display text-lg font-semibold text-white">{title}</h3>
-      <p className="mt-1.5 text-sm leading-relaxed text-emerald-50/68">{description}</p>
+      <h3 className={cn("mt-4 font-display text-lg font-semibold", isMintTheme ? "text-[#173a31]" : "text-white/95")}>{title}</h3>
+      <p className={cn("mt-1.5 text-sm leading-relaxed", isMintTheme ? "text-[#56766d]" : "text-emerald-50/86")}>{description}</p>
     </li>
   );
 }
 
-function PhoneMockup({ copy, rtl }: { copy: LandingCopy; rtl: boolean }) {
+function PhoneMockup({
+  copy,
+  rtl,
+  themeMode
+}: {
+  copy: LandingCopy;
+  rtl: boolean;
+  themeMode: "auroraDark" | "mintWhite";
+}) {
+  const isMintTheme = themeMode === "mintWhite";
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, rotate: -2 }}
@@ -483,13 +561,28 @@ function PhoneMockup({ copy, rtl }: { copy: LandingCopy; rtl: boolean }) {
       style={{ transformStyle: "preserve-3d" }}
       aria-hidden="true"
     >
-      <div className="relative rounded-[2.5rem] border border-white/15 bg-[linear-gradient(160deg,rgba(12,40,34,0.98)_0%,rgba(8,26,24,0.95)_60%,rgba(5,18,18,0.98)_100%)] p-3 shadow-[0_48px_120px_-40px_rgba(0,0,0,0.9),0_20px_60px_-30px_rgba(34,243,175,0.35)]">
+      <div
+        className={cn(
+          "relative rounded-[2.5rem] border p-3",
+          isMintTheme
+            ? "border-emerald-300/25 bg-[linear-gradient(160deg,rgba(255,255,255,0.98)_0%,rgba(240,252,247,0.97)_62%,rgba(226,244,238,0.98)_100%)] shadow-[0_42px_110px_-42px_rgba(70,140,120,0.35),0_20px_60px_-30px_rgba(107,196,220,0.24)]"
+            : "border-white/15 bg-[linear-gradient(160deg,rgba(12,40,34,0.98)_0%,rgba(8,26,24,0.95)_60%,rgba(5,18,18,0.98)_100%)] shadow-[0_48px_120px_-40px_rgba(0,0,0,0.9),0_20px_60px_-30px_rgba(34,243,175,0.35)]"
+        )}
+      >
         {/* Notch */}
-        <div className="mx-auto mb-2 h-1.5 w-16 rounded-full bg-white/15" />
+        <div className={cn("mx-auto mb-2 h-1.5 w-16 rounded-full", isMintTheme ? "bg-emerald-300/35" : "bg-white/15")} />
 
-        <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_18%_12%,rgba(34,243,175,0.18),transparent_52%),linear-gradient(180deg,rgba(9,29,25,0.98),rgba(5,18,16,0.96))] p-4" dir={rtl ? "rtl" : "ltr"}>
+        <div
+          className={cn(
+            "rounded-[2rem] border p-4",
+            isMintTheme
+              ? "border-emerald-300/22 bg-[radial-gradient(circle_at_18%_12%,rgba(83,206,169,0.18),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(238,252,247,0.96))]"
+              : "border-white/10 bg-[radial-gradient(circle_at_18%_12%,rgba(34,243,175,0.18),transparent_52%),linear-gradient(180deg,rgba(9,29,25,0.98),rgba(5,18,16,0.96))]"
+          )}
+          dir={rtl ? "rtl" : "ltr"}
+        >
           {/* Status bar */}
-          <div className="mb-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100/60">
+          <div className={cn("mb-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.2em]", isMintTheme ? "text-[#5b7b73]" : "text-emerald-100/60")}>
             <span>9:41</span>
             <span className="flex items-center gap-1">
               <Leaf className="h-3 w-3" />
@@ -498,29 +591,50 @@ function PhoneMockup({ copy, rtl }: { copy: LandingCopy; rtl: boolean }) {
           </div>
 
           {/* Recipe image placeholder */}
-          <div className="relative h-32 overflow-hidden rounded-2xl bg-[linear-gradient(135deg,#1b5a43_0%,#28836b_45%,#3ab89c_100%)]">
+          <div
+            className={cn(
+              "relative h-32 overflow-hidden rounded-2xl",
+              isMintTheme
+                ? "bg-[linear-gradient(135deg,#74e6c2_0%,#82e1d4_45%,#b4e8ff_100%)]"
+                : "bg-[linear-gradient(135deg,#1b5a43_0%,#28836b_45%,#3ab89c_100%)]"
+            )}
+          >
             <div className="absolute inset-0 opacity-60 mix-blend-soft-light" style={{
               backgroundImage:
                 "radial-gradient(circle at 22% 30%, rgba(255,221,130,0.6), transparent 45%), radial-gradient(circle at 78% 72%, rgba(255,245,200,0.45), transparent 40%)"
             }} />
-            <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100 backdrop-blur">
+            <div
+              className={cn(
+                "absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] backdrop-blur",
+                isMintTheme
+                  ? "border border-white/60 bg-white/82 text-[#1d7f84]"
+                  : "bg-black/40 text-emerald-100"
+              )}
+            >
               <Sparkles className="h-3 w-3" />
               {copy.preview.eyebrow}
             </div>
-            <div className="absolute right-3 top-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400 text-[#052017] shadow-[0_8px_24px_-6px_rgba(34,243,175,0.8)]">
+            <div
+              className={cn(
+                "absolute right-3 top-3 flex h-12 w-12 items-center justify-center rounded-full",
+                isMintTheme
+                  ? "bg-white/88 text-[#173a31] shadow-[0_14px_30px_-14px_rgba(70,140,120,0.35)]"
+                  : "bg-emerald-400 text-[#052017] shadow-[0_8px_24px_-6px_rgba(34,243,175,0.8)]"
+              )}
+            >
               <div className="text-center leading-tight">
                 <div className="font-display text-base font-bold">{copy.preview.matchScore}</div>
                 <div className="text-[8px] font-bold uppercase tracking-widest">{copy.preview.matchUnit}</div>
               </div>
             </div>
             <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2">
-              <Apple className="h-4 w-4 text-emerald-50" />
-              <span className="truncate text-xs font-semibold text-emerald-50">{copy.preview.matchLabel}</span>
+              <Apple className={cn("h-4 w-4", isMintTheme ? "text-[#173a31]" : "text-emerald-50")} />
+              <span className={cn("truncate text-xs font-semibold", isMintTheme ? "text-[#173a31]" : "text-emerald-50")}>{copy.preview.matchLabel}</span>
             </div>
           </div>
 
           {/* Recipe name */}
-          <h4 className="mt-3 font-display text-base font-bold leading-tight text-white">
+          <h4 className={cn("mt-3 font-display text-base font-bold leading-tight", isMintTheme ? "text-[#173a31]" : "text-white")}>
             {copy.preview.recipeName}
           </h4>
 
@@ -529,12 +643,15 @@ function PhoneMockup({ copy, rtl }: { copy: LandingCopy; rtl: boolean }) {
             {copy.preview.macros.map((m) => (
               <div
                 key={m.label}
-                className="rounded-xl border border-white/10 bg-white/[0.05] px-2 py-2 text-center"
+                className={cn(
+                  "rounded-xl border px-2 py-2 text-center",
+                  isMintTheme ? "border-emerald-300/20 bg-white/80" : "border-white/10 bg-white/[0.05]"
+                )}
               >
-                <div className="text-[9px] font-semibold uppercase tracking-[0.15em] text-emerald-200/70">
+                <div className={cn("text-[9px] font-semibold uppercase tracking-[0.15em]", isMintTheme ? "text-[#5b7b73]" : "text-emerald-200/70")}>
                   {m.label}
                 </div>
-                <div className="mt-0.5 font-display text-sm font-semibold text-white">{m.value}</div>
+                <div className={cn("mt-0.5 font-display text-sm font-semibold", isMintTheme ? "text-[#173a31]" : "text-white")}>{m.value}</div>
               </div>
             ))}
           </div>
@@ -544,7 +661,12 @@ function PhoneMockup({ copy, rtl }: { copy: LandingCopy; rtl: boolean }) {
             {copy.preview.flags.map((flag) => (
               <span
                 key={flag}
-                className="inline-flex items-center gap-1 rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-100"
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em]",
+                  isMintTheme
+                    ? "border-emerald-300/25 bg-white/82 text-[#1d7f84]"
+                    : "border-emerald-300/25 bg-emerald-400/10 text-emerald-100"
+                )}
               >
                 <ShieldCheck className="h-2.5 w-2.5" />
                 {flag}
@@ -553,11 +675,16 @@ function PhoneMockup({ copy, rtl }: { copy: LandingCopy; rtl: boolean }) {
           </div>
 
           {/* Ingredient checklist */}
-          <div className="mt-3 space-y-1.5 rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
+          <div
+            className={cn(
+              "mt-3 space-y-1.5 rounded-xl border p-2.5",
+              isMintTheme ? "border-emerald-300/20 bg-white/78" : "border-white/10 bg-white/[0.03]"
+            )}
+          >
             {copy.preview.ingredients.map((ing) => (
               <div key={ing.name} className="flex items-center justify-between text-xs">
                 <span
-                  className={ing.have ? "text-emerald-50/85" : "text-emerald-50/45 line-through"}
+                  className={ing.have ? (isMintTheme ? "text-[#173a31]" : "text-emerald-50/85") : isMintTheme ? "text-[#7a918b] line-through" : "text-emerald-50/45 line-through"}
                 >
                   {ing.name}
                 </span>

@@ -165,6 +165,7 @@ const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 
 const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "chicken", pattern: /\bchicken\b/iu },
+  { key: "mussels", pattern: /\bmussel|mussels\b/iu },
   { key: "shrimp", pattern: /\bshrimp|prawn\b/iu },
   { key: "lamb", pattern: /\blamb\b/iu },
   { key: "beef", pattern: /\bbeef|steak|meat\b/iu },
@@ -191,6 +192,7 @@ const BEAN_TYPE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 const SAUCE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "red-sauce", pattern: /\bred sauce|tomato sauce|marinara|pomodoro|tomato basil\b/iu },
   { key: "white-sauce", pattern: /\bwhite sauce|alfredo|cream sauce|creamy sauce|creamy\b/iu },
+  { key: "tahini", pattern: /\btahini|sesame sauce\b/iu },
   { key: "pesto", pattern: /\bpesto\b/iu },
   { key: "soy-garlic", pattern: /\bsoy garlic|garlic soy|soy sauce\b/iu },
   { key: "curry", pattern: /\bcurry sauce|curry\b/iu }

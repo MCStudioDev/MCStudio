@@ -17,6 +17,7 @@ import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import {
   buildCuisineAwareDishCandidates,
@@ -943,13 +944,17 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
   }
 
   const queries = buildRecipePhotoQueriesForRanking(recipe);
+  const baseIdentity = buildRecipePhotoIdentity(recipe.image_search_index ?? queries[0] ?? recipe.name);
   let bestScore = 0;
   let recipePatch: Partial<Recipe> | null = null;
 
-  for (const query of queries) {
+  for (const [index, query] of queries.entries()) {
+    const queryIdentity = buildRecipePhotoIdentity(query);
+    const queryPriorityAdjustment = getPhotoQueryPriorityAdjustment(baseIdentity, queryIdentity, index);
     const knownDishPhoto = getKnownDishRecipePhoto(query);
-    if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl) && 18 > bestScore) {
-      bestScore = 18;
+    const knownDishScore = 18 + queryPriorityAdjustment;
+    if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl) && knownDishScore > bestScore) {
+      bestScore = knownDishScore;
       recipePatch = {
         image_source: "wikimedia",
         image_url: knownDishPhoto.imageUrl
@@ -959,7 +964,7 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
     if (isUnsplashRecipePhotoSearchConfigured()) {
       const unsplash = await findUnsplashRecipePhoto(query, { excludeUrls: excludedUrls });
       if (unsplash) {
-        const score = unsplash.score + 2;
+        const score = unsplash.score + 2 + queryPriorityAdjustment;
         if (score > bestScore) {
           bestScore = score;
           recipePatch = {
@@ -975,8 +980,9 @@ async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<str
     if (isPexelsRecipePhotoSearchConfigured()) {
       const pexels = await findPexelsRecipePhoto(query, { excludeUrls: excludedUrls });
       if (pexels) {
-        if (pexels.score > bestScore) {
-          bestScore = pexels.score;
+        const score = pexels.score + queryPriorityAdjustment;
+        if (score > bestScore) {
+          bestScore = score;
           recipePatch = {
             image_source: "search",
             image_url: pexels.imageUrl
@@ -999,6 +1005,36 @@ function buildRecipePhotoQueriesForRanking(recipe: Recipe) {
     missingIngredients: recipe.missing_ingredients,
     name: recipe.name
   }).slice(0, 5);
+}
+
+function getPhotoQueryPriorityAdjustment(
+  baseIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
+  queryIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
+  index: number
+) {
+  let adjustment = Math.max(0, 1.8 - index * 0.45);
+
+  if (baseIdentity.mainIngredientKey && queryIdentity.mainIngredientKey) {
+    adjustment += baseIdentity.mainIngredientKey === queryIdentity.mainIngredientKey ? 1.4 : -6;
+  }
+
+  if (baseIdentity.sauceKey && queryIdentity.sauceKey) {
+    adjustment += baseIdentity.sauceKey === queryIdentity.sauceKey ? 1.1 : -5;
+  }
+
+  if (baseIdentity.starchKey && queryIdentity.starchKey) {
+    adjustment += baseIdentity.starchKey === queryIdentity.starchKey ? 0.9 : -3.5;
+  }
+
+  if (/\bmussel|mussels\b/i.test(baseIdentity.cleanQuery) && /\bshrimp|prawn\b/i.test(queryIdentity.cleanQuery)) {
+    adjustment -= 7;
+  }
+
+  if (/\btahini|sesame sauce\b/i.test(baseIdentity.cleanQuery) && /\b(pasta|spaghetti|linguine|marinara|pomodoro|red sauce)\b/i.test(queryIdentity.cleanQuery)) {
+    adjustment -= 7;
+  }
+
+  return adjustment;
 }
 
 function getVisualMatchLabel(score: number, index: number, topScore: number) {

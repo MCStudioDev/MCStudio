@@ -25,6 +25,7 @@ export interface DishCandidate {
   dishName: string;
   excludeKeywords: string[];
   hits: string[];
+  ingredientAnchors: string[];
   mealType: RecipeMealType;
   seasoningProfile?: string[];
   searchPhrases?: string[];
@@ -879,8 +880,10 @@ function scoreDishBlueprint(
 
   const anchorMatches = countMatches(normalizedIngredients, dish.ingredientAnchors);
   const supportMatches = countMatches(normalizedIngredients, dish.supportAnchors ?? []);
+  const structuralAnchorMisses = countStructuralAnchorMisses(dish.ingredientAnchors, normalizedIngredients);
   score += anchorMatches * 16;
   score += supportMatches * 5;
+  score -= structuralAnchorMisses * 18;
   if (anchorMatches === 0) {
     score -= 20;
   } else {
@@ -888,6 +891,9 @@ function scoreDishBlueprint(
   }
   if (supportMatches > 0) {
     hits.push(`support-match:${supportMatches}`);
+  }
+  if (structuralAnchorMisses > 0) {
+    hits.push(`structure-miss:${structuralAnchorMisses}`);
   }
 
   score += scoreDietCompatibility(dish, context.diets ?? [], hits);
@@ -903,6 +909,7 @@ function scoreDishBlueprint(
     dishName: dish.dishName,
     excludeKeywords: dish.excludeKeywords,
     hits: uniqueKeywords(hits).slice(0, 5),
+    ingredientAnchors: dish.ingredientAnchors,
     mealType: dish.mealType,
     seasoningProfile: dish.seasoningProfile,
     searchPhrases: dish.searchPhrases,
@@ -929,8 +936,17 @@ function shouldTrustCandidate(
   const mealTypeMatch = candidate.mealType === inferredMealType;
   const strongAnchorFit = candidate.anchorMatchCount >= 2;
   const moderateAnchorFit = candidate.anchorMatchCount >= 1 && candidate.supportMatchCount >= 2;
+  const recipeSignals = normalizeIngredientList([
+    recipe.name,
+    recipe.image_search_index ?? "",
+    ...(recipe.image_search_indices ?? []),
+    ...recipe.ingredients,
+    ...recipe.missing_ingredients
+  ]);
+  const hasStructuralMismatch = countStructuralAnchorMisses(candidate.ingredientAnchors, recipeSignals) > 0;
 
   if (exactNameMatch) return candidate;
+  if (hasStructuralMismatch) return undefined;
   if (strongAnchorFit && mealTypeMatch) return candidate;
   if (hasIntentSignal && mealTypeMatch) return candidate;
   if (moderateAnchorFit && mealTypeMatch && candidate.score >= 110) return candidate;
@@ -1156,6 +1172,17 @@ function inferExcludeKeywords(recipe: Recipe) {
 
 function countMatches(availableIngredients: string[], anchors: string[]) {
   return anchors.reduce((count, anchor) => count + (includesIngredient(availableIngredients, anchor) ? 1 : 0), 0);
+}
+
+function countStructuralAnchorMisses(anchors: string[], availableIngredients: string[]) {
+  return anchors.reduce((count, anchor) => {
+    if (!isStructuralAnchor(anchor)) return count;
+    return count + (includesIngredient(availableIngredients, anchor) ? 0 : 1);
+  }, 0);
+}
+
+function isStructuralAnchor(anchor: string) {
+  return /\b(pasta|rice|bread|pita|flatbread|tortilla|noodle|eggplant|bell pepper|fish|shrimp|mussel|mussels)\b/i.test(anchor);
 }
 
 function includesIngredient(availableIngredients: string[], anchor: string) {

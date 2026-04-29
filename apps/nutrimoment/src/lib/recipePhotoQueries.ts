@@ -14,6 +14,7 @@ const PROTEIN_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "chicken breast", pattern: /\bchicken breast\b/i },
   { label: "chicken thigh", pattern: /\bchicken thigh\b/i },
   { label: "chicken", pattern: /\bchicken\b/i },
+  { label: "mussels", pattern: /\bmussel|mussels\b/i },
   { label: "shrimp", pattern: /\bshrimp|prawn\b/i },
   { label: "salmon", pattern: /\bsalmon\b/i },
   { label: "fish", pattern: /\bfish|cod|tilapia|snapper|sea bass\b/i },
@@ -52,6 +53,7 @@ const STARCH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 const SAUCE_PATTERNS: Array<{ label: string; aliases: string[]; pattern: RegExp }> = [
   { label: "red sauce", aliases: ["tomato sauce", "marinara"], pattern: /\bred sauce|tomato sauce|marinara|pomodoro|tomato basil\b/i },
   { label: "white sauce", aliases: ["creamy sauce", "alfredo"], pattern: /\bwhite sauce|creamy sauce|alfredo|cream sauce|creamy\b/i },
+  { label: "tahini", aliases: ["sesame sauce"], pattern: /\btahini|sesame sauce\b/i },
   { label: "pesto", aliases: [], pattern: /\bpesto\b/i },
   { label: "soy garlic", aliases: ["garlic soy"], pattern: /\bsoy garlic|garlic soy|soy sauce\b/i },
   { label: "curry sauce", aliases: ["curry"], pattern: /\bcurry sauce|curry\b/i }
@@ -250,6 +252,7 @@ function buildCuisineIngredientHeuristicQueries({
   const hasBellPepper = normalizedIngredients.some((label) => /\bbell pepper|pepper\b/.test(label));
   const hasPilaf = /\bpilaf\b/.test(exactName) || dish === "pilaf";
   const hasGroundMeat = protein === "ground meat";
+  const hasMussels = protein === "mussels";
   const hasShrimp = protein === "shrimp";
   const hasFish = protein === "fish" || protein === "salmon";
   const isEgyptianLike = /\begyptian|middle eastern\b/.test(cuisine);
@@ -269,12 +272,13 @@ function buildCuisineIngredientHeuristicQueries({
         method
       })
     : [];
-  const seafoodQueries = hasFish || hasShrimp
+  const seafoodQueries = hasFish || hasShrimp || hasMussels
     ? buildCuisineSeafoodQueries({
         cuisine,
         dish,
         hasBread,
         hasFish,
+        hasMussels,
         hasOnion,
         hasPasta,
         hasRice,
@@ -366,6 +370,7 @@ function buildCuisineSeafoodQueries({
   dish,
   hasBread,
   hasFish,
+  hasMussels,
   hasOnion,
   hasPasta,
   hasRice,
@@ -379,6 +384,7 @@ function buildCuisineSeafoodQueries({
   dish?: string;
   hasBread: boolean;
   hasFish: boolean;
+  hasMussels: boolean;
   hasOnion: boolean;
   hasPasta: boolean;
   hasRice: boolean;
@@ -402,30 +408,38 @@ function buildCuisineSeafoodQueries({
     isEgyptianLike && hasFish ? "egyptian fish rice" : "",
     isMediterraneanLike && hasFish && (method === "grilled" || seafoodForm === "grilled seafood") ? "grilled mediterranean fish" : "",
     isMediterraneanLike && hasFish ? "baked white fish mediterranean" : "",
-    isMediterraneanLike && hasShrimp && hasPasta ? "garlic shrimp pasta" : "",
-    isMediterraneanLike && hasShrimp && hasPasta ? "shrimp linguine mediterranean" : "",
-    isItalianLike && hasShrimp && hasPasta ? "shrimp linguine" : "",
+    isMediterraneanLike && hasFish && sauceLabel === "tahini" ? "samak bil tahini" : "",
+    isMediterraneanLike && hasFish && sauceLabel === "tahini" ? "fish tahini plate" : "",
+    isMediterraneanLike && hasShrimp && sauceLabel === "tahini" ? "shrimp tahini plate" : "",
+    isMediterraneanLike && hasShrimp && sauceLabel === "tahini" ? "middle eastern shrimp tahini" : "",
+    isMediterraneanLike && hasShrimp && hasPasta && sauceLabel !== "tahini" ? "garlic shrimp pasta" : "",
+    isMediterraneanLike && hasShrimp && hasPasta && sauceLabel !== "tahini" ? "shrimp linguine mediterranean" : "",
+    isItalianLike && hasShrimp && hasPasta && sauceLabel !== "tahini" ? "shrimp linguine" : "",
     isItalianLike && hasShrimp && sauceLabel === "white sauce" ? "creamy shrimp pasta" : "",
-    isItalianLike && hasShrimp && sauceLabel !== "white sauce" ? "garlic shrimp spaghetti" : "",
+    isItalianLike && hasShrimp && sauceLabel !== "white sauce" && sauceLabel !== "tahini" ? "garlic shrimp spaghetti" : "",
     isIndianLike && hasFish ? "indian fish curry" : "",
     isIndianLike && hasFish && hasRice ? "fish curry with rice" : "",
     isMexicanLike && hasShrimp ? "camarones al ajo" : "",
     isMexicanLike && hasShrimp && hasRice ? "garlic shrimp rice plate" : "",
     isAsianLike && hasShrimp && seafoodForm === "seafood soup" ? "shrimp noodle soup" : "",
-    isAsianLike && hasShrimp ? "garlic honey shrimp" : "",
+    isAsianLike && hasShrimp && sauceLabel !== "tahini" ? "garlic honey shrimp" : "",
     isAsianLike && hasFish && seafoodForm === "seafood soup" ? "fish soup asian" : "",
     isThaiLike && hasShrimp && seafoodForm === "seafood soup" ? "tom yum goong" : "",
     isThaiLike && hasShrimp && (hasRice || seafoodForm === "seafood rice") ? "thai garlic shrimp" : "",
     isThaiLike && hasShrimp && sauceLabel === "curry sauce" ? "thai shrimp curry" : "",
     isTurkishLike && hasFish && hasBread ? "balik ekmek" : "",
     isTurkishLike && hasFish ? "turkish grilled fish" : "",
+    hasMussels ? joinRecipeQueryParts(cuisine, "mussels plate") : "",
+    hasMussels && seafoodForm === "seafood soup" ? joinRecipeQueryParts(cuisine, "mussels soup") : "",
+    hasMussels && sauceLabel === "tahini" ? joinRecipeQueryParts(cuisine, "mussels tahini plate") : "",
     hasFish && seafoodForm === "smoked seafood" ? joinRecipeQueryParts(cuisine, "smoked fish") : "",
     hasShrimp && seafoodForm === "fried seafood" ? joinRecipeQueryParts(cuisine, "fried shrimp") : "",
-    hasShrimp && hasPasta ? joinRecipeQueryParts(cuisine, "shrimp pasta") : "",
+    hasShrimp && hasPasta && sauceLabel !== "tahini" ? joinRecipeQueryParts(cuisine, "shrimp pasta") : "",
     hasFish && hasRice ? joinRecipeQueryParts(cuisine, "fish rice") : "",
     hasFish && hasBread ? joinRecipeQueryParts(cuisine, "fish sandwich") : "",
     hasFish && hasOnion && hasTomato ? joinRecipeQueryParts(cuisine, "fish stew") : "",
     hasShrimp && hasOnion && hasTomato ? joinRecipeQueryParts(cuisine, "shrimp plate") : "",
+    hasMussels ? joinRecipeQueryParts(method, "mussels", dish) : "",
     hasFish ? joinRecipeQueryParts(method, "fish", dish) : "",
     hasShrimp ? joinRecipeQueryParts(method, "shrimp", starchOrSeafoodDish(hasPasta, hasRice, dish)) : ""
   ]);

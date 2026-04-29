@@ -3,6 +3,19 @@ export type Tab = "scanner" | "pantry" | "mealplan" | "health" | "history" | "se
 export type Language = "en" | "ar";
 export type RecipeImageSource = "api" | "cache" | "search" | "unsplash" | "wikimedia";
 export type DashboardTheme = "auroraDark" | "mintWhite";
+export type RecipeMealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+export interface RecipeDishIntent {
+  dish_name: string;
+  cuisine: string;
+  meal_type?: RecipeMealType;
+  diet_type?: string;
+  cooking_method?: string;
+  visual_keywords: string[];
+  exclude_keywords: string[];
+  candidate_score?: number;
+  candidate_hits?: string[];
+}
 
 export interface PantryItem {
   id?: string;
@@ -24,6 +37,7 @@ export interface Recipe {
   cuisine: string;
   recipe_origin?: "exact_scan_match" | "similar_ingredients";
   scan_match_explanation?: string;
+  dish_intent?: RecipeDishIntent;
   image_search_index?: string;
   image_search_indices?: string[];
   ingredients: string[];

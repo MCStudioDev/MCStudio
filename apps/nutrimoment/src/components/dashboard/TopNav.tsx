@@ -143,7 +143,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
               </div>
 
               <nav className="relative z-10 min-w-0 w-full sm:w-auto">
-                <div className="nav-pill-track theme-topbar-track flex max-w-full items-center gap-1 overflow-x-auto rounded-[1.15rem] px-1 py-1 scrollbar-hidden sm:gap-1.5 sm:rounded-[1.4rem] sm:px-1.5 sm:py-1.5">
+                <div className="nav-pill-track theme-topbar-track grid w-full grid-cols-3 gap-1 rounded-[1.15rem] px-1 py-1 sm:flex sm:max-w-full sm:items-center sm:gap-1.5 sm:overflow-x-auto sm:rounded-[1.4rem] sm:px-1.5 sm:py-1.5 sm:scrollbar-hidden">
                   {TABS.map((tab) => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.id;
@@ -154,7 +154,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                         onClick={() => onTabChange(tab.id)}
                         aria-current={isActive ? "page" : undefined}
                         className={cn(
-                          "focus-ring theme-topbar-tab relative flex items-center gap-1.5 rounded-[0.95rem] px-2.5 py-2 text-[12px] font-semibold whitespace-nowrap transition-ui sm:rounded-[1rem] sm:px-3 sm:text-[13px]",
+                          "focus-ring theme-topbar-tab relative flex min-h-[3.25rem] min-w-0 items-center justify-center rounded-[0.95rem] px-2 py-2.5 text-center text-[11px] font-semibold leading-tight transition-ui sm:min-h-0 sm:flex-none sm:rounded-[1rem] sm:px-3 sm:py-2 sm:text-[13px]",
                           isActive
                             ? "text-[#032019]"
                             : "border border-white/6 bg-transparent text-emerald-50/68 hover:text-white hover:bg-white/[0.06]"
@@ -167,9 +167,9 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                             transition={{ type: "spring", stiffness: 300, damping: 28 }}
                           />
                         ) : null}
-                        <span className="relative flex items-center gap-1.5">
+                        <span className="relative flex min-w-0 flex-col items-center justify-center gap-0.5 sm:flex-row sm:gap-1.5">
                           <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                          {t(tab.key)}
+                          <span className="truncate">{t(tab.key)}</span>
                         </span>
                       </button>
                     );

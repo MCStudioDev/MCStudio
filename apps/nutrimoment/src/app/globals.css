@@ -329,6 +329,16 @@
     color: #16352d;
   }
 
+  body[data-dashboard-theme="mintWhite"] {
+    color-scheme: light;
+    color: #16352d;
+    background-color: #f3fffb;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(38, 190, 145, 0.14), transparent 28%),
+      radial-gradient(circle at 82% 14%, rgba(88, 180, 201, 0.12), transparent 24%),
+      linear-gradient(180deg, #f3fffb 0%, #ebfbf6 42%, #e1f5ee 100%);
+  }
+
   .dashboard-shell[data-dashboard-theme="mintWhite"]::before {
     background:
       radial-gradient(circle at top, rgba(38, 190, 145, 0.18), transparent 30%),
@@ -420,6 +430,10 @@
 
   .dashboard-shell[data-dashboard-theme="mintWhite"] .gradient-emerald {
     background-image: linear-gradient(135deg, #7cf0cf 0%, #82e1d4 54%, #b0e6ff 100%);
+  }
+
+  .dashboard-shell[data-dashboard-theme="mintWhite"] .text-gradient {
+    background-image: linear-gradient(135deg, #157d6c 0%, #1d7f84 50%, #5298c2 100%);
   }
 
   .dashboard-shell[data-dashboard-theme="mintWhite"] .theme-callout-info {

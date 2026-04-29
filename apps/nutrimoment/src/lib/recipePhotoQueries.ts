@@ -1,5 +1,8 @@
+import type { RecipeDishIntent } from "@/lib/types";
+
 interface RecipePhotoQueryInput {
   cuisine?: string;
+  dishIntent?: RecipeDishIntent;
   imageSearchIndex?: string;
   imageSearchIndices?: string[];
   ingredients?: unknown[];
@@ -57,6 +60,7 @@ const DISH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 ];
 
 export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
+  const dishIntentQueries = buildDishIntentQueries(input.dishIntent);
   const ownedIngredientLabels = [...(input.ingredients ?? [])]
     .map(getIngredientLabel)
     .filter(Boolean);
@@ -84,6 +88,16 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
       .replace(/\b(recipe|plate|dish|style)\b/gi, " ")
       .replace(/\s+/g, " ")
   );
+  const heuristicQueries = buildCuisineIngredientHeuristicQueries({
+    cuisine,
+    dish,
+    exactName,
+    ingredientLabels: [...ownedIngredientLabels, ...missingIngredientLabels],
+    method,
+    protein,
+    sauceLabel: sauce?.label,
+    starch
+  });
 
   const derivedCandidates = normalizeQueryList([
     exactName,
@@ -112,7 +126,27 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
     })
   ]);
 
-  return Array.from(new Set([...explicitQueries, ...derivedCandidates])).slice(0, 5);
+  return Array.from(new Set([...dishIntentQueries, ...heuristicQueries, ...explicitQueries, ...derivedCandidates])).slice(0, 5);
+}
+
+function buildDishIntentQueries(dishIntent?: RecipeDishIntent) {
+  if (!dishIntent) return [];
+
+  const dishName = normalizePhrase(dishIntent.dish_name);
+  const cuisine = normalizePhrase(dishIntent.cuisine);
+  const method = normalizePhrase(dishIntent.cooking_method ?? "");
+  const diet = normalizePhrase(dishIntent.diet_type ?? "");
+  const [leadVisual, secondVisual] = dishIntent.visual_keywords.map((value) => normalizePhrase(value));
+
+  return normalizeQueryList([
+    joinRecipeQueryParts(dishName, cuisine, "food"),
+    joinRecipeQueryParts(dishName, method, "plate"),
+    joinRecipeQueryParts(cuisine, "traditional", dishName),
+    joinRecipeQueryParts(cuisine, method, leadVisual || dishName),
+    joinRecipeQueryParts(diet, cuisine, leadVisual || dishName),
+    joinRecipeQueryParts(leadVisual, cuisine),
+    joinRecipeQueryParts(secondVisual, cuisine)
+  ]);
 }
 
 function buildSparseIngredientQueries({
@@ -153,6 +187,59 @@ function buildSparseIngredientQueries({
     joinRecipeQueryParts(protein, sauceLabel, pair),
     joinRecipeQueryParts(leadIngredient, dish),
     joinRecipeQueryParts(leadIngredient, "dish")
+  ]);
+}
+
+function buildCuisineIngredientHeuristicQueries({
+  cuisine,
+  dish,
+  exactName,
+  ingredientLabels,
+  method,
+  protein,
+  sauceLabel,
+  starch
+}: {
+  cuisine: string;
+  dish?: string;
+  exactName: string;
+  ingredientLabels: string[];
+  method?: string;
+  protein?: string;
+  sauceLabel?: string;
+  starch?: string;
+}) {
+  const normalizedIngredients = ingredientLabels
+    .map((label) => normalizePhrase(label))
+    .filter((label) => label.length >= 3);
+  const hasRice = normalizedIngredients.some((label) => /\brice\b/.test(label)) || starch === "rice";
+  const hasPasta = normalizedIngredients.some((label) => /\bpasta|macaroni|macarona\b/.test(label)) || starch === "pasta";
+  const hasLentils = normalizedIngredients.some((label) => /\blentil|lentils\b/.test(label)) || protein === "lentil";
+  const hasChickpeas = normalizedIngredients.some((label) => /\bchickpea|chickpeas\b/.test(label)) || protein === "chickpea";
+  const hasTomato = normalizedIngredients.some((label) => /\btomato|tomatoes\b/.test(label)) || sauceLabel === "red sauce";
+  const hasOnion = normalizedIngredients.some((label) => /\bonion|onions\b/.test(label));
+  const hasPilaf = /\bpilaf\b/.test(exactName) || dish === "pilaf";
+  const isEgyptianLike = /\begyptian|middle eastern\b/.test(cuisine);
+
+  if (!isEgyptianLike) {
+    return [];
+  }
+
+  return normalizeQueryList([
+    hasRice && hasLentils ? "roz bel ads" : "",
+    hasRice && hasLentils ? "mujadara" : "",
+    hasRice && hasLentils ? "lentils and rice" : "",
+    hasPasta && hasLentils ? "koshary egyptian dish" : "",
+    hasPasta && hasLentils ? "macarona bel ads" : "",
+    hasPasta && hasLentils ? "egyptian pasta lentils" : "",
+    hasRice && hasChickpeas ? "chickpea rice pilaf" : "",
+    hasRice && hasTomato && hasOnion && hasPilaf ? "egyptian rice pilaf" : "",
+    hasRice && hasTomato && hasOnion && hasPilaf ? "tomato rice pilaf" : "",
+    hasLentils && hasTomato && hasOnion && !hasRice && !hasPasta ? "egyptian lentil stew" : "",
+    hasLentils && hasTomato && hasOnion && !hasRice && !hasPasta ? "lentil tomato stew" : "",
+    joinRecipeQueryParts(cuisine, exactName),
+    joinRecipeQueryParts(method, protein, sauceLabel, starch ?? dish),
+    joinRecipeQueryParts(protein, sauceLabel, starch ?? dish)
   ]);
 }
 

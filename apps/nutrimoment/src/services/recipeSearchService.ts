@@ -9,6 +9,7 @@ import {
   translateIngredientToArabic,
   translateIngredientToEnglish
 } from "@/lib/arabicRecipeLocalization";
+import { enrichRecipeWithDishIntent } from "@/lib/recipeDishIntelligence";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { rankRecipes } from "@/services/rankingService";
 import { retrieveRecipeCandidates } from "@/services/recipeRetrievalService";
@@ -146,7 +147,7 @@ export function mapCatalogRecipeToUiRecipe(
     .map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
   const missingLocalized = missingIngredients.map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
 
-  return {
+  return enrichRecipeWithDishIntent({
     ...englishBase,
     name: localized.name,
     cuisine: localized.cuisine,
@@ -168,7 +169,10 @@ export function mapCatalogRecipeToUiRecipe(
     image_search_index: localized.image_search_index ?? englishBase.image_search_index,
     image_search_indices: localized.image_search_indices ?? englishBase.image_search_indices,
     preference_hits: localized.preference_hits?.length ? localized.preference_hits : englishBase.preference_hits
-  };
+  }, {
+    availableIngredients: [...englishBase.ingredients, ...englishBase.missing_ingredients],
+    preferredCuisine: englishBase.cuisine
+  });
 }
 
 export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): MealPlanMeal {

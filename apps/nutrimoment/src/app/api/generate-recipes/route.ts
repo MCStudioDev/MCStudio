@@ -18,8 +18,14 @@ import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
+import {
+  buildCuisineAwareDishCandidates,
+  buildDishCandidatePromptSummary,
+  enrichRecipeWithDishIntent
+} from "@/lib/recipeDishIntelligence";
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
+import { getKnownDishRecipePhoto } from "@/lib/freeRecipePhotos";
 import { isArabicRecipeLanguage, localizeRecipeForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizeRecipeLanguage } from "@/lib/language";
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
@@ -146,6 +152,15 @@ export async function POST(request: Request) {
       );
     }
     const availableIngredients = await buildAvailableIngredientSet(ingredients);
+    const candidateDishes = buildCuisineAwareDishCandidates({
+      availableIngredients: ingredients,
+      allergens: parsed.data.allergens,
+      calorieTarget: parsed.data.calorieTarget,
+      conditions: parsed.data.conditions,
+      diets: parsed.data.diets,
+      preferredCuisine: parsed.data.preferredCuisine
+    });
+    const candidateDishHints = buildDishCandidatePromptSummary(candidateDishes);
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const prepareRecipes = (recipes: Recipe[]) =>
@@ -159,7 +174,12 @@ export async function POST(request: Request) {
         ? buildMockExactScanRecipe(availableIngredients)
         : null;
       const strictRecipes = rankStrictRecipes(
-        applyStrictIngredientOwnership(MOCK_RECIPES.recipes, availableIngredients),
+        applyStrictIngredientOwnership(MOCK_RECIPES.recipes, availableIngredients, {
+          preferredCuisine: parsed.data.preferredCuisine,
+          diets: parsed.data.diets,
+          conditions: parsed.data.conditions,
+          allergens: parsed.data.allergens
+        }),
         { ...parsed.data, ingredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
@@ -205,7 +225,12 @@ export async function POST(request: Request) {
         recipeCount: searchResult.recipes.length
       });
       const strictRecipes = rankStrictRecipes(
-        applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
+        applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
+          preferredCuisine: parsed.data.preferredCuisine,
+          diets: parsed.data.diets,
+          conditions: parsed.data.conditions,
+          allergens: parsed.data.allergens
+        }),
         { ...parsed.data, ingredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
@@ -244,7 +269,8 @@ export async function POST(request: Request) {
               recipeCount,
               diets: parsed.data.diets ?? [],
               conditions: parsed.data.conditions ?? [],
-              allergens: parsed.data.allergens ?? []
+              allergens: parsed.data.allergens ?? [],
+              candidateDishHints
             }
           )
         : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
@@ -254,7 +280,12 @@ export async function POST(request: Request) {
       const normalizedRecipes = recipes.recipes ?? recipes;
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
         const strictRecipes = rankStrictRecipes(
-          applyStrictIngredientOwnership(normalizedRecipes, availableIngredients),
+          applyStrictIngredientOwnership(normalizedRecipes, availableIngredients, {
+            preferredCuisine: parsed.data.preferredCuisine,
+            diets: parsed.data.diets,
+            conditions: parsed.data.conditions,
+            allergens: parsed.data.allergens
+          }),
           { ...parsed.data, ingredients, recipeCount }
         ).slice(0, recipeCount);
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
@@ -287,7 +318,12 @@ export async function POST(request: Request) {
       canLoadMore: searchResult.canLoadMore
     });
     const strictRecipes = rankStrictRecipes(
-      applyStrictIngredientOwnership(searchResult.recipes, availableIngredients),
+      applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
+        preferredCuisine: parsed.data.preferredCuisine,
+        diets: parsed.data.diets,
+        conditions: parsed.data.conditions,
+        allergens: parsed.data.allergens
+      }),
       { ...parsed.data, ingredients, recipeCount }
     );
     const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
@@ -426,6 +462,7 @@ function normalizeScannedDishRecipe(recipe: unknown, availableIngredients: Set<s
 
   const imageSearchIndices = buildRecipePhotoQueryCandidates({
     cuisine: strictRecipe.cuisine,
+    dishIntent: strictRecipe.dish_intent,
     imageSearchIndex: strictRecipe.image_search_index,
     imageSearchIndices: strictRecipe.image_search_indices,
     ingredients: strictRecipe.ingredients,
@@ -481,7 +518,16 @@ async function buildAvailableIngredientSet(inputIngredients: string[]) {
   );
 }
 
-function applyStrictIngredientOwnership(inputRecipes: unknown[], availableIngredients: Set<string>): Recipe[] {
+function applyStrictIngredientOwnership(
+  inputRecipes: unknown[],
+  availableIngredients: Set<string>,
+  context?: {
+    allergens?: string[];
+    conditions?: string[];
+    diets?: string[];
+    preferredCuisine?: string;
+  }
+): Recipe[] {
   return inputRecipes.map((recipe) => {
     const baseRecipe = recipe as Recipe & {
       photo_query?: string;
@@ -526,13 +572,19 @@ function applyStrictIngredientOwnership(inputRecipes: unknown[], availableIngred
       name: typeof baseRecipe.name === "string" ? baseRecipe.name : "recipe"
     });
 
-    return {
+    return enrichRecipeWithDishIntent({
       ...baseRecipe,
       image_search_index: imageSearchIndices[0],
       image_search_indices: imageSearchIndices.length ? imageSearchIndices : undefined,
       ingredients: owned,
       missing_ingredients: missing
-    };
+    }, {
+      availableIngredients: [...owned, ...missing],
+      allergens: context?.allergens,
+      conditions: context?.conditions,
+      diets: context?.diets,
+      preferredCuisine: context?.preferredCuisine ?? (typeof baseRecipe.cuisine === "string" ? baseRecipe.cuisine : undefined)
+    });
   });
 }
 
@@ -654,6 +706,8 @@ function scoreStrictRecipe(
   const calorieScore = Math.max(0, 8 - calorieDistance / 50);
   const maxMissingBonus = missingCount <= options.maxMissingIngredients ? 4 : -4;
   const matchQualityScore = getMatchQualityScore(recipe.match_quality);
+  const dishIntentScore = Math.max(0, (recipe.dish_intent?.candidate_score ?? 0) / 8);
+  const dishIntentHitScore = Math.min(recipe.dish_intent?.candidate_hits?.length ?? 0, 4) * 2;
   const cuisineFit = scoreCuisineFit({
     preferredCuisine: options.preferredCuisine,
     recipeCuisine: recipe.cuisine,
@@ -669,6 +723,8 @@ function scoreStrictRecipe(
     preferenceHitCount * (options.hasPreferences ? 7 : 3) +
     cuisineMatch * 5 +
     cuisineFit.score +
+    dishIntentScore +
+    dishIntentHitScore +
     calorieScore +
     maxMissingBonus +
     matchQualityScore
@@ -753,23 +809,34 @@ function normalizeIngredientForStrictMatch(value: string) {
 }
 
 async function applyImageFirstRecipeRanking(recipes: Recipe[], availableIngredientCount = 0) {
-  const scoredRecipes = await Promise.all(
-    recipes.map(async (recipe, index) => {
-      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe);
-      const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
-      const weightedPhotoFitScore = resolvedPhoto.photoFitScore * sparsePantryBonus;
+  const usedImageUrls = new Set<string>();
+  const scoredRecipes: Array<{
+    index: number;
+    photoFitScore: number;
+    rawPhotoFitScore: number;
+    recipe: Recipe;
+  }> = [];
 
-      return {
-        index,
-        photoFitScore: weightedPhotoFitScore,
-        rawPhotoFitScore: resolvedPhoto.photoFitScore,
-        recipe: {
-          ...recipe,
-          ...(resolvedPhoto.recipePatch ?? {})
-        }
-      };
-    })
-  );
+  for (const [index, recipe] of recipes.entries()) {
+    const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls);
+    const nextRecipe = {
+      ...recipe,
+      ...(resolvedPhoto.recipePatch ?? {})
+    };
+    const nextImageUrl = nextRecipe.image_url;
+    if (nextImageUrl) {
+      usedImageUrls.add(nextImageUrl);
+    }
+    const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
+    const weightedPhotoFitScore = resolvedPhoto.photoFitScore * sparsePantryBonus;
+
+    scoredRecipes.push({
+      index,
+      photoFitScore: weightedPhotoFitScore,
+      rawPhotoFitScore: resolvedPhoto.photoFitScore,
+      recipe: nextRecipe
+    });
+  }
 
   const sortedRecipes = scoredRecipes
     .sort((left, right) => right.photoFitScore - left.photoFitScore || left.index - right.index)
@@ -784,8 +851,8 @@ async function applyImageFirstRecipeRanking(recipes: Recipe[], availableIngredie
   return sortedRecipes.map(({ recipe }) => recipe);
 }
 
-async function resolveRecipePhotoCandidate(recipe: Recipe) {
-  if (recipe.image_url) {
+async function resolveRecipePhotoCandidate(recipe: Recipe, excludedUrls: Set<string> = new Set()) {
+  if (recipe.image_url && !excludedUrls.has(recipe.image_url)) {
     return {
       photoFitScore: 100,
       recipePatch: null as Partial<Recipe> | null
@@ -797,8 +864,17 @@ async function resolveRecipePhotoCandidate(recipe: Recipe) {
   let recipePatch: Partial<Recipe> | null = null;
 
   for (const query of queries) {
+    const knownDishPhoto = getKnownDishRecipePhoto(query);
+    if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl) && 18 > bestScore) {
+      bestScore = 18;
+      recipePatch = {
+        image_source: "wikimedia",
+        image_url: knownDishPhoto.imageUrl
+      };
+    }
+
     if (isUnsplashRecipePhotoSearchConfigured()) {
-      const unsplash = await findUnsplashRecipePhoto(query);
+      const unsplash = await findUnsplashRecipePhoto(query, { excludeUrls: excludedUrls });
       if (unsplash) {
         const score = unsplash.score + 2;
         if (score > bestScore) {
@@ -813,8 +889,8 @@ async function resolveRecipePhotoCandidate(recipe: Recipe) {
       }
     }
 
-    if (bestScore < 1 && isPexelsRecipePhotoSearchConfigured()) {
-      const pexels = await findPexelsRecipePhoto(query);
+    if (isPexelsRecipePhotoSearchConfigured()) {
+      const pexels = await findPexelsRecipePhoto(query, { excludeUrls: excludedUrls });
       if (pexels) {
         if (pexels.score > bestScore) {
           bestScore = pexels.score;
@@ -833,12 +909,13 @@ async function resolveRecipePhotoCandidate(recipe: Recipe) {
 function buildRecipePhotoQueriesForRanking(recipe: Recipe) {
   return buildRecipePhotoQueryCandidates({
     cuisine: recipe.cuisine,
+    dishIntent: recipe.dish_intent,
     imageSearchIndex: recipe.image_search_index,
     imageSearchIndices: recipe.image_search_indices,
     ingredients: recipe.ingredients,
     missingIngredients: recipe.missing_ingredients,
     name: recipe.name
-  }).slice(0, 3);
+  }).slice(0, 5);
 }
 
 function getVisualMatchLabel(score: number, index: number, topScore: number) {

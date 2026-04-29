@@ -23,7 +23,9 @@ const inFlightRecipePhotoRequests = new Map<
     retryAfterSeconds?: number;
   }>
 >();
+const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKey: string }>();
 const DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS = 10 * 60 * 1000;
+const RECENT_RECIPE_PHOTO_SELECTION_TTL_MS = 10 * 60 * 1000;
 
 export interface MealRevealSection {
   title: string;
@@ -107,7 +109,10 @@ export function MealRevealCard({
   const primaryQuery = queryCandidates[0] ?? "";
   const queryKey = queryCandidates.join(" || ");
   const cachedImageEntry = queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
-  const cachedImage = cachedImageEntry?.imageUrl ?? "";
+  const cachedImage =
+    cachedImageEntry?.imageUrl && !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
+      ? cachedImageEntry.imageUrl
+      : "";
   const cachedFailure = queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage = lookupState.queryKey === queryKey ? lookupState.image : "";
   const lookedUpSource = lookupState.queryKey === queryKey ? lookupState.imageSource : undefined;
@@ -122,6 +127,7 @@ export function MealRevealCard({
     imageAttributionUrl || lookedUpAttributionUrl || cachedImageEntry?.imageAttributionUrl;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const showNoExactPhoto = !resolvedImage && (imageError || lookupFailed || cachedFailure);
+  const excludedImageUrls = useMemo(() => getRecentlyAssignedRecipePhotoUrls(queryKey), [queryKey]);
   const visibleStats = useMemo(
     () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
     [stats]
@@ -138,6 +144,11 @@ export function MealRevealCard({
   const cardSummary = summary ?? derivedPreviewItems.slice(0, 2).join(" / ");
   const resolvedPreviewLabel = previewLabel ?? t("ingredientSnapshot");
   const detailId = useMemo(() => `meal-details-${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, [name]);
+
+  useEffect(() => {
+    if (!queryKey || !resolvedImage) return;
+    rememberRecentRecipePhotoSelection(resolvedImage, queryKey);
+  }, [queryKey, resolvedImage]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -162,7 +173,7 @@ export function MealRevealCard({
       existingRequest ??
       getAuthHeaders()
         .then((headers) =>
-          fetch(buildRecipePhotoRequestUrl(queryCandidates), {
+          fetch(buildRecipePhotoRequestUrl(queryCandidates, excludedImageUrls), {
             headers
           })
         )
@@ -206,6 +217,7 @@ export function MealRevealCard({
           imageUrl: data.imageUrl
         });
         recipePhotoFailureCache.delete(queryKey);
+        rememberRecentRecipePhotoSelection(data.imageUrl, queryKey);
         setLookupState({
           failed: false,
           imageAttributionName: data.imageAttributionName,
@@ -251,6 +263,7 @@ export function MealRevealCard({
     lookedUpImage,
     onImageResolved,
     primaryQuery,
+    excludedImageUrls,
     queryCandidates,
     queryKey,
     refreshAccess,
@@ -638,7 +651,7 @@ function normalizeRecipePhotoQueries(query?: string | string[]) {
   ).slice(0, 5);
 }
 
-function buildRecipePhotoRequestUrl(queries: string[]) {
+function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = []) {
   const params = new URLSearchParams();
   queries.forEach((query, index) => {
     if (index === 0) {
@@ -647,6 +660,7 @@ function buildRecipePhotoRequestUrl(queries: string[]) {
       params.append("alt", query);
     }
   });
+  excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
 }
@@ -661,6 +675,43 @@ function isRecipePhotoFailureCached(queryKey: string) {
   }
 
   return true;
+}
+
+function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
+  const now = Date.now();
+  const excluded = new Set<string>();
+
+  for (const [imageUrl, entry] of recentRecipePhotoSelections.entries()) {
+    if (entry.expiresAt <= now) {
+      recentRecipePhotoSelections.delete(imageUrl);
+      continue;
+    }
+
+    if (entry.queryKey !== queryKey) {
+      excluded.add(imageUrl);
+    }
+  }
+
+  return Array.from(excluded);
+}
+
+function rememberRecentRecipePhotoSelection(imageUrl: string, queryKey: string) {
+  if (!imageUrl || !queryKey) return;
+  recentRecipePhotoSelections.set(imageUrl, {
+    expiresAt: Date.now() + RECENT_RECIPE_PHOTO_SELECTION_TTL_MS,
+    queryKey
+  });
+}
+
+function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKey: string) {
+  const existing = recentRecipePhotoSelections.get(imageUrl);
+  if (!existing) return false;
+  if (existing.expiresAt <= Date.now()) {
+    recentRecipePhotoSelections.delete(imageUrl);
+    return false;
+  }
+
+  return existing.queryKey !== queryKey;
 }
 
 function formatImageSourceLabel(source: RecipeImageSource) {

@@ -5,6 +5,7 @@ import type {
   RecipeSearchMetadata
 } from "@/lib/domain";
 import { normalizeCuisineLabel } from "@/lib/cuisines";
+import { enrichRecipeWithDishIntent } from "@/lib/recipeDishIntelligence";
 import {
   localizeRecipeForArabic,
   localizeRecipeForEnglish,
@@ -25,14 +26,22 @@ export function enrichOfflineRecipe(recipe: RecipeCatalogDoc): RecipeCatalogDoc 
   const searchMetadata = buildRecipeSearchMetadata(bilingualRecipe);
   const healthMetadata = buildRecipeHealthMetadata(bilingualRecipe);
   const imageSignature = buildRecipeImageSignature(bilingualRecipe);
+  const englishVariant = bilingualRecipe.localized?.English;
+  const dishIntent = englishVariant?.dish_intent ?? bilingualRecipe.dishIntent;
+  const primaryImageQuery =
+    englishVariant?.image_search_index ??
+    englishVariant?.image_search_indices?.[0] ??
+    bilingualRecipe.image.sourceQuery ??
+    buildRecipeImageQuery(bilingualRecipe);
 
   return {
     ...bilingualRecipe,
+    dishIntent,
     image: {
       ...bilingualRecipe.image,
       signature: bilingualRecipe.image.signature ?? imageSignature,
       sharedCacheKey: bilingualRecipe.image.sharedCacheKey ?? imageSignature,
-      sourceQuery: bilingualRecipe.image.sourceQuery ?? buildRecipeImageQuery(bilingualRecipe)
+      sourceQuery: primaryImageQuery
     },
     regionalCuisines: bilingualRecipe.regionalCuisines ?? inferRegionalCuisines(bilingualRecipe),
     styleTags: bilingualRecipe.styleTags ?? inferStyleTags(bilingualRecipe),
@@ -45,6 +54,12 @@ export function enrichOfflineRecipe(recipe: RecipeCatalogDoc): RecipeCatalogDoc 
         bilingualRecipe.localized?.Arabic?.name ?? "",
         bilingualRecipe.localized?.English?.cuisine ?? "",
         bilingualRecipe.localized?.Arabic?.cuisine ?? "",
+        bilingualRecipe.localized?.English?.image_search_index ?? "",
+        bilingualRecipe.localized?.Arabic?.image_search_index ?? "",
+        ...(bilingualRecipe.localized?.English?.image_search_indices ?? []),
+        ...(bilingualRecipe.localized?.Arabic?.image_search_indices ?? []),
+        dishIntent?.dish_name ?? "",
+        ...(dishIntent?.visual_keywords ?? []),
         ...searchMetadata.aliasTokens,
         ...(searchMetadata.cuisineTokens ?? [])
       ])
@@ -60,6 +75,7 @@ export function ensureBilingualRecipeCatalogDoc(recipe: RecipeCatalogDoc): Recip
 
   return stripUndefinedDeep({
     ...recipe,
+    dishIntent: english.dish_intent ?? recipe.dishIntent,
     localized: {
       ...(recipe.localized ?? {}),
       English: english,
@@ -89,6 +105,8 @@ export function buildRecipeSearchMetadata(recipe: RecipeCatalogDoc): RecipeSearc
       recipe.description,
       recipe.localized?.English?.name,
       recipe.localized?.Arabic?.name,
+      recipe.dishIntent?.dish_name,
+      ...(recipe.dishIntent?.visual_keywords ?? []),
       ...recipe.ingredientCanonicals,
       ...recipe.ingredients.map((ingredient) => ingredient.name),
       ...ingredientVariants.flatMap((variant) => variant.variants)
@@ -105,6 +123,7 @@ export function buildRecipeSearchMetadata(recipe: RecipeCatalogDoc): RecipeSearc
         recipe.cuisine,
         recipe.localized?.English?.cuisine,
         recipe.localized?.Arabic?.cuisine,
+        recipe.dishIntent?.cuisine,
         ...(recipe.regionalCuisines ?? []),
         ...(recipe.styleTags ?? [])
       ])
@@ -226,7 +245,14 @@ function buildRecipeImageSignature(recipe: RecipeCatalogDoc) {
 }
 
 function buildRecipeImageQuery(recipe: RecipeCatalogDoc) {
-  return [recipe.cuisine, recipe.title, ...recipe.ingredientCanonicals.slice(0, 3)]
+  return [
+    recipe.dishIntent?.dish_name,
+    recipe.dishIntent?.cuisine,
+    recipe.localized?.English?.image_search_index,
+    recipe.cuisine,
+    recipe.title,
+    ...recipe.ingredientCanonicals.slice(0, 3)
+  ]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -259,10 +285,16 @@ function buildEnglishRecipeVariant(recipe: RecipeCatalogDoc): Recipe {
     image_attribution_url: existing?.image_attribution_url,
     image_search_index: existing?.image_search_index ?? recipe.image.sourceQuery,
     image_search_indices: existing?.image_search_indices,
-    preference_hits: existing?.preference_hits ?? []
+    preference_hits: existing?.preference_hits ?? [],
+    dish_intent: existing?.dish_intent ?? recipe.dishIntent
   };
 
-  return ensureDetailedRecipeSteps(base, "English");
+  return enrichRecipeWithDishIntent(ensureDetailedRecipeSteps(base, "English"), {
+    availableIngredients: recipe.ingredientCanonicals,
+    preferredCuisine: recipe.cuisine,
+    diets: recipe.dietTags,
+    allergens: recipe.allergenTags
+  });
 }
 
 function buildArabicRecipeVariant(recipe: RecipeCatalogDoc, english: Recipe): Recipe {
@@ -280,7 +312,8 @@ function buildArabicRecipeVariant(recipe: RecipeCatalogDoc, english: Recipe): Re
       existing?.missing_ingredients?.length
         ? existing.missing_ingredients
         : english.missing_ingredients.map(translateIngredientToArabic),
-    steps: existing?.steps?.length ? existing.steps : localizedEnglish.steps
+    steps: existing?.steps?.length ? existing.steps : localizedEnglish.steps,
+    dish_intent: english.dish_intent
   };
 
   return ensureDetailedRecipeSteps(base, "Arabic");

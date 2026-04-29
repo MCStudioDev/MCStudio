@@ -1,4 +1,5 @@
 import type { RecipeDishIntent } from "@/lib/types";
+import { getCuisineVisualReferenceQueries } from "@/lib/cuisineVisualReferences";
 
 interface RecipePhotoQueryInput {
   cuisine?: string;
@@ -123,6 +124,10 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
     sauceLabel: sauce?.label,
     starch
   });
+  const visualReferenceQueries = getCuisineVisualReferenceQueries(
+    input.cuisine ?? "",
+    [...ownedIngredientLabels, ...missingIngredientLabels]
+  );
 
   const derivedCandidates = normalizeQueryList([
     exactName,
@@ -151,7 +156,9 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
     })
   ]);
 
-  return Array.from(new Set([...dishIntentQueries, ...heuristicQueries, ...explicitQueries, ...derivedCandidates])).slice(0, 5);
+  return Array.from(
+    new Set([...dishIntentQueries, ...visualReferenceQueries, ...heuristicQueries, ...explicitQueries, ...derivedCandidates])
+  ).slice(0, 5);
 }
 
 function buildDishIntentQueries(dishIntent?: RecipeDishIntent) {

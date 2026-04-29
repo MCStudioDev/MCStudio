@@ -76,6 +76,144 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "kafta"
   },
   {
+    aliases: [/\bhawawshi\b/i],
+    canonicalName: "hawawshi",
+    cuisineKey: "egyptian",
+    key: "hawawshi"
+  },
+  {
+    aliases: [/\bmercimek corbasi\b/i, /\bturkish lentil soup\b/i],
+    canonicalName: "mercimek corbasi",
+    cuisineKey: "turkish",
+    key: "mercimek-corbasi"
+  },
+  {
+    aliases: [/\bpogaca\b/i, /\bpoaca\b/i],
+    canonicalName: "pogaca",
+    cuisineKey: "turkish",
+    key: "pogaca"
+  },
+  {
+    aliases: [/\bsucuklu yumurta\b/i, /\beggs? with sucuk\b/i],
+    canonicalName: "sucuklu yumurta",
+    cuisineKey: "turkish",
+    key: "sucuklu-yumurta"
+  },
+  {
+    aliases: [/\bmenemen\b/i],
+    canonicalName: "menemen",
+    cuisineKey: "turkish",
+    key: "menemen"
+  },
+  {
+    aliases: [/\bgozleme\b/i, /\bgözleme\b/i],
+    canonicalName: "gozleme",
+    cuisineKey: "turkish",
+    key: "gozleme"
+  },
+  {
+    aliases: [/\b(ispanakli pide|spinach pide)\b/i],
+    canonicalName: "ispanakli pide",
+    cuisineKey: "turkish",
+    key: "ispanakli-pide"
+  },
+  {
+    aliases: [/\b(kiymali pide|kıymalı pide|minced meat pide)\b/i],
+    canonicalName: "kiymali pide",
+    cuisineKey: "turkish",
+    key: "kiymali-pide"
+  },
+  {
+    aliases: [/\blahmacun\b/i],
+    canonicalName: "lahmacun",
+    cuisineKey: "turkish",
+    key: "lahmacun"
+  },
+  {
+    aliases: [/\btavuk sis\b/i, /\bchicken shish\b/i, /\bchicken sis\b/i],
+    canonicalName: "tavuk sis",
+    cuisineKey: "turkish",
+    key: "tavuk-sis"
+  },
+  {
+    aliases: [/\badana kebab\b/i],
+    canonicalName: "adana kebab",
+    cuisineKey: "turkish",
+    key: "adana-kebab"
+  },
+  {
+    aliases: [/\btesti kebabi\b/i, /\bpottery kebab\b/i],
+    canonicalName: "testi kebabi",
+    cuisineKey: "turkish",
+    key: "testi-kebabi"
+  },
+  {
+    aliases: [/\bmanti\b/i],
+    canonicalName: "manti",
+    cuisineKey: "turkish",
+    key: "manti"
+  },
+  {
+    aliases: [/\bcig kofte\b/i, /\bçiğ köfte\b/i],
+    canonicalName: "cig kofte",
+    cuisineKey: "turkish",
+    key: "cig-kofte"
+  },
+  {
+    aliases: [/\bkumpir\b/i],
+    canonicalName: "kumpir",
+    cuisineKey: "turkish",
+    key: "kumpir"
+  },
+  {
+    aliases: [/\bhamsili pilav\b/i, /\banchovy rice\b/i],
+    canonicalName: "hamsili pilav",
+    cuisineKey: "turkish",
+    key: "hamsili-pilav"
+  },
+  {
+    aliases: [/\bkarniyarik\b/i, /\bkarniyarık\b/i],
+    canonicalName: "karniyarik",
+    cuisineKey: "turkish",
+    key: "karniyarik"
+  },
+  {
+    aliases: [/\bpatlican kebabi\b/i, /\bpatlıcan kebabı\b/i, /\beggplant kebab\b/i],
+    canonicalName: "patlican kebabi",
+    cuisineKey: "turkish",
+    key: "patlican-kebabi"
+  },
+  {
+    aliases: [/\b(dolma|sarma)\b/i],
+    canonicalName: "sarma and dolma",
+    cuisineKey: "turkish",
+    key: "sarma-dolma"
+  },
+  {
+    aliases: [/\bmacarona bechamel\b/i, /\bmacarona bashamel\b/i, /\begyptian bechamel pasta\b/i],
+    canonicalName: "macarona bechamel",
+    cuisineKey: "egyptian",
+    key: "macarona-bechamel"
+  },
+  {
+    aliases: [/\bkebab halla\b/i, /\begyptian meat stew\b/i],
+    canonicalName: "kebab halla",
+    cuisineKey: "egyptian",
+    key: "kebab-halla"
+  },
+  {
+    aliases: [/\b(alexandrian liver|kibda iskandarani|iskandarani liver)\b/i],
+    canonicalName: "alexandrian liver",
+    cuisineKey: "egyptian",
+    key: "alexandrian-liver"
+  },
+  {
+    aliases: [/\bmahshi\b/i, /\bmixed mahshi\b/i],
+    canonicalName: "mixed mahshi",
+    cuisineKey: "egyptian",
+    key: "mahshi"
+  },
+  {
     aliases: [/\b(koshary|koshari|kushari)\b/i],
     canonicalName: "koshary",
     cuisineKey: "egyptian",
@@ -128,6 +266,18 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "besara"
   },
   {
+    aliases: [/\bfattah\b/i, /\bfatta\b/i],
+    canonicalName: "fattah",
+    cuisineKey: "egyptian",
+    key: "fattah"
+  },
+  {
+    aliases: [/\bhamam mahshi\b/i, /\bstuffed pigeon\b/i],
+    canonicalName: "hamam mahshi",
+    cuisineKey: "egyptian",
+    key: "hamam-mahshi"
+  },
+  {
     aliases: [/\bbalila\b/i, new RegExp(ARABIC.balila, "iu")],
     canonicalName: "balila",
     cuisineKey: "middle-eastern",
@@ -149,6 +299,7 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
 
 const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "egyptian", pattern: new RegExp(`\\begyptian\\b|${ARABIC.egyptAdj}|${ARABIC.egypt}`, "iu") },
+  { key: "turkish", pattern: /\bturkish\b/iu },
   {
     key: "middle-eastern",
     pattern: new RegExp(`\\bmiddle eastern\\b|${ARABIC.middleEast}|${ARABIC.middleEastAlt}`, "iu")

@@ -1,5 +1,6 @@
 import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
 import { getCuisineDishReferenceText, getCuisinePantryAnchors } from "@/lib/cuisineDishCatalog";
+import { getCuisineVisualReferenceText } from "@/lib/cuisineVisualReferences";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -382,6 +383,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const cuisineSpecificGuidance = buildCuisineSpecificGuidance(options.preferredCuisine);
   const cuisineKnowledgeGuidance = buildCuisineKnowledgeGuidance(options.preferredCuisine);
   const cuisineDishCatalogGuidance = buildCuisineDishCatalogGuidance(options.preferredCuisine);
+  const cuisineVisualReferenceGuidance = buildCuisineVisualReferenceGuidance(options.preferredCuisine);
   const languageOutputGuidance = buildLanguageOutputGuidance(options.recipeLanguage);
   const substyleGuidance = buildCuisineSubstyleGuidance(options.preferredCuisine, ingredients);
   const mealTypeRoutingGuidance = buildMealTypeRoutingGuidance(options.preferredCuisine, ingredients);
@@ -428,6 +430,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     cuisineSpecificGuidance,
     cuisineKnowledgeGuidance,
     cuisineDishCatalogGuidance,
+    cuisineVisualReferenceGuidance,
     substyleGuidance,
     mealTypeRoutingGuidance,
     ingredientDrivenCuisineGuidance,
@@ -487,6 +490,7 @@ export function buildMealPlanPrompt({
   const cuisineSpecificGuidance = buildCuisineSpecificGuidance(preferredCuisine);
   const cuisineKnowledgeGuidance = buildCuisineKnowledgeGuidance(preferredCuisine);
   const cuisineDishCatalogGuidance = buildCuisineDishCatalogGuidance(preferredCuisine);
+  const cuisineVisualReferenceGuidance = buildCuisineVisualReferenceGuidance(preferredCuisine);
   const languageOutputGuidance = buildLanguageOutputGuidance(recipeLanguage);
   const substyleGuidance = buildCuisineSubstyleGuidance(preferredCuisine, pantryIngredients);
   const mealTypeRoutingGuidance = buildMealTypeRoutingGuidance(preferredCuisine, pantryIngredients);
@@ -518,6 +522,7 @@ export function buildMealPlanPrompt({
     cuisineSpecificGuidance,
     cuisineKnowledgeGuidance,
     cuisineDishCatalogGuidance,
+    cuisineVisualReferenceGuidance,
     substyleGuidance,
     mealTypeRoutingGuidance,
     ingredientDrivenCuisineGuidance,
@@ -684,6 +689,19 @@ function buildCuisineDishCatalogGuidance(preferredCuisine: string) {
     "Use this reference set as the target dish universe when naming recipes.",
     "When the pantry is sparse, choose the closest authentic dish family from this cuisine reference set instead of inventing a generic bowl, skillet, wrap, or salad.",
     "If the pantry only supports part of a classic dish, keep the authentic dish family and move the missing support items into missing_ingredients."
+  ].join(" ");
+}
+
+function buildCuisineVisualReferenceGuidance(preferredCuisine: string) {
+  if (!preferredCuisine || preferredCuisine === "Any") return "";
+
+  const visualReferences = getCuisineVisualReferenceText(preferredCuisine, 14);
+  if (!visualReferences) return "";
+
+  return [
+    `Visual reference set for ${preferredCuisine} plating and recall: ${visualReferences}.`,
+    "Use these references to choose the right dish family, garnish, bread form, sauce placement, rice layering, and cooking finish before defaulting to a generic plated meal.",
+    "When the pantry strongly matches one of these visual families, reflect that same family in the recipe name, steps, and image search phrases."
   ].join(" ");
 }
 

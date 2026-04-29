@@ -132,7 +132,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
 
             <div className="theme-topbar-divider h-px w-full" />
 
-            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
               <div className="theme-topbar-brandline flex items-center gap-3">
                 <span className="theme-topbar-kicker text-[10px] font-semibold uppercase tracking-[0.18em]">
                   NutriMoment
@@ -142,8 +142,8 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                 </span>
               </div>
 
-              <nav className="relative z-10">
-                <div className="nav-pill-track theme-topbar-track flex items-center gap-1 overflow-x-auto rounded-[1.15rem] px-1 py-1 scrollbar-hidden sm:gap-1.5 sm:rounded-[1.4rem] sm:px-1.5 sm:py-1.5">
+              <nav className="relative z-10 min-w-0 w-full sm:w-auto">
+                <div className="nav-pill-track theme-topbar-track flex max-w-full items-center gap-1 overflow-x-auto rounded-[1.15rem] px-1 py-1 scrollbar-hidden sm:gap-1.5 sm:rounded-[1.4rem] sm:px-1.5 sm:py-1.5">
                   {TABS.map((tab) => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.id;

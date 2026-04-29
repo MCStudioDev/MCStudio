@@ -76,8 +76,29 @@ export function ScannerTab() {
 
   const hydrateRecipePhotos = useCallback(
     async (inputRecipes: Recipe[], historyEntryId: string | null) => {
-      const seeded = inputRecipes.map((recipe) =>
-        hasRenderableImage(recipe.image_url)
+      const renderableImageCounts = new Map<string, number>();
+      inputRecipes.forEach((recipe) => {
+        if (!hasRenderableImage(recipe.image_url)) return;
+        renderableImageCounts.set(recipe.image_url, (renderableImageCounts.get(recipe.image_url) ?? 0) + 1);
+      });
+
+      const keptRenderableUrls = new Set<string>();
+      const duplicateRefreshFlags = inputRecipes.map((recipe) => {
+        if (!hasRenderableImage(recipe.image_url)) return false;
+        const count = renderableImageCounts.get(recipe.image_url) ?? 0;
+        if (count <= 1) {
+          keptRenderableUrls.add(recipe.image_url);
+          return false;
+        }
+        if (!keptRenderableUrls.has(recipe.image_url)) {
+          keptRenderableUrls.add(recipe.image_url);
+          return false;
+        }
+        return true;
+      });
+
+      const seeded = inputRecipes.map((recipe, index) =>
+        hasRenderableImage(recipe.image_url) && !duplicateRefreshFlags[index]
           ? { ...recipe, image_loading: false, image_error: false }
           : { ...recipe, image_loading: true, image_error: false }
       );
@@ -86,21 +107,28 @@ export function ScannerTab() {
 
       const usedImageUrls = new Set(
         seeded
+          .filter((_, index) => !duplicateRefreshFlags[index])
           .map((recipe) => recipe.image_url)
           .filter((imageUrl): imageUrl is string => hasRenderableImage(imageUrl))
       );
       const resolved: Recipe[] = [];
+      let lookupCount = 0;
+      const maxLookups = Math.min(Math.max(inputRecipes.length, 4), 8);
 
       for (const [index, recipe] of seeded.entries()) {
-        if (index >= 2) {
+        const needsLookup = duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url);
+
+        if (!needsLookup) {
           resolved.push({ ...recipe, image_loading: false, image_error: false });
           continue;
         }
 
-        if (hasRenderableImage(recipe.image_url)) {
-          resolved.push(recipe);
+        if (lookupCount >= maxLookups) {
+          resolved.push({ ...recipe, image_loading: false, image_error: false });
           continue;
         }
+
+        lookupCount += 1;
 
         try {
           const authHeaders = await getAuthHeaders();
@@ -121,7 +149,11 @@ export function ScannerTab() {
           await refreshAccess();
 
           if (!response.ok || !data.imageUrl) {
-            resolved.push({ ...recipe, image_loading: false, image_error: true });
+            resolved.push({
+              ...recipe,
+              image_loading: false,
+              image_error: true
+            });
             continue;
           }
 

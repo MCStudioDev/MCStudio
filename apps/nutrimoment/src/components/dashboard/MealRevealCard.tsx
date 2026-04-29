@@ -119,12 +119,23 @@ export function MealRevealCard({
   const lookedUpAttributionName = lookupState.queryKey === queryKey ? lookupState.imageAttributionName : undefined;
   const lookedUpAttributionUrl = lookupState.queryKey === queryKey ? lookupState.imageAttributionUrl : undefined;
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
-  const resolvedImage = imageUrl || lookedUpImage || cachedImage;
-  const resolvedSource = imageSource || lookedUpSource || cachedImageEntry?.imageSource || inferImageSource(imageUrl);
+  const shouldRefreshProvidedImage =
+    Boolean(imageUrl) && Boolean(queryKey) && isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl, queryKey);
+  const effectiveProvidedImage = shouldRefreshProvidedImage ? "" : imageUrl;
+  const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
+  const resolvedSource =
+    (shouldRefreshProvidedImage ? undefined : imageSource) ||
+    lookedUpSource ||
+    cachedImageEntry?.imageSource ||
+    inferImageSource(effectiveProvidedImage);
   const resolvedAttributionName =
-    imageAttributionName || lookedUpAttributionName || cachedImageEntry?.imageAttributionName;
+    (shouldRefreshProvidedImage ? undefined : imageAttributionName) ||
+    lookedUpAttributionName ||
+    cachedImageEntry?.imageAttributionName;
   const resolvedAttributionUrl =
-    imageAttributionUrl || lookedUpAttributionUrl || cachedImageEntry?.imageAttributionUrl;
+    (shouldRefreshProvidedImage ? undefined : imageAttributionUrl) ||
+    lookedUpAttributionUrl ||
+    cachedImageEntry?.imageAttributionUrl;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const showNoExactPhoto = !resolvedImage && (imageError || lookupFailed || cachedFailure);
   const excludedImageUrls = useMemo(() => getRecentlyAssignedRecipePhotoUrls(queryKey), [queryKey]);
@@ -153,7 +164,7 @@ export function MealRevealCard({
   useEffect(() => {
     if (authLoading) return;
     if (!lookupEnabled) return;
-    if (imageUrl || !queryKey || !primaryQuery || lookedUpImage || lookupFailed) return;
+    if (effectiveProvidedImage || !queryKey || !primaryQuery || lookedUpImage || lookupFailed) return;
     if (!user) return;
 
     let cancelled = false;
@@ -256,8 +267,8 @@ export function MealRevealCard({
   }, [
     authLoading,
     cachedImage,
+    effectiveProvidedImage,
     getAuthHeaders,
-    imageUrl,
     lookupEnabled,
     lookupFailed,
     lookedUpImage,

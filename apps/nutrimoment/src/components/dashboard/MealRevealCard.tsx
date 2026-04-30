@@ -110,18 +110,22 @@ export function MealRevealCard({
   const queryKey = queryCandidates.join(" || ");
   const cachedImageEntry = queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
   const cachedImage =
-    cachedImageEntry?.imageUrl && !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
+    isInternetImageUrl(cachedImageEntry?.imageUrl) &&
+    !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
       ? cachedImageEntry.imageUrl
       : "";
   const cachedFailure = queryKey ? isRecipePhotoFailureCached(queryKey) : false;
-  const lookedUpImage = lookupState.queryKey === queryKey ? lookupState.image : "";
+  const lookedUpImage =
+    lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) ? lookupState.image : "";
   const lookedUpSource = lookupState.queryKey === queryKey ? lookupState.imageSource : undefined;
   const lookedUpAttributionName = lookupState.queryKey === queryKey ? lookupState.imageAttributionName : undefined;
   const lookedUpAttributionUrl = lookupState.queryKey === queryKey ? lookupState.imageAttributionUrl : undefined;
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
-  const shouldRefreshProvidedImage =
-    Boolean(imageUrl) && Boolean(queryKey) && isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl, queryKey);
-  const effectiveProvidedImage = shouldRefreshProvidedImage ? "" : imageUrl;
+  const internetProvidedImage = isInternetImageUrl(imageUrl) ? imageUrl : undefined;
+  const shouldRefreshProvidedImage = internetProvidedImage
+    ? Boolean(queryKey) && isRecipePhotoRecentlyAssignedToDifferentQuery(internetProvidedImage, queryKey)
+    : false;
+  const effectiveProvidedImage = shouldRefreshProvidedImage ? "" : internetProvidedImage;
   const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
   const resolvedSource =
     (shouldRefreshProvidedImage ? undefined : imageSource) ||
@@ -199,7 +203,7 @@ export function MealRevealCard({
               }
             | null;
 
-          if (response.ok && data?.imageUrl) {
+          if (response.ok && isInternetImageUrl(data?.imageUrl)) {
             return {
               imageAttributionName: data.imageAttributionName,
               imageAttributionUrl: data.imageAttributionUrl,
@@ -676,6 +680,10 @@ function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = [
   return `/api/recipe-photo?${params.toString()}`;
 }
 
+function isInternetImageUrl(imageUrl?: string): imageUrl is string {
+  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+}
+
 function isRecipePhotoFailureCached(queryKey: string) {
   const failedUntil = recipePhotoFailureCache.get(queryKey);
   if (!failedUntil) return false;
@@ -707,7 +715,7 @@ function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
 }
 
 function rememberRecentRecipePhotoSelection(imageUrl: string, queryKey: string) {
-  if (!imageUrl || !queryKey) return;
+  if (!isInternetImageUrl(imageUrl) || !queryKey) return;
   recentRecipePhotoSelections.set(imageUrl, {
     expiresAt: Date.now() + RECENT_RECIPE_PHOTO_SELECTION_TTL_MS,
     queryKey
@@ -745,7 +753,6 @@ function formatImageSourceLabel(source: RecipeImageSource) {
 function inferImageSource(imageUrl?: string): RecipeImageSource | undefined {
   if (!imageUrl) return undefined;
   if (/upload\.wikimedia\.org/i.test(imageUrl)) return "wikimedia";
-  if (/^data:/i.test(imageUrl)) return "api";
   if (/images\.unsplash\.com|unsplash\.com/i.test(imageUrl)) return "unsplash";
   if (/images\.pexels\.com|pexels\.com/i.test(imageUrl)) return "search";
   if (/firebasestorage\.googleapis\.com|firebasestorage\.app/i.test(imageUrl)) return "cache";

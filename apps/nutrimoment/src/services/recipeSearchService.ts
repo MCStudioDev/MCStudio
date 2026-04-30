@@ -204,7 +204,7 @@ function capitalize(value: string) {
 
 function normalizeRecipeImageUrl(value?: string) {
   if (!value) return undefined;
-  if (/^(https?:|data:)/.test(value)) return value;
+  if (/^https?:\/\//i.test(value)) return value;
   return undefined;
 }
 

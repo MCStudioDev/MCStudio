@@ -581,8 +581,8 @@ export function ScannerTab() {
   );
 }
 
-function hasRenderableImage(imageUrl?: string) {
-  return Boolean(imageUrl && /^(https?:|data:)/.test(imageUrl));
+function hasRenderableImage(imageUrl?: string): imageUrl is string {
+  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {

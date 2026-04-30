@@ -8,7 +8,8 @@ export const CUISINE_OPTIONS = [
   "Mexican",
   "American",
   "Asian",
-  "Thai"
+  "Thai",
+  "Turkish"
 ] as const;
 
 const CUISINE_GROUPS: Record<string, string[]> = {
@@ -21,7 +22,8 @@ const CUISINE_GROUPS: Record<string, string[]> = {
   mexican: ["mexican"],
   american: ["american"],
   asian: ["asian", "thai", "japanese", "chinese", "korean", "vietnamese"],
-  thai: ["thai", "asian"]
+  thai: ["thai", "asian"],
+  turkish: ["turkish", "middleeastern", "middle eastern", "mediterranean"]
 };
 
 export function cuisineMatchesPreference(recipeCuisine: string, preferredCuisine: string) {
@@ -57,6 +59,8 @@ export function normalizeCuisineLabel(value: string) {
       return "Asian";
     case "thai":
       return "Thai";
+    case "turkish":
+      return "Turkish";
     default:
       return value;
   }

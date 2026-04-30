@@ -2,7 +2,7 @@ import { z } from "zod";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
-import { getKnownDishRecipePhoto } from "@/lib/freeRecipePhotos";
+import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
 import {
   getSharedRecipePhotoBySignatures,
   persistSharedRecipePhotoAliases,
@@ -80,6 +80,17 @@ const MIN_ACCEPTED_PROVIDER_SCORE = {
   pexels_search: 11,
   unsplash_search: 11
 } as const;
+const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
+  "cilbir",
+  "shakshuka",
+  "mujadara",
+  "koshary",
+  "besara",
+  "balila",
+  "fasolia",
+  "loubia-bzeit",
+  "kafta"
+]);
 
 export async function GET(request: Request) {
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>>;
@@ -344,12 +355,15 @@ async function performRecipePhotoLookup({
     ...getRecentlyUsedRecipeImageUrls(signatureCandidates),
     ...explicitlyExcludedImageUrls
   ]);
+  const baseIdentity = identities[0] ?? buildRecipePhotoIdentity(query);
   let bestMatch: ProviderRecipePhotoCandidate | null = null;
 
   if (WIKIMEDIA_ENABLED) {
     for (const [index, candidateQuery] of queryCandidates.entries()) {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
-      const knownDishPhoto = getKnownDishRecipePhoto(candidateQuery);
+      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
+      if (!shouldTryWikimediaRecipePhoto(candidateIdentity, index)) continue;
+      const knownDishPhoto = await findFreeRecipePhoto(candidateQuery);
       if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl)) {
         bestMatch = chooseBetterRecipePhoto(bestMatch, {
           attributionName: undefined,
@@ -361,7 +375,7 @@ async function performRecipePhotoLookup({
           score: 18,
           signature: candidateIdentity.signature,
           source: knownDishPhoto.source,
-          weightedScore: 18.5
+          weightedScore: 18.5 + queryPriorityAdjustment
         });
       }
     }
@@ -370,6 +384,7 @@ async function performRecipePhotoLookup({
   if (accessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
     for (const [index, candidateQuery] of queryCandidates.entries()) {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto) {
         bestMatch = chooseBetterRecipePhoto(bestMatch, {
@@ -382,7 +397,7 @@ async function performRecipePhotoLookup({
           score: searchedPhoto.score,
           signature: candidateIdentity.signature,
           source: searchedPhoto.source,
-          weightedScore: searchedPhoto.score + 0.2
+          weightedScore: searchedPhoto.score + 0.2 + queryPriorityAdjustment
         });
       }
     }
@@ -391,6 +406,7 @@ async function performRecipePhotoLookup({
   if (accessAllowed && isPexelsRecipePhotoSearchConfigured()) {
     for (const [index, candidateQuery] of queryCandidates.entries()) {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findPexelsRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto) {
         bestMatch = chooseBetterRecipePhoto(bestMatch, {
@@ -401,7 +417,7 @@ async function performRecipePhotoLookup({
           score: searchedPhoto.score,
           signature: candidateIdentity.signature,
           source: searchedPhoto.source,
-          weightedScore: searchedPhoto.score
+          weightedScore: searchedPhoto.score + queryPriorityAdjustment
         });
       }
     }
@@ -545,6 +561,36 @@ function chooseBetterRecipePhoto(
   return current;
 }
 
+function getRecipePhotoQueryPriorityAdjustment(
+  baseIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
+  queryIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
+  index: number
+) {
+  let adjustment = Math.max(0, 1.8 - index * 0.45);
+
+  if (baseIdentity.mainIngredientKey && queryIdentity.mainIngredientKey) {
+    adjustment += baseIdentity.mainIngredientKey === queryIdentity.mainIngredientKey ? 1.4 : -6;
+  }
+
+  if (baseIdentity.sauceKey && queryIdentity.sauceKey) {
+    adjustment += baseIdentity.sauceKey === queryIdentity.sauceKey ? 1.1 : -5;
+  }
+
+  if (baseIdentity.starchKey && queryIdentity.starchKey) {
+    adjustment += baseIdentity.starchKey === queryIdentity.starchKey ? 0.9 : -3.5;
+  }
+
+  if (/\bmussel|mussels\b/i.test(baseIdentity.cleanQuery) && /\bshrimp|prawn\b/i.test(queryIdentity.cleanQuery)) {
+    adjustment -= 7;
+  }
+
+  if (/\btahini|sesame sauce\b/i.test(baseIdentity.cleanQuery) && /\b(pasta|spaghetti|linguine|marinara|pomodoro|red sauce)\b/i.test(queryIdentity.cleanQuery)) {
+    adjustment -= 7;
+  }
+
+  return adjustment;
+}
+
 function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[]) {
   const now = Date.now();
   const allowedSignatures = new Set(signatureCandidates);
@@ -584,4 +630,10 @@ function isRecipePhotoRecentlyUsedForDifferentSignature(imageUrl: string, signat
 
 function meetsRecipePhotoConfidenceThreshold(candidate: ProviderRecipePhotoCandidate) {
   return candidate.score >= MIN_ACCEPTED_PROVIDER_SCORE[candidate.source];
+}
+
+function shouldTryWikimediaRecipePhoto(identity: ReturnType<typeof buildRecipePhotoIdentity>, index: number) {
+  if (index > 1) return false;
+  if (identity.canonicalDishKey) return true;
+  return Boolean(identity.familyKey && WIKIMEDIA_FAMILY_ALLOWLIST.has(identity.familyKey));
 }

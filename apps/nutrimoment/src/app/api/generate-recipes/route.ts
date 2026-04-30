@@ -28,7 +28,7 @@ import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/li
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
 import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
 import { isArabicRecipeLanguage, localizeRecipeForArabic } from "@/lib/arabicRecipeLocalization";
-import { normalizeRecipeLanguage } from "@/lib/language";
+import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
@@ -124,7 +124,7 @@ const requestSchema = z.object({
   prompt: z.string().min(20).optional(),
   referenceImage: z.string().min(10).optional(),
   recipeCount: z.number().optional(),
-  recipeLanguage: z.string().optional(),
+  uiLanguage: z.string().optional(),
   preferredCuisine: z.string().optional(),
   calorieTarget: z.number().optional(),
   maxMissingIngredients: z.number().optional(),
@@ -160,7 +160,7 @@ export async function POST(request: Request) {
     const ingredients = (parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""))
       .map((ingredient) => ingredient.trim())
       .filter(Boolean);
-    const recipeLanguage = normalizeRecipeLanguage(parsed.data.recipeLanguage, "English");
+    const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
     const recipeCount = clampRecipeCount(parsed.data.recipeCount);
     if (!ingredients.length && !parsed.data.referenceImage) {
       return Response.json(
@@ -168,9 +168,19 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const availableIngredients = await buildAvailableIngredientSet(ingredients);
+    const ingredientNormalization = await normalizeIngredients(ingredients);
+    const normalizedPromptIngredients = ingredientNormalization.resolved.length
+      ? ingredientNormalization.resolved
+      : ingredients.map((ingredient) => ({
+          raw: ingredient,
+          normalized: ingredient
+        }));
+    const normalizedIngredientNames = ingredientNormalization.normalized.length
+      ? ingredientNormalization.normalized
+      : normalizedPromptIngredients.map((item) => item.normalized);
+    const availableIngredients = buildAvailableIngredientSet(ingredients, ingredientNormalization.normalized);
     const candidateDishes = buildCuisineAwareDishCandidates({
-      availableIngredients: ingredients,
+      availableIngredients: normalizedIngredientNames,
       allergens: parsed.data.allergens,
       calorieTarget: parsed.data.calorieTarget,
       conditions: parsed.data.conditions,
@@ -269,13 +279,14 @@ export async function POST(request: Request) {
     }
 
     const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
+    let offlineFallbackKind: "ai_unavailable_offline_catalog" | "ai_busy_offline_catalog" = "ai_unavailable_offline_catalog";
 
     try {
       ensureAiAvailable();
       const prompt = ingredients.length
         ? buildRecipeGenerationPrompt(
-            ingredients.map((ingredient, index) => ({
-              name: ingredient,
+            normalizedPromptIngredients.map((ingredient, index) => ({
+              name: ingredient.normalized,
               quantity: readIngredientQuantity(parsed.data.ingredientQuantities?.[index])
             })),
             {
@@ -317,8 +328,10 @@ export async function POST(request: Request) {
           recipeCount: finalRecipes.length,
           hasExactScanMatch: Boolean(exactScanMatch)
         });
+        const responsePayload =
+          recipes && typeof recipes === "object" && !Array.isArray(recipes) ? recipes : {};
         return Response.json({
-          ...recipes,
+          ...responsePayload,
           recipes: finalRecipes,
           servedFrom: "fallback_ai",
           result: JSON.stringify(finalRecipes),
@@ -326,6 +339,9 @@ export async function POST(request: Request) {
         });
       }
     } catch (aiError) {
+      if (isTransientAiOverload(aiError)) {
+        offlineFallbackKind = "ai_busy_offline_catalog";
+      }
       logger.error("AI recipe generation failed; using offline catalog fallback", aiError);
     }
 
@@ -355,7 +371,7 @@ export async function POST(request: Request) {
       result: JSON.stringify(finalRecipes),
       servedFrom: "offline_catalog",
       canLoadMore: searchResult.canLoadMore,
-      fallbackNotice: buildRecipeFallbackNotice("ai_unavailable_offline_catalog", recipeLanguage),
+      fallbackNotice: buildRecipeFallbackNotice(offlineFallbackKind, recipeLanguage),
       access: accessPayload(nextAccess)
     });
   } catch (error) {
@@ -609,10 +625,9 @@ function mergeRecipeResults(
   return merged;
 }
 
-async function buildAvailableIngredientSet(inputIngredients: string[]) {
-  const normalized = await normalizeIngredients(inputIngredients);
+function buildAvailableIngredientSet(inputIngredients: string[], normalizedIngredients: string[]) {
   return new Set(
-    [...inputIngredients, ...normalized.normalized]
+    [...inputIngredients, ...normalizedIngredients]
       .map(normalizeIngredientForStrictMatch)
       .filter(Boolean)
   );
@@ -750,13 +765,21 @@ function clampRecipeCount(value?: number) {
 }
 
 function buildRecipeFallbackNotice(
-  kind: "credits_used_offline_catalog" | "ai_unavailable_offline_catalog",
+  kind: "credits_used_offline_catalog" | "ai_unavailable_offline_catalog" | "ai_busy_offline_catalog",
   recipeLanguage: string
 ) {
   const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
+  if (wantsArabic && kind === "ai_busy_offline_catalog") {
+    return "خدمة توليد الوصفات مشغولة حالياً، لذا عرضنا أفضل الوصفات المطابقة المتاحة الآن.";
+  }
+
   if (!wantsArabic) {
     if (kind === "credits_used_offline_catalog") {
       return "Your 5 free AI credits are used. These recipes are from the offline catalog.";
+    }
+
+    if (kind === "ai_busy_offline_catalog") {
+      return "AI recipe generation is busy right now, so we showed the best catalog matches for the moment.";
     }
 
     return "AI recipe generation was unavailable, so we used offline catalog matches.";
@@ -767,6 +790,11 @@ function buildRecipeFallbackNotice(
   }
 
   return "تعذر توليد الوصفات بالذكاء الاصطناعي، لذلك استخدمنا مطابقات من الكتالوج غير المتصل.";
+}
+
+function isTransientAiOverload(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("\"status\":\"UNAVAILABLE\"") || message.includes("high demand");
 }
 
 function queueRecipeCachePersist(input: {

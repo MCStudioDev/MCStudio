@@ -7,6 +7,11 @@ import type { IngredientAliasDoc } from "@/lib/domain";
 export interface IngredientNormalizationResult {
   raw: string[];
   normalized: string[];
+  resolved: Array<{
+    raw: string;
+    normalized: string;
+    category?: string;
+  }>;
   unmapped: string[];
   categories: Record<string, string>;
 }
@@ -21,6 +26,7 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
   const aliasByKey = buildAliasLookup([...OFFLINE_INGREDIENT_ALIASES, ...aliases]);
 
   const normalized: string[] = [];
+  const resolved: Array<{ raw: string; normalized: string; category?: string }> = [];
   const unmapped: string[] = [];
   const categories: Record<string, string> = {};
 
@@ -28,6 +34,11 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
     const alias = aliasByKey.get(raw);
     if (alias) {
       normalized.push(alias.canonical);
+      resolved.push({
+        raw,
+        normalized: alias.canonical,
+        category: alias.category
+      });
       if (alias.category) categories[alias.canonical] = alias.category;
       continue;
     }
@@ -37,6 +48,11 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
     const translatedAlias = aliasByKey.get(translated);
     if (translatedAlias) {
       normalized.push(translatedAlias.canonical);
+      resolved.push({
+        raw,
+        normalized: translatedAlias.canonical,
+        category: translatedAlias.category
+      });
       if (translatedAlias.category) categories[translatedAlias.canonical] = translatedAlias.category;
       continue;
     }
@@ -44,6 +60,11 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
     const heuristicAlias = aliasByKey.get(heuristic);
     if (heuristicAlias) {
       normalized.push(heuristicAlias.canonical);
+      resolved.push({
+        raw,
+        normalized: heuristicAlias.canonical,
+        category: heuristicAlias.category
+      });
       if (heuristicAlias.category) categories[heuristicAlias.canonical] = heuristicAlias.category;
       continue;
     }
@@ -52,6 +73,11 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
     if (phraseMatches.length) {
       for (const match of phraseMatches) {
         normalized.push(match.canonical);
+        resolved.push({
+          raw,
+          normalized: match.canonical,
+          category: match.category
+        });
         if (match.category) categories[match.canonical] = match.category;
       }
       continue;
@@ -60,17 +86,27 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
     const fuzzyMatch = findFuzzyIngredientMatch(heuristic);
     if (fuzzyMatch) {
       normalized.push(fuzzyMatch.canonical);
+      resolved.push({
+        raw,
+        normalized: fuzzyMatch.canonical,
+        category: fuzzyMatch.category
+      });
       if (fuzzyMatch.category) categories[fuzzyMatch.canonical] = fuzzyMatch.category;
       continue;
     }
 
     normalized.push(heuristic);
+    resolved.push({
+      raw,
+      normalized: heuristic
+    });
     unmapped.push(raw);
   }
 
   return {
     raw: cleaned,
     normalized: Array.from(new Set(normalized)),
+    resolved,
     unmapped: Array.from(new Set(unmapped)),
     categories
   };

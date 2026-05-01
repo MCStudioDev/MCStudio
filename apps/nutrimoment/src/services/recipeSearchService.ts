@@ -14,7 +14,7 @@ import { normalizeIngredients } from "@/services/ingredientNormalizationService"
 import { rankRecipes } from "@/services/rankingService";
 import { retrieveRecipeCandidates } from "@/services/recipeRetrievalService";
 import { listSeededRecipes } from "@/repositories/recipeRepo";
-import { listUserCachedRecipes } from "@/services/userRecipeCacheService";
+import { listSharedCachedRecipes, listUserCachedRecipes } from "@/services/userRecipeCacheService";
 
 export interface CatalogRecipeSearchInput {
   ingredients: string[];
@@ -44,9 +44,16 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     allergens: input.allergens ?? []
   } satisfies UserPreferenceSnapshot);
 
-  const cachedRecipes = await listUserCachedRecipes(input.uid);
+  const [cachedRecipes, sharedCachedRecipes] = await Promise.all([
+    listUserCachedRecipes(input.uid),
+    listSharedCachedRecipes()
+  ]);
   const { candidateRecipes, candidateRecipeIds } = await retrieveRecipeCandidates(normalized.normalized);
-  const primaryRecipePool = dedupeCatalogRecipes([...cachedRecipes, ...candidateRecipes]);
+  const primaryRecipePool = dedupeCatalogRecipes([
+    ...cachedRecipes,
+    ...sharedCachedRecipes,
+    ...candidateRecipes
+  ]);
   const ranked = rankRecipes({
     recipes: primaryRecipePool,
     normalizedIngredients: normalized.normalized,
@@ -55,7 +62,11 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     mealType: input.mealType,
     preferences
   });
-  const fallbackCandidateRecipes = dedupeCatalogRecipes([...cachedRecipes, ...listSeededRecipes().filter((recipe) => recipe.isActive)]);
+  const fallbackCandidateRecipes = dedupeCatalogRecipes([
+    ...cachedRecipes,
+    ...sharedCachedRecipes,
+    ...listSeededRecipes().filter((recipe) => recipe.isActive)
+  ]);
   const fallbackRanked = rankRecipes({
         recipes: fallbackCandidateRecipes,
         normalizedIngredients: normalized.normalized,
@@ -91,7 +102,9 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     ingredientsNormalized: normalized.normalized,
     recipes,
     servedFrom: "offline_catalog",
-    canLoadMore: rankedResults.length > topRanked.length || Math.max(candidateRecipeIds.length, cachedRecipes.length) > limit,
+    canLoadMore:
+      rankedResults.length > topRanked.length ||
+      Math.max(candidateRecipeIds.length, primaryRecipePool.length, fallbackCandidateRecipes.length) > limit,
     rankedRecipeIds: topRanked.map((item) => item.recipeId),
     candidateRecipes: rankedRecipePool
   };
@@ -134,7 +147,9 @@ export function mapCatalogRecipeToUiRecipe(
     match_quality: matchQuality,
     matched_required_count: matchedRequiredCount,
     matched_optional_count: matchedOptionalCount,
-    preference_hits: recipe.localized?.English?.preference_hits?.length ? recipe.localized.English.preference_hits : preferenceHits
+    preference_hits: normalizeStringArray(recipe.localized?.English?.preference_hits).length
+      ? normalizeStringArray(recipe.localized?.English?.preference_hits)
+      : preferenceHits
   };
 
   const localized =
@@ -168,7 +183,9 @@ export function mapCatalogRecipeToUiRecipe(
     image_attribution_url: localized.image_attribution_url ?? englishBase.image_attribution_url,
     image_search_index: localized.image_search_index ?? englishBase.image_search_index,
     image_search_indices: localized.image_search_indices ?? englishBase.image_search_indices,
-    preference_hits: localized.preference_hits?.length ? localized.preference_hits : englishBase.preference_hits
+    preference_hits: normalizeStringArray(localized.preference_hits).length
+      ? normalizeStringArray(localized.preference_hits)
+      : englishBase.preference_hits
   }, {
     availableIngredients: [...englishBase.ingredients, ...englishBase.missing_ingredients],
     preferredCuisine: englishBase.cuisine
@@ -206,6 +223,11 @@ function normalizeRecipeImageUrl(value?: string) {
   if (!value) return undefined;
   if (/^https?:\/\//i.test(value)) return value;
   return undefined;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
 function dedupeCatalogRecipes(recipes: RecipeCatalogDoc[]) {

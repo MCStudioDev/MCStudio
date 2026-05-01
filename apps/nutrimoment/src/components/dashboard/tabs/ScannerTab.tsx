@@ -9,7 +9,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useApp } from "@/contexts/AppContext";
 import { useHistory } from "@/hooks/useHistory";
 import { containerVariants, itemVariants } from "@/lib/animations";
-import { getPantryQuantityHint, getPreferredPantryUnit } from "@/lib/pantryQuantity";
+import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 import { fileToBase64 } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
 import { EmptyState } from "./shared";
@@ -30,14 +30,12 @@ function safeJsonParse<T>(value: string, fallback: T): T {
 interface ScannerIngredient {
   id: string;
   name: string;
-  quantity: string;
 }
 
-function createScannerIngredient(name: string, quantity: string): ScannerIngredient {
+function createScannerIngredient(name: string): ScannerIngredient {
   return {
     id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-    name,
-    quantity
+    name
   };
 }
 
@@ -60,7 +58,6 @@ export function ScannerTab() {
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const { addEntry, replaceEntryRecipes, updateRecipeImage } = useHistory();
   const [manualEntry, setManualEntry] = useState("");
-  const [manualQuantity, setManualQuantity] = useState("");
   const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
   const [lastScanImage, setLastScanImage] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
@@ -187,22 +184,15 @@ export function ScannerTab() {
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item) => !ingredients.some((ingredient) => ingredient.name.toLowerCase() === item.toLowerCase()))
-      .map((item) => createScannerIngredient(item, manualQuantity.trim() || `1 ${getPreferredPantryUnit(item)}`));
+      .map((item) => createScannerIngredient(item));
 
     if (!next.length) return;
     setIngredients((current) => [...current, ...next]);
     setManualEntry("");
-    setManualQuantity("");
   };
 
   const removeIngredient = (ingredientId: string) => {
     setIngredients((current) => current.filter((item) => item.id !== ingredientId));
-  };
-
-  const updateIngredientQuantity = (ingredientId: string, quantity: string) => {
-    setIngredients((current) =>
-      current.map((item) => (item.id === ingredientId ? { ...item, quantity } : item))
-    );
   };
 
   const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -218,11 +208,16 @@ export function ScannerTab() {
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           image,
-          language: settings.recipeLanguage,
+          language: settings.uiLanguage,
           isPantry: false
         })
       });
-      const data = (await response.json()) as { result?: string; error?: string; fallbackNotice?: string };
+      const data = (await response.json()) as {
+        ingredients?: string[];
+        result?: string;
+        error?: string;
+        fallbackNotice?: string;
+      };
       await refreshAccess();
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to scan image");
@@ -231,7 +226,7 @@ export function ScannerTab() {
         setError(data.fallbackNotice);
       }
 
-      const scanned = safeJsonParse<string[]>(data.result ?? "[]", [])
+      const scanned = (Array.isArray(data.ingredients) ? data.ingredients : safeJsonParse<string[]>(data.result ?? "[]", []))
         .map((item) => item.trim())
         .filter(Boolean);
 
@@ -242,10 +237,10 @@ export function ScannerTab() {
       }
 
       setIngredients((current) => {
-        const existing = new Set(current.map((item) => item.name.toLowerCase()));
+        const existing = new Set(current.map((item) => normalizeIngredientKey(item.name)));
         const nextScanned = scanned
-          .filter((item) => !existing.has(item.toLowerCase()))
-          .map((item) => createScannerIngredient(item, `1 ${getPreferredPantryUnit(item)}`));
+          .filter((item) => !existing.has(normalizeIngredientKey(item)))
+          .map((item) => createScannerIngredient(item));
 
         return [...current, ...nextScanned];
       });
@@ -266,16 +261,14 @@ export function ScannerTab() {
     setRecipeLoading(true);
     try {
       const ingredientNames = ingredients.map((item) => item.name);
-      const ingredientQuantities = ingredients.map((item) => `${item.name} - ${item.quantity}`);
       const response = await fetch("/api/generate-recipes", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           ingredients: ingredientNames.length ? ingredientNames : undefined,
-          ingredientQuantities: ingredientQuantities.length ? ingredientQuantities : undefined,
           referenceImage: lastScanImage ?? undefined,
           recipeCount: settings.recipeCount,
-          recipeLanguage: settings.recipeLanguage,
+          uiLanguage: settings.uiLanguage,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
           maxMissingIngredients: settings.maxMissingIngredients,
@@ -303,7 +296,7 @@ export function ScannerTab() {
       setRecipes(nextRecipes);
       const entryId = await addEntry({
         timestamp: new Date().toISOString(),
-        ingredients: ingredientQuantities,
+        ingredients: ingredientNames,
         recipes: nextRecipes
       });
       setHistoryEntryId(entryId);
@@ -379,7 +372,7 @@ export function ScannerTab() {
                 <label htmlFor="scanner-manual-ingredient" className="text-sm font-semibold text-emerald-50/88">
                   {t("typeIng")}
                 </label>
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_auto]">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
                   <input
                     id="scanner-manual-ingredient"
                     name="ingredient"
@@ -396,26 +389,9 @@ export function ScannerTab() {
                     spellCheck
                     className="focus-ring neo-input h-12 rounded-2xl px-4 text-sm transition-ui"
                   />
-                  <label htmlFor="scanner-manual-quantity" className="sr-only">
-                    {t("ingredientQuantity")}
-                  </label>
-                  <input
-                    id="scanner-manual-quantity"
-                    name="quantity"
-                    value={manualQuantity}
-                    onChange={(event) => setManualQuantity(event.target.value)}
-                    placeholder={manualEntry.trim() ? getPantryQuantityHint(manualEntry) : t("quantity")}
-                    autoComplete="off"
-                    inputMode="text"
-                    aria-label={t("ingredientQuantity")}
-                    className="focus-ring neo-input h-12 rounded-2xl px-4 text-sm transition-ui"
-                  />
                   <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={addManualIngredient}>
                     {t("add")}
                   </Button>
-                </div>
-                <div className="theme-callout-info rounded-[1.15rem] border border-cyan-200/14 bg-cyan-400/10 px-4 py-3 text-sm font-medium leading-relaxed text-cyan-50/92">
-                  {t("quantityGuide")}: {t("quantityGuideDetails")}
                 </div>
               </div>
             </div>
@@ -436,22 +412,11 @@ export function ScannerTab() {
                   {ingredients.map((ingredient) => (
                     <div
                       key={ingredient.id}
-                      className="grid gap-2.5 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/82 sm:grid-cols-[1fr_180px_auto]"
+                      className="grid gap-2.5 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/82 sm:grid-cols-[1fr_auto]"
                     >
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-white">{ingredient.name}</p>
-                        <p className="text-xs text-emerald-50/50">{getPantryQuantityHint(ingredient.name)}</p>
                       </div>
-                      <input
-                        id={`scanner-quantity-${ingredient.id}`}
-                        name={`quantity-${ingredient.name}`}
-                        value={ingredient.quantity}
-                        onChange={(event) => updateIngredientQuantity(ingredient.id, event.target.value)}
-                        placeholder={getPantryQuantityHint(ingredient.name)}
-                        aria-label={`Quantity for ${ingredient.name}`}
-                        autoComplete="off"
-                        className="focus-ring neo-input h-11 rounded-2xl px-4 text-sm transition-ui"
-                      />
                       <button
                         type="button"
                         onClick={() =>
@@ -613,6 +578,10 @@ function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = [
 
 function serializeRecipePhotoQuery(queries: string[]) {
   return queries.join(" || ");
+}
+
+function normalizeIngredientKey(value: string) {
+  return translateIngredientToEnglish(value).trim().toLowerCase();
 }
 
 function buildRecipeStats(recipe: Recipe) {

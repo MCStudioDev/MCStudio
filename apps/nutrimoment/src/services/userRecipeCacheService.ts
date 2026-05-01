@@ -17,8 +17,10 @@ import { logger } from "@/lib/logger";
 
 type CacheRecipeLanguage = "English" | "Arabic";
 
-const CACHE_COLLECTION = "offlineRecipeCache";
-const MAX_CACHE_DOCS = 120;
+const USER_CACHE_COLLECTION = "offlineRecipeCache";
+const SHARED_CACHE_COLLECTION = "sharedOfflineRecipeCache";
+const MAX_USER_CACHE_DOCS = 120;
+const MAX_SHARED_CACHE_DOCS = 240;
 const CACHE_READ_TIMEOUT_MS = 2500;
 
 export async function listUserCachedRecipes(uid?: string | null): Promise<RecipeCatalogDoc[]> {
@@ -29,9 +31,9 @@ export async function listUserCachedRecipes(uid?: string | null): Promise<Recipe
     const cacheQuery = db
       .collection("users")
       .doc(uid)
-      .collection(CACHE_COLLECTION)
+      .collection(USER_CACHE_COLLECTION)
       .orderBy("updatedAt", "desc")
-      .limit(MAX_CACHE_DOCS);
+      .limit(MAX_USER_CACHE_DOCS);
     const snapshot = await withTimeout(cacheQuery.get(), CACHE_READ_TIMEOUT_MS, "load cached recipes");
 
     if (snapshot.empty) {
@@ -56,6 +58,26 @@ export async function listUserCachedRecipes(uid?: string | null): Promise<Recipe
   }
 }
 
+export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
+  try {
+    const db = getAdminDb();
+    const cacheQuery = db
+      .collection(SHARED_CACHE_COLLECTION)
+      .orderBy("updatedAt", "desc")
+      .limit(MAX_SHARED_CACHE_DOCS);
+    const snapshot = await withTimeout(cacheQuery.get(), CACHE_READ_TIMEOUT_MS, "load shared cached recipes");
+
+    return snapshot.docs
+      .map((docSnap) => enrichOfflineRecipe(docSnap.data() as RecipeCatalogDoc))
+      .filter((recipe) => recipe?.isActive);
+  } catch (error) {
+    logger.warn("Loading shared cached recipes failed", {
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+    return [];
+  }
+}
+
 export async function persistGeneratedRecipeCache(input: {
   recipeLanguage: string;
   recipes?: Recipe[];
@@ -64,29 +86,59 @@ export async function persistGeneratedRecipeCache(input: {
 }) {
   if (!input.uid) return;
 
+  const cacheDocs = await buildCacheDocs(input);
+  if (!cacheDocs.length) return;
+
+  const db = getAdminDb();
+  const userCacheCollection = db.collection("users").doc(input.uid).collection(USER_CACHE_COLLECTION);
+
+  await writeDocsInBatches(
+    cacheDocs,
+    75,
+    async (batch, recipe) => {
+      batch.set(userCacheCollection.doc(recipe.id), stripUndefinedDeep(recipe));
+      const sharedRecipe = toSharedCacheDoc(recipe);
+      batch.set(db.collection(SHARED_CACHE_COLLECTION).doc(sharedRecipe.id), stripUndefinedDeep(sharedRecipe), { merge: true });
+    }
+  );
+}
+
+export async function persistSharedRecipeCache(input: {
+  recipeLanguage: string;
+  recipes?: Recipe[];
+  meals?: MealPlanMeal[];
+  sourceProvider?: string;
+}) {
+  const cacheDocs = await buildCacheDocs(input);
+  if (!cacheDocs.length) return;
+
+  const db = getAdminDb();
+  await writeDocsInBatches(
+    cacheDocs,
+    50,
+    async (batch, recipe) => {
+      const sharedRecipe = toSharedCacheDoc(recipe, input.sourceProvider);
+      batch.set(db.collection(SHARED_CACHE_COLLECTION).doc(sharedRecipe.id), stripUndefinedDeep(sharedRecipe), { merge: true });
+    }
+  );
+}
+
+function createRecipeVariants(recipe: Recipe, sourceLanguage: CacheRecipeLanguage) {
+  return ensureCompleteLocalizedRecipe(recipe, sourceLanguage);
+}
+
+async function buildCacheDocs(input: {
+  recipeLanguage: string;
+  recipes?: Recipe[];
+  meals?: MealPlanMeal[];
+}) {
   const sourceLanguage: CacheRecipeLanguage = isArabicRecipeLanguage(input.recipeLanguage) ? "Arabic" : "English";
-  const cacheDocs = (
+  return (
     await Promise.all([
       ...(input.recipes ?? []).map((recipe, index) => buildCacheDocFromRecipe(recipe, sourceLanguage, `recipe-${index}`)),
       ...(input.meals ?? []).map((meal, index) => buildCacheDocFromMeal(meal, sourceLanguage, `meal-${index}`))
     ])
   ).filter((recipe): recipe is RecipeCatalogDoc => Boolean(recipe));
-
-  if (!cacheDocs.length) return;
-
-  const db = getAdminDb();
-  const batch = db.batch();
-  const cacheCollection = db.collection("users").doc(input.uid).collection(CACHE_COLLECTION);
-
-  for (const recipe of cacheDocs) {
-    batch.set(cacheCollection.doc(recipe.id), stripUndefinedDeep(recipe));
-  }
-
-  await batch.commit();
-}
-
-function createRecipeVariants(recipe: Recipe, sourceLanguage: CacheRecipeLanguage) {
-  return ensureCompleteLocalizedRecipe(recipe, sourceLanguage);
 }
 
 function createMealRecipe(meal: MealPlanMeal, fallbackId: string): Recipe {
@@ -308,6 +360,62 @@ function buildCacheId(title: string, ingredientCanonicals: string[], fallbackId:
   return `cached-${hash.toString(36)}`;
 }
 
+function buildSharedCacheId(title: string, cuisine: string, ingredientCanonicals: string[], mealType: MealType) {
+  const normalizedTitle = slugify(title) || "recipe";
+  const normalizedCuisine = slugify(cuisine) || "unknown";
+  const normalizedIngredients = [...ingredientCanonicals]
+    .map((ingredient) => ingredient.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join("|");
+  const source = `${normalizedTitle}|${normalizedCuisine}|${mealType}|${normalizedIngredients}`;
+  let hash = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
+  }
+  return `shared-${hash.toString(36)}`;
+}
+
+function toSharedCacheDoc(recipe: RecipeCatalogDoc, provider = "shared-user-cache"): RecipeCatalogDoc {
+  const sharedId = buildSharedCacheId(recipe.title, recipe.cuisine, recipe.ingredientCanonicals, recipe.mealType);
+  const imageSignature = buildImageSignature(sharedId, recipe.cuisine, recipe.ingredientCanonicals);
+
+  return enrichOfflineRecipe({
+    ...recipe,
+    id: sharedId,
+    image: {
+      ...recipe.image,
+      signature: imageSignature,
+      sharedCacheKey: imageSignature
+    },
+    localized: recipe.localized
+      ? {
+          ...recipe.localized,
+          English: recipe.localized.English
+            ? {
+                ...recipe.localized.English,
+                id: sharedId
+              }
+            : recipe.localized.English,
+          Arabic: recipe.localized.Arabic
+            ? {
+                ...recipe.localized.Arabic,
+                id: sharedId
+              }
+            : recipe.localized.Arabic
+        }
+      : recipe.localized,
+    popularityScore: Math.max(recipe.popularityScore, 65),
+    source: {
+      provider,
+      ...(recipe.source?.externalId ? { externalId: recipe.source.externalId } : {}),
+      ...(recipe.source?.url ? { url: recipe.source.url } : {}),
+      ...(recipe.source?.license ? { license: recipe.source.license } : {})
+    },
+    updatedAt: Date.now()
+  });
+}
+
 function inferStoredLanguage(input: { meals?: MealPlanMeal[]; recipes?: Recipe[] }) {
   const sample = [
     ...(input.recipes ?? []).map((recipe) => `${recipe.name} ${recipe.steps.join(" ")}`),
@@ -385,6 +493,23 @@ function stripUndefinedDeep<T>(value: T): T {
   }
 
   return value;
+}
+
+async function writeDocsInBatches<T>(
+  items: T[],
+  chunkSize: number,
+  writeItem: (batch: FirebaseFirestore.WriteBatch, item: T) => Promise<void> | void
+) {
+  const db = getAdminDb();
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    const batch = db.batch();
+    const chunk = items.slice(index, index + chunkSize);
+    for (const item of chunk) {
+      await writeItem(batch, item);
+    }
+    await batch.commit();
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {

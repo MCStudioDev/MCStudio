@@ -37,9 +37,13 @@ export function ensureDetailedMealPlanSteps(mealPlan: MealPlanData, language: St
 }
 
 function buildDetailedSteps(source: StepSource, language: StepLanguage) {
-  const existing = Array.isArray(source.steps)
+  const rawExisting = Array.isArray(source.steps)
     ? source.steps.map((step) => step.trim()).filter(Boolean)
     : [];
+  const existing =
+    language === "Arabic" && rawExisting.some((step) => /[A-Za-z]/.test(step))
+      ? []
+      : rawExisting;
 
   if (existing.length >= 7) {
     return existing;

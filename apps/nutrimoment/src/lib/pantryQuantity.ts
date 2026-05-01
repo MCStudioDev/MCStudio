@@ -1,3 +1,5 @@
+import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
+
 export interface ParsedPantryQuantity {
   quantity: number;
   unit: string;
@@ -81,7 +83,8 @@ export function normalizePantryIngredientName(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 
-  return INGREDIENT_EQUIVALENTS[normalized] ?? normalized;
+  const englishNormalized = translateIngredientToEnglish(normalized).toLowerCase();
+  return INGREDIENT_EQUIVALENTS[englishNormalized] ?? englishNormalized;
 }
 
 const INGREDIENT_EQUIVALENTS: Record<string, string> = {

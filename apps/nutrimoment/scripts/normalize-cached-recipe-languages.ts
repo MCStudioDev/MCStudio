@@ -11,18 +11,17 @@ const PAGE_SIZE = 150;
 const DRY_RUN = process.argv.includes("--dry-run");
 const MAX_WRITE_ATTEMPTS = 6;
 const BASE_RETRY_DELAY_MS = 5_000;
-const WRITE_PACING_DELAY_MS = 250;
+const WRITE_PACING_DELAY_MS = 200;
 
 async function main() {
   if (!hasFirebaseAdminConfig()) {
     throw new Error("Firebase Admin credentials are not configured.");
   }
 
-  const db = getAdminDb();
-  const recipeStats = await backfillCollection({
-    label: "recipes",
+  const sharedStats = await backfillCollection({
+    label: "sharedOfflineRecipeCache",
     getPage: async (cursor) => {
-      let q = db.collection("recipes").orderBy(FieldPath.documentId()).limit(PAGE_SIZE);
+      let q = getAdminDb().collection("sharedOfflineRecipeCache").orderBy(FieldPath.documentId()).limit(PAGE_SIZE);
       if (cursor) q = q.startAfter(cursor);
       return q.get();
     }
@@ -31,7 +30,7 @@ async function main() {
   const userStats = await backfillUserOfflineRecipeCaches();
 
   process.stdout.write(
-    `Backfill complete. recipes updated=${recipeStats.updated}, recipes scanned=${recipeStats.scanned}, cache updated=${userStats.updated}, cache scanned=${userStats.scanned}, users=${userStats.users}\n`
+    `Cache language normalization complete. shared updated=${sharedStats.updated}, shared scanned=${sharedStats.scanned}, cache updated=${userStats.updated}, cache scanned=${userStats.scanned}, users=${userStats.users}\n`
   );
   if (DRY_RUN) {
     process.stdout.write("Dry run only. No Firestore writes were performed.\n");
@@ -86,7 +85,7 @@ async function backfillCollection(input: {
     for (const docSnap of snap.docs) {
       scanned += 1;
       const current = stripUndefinedDeep(docSnap.data() as RecipeCatalogDoc);
-      const normalized = stripUndefinedDeep(normalizeRecipe(current));
+      const normalized = stripUndefinedDeep(normalizeCachedRecipeCatalogDoc(current));
       if (!isSameRecipeDoc(current, normalized)) {
         updated += 1;
         if (!DRY_RUN) {
@@ -133,10 +132,6 @@ function isRetryableWriteError(error: unknown) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizeRecipe(recipe: RecipeCatalogDoc) {
-  return normalizeCachedRecipeCatalogDoc(recipe);
 }
 
 function isSameRecipeDoc(left: RecipeCatalogDoc, right: RecipeCatalogDoc) {

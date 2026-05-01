@@ -8,6 +8,7 @@ import {
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
 import { isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
+import { normalizeRecipeLanguage } from "@/lib/language";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -42,13 +43,14 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return Response.json({ error: "Invalid request", details: parsed.error.format() }, { status: 400 });
     }
+    const language = normalizeRecipeLanguage(parsed.data.language, "English");
 
     if (!accessCheck.allowed) {
       return Response.json({
         ingredients: [],
         recipes: [],
         servedFrom: "offline_catalog",
-        fallbackNotice: buildScanProcessFallbackNotice(parsed.data.language),
+        fallbackNotice: buildScanProcessFallbackNotice(language),
         access: accessPayload(accessCheck.access)
       });
     }
@@ -58,7 +60,7 @@ export async function POST(request: Request) {
       uid: accessCheck.access.uid,
       image: parsed.data.image,
       imagePath: parsed.data.imagePath,
-      language: parsed.data.language,
+      language,
       isPantry: parsed.data.isPantry,
       filters: {
         dietTags: parsed.data.filters?.dietTags ?? [],

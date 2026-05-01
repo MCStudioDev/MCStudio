@@ -1,7 +1,6 @@
 import type { Language } from "./types";
 
 export const PILOT_UI_LANGUAGES = ["en", "ar"] as const;
-export const PILOT_RECIPE_LANGUAGES = ["English", "Arabic"] as const;
 export const PILOT_LANGUAGE_STORAGE_KEY = "nutrimoment.pilot.language";
 
 const ARABIC_REGIONS = new Set([
@@ -33,7 +32,7 @@ const ARABIC_REGIONS = new Set([
   "YE"
 ]);
 
-export type PilotRecipeLanguage = (typeof PILOT_RECIPE_LANGUAGES)[number];
+export type PilotRecipeLanguage = "English" | "Arabic";
 
 export function isPilotLanguage(value: unknown): value is Language {
   return value === "en" || value === "ar";
@@ -44,23 +43,13 @@ export function normalizePilotLanguage(value: unknown, fallback: Language = "en"
 }
 
 export function normalizeRecipeLanguage(value: unknown, fallback: PilotRecipeLanguage = "English"): PilotRecipeLanguage {
-  return value === "Arabic" ? "Arabic" : value === "English" ? "English" : fallback;
+  if (value === "Arabic" || value === "ar") return "Arabic";
+  if (value === "English" || value === "en") return "English";
+  return fallback;
 }
 
 export function recipeLanguageFromUiLanguage(language: Language): PilotRecipeLanguage {
   return language === "ar" ? "Arabic" : "English";
-}
-
-export function resolveRecipeLanguageForUiLanguage(
-  uiLanguage: Language,
-  recipeLanguage: unknown,
-  fallback: PilotRecipeLanguage = recipeLanguageFromUiLanguage(uiLanguage)
-): PilotRecipeLanguage {
-  if (uiLanguage === "ar") {
-    return "Arabic";
-  }
-
-  return normalizeRecipeLanguage(recipeLanguage, fallback);
 }
 
 export function persistPilotLanguage(language: Language) {

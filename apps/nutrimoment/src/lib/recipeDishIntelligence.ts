@@ -851,7 +851,10 @@ export function enrichRecipeWithDishIntent(recipe: Recipe, context: DishCandidat
     dish_intent: dishIntent,
     image_search_index: photoQueries[0] ?? recipe.image_search_index,
     image_search_indices: photoQueries.length ? photoQueries : recipe.image_search_indices,
-    preference_hits: uniqueKeywords([...(recipe.preference_hits ?? []), ...(trustedCandidate?.hits ?? [])]).slice(0, 6)
+    preference_hits: uniqueKeywords([
+      ...normalizePreferenceHits(recipe.preference_hits),
+      ...(trustedCandidate?.hits ?? [])
+    ]).slice(0, 6)
   };
 }
 
@@ -1158,9 +1161,14 @@ function inferCookingMethod(recipe: Recipe, candidate?: DishCandidate) {
 
 function inferDietType(recipe: Recipe, diets: string[]) {
   if (diets.length) return diets.join(", ");
-  const hits = recipe.preference_hits ?? [];
+  const hits = normalizePreferenceHits(recipe.preference_hits);
   const firstDietHit = hits.find((hit) => /\b(vegan|vegetarian|keto|gluten|dairy|high-protein|low-carb)\b/i.test(hit));
   return firstDietHit;
+}
+
+function normalizePreferenceHits(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((hit): hit is string => typeof hit === "string" && hit.trim().length > 0);
 }
 
 function extractVisualKeywords(recipe: Recipe) {

@@ -1,16 +1,14 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { deleteField, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import type { DashboardTheme, HealthProfile, Language, UserSettings } from "@/lib/types";
 import {
   getStoredOrDetectedPilotLanguage,
   normalizePilotLanguage,
-  persistPilotLanguage,
-  recipeLanguageFromUiLanguage,
-  resolveRecipeLanguageForUiLanguage
+  persistPilotLanguage
 } from "@/lib/language";
 import { isRtl, t as translate, type TranslationKey } from "@/lib/translations";
 
@@ -19,7 +17,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   preferredCuisine: "Any",
   maxMissingIngredients: 2,
   recipeCount: 5,
-  recipeLanguage: "English",
   uiLanguage: "en",
   themeMode: "auroraDark",
   targetWeightKg: null,
@@ -85,9 +82,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
 }
 
 function normalizeSettings(
-  raw: Partial<UserSettings> | undefined,
+  raw: (Partial<UserSettings> & { recipeLanguage?: unknown }) | undefined,
   fallbackLanguage: Language = "en"
 ): Partial<UserSettings> {
+  const { recipeLanguage: _legacyRecipeLanguage, ...rest } = raw ?? {};
   const uiLanguage = normalizePilotLanguage(raw?.uiLanguage, fallbackLanguage);
   const themeMode = normalizeThemeMode(raw?.themeMode);
   const recipeCount = Number.isFinite(raw?.recipeCount)
@@ -105,17 +103,12 @@ function normalizeSettings(
       : null;
 
   return {
-    ...raw,
+    ...rest,
     recipeCount,
     themeMode,
     targetWeightKg,
     goalTimelineMonths,
-    uiLanguage,
-    recipeLanguage: resolveRecipeLanguageForUiLanguage(
-      uiLanguage,
-      raw?.recipeLanguage,
-      recipeLanguageFromUiLanguage(uiLanguage)
-    )
+    uiLanguage
   };
 }
 
@@ -159,15 +152,14 @@ export function AppProvider({ children }: AppProviderProps) {
       const fallbackLanguage = getStoredOrDetectedPilotLanguage();
 
       if (settingsSnap.exists()) {
-        const data = normalizeSettings(settingsSnap.data() as Partial<UserSettings>, fallbackLanguage);
+        const data = normalizeSettings(settingsSnap.data() as Partial<UserSettings> & { recipeLanguage?: unknown }, fallbackLanguage);
         dispatch({ type: "settings/merge", payload: data });
         persistPilotLanguage(data.uiLanguage ?? fallbackLanguage);
       } else {
         dispatch({
           type: "settings/merge",
           payload: {
-            uiLanguage: fallbackLanguage,
-            recipeLanguage: recipeLanguageFromUiLanguage(fallbackLanguage)
+            uiLanguage: fallbackLanguage
           }
         });
         persistPilotLanguage(fallbackLanguage);
@@ -188,8 +180,7 @@ export function AppProvider({ children }: AppProviderProps) {
     dispatch({
       type: "settings/merge",
       payload: {
-        uiLanguage: preferredLanguage,
-        recipeLanguage: recipeLanguageFromUiLanguage(preferredLanguage)
+        uiLanguage: preferredLanguage
       }
     });
     persistPilotLanguage(preferredLanguage);
@@ -214,7 +205,7 @@ export function AppProvider({ children }: AppProviderProps) {
       if (!user) return;
       try {
         const ref = doc(db, "users", user.uid, "profile", "settings");
-        await setDoc(ref, merged, { merge: true });
+        await setDoc(ref, { ...merged, recipeLanguage: deleteField() }, { merge: true });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to save settings";
         setError(message);

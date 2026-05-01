@@ -12,6 +12,7 @@
     "seed:offline-catalog": "tsx scripts/seed-offline-catalog.ts",
     "backfill:bilingual-recipes": "tsx scripts/backfill-bilingual-recipes.ts",
     "backfill:shared-recipe-cache": "tsx scripts/backfill-shared-recipe-cache.ts",
+    "normalize:cached-recipe-languages": "tsx scripts/normalize-cached-recipe-languages.ts",
     "prune:user-history": "tsx scripts/prune-user-history.ts",
     "cleanup:synthetic-recipes": "tsx scripts/cleanup-synthetic-recipes.ts",
     "import:real-recipes": "tsx scripts/import-real-recipes.ts",

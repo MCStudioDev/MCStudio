@@ -7,8 +7,8 @@ import {
 } from "@/lib/arabicRecipeLocalization";
 import {
   buildRecipeHealthMetadata,
+  normalizeCachedRecipeCatalogDoc,
   buildRecipeSearchMetadata,
-  enrichOfflineRecipe,
   ensureCompleteLocalizedRecipe
 } from "@/data/offline/recipeMetadata";
 import type { MealPlanMeal, Recipe } from "@/lib/types";
@@ -20,7 +20,7 @@ type CacheRecipeLanguage = "English" | "Arabic";
 const USER_CACHE_COLLECTION = "offlineRecipeCache";
 const SHARED_CACHE_COLLECTION = "sharedOfflineRecipeCache";
 const MAX_USER_CACHE_DOCS = 120;
-const MAX_SHARED_CACHE_DOCS = 240;
+const MAX_SHARED_CACHE_DOCS = 800;
 const CACHE_READ_TIMEOUT_MS = 2500;
 
 export async function listUserCachedRecipes(uid?: string | null): Promise<RecipeCatalogDoc[]> {
@@ -47,7 +47,7 @@ export async function listUserCachedRecipes(uid?: string | null): Promise<Recipe
     }
 
     return snapshot.docs
-      .map((docSnap) => enrichOfflineRecipe(docSnap.data() as RecipeCatalogDoc))
+      .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
       .filter((recipe) => recipe?.isActive);
   } catch (error) {
     logger.warn("Loading user cached recipes failed", {
@@ -68,7 +68,7 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
     const snapshot = await withTimeout(cacheQuery.get(), CACHE_READ_TIMEOUT_MS, "load shared cached recipes");
 
     return snapshot.docs
-      .map((docSnap) => enrichOfflineRecipe(docSnap.data() as RecipeCatalogDoc))
+      .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
       .filter((recipe) => recipe?.isActive);
   } catch (error) {
     logger.warn("Loading shared cached recipes failed", {
@@ -257,7 +257,7 @@ async function buildCacheDocFromRecipe(
     updatedAt: timestamp
   };
 
-  return enrichOfflineRecipe({
+  return normalizeCachedRecipeCatalogDoc({
     ...baseRecipe,
     healthMetadata: buildRecipeHealthMetadata(baseRecipe),
     searchMetadata: buildRecipeSearchMetadata(baseRecipe)
@@ -380,7 +380,7 @@ function toSharedCacheDoc(recipe: RecipeCatalogDoc, provider = "shared-user-cach
   const sharedId = buildSharedCacheId(recipe.title, recipe.cuisine, recipe.ingredientCanonicals, recipe.mealType);
   const imageSignature = buildImageSignature(sharedId, recipe.cuisine, recipe.ingredientCanonicals);
 
-  return enrichOfflineRecipe({
+  return normalizeCachedRecipeCatalogDoc({
     ...recipe,
     id: sharedId,
     image: {

@@ -54,7 +54,7 @@ export function MealPlanTab() {
         body: JSON.stringify({
           pantry: items.map((item) => item.name),
           pantryItems: items.map((item) => ({ name: item.name, quantity: item.quantity })),
-          recipeLanguage: settings.recipeLanguage,
+          uiLanguage: settings.uiLanguage,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
           diets: health.diets,

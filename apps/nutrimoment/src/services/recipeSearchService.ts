@@ -1,5 +1,6 @@
 import type { Recipe, MealPlanMeal } from "@/lib/types";
 import { normalizeCuisineLabel } from "@/lib/cuisines";
+import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
 import type { RankedRecipeResult, RecipeCatalogDoc, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
 import { buildPreferenceProfile } from "@/lib/preferences";
 import {
@@ -114,45 +115,43 @@ export function mapCatalogRecipeToUiRecipe(
   preferenceHits: string[],
   recipeLanguage = "English"
 ): Recipe {
+  const normalizedRecipe = normalizeCachedRecipeCatalogDoc(recipe);
   const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
   const englishBase: Recipe = {
-    id: recipe.id,
-    name: recipe.localized?.English?.name ?? recipe.title,
-    cuisine: recipe.localized?.English?.cuisine ?? normalizeCuisineLabel(recipe.cuisine),
-    ingredients: recipe.ingredientCanonicals
+    id: normalizedRecipe.id,
+    name: normalizedRecipe.localized?.English?.name ?? normalizedRecipe.title,
+    cuisine: normalizedRecipe.localized?.English?.cuisine ?? normalizeCuisineLabel(normalizedRecipe.cuisine),
+    ingredients: normalizedRecipe.ingredientCanonicals
       .filter((ingredient) => !missingIngredients.includes(ingredient))
       .map(translateIngredientToEnglish),
     missing_ingredients: missingIngredients.map(translateIngredientToEnglish),
-    steps: recipe.localized?.English?.steps?.length ? recipe.localized.English.steps : recipe.steps,
-    calories: recipe.calories,
-    protein: recipe.localized?.English?.protein ?? `${recipe.protein}g`,
-    carbs: recipe.localized?.English?.carbs ?? `${recipe.carbs}g`,
-    fat: recipe.localized?.English?.fat ?? `${recipe.fat}g`,
-    fiber: recipe.localized?.English?.fiber ?? (recipe.fiber ? `${recipe.fiber}g` : undefined),
-    sugar: recipe.localized?.English?.sugar ?? (recipe.sugar ? `${recipe.sugar}g` : undefined),
-    sodium: recipe.localized?.English?.sodium ?? (recipe.sodium ? `${recipe.sodium}mg` : undefined),
-    cook_time: recipe.localized?.English?.cook_time ?? `${recipe.totalMinutes} mins`,
-    difficulty: recipe.localized?.English?.difficulty ?? capitalize(recipe.difficulty),
-    image_url: recipe.localized?.English?.image_url ?? normalizeRecipeImageUrl(recipe.image.thumbPath || recipe.image.storagePath),
-    image_source: recipe.localized?.English?.image_source,
-    image_attribution_name: recipe.localized?.English?.image_attribution_name,
-    image_attribution_url: recipe.localized?.English?.image_attribution_url,
-    image_search_index: recipe.localized?.English?.image_search_index,
-    image_search_indices: recipe.localized?.English?.image_search_indices,
+    steps: normalizedRecipe.localized?.English?.steps?.length ? normalizedRecipe.localized.English.steps : normalizedRecipe.steps,
+    calories: normalizedRecipe.calories,
+    protein: normalizedRecipe.localized?.English?.protein ?? `${normalizedRecipe.protein}g`,
+    carbs: normalizedRecipe.localized?.English?.carbs ?? `${normalizedRecipe.carbs}g`,
+    fat: normalizedRecipe.localized?.English?.fat ?? `${normalizedRecipe.fat}g`,
+    fiber: normalizedRecipe.localized?.English?.fiber ?? (normalizedRecipe.fiber ? `${normalizedRecipe.fiber}g` : undefined),
+    sugar: normalizedRecipe.localized?.English?.sugar ?? (normalizedRecipe.sugar ? `${normalizedRecipe.sugar}g` : undefined),
+    sodium: normalizedRecipe.localized?.English?.sodium ?? (normalizedRecipe.sodium ? `${normalizedRecipe.sodium}mg` : undefined),
+    cook_time: normalizedRecipe.localized?.English?.cook_time ?? `${normalizedRecipe.totalMinutes} mins`,
+    difficulty: normalizedRecipe.localized?.English?.difficulty ?? capitalize(normalizedRecipe.difficulty),
+    image_url: normalizedRecipe.localized?.English?.image_url ?? normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath),
+    image_source: normalizedRecipe.localized?.English?.image_source,
+    image_attribution_name: normalizedRecipe.localized?.English?.image_attribution_name,
+    image_attribution_url: normalizedRecipe.localized?.English?.image_attribution_url,
+    image_search_index: normalizedRecipe.localized?.English?.image_search_index,
+    image_search_indices: normalizedRecipe.localized?.English?.image_search_indices,
     match_quality: matchQuality,
     matched_required_count: matchedRequiredCount,
     matched_optional_count: matchedOptionalCount,
-    preference_hits: normalizeStringArray(recipe.localized?.English?.preference_hits).length
-      ? normalizeStringArray(recipe.localized?.English?.preference_hits)
+    preference_hits: normalizeStringArray(normalizedRecipe.localized?.English?.preference_hits).length
+      ? normalizeStringArray(normalizedRecipe.localized?.English?.preference_hits)
       : preferenceHits
   };
 
-  const localized =
-    wantsArabic
-      ? recipe.localized?.Arabic ?? localizeRecipeForArabic(englishBase)
-      : recipe.localized?.English ?? localizeRecipeForEnglish(englishBase);
+  const localized = selectDisplayLocalizedVariant(normalizedRecipe, englishBase, wantsArabic);
 
-  const availableIngredients = recipe.ingredientCanonicals
+  const availableIngredients = normalizedRecipe.ingredientCanonicals
     .filter((ingredient) => !missingIngredients.includes(ingredient))
     .map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
   const missingLocalized = missingIngredients.map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
@@ -225,6 +224,16 @@ function normalizeStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
+function selectDisplayLocalizedVariant(recipe: RecipeCatalogDoc, englishBase: Recipe, wantsArabic: boolean) {
+  const englishVariant = recipe.localized?.English ?? localizeRecipeForEnglish(englishBase);
+  if (!wantsArabic) {
+    return containsArabicDisplayText(englishVariant) ? localizeRecipeForEnglish(englishBase) : englishVariant;
+  }
+
+  const arabicVariant = recipe.localized?.Arabic ?? localizeRecipeForArabic(englishBase);
+  return containsLatinDisplayText(arabicVariant) ? localizeRecipeForArabic(englishBase) : arabicVariant;
+}
+
 function dedupeCatalogRecipes(recipes: RecipeCatalogDoc[]) {
   return Array.from(new Map(recipes.map((recipe) => [recipe.id, recipe])).values());
 }
@@ -289,4 +298,24 @@ function jaccardSimilarity(left: string[], right: string[]) {
   }
 
   return intersection / new Set([...leftSet, ...rightSet]).size;
+}
+
+function containsArabicDisplayText(recipe: Pick<Recipe, "name" | "cuisine" | "ingredients" | "missing_ingredients" | "steps">) {
+  return /[\u0600-\u06FF]/.test([
+    recipe.name,
+    recipe.cuisine,
+    ...recipe.ingredients,
+    ...recipe.missing_ingredients,
+    ...recipe.steps
+  ].join(" "));
+}
+
+function containsLatinDisplayText(recipe: Pick<Recipe, "name" | "cuisine" | "ingredients" | "missing_ingredients" | "steps">) {
+  return /[A-Za-z]/.test([
+    recipe.name,
+    recipe.cuisine,
+    ...recipe.ingredients,
+    ...recipe.missing_ingredients,
+    ...recipe.steps
+  ].join(" "));
 }

@@ -66,7 +66,7 @@ const INGREDIENTS: Record<string, string> = {
   garlic: "ثوم",
   basil: "ريحان",
   pasta: "مكرونة",
-  "canned beans": "فاصوليا معلبة",
+  "canned beans": "فول",
   chickpeas: "حمص",
   cucumber: "خيار",
   "turkey breast": "صدر ديك رومي",
@@ -81,6 +81,20 @@ const INGREDIENTS: Record<string, string> = {
   "salmon fillets": "شرائح سلمون",
   "sweet potato": "بطاطا حلوة",
   lemon: "ليمون"
+};
+
+const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
+  bean: "فول",
+  beans: "فول",
+  "broad beans": "فول",
+  "canned beans": "فول",
+  "fava beans": "فول"
+};
+
+const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
+  "فول": "canned beans",
+  "فول مدمس": "fava beans",
+  "فاصوليا عريضة": "fava beans"
 };
 
 const STEP_TRANSLATIONS: Record<string, string> = {
@@ -108,7 +122,7 @@ const STEP_TRANSLATIONS: Record<string, string> = {
   "Saute garlic in olive oil.": "شوح الثوم في زيت الزيتون.",
   "Wilt the spinach.": "أضف السبانخ حتى تذبل.",
   "Toss together and finish with basil.": "اخلط المكونات وأنه الطبق بالريحان.",
-  "Warm the beans.": "سخن الفاصوليا.",
+  "Warm the beans.": "سخّن الفول.",
   "Fold in tomato and olive oil.": "أضف الطماطم وزيت الزيتون برفق.",
   "Serve as bowls.": "قدمها في أوعية.",
   "Cook the chicken.": "اطه الدجاج.",
@@ -150,7 +164,7 @@ export function localizeRecipeForArabic(recipe: Recipe): Recipe {
     steps: recipe.steps.map(translateStep),
     cook_time: translateCookTimeToArabic(recipe.cook_time),
     difficulty: translateDifficultyToArabic(recipe.difficulty),
-    preference_hits: recipe.preference_hits?.map(translatePreferenceHit)
+    preference_hits: normalizeStringArray(recipe.preference_hits).map(translatePreferenceHit)
   };
 }
 
@@ -164,7 +178,7 @@ export function localizeRecipeForEnglish(recipe: Recipe): Recipe {
     steps: recipe.steps.map(translateStepToEnglish),
     cook_time: translateCookTimeToEnglish(recipe.cook_time),
     difficulty: translateDifficultyToEnglish(recipe.difficulty),
-    preference_hits: recipe.preference_hits?.map(translatePreferenceHitToEnglish)
+    preference_hits: normalizeStringArray(recipe.preference_hits).map(translatePreferenceHitToEnglish)
   };
 }
 
@@ -201,8 +215,13 @@ export function localizeMealPlanForArabic(mealPlan: MealPlanData): MealPlanData 
   };
 }
 
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
 export function isArabicRecipeLanguage(language?: string) {
-  return language?.toLowerCase() === "arabic" || language === "العربية";
+  return language?.toLowerCase() === "arabic" || language?.toLowerCase() === "ar" || language === "العربية";
 }
 
 function translateRecipeTitle(value: string) {
@@ -226,7 +245,7 @@ function translateCuisineToEnglish(value: string) {
 
 function translateIngredient(value: string) {
   const normalized = value.trim().toLowerCase();
-  return INGREDIENTS[normalized] ?? value;
+  return ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES[normalized] ?? INGREDIENTS[normalized] ?? value;
 }
 
 export function translateIngredientToArabic(value: string) {
@@ -234,7 +253,7 @@ export function translateIngredientToArabic(value: string) {
 }
 
 export function translateIngredientToEnglish(value: string) {
-  return REVERSE_INGREDIENTS[value] ?? value;
+  return ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES[value.trim()] ?? REVERSE_INGREDIENTS[value] ?? value;
 }
 
 function translateStep(value: string) {

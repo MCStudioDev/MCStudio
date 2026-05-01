@@ -1,6 +1,7 @@
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { OFFLINE_RECIPES } from "@/data/offline/recipes";
+import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 
 export async function getRecipesByIds(recipeIds: string[]): Promise<RecipeCatalogDoc[]> {
@@ -18,7 +19,7 @@ export async function getRecipesByIds(recipeIds: string[]): Promise<RecipeCatalo
       const q = query(collection(db, "recipes"), where("id", "in", chunk));
       const snap = await getDocs(q);
       snap.docs.forEach((docSnap) => {
-        results.push(docSnap.data() as RecipeCatalogDoc);
+        results.push(normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc));
       });
     } catch {
       // Ignore query failure and continue to direct doc fallback.
@@ -27,14 +28,14 @@ export async function getRecipesByIds(recipeIds: string[]): Promise<RecipeCatalo
     for (const id of chunk) {
       const seeded = OFFLINE_RECIPES.find((recipe) => recipe.id === id);
       if (seeded) {
-        results.push(seeded);
+        results.push(normalizeCachedRecipeCatalogDoc(seeded));
         continue;
       }
 
       try {
         const snap = await getDoc(doc(db, "recipes", id));
         if (snap.exists()) {
-          results.push(snap.data() as RecipeCatalogDoc);
+          results.push(normalizeCachedRecipeCatalogDoc(snap.data() as RecipeCatalogDoc));
         }
       } catch {
         // Ignore missing recipes during MVP retrieval.
@@ -46,5 +47,5 @@ export async function getRecipesByIds(recipeIds: string[]): Promise<RecipeCatalo
 }
 
 export function listSeededRecipes(): RecipeCatalogDoc[] {
-  return OFFLINE_RECIPES;
+  return OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe));
 }

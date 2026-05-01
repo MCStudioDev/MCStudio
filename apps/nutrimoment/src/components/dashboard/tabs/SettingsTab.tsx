@@ -3,19 +3,18 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { Calculator, ChefHat, Flame, Languages, Scale, SlidersHorizontal, Target, Utensils } from "lucide-react";
+import { Calculator, ChefHat, Flame, Scale, SlidersHorizontal, Target, Utensils } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { CUISINE_OPTIONS, normalizeCuisineLabel } from "@/lib/cuisines";
-import { PILOT_RECIPE_LANGUAGES } from "@/lib/language";
 import type { TranslationKey } from "@/lib/translations";
 import { SectionHero } from "./shared";
 
 export function SettingsTab() {
   const { t, settings, saveSettings, health } = useApp();
-  const recipeLanguageLockedToArabic = settings.uiLanguage === "ar";
+  const currentLanguageLabel = settings.uiLanguage === "ar" ? t("arabic") : t("english");
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-5 sm:space-y-6">
@@ -23,12 +22,12 @@ export function SettingsTab() {
         title={t("preferences")}
         description={t("preferencesDesc")}
         eyebrow={t("controlCenter")}
-        chips={[t("caloriesChip"), t("cuisineChip"), t("outputChip")]}
+        chips={[t("caloriesChip"), t("cuisineChip"), currentLanguageLabel]}
         icon={<SlidersHorizontal className="h-6 w-6" />}
         stats={[
           { label: t("targetStat"), value: `${settings.calorieTarget} kcal` },
           { label: t("cuisineChip"), value: normalizeCuisineLabel(settings.preferredCuisine) },
-          { label: t("recipeLangStat"), value: settings.recipeLanguage }
+          { label: t("languageSwitch"), value: currentLanguageLabel }
         ]}
         aside={
           <div className="space-y-1">
@@ -94,25 +93,6 @@ export function SettingsTab() {
         </SettingCard>
 
         <SettingCard
-          icon={<Languages className="h-5 w-5" />}
-          eyebrow={t("recipeOutputLang")}
-          title={settings.recipeLanguage}
-        >
-          <div className="flex flex-wrap gap-2">
-            {PILOT_RECIPE_LANGUAGES.map((language) => (
-              <Pill
-                key={language}
-                active={settings.recipeLanguage === language}
-                disabled={recipeLanguageLockedToArabic && language !== "Arabic"}
-                onClick={() => void saveSettings({ recipeLanguage: language })}
-              >
-                {language}
-              </Pill>
-            ))}
-          </div>
-        </SettingCard>
-
-        <SettingCard
           icon={<SlidersHorizontal className="h-5 w-5" />}
           eyebrow={t("maxMissingIngredients")}
           title={`${settings.maxMissingIngredients}`}
@@ -135,6 +115,7 @@ export function SettingsTab() {
           <p className="text-sm text-emerald-50/62">
             {t("recipesWillAllowUpTo")} {settings.maxMissingIngredients} {t("missingIngredients")}
           </p>
+          <p className="text-xs font-medium text-cyan-200/85">{t("pantryMatchesRecommended")}</p>
         </SettingCard>
 
         <SettingCard

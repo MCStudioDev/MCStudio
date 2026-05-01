@@ -9,7 +9,8 @@ import {
 import { extractPantryItemsFromImage } from "@/services/ingredientExtractionService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
-import { isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
+import { isArabicRecipeLanguage, translateIngredientToArabic } from "@/lib/arabicRecipeLocalization";
+import { normalizeRecipeLanguage } from "@/lib/language";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -41,7 +42,8 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return Response.json({ error: "Invalid request", details: parsed.error.format() }, { status: 400 });
     }
-    const { image, language = "English", isPantry = false } = parsed.data;
+    const language = normalizeRecipeLanguage(parsed.data.language, "English");
+    const { image, isPantry = false } = parsed.data;
 
     if (!accessCheck.allowed) {
       return Response.json({
@@ -79,8 +81,11 @@ export async function POST(request: Request) {
       isPantry,
       filters: { dietTags: [] }
     });
+    const displayIngredients = localizeScannedIngredients(result.ingredientsRaw, result.ingredientsNormalized, language);
     return Response.json({
-      result: JSON.stringify(result.ingredientsNormalized),
+      ingredients: displayIngredients,
+      canonicalIngredients: result.ingredientsNormalized,
+      result: JSON.stringify(displayIngredients),
       scanId: result.scanId,
       access: accessPayload(nextAccess)
     });
@@ -92,6 +97,21 @@ export async function POST(request: Request) {
     const status = message.includes("GEMINI_API_KEY") ? 503 : 500;
     return Response.json({ error: message, result: "[]" }, { status });
   }
+}
+
+function localizeScannedIngredients(raw: string[], canonical: string[], language: string) {
+  if (!isArabicRecipeLanguage(language)) {
+    return canonical;
+  }
+
+  const arabicRaw = raw
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && /[\u0600-\u06FF]/.test(item));
+  const arabicCanonical = canonical
+    .map((item) => translateIngredientToArabic(item).trim())
+    .filter(Boolean);
+
+  return Array.from(new Set([...arabicRaw, ...arabicCanonical]));
 }
 
 function buildScanFallbackNotice(language: string, isPantry: boolean) {

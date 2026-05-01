@@ -11,7 +11,7 @@ import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/m
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
-import { normalizeRecipeLanguage } from "@/lib/language";
+import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
 import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 
@@ -22,7 +22,7 @@ const requestSchema = z.object({
   prompt: z.string().min(20).optional(),
   pantry: z.array(z.string()).optional(),
   pantryItems: z.array(z.object({ name: z.string(), quantity: z.string().optional() })).optional(),
-  recipeLanguage: z.string().optional(),
+  uiLanguage: z.string().optional(),
   preferredCuisine: z.string().optional(),
   calorieTarget: z.number().optional(),
   diets: z.array(z.string()).optional(),
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return Response.json({ error: "Invalid request" }, { status: 400 });
     }
-    const recipeLanguage = normalizeRecipeLanguage(parsed.data.recipeLanguage, "English");
+    const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
 
     if (!access.isPremium) {
       return Response.json(

@@ -148,6 +148,7 @@ export const translations = {
     recipeCount: "Recipes Per Scan",
     recipesWillAllowUpTo: "Recipes will allow up to",
     missingIngredients: "missing ingredients.",
+    pantryMatchesRecommended: "Pantry-strong matches are still recommended first.",
     recipesWillGenerate: "Each scanner generation will return up to",
     recipesPerScan: "recipes.",
     voiceInputLanguage: "Voice Input Language",

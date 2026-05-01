@@ -143,6 +143,7 @@ export const arabicTranslations: Record<string, string> = {
   recipeCount: "عدد الوصفات لكل مسح",
   recipesWillAllowUpTo: "ستسمح الوصفات بما يصل إلى",
   missingIngredients: "مكونات ناقصة.",
+  pantryMatchesRecommended: "تبقى الوصفات الأقوى اعتمادًا على مخزونك هي الموصى بها أولاً.",
   recipesWillGenerate: "سيعيد كل توليد في الماسح حتى",
   recipesPerScan: "وصفات.",
   voiceInputLanguage: "لغة الإدخال الصوتي",

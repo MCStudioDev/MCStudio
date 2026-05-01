@@ -445,6 +445,10 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
+    "Ownership guardrail: for each recipe, the count of ingredients must be greater than or equal to the count of missing_ingredients whenever possible.",
+    "Scanner API hard rule: for the strongest recipes, the available pantry ingredients must clearly outnumber or at least match the missing support items.",
+    "Start from pantry-first recipes that visibly center the scanned or typed ingredients, then degrade only later if the pantry is too sparse.",
+    "If the pantry is too sparse to satisfy the full recipe count under that rule, keep the most pantry-heavy recipes first and only then allow later recipes to have more missing_ingredients than ingredients.",
     "If the recipe needs canonical spices, herbs, pepper paste, yogurt sauce, tahini, butter, citrus, or finishing oil to feel authentic, include those exact items in missing_ingredients instead of silently omitting them or replacing them with generic 'seasoning'.",
     `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`,
     `Available ingredient quantities: ${ingredientQuantities.join(", ") || "not provided"}.`,
@@ -671,10 +675,9 @@ function buildLanguageOutputGuidance(recipeLanguage: string) {
   }
 
   return [
-    "Arabic output rule: write every user-facing field in Arabic, including name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day labels, and scan_match_explanation.",
-    "Keep only image_search_index and image_search_indices in English because those fields are used for public image search.",
-    "Do not mix English dish names into Arabic text unless the dish has no common Arabic rendering; in that case use an Arabic transliteration.",
-    "Use natural Arabic cooking language, not word-for-word translation."
+    "Write every user-facing recipe field in Arabic, including name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day labels, and scan_match_explanation.",
+    "Keep only image_search_index and image_search_indices in English for image search.",
+    "Use natural Arabic cooking language and avoid mixing English into user-facing text unless the term is a common Arabic transliteration."
   ].join(" ");
 }
 

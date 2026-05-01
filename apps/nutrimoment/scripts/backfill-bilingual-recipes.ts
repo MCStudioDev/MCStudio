@@ -1,7 +1,7 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
 import { FieldPath } from "firebase-admin/firestore";
-import { enrichOfflineRecipe } from "../src/data/offline/recipeMetadata";
+import { normalizeCachedRecipeCatalogDoc } from "../src/data/offline/recipeMetadata";
 import type { RecipeCatalogDoc } from "../src/lib/domain";
 import { getAdminDb, hasFirebaseAdminConfig } from "../src/lib/firebaseAdmin";
 
@@ -136,7 +136,7 @@ function sleep(ms: number) {
 }
 
 function normalizeRecipe(recipe: RecipeCatalogDoc) {
-  return enrichOfflineRecipe(recipe);
+  return normalizeCachedRecipeCatalogDoc(recipe);
 }
 
 function isSameRecipeDoc(left: RecipeCatalogDoc, right: RecipeCatalogDoc) {

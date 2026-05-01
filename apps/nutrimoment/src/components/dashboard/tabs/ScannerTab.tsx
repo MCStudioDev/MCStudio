@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useState } from "react";
+import { ChangeEvent, useCallback, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -57,6 +57,7 @@ export function ScannerTab() {
   const { t, settings, health, setError } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const { addEntry, replaceEntryRecipes, updateRecipeImage } = useHistory();
+  const recipeRequestVersionRef = useRef(0);
   const [manualEntry, setManualEntry] = useState("");
   const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
   const [lastScanImage, setLastScanImage] = useState<string | null>(null);
@@ -72,7 +73,9 @@ export function ScannerTab() {
   } | null>(null);
 
   const hydrateRecipePhotos = useCallback(
-    async (inputRecipes: Recipe[], historyEntryId: string | null) => {
+    async (inputRecipes: Recipe[], historyEntryId: string | null, requestVersion: number) => {
+      if (requestVersion !== recipeRequestVersionRef.current) return;
+
       const renderableImageCounts = new Map<string, number>();
       inputRecipes.forEach((recipe) => {
         if (!hasRenderableImage(recipe.image_url)) return;
@@ -100,6 +103,7 @@ export function ScannerTab() {
           : { ...recipe, image_loading: true, image_error: false }
       );
 
+      if (requestVersion !== recipeRequestVersionRef.current) return;
       setRecipes(seeded);
 
       const usedImageUrls = new Set(
@@ -113,6 +117,10 @@ export function ScannerTab() {
       const maxLookups = Math.min(Math.max(inputRecipes.length, 4), 8);
 
       for (const [index, recipe] of seeded.entries()) {
+        if (requestVersion !== recipeRequestVersionRef.current) {
+          return;
+        }
+
         const needsLookup = duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url);
 
         if (!needsLookup) {
@@ -169,10 +177,13 @@ export function ScannerTab() {
         }
       }
 
+      if (requestVersion !== recipeRequestVersionRef.current) return;
+
       if (historyEntryId) {
         await replaceEntryRecipes(historyEntryId, resolved);
       }
 
+      if (requestVersion !== recipeRequestVersionRef.current) return;
       setRecipes(resolved);
     },
     [getAuthHeaders, refreshAccess, replaceEntryRecipes]
@@ -258,6 +269,8 @@ export function ScannerTab() {
       return;
     }
 
+    const requestVersion = recipeRequestVersionRef.current + 1;
+    recipeRequestVersionRef.current = requestVersion;
     setRecipeLoading(true);
     try {
       const ingredientNames = ingredients.map((item) => item.name);
@@ -293,14 +306,22 @@ export function ScannerTab() {
       }
 
       const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "[]", []);
+      if (requestVersion !== recipeRequestVersionRef.current) {
+        return;
+      }
+
       setRecipes(nextRecipes);
+      if (!nextRecipes.length) {
+        setHistoryEntryId(null);
+        return;
+      }
       const entryId = await addEntry({
         timestamp: new Date().toISOString(),
         ingredients: ingredientNames,
         recipes: nextRecipes
       });
       setHistoryEntryId(entryId);
-      void hydrateRecipePhotos(nextRecipes, entryId);
+      void hydrateRecipePhotos(nextRecipes, entryId, requestVersion);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Recipe generation failed";
       setError(message);

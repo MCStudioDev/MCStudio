@@ -65,7 +65,7 @@ export function PantryTab() {
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           image,
-          language: settings.recipeLanguage,
+          language: settings.uiLanguage,
           isPantry: true
         })
       });

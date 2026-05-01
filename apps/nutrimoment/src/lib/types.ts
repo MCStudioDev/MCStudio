@@ -115,7 +115,6 @@ export interface UserSettings {
   preferredCuisine: string;
   maxMissingIngredients: number;
   recipeCount: number;
-  recipeLanguage: string;
   uiLanguage: Language;
   themeMode?: DashboardTheme;
   targetWeightKg?: number | null;

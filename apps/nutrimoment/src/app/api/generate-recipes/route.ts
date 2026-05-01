@@ -306,7 +306,7 @@ export async function POST(request: Request) {
       const recipes = parseAiJsonPayload(text, "recipe_generation");
       const normalizedRecipes = recipes.recipes ?? recipes;
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
-        const strictRecipes = rankStrictRecipes(
+        let strictRecipes = rankStrictRecipes(
           applyStrictIngredientOwnership(normalizedRecipes, availableIngredients, {
             preferredCuisine: parsed.data.preferredCuisine,
             diets: parsed.data.diets,
@@ -315,6 +315,36 @@ export async function POST(request: Request) {
           }),
           { ...parsed.data, ingredients, recipeCount }
         ).slice(0, recipeCount);
+
+        if (!strictRecipes.some((recipe) => isPantryBalancedRecipe(recipe)) && ingredients.length) {
+          const repairRecipeCount = Math.min(
+            recipeCount,
+            Math.max(1, Math.min(5, normalizedIngredientNames.length || ingredients.length || 1))
+          );
+          logger.info("Retrying scanner recipe generation with strict pantry-balance repair prompt", {
+            ingredientCount: ingredients.length,
+            recipeCount,
+            repairRecipeCount
+          });
+
+          const retryText = await generateFallbackRecipes(
+            buildScannerPantryBalanceRetryPrompt(prompt, repairRecipeCount)
+          );
+          const retryRecipes = parseAiJsonPayload(retryText, "recipe_generation");
+          const retryNormalizedRecipes = retryRecipes.recipes ?? retryRecipes;
+
+          if (Array.isArray(retryNormalizedRecipes) && retryNormalizedRecipes.length) {
+            strictRecipes = rankStrictRecipes(
+              applyStrictIngredientOwnership(retryNormalizedRecipes, availableIngredients, {
+                preferredCuisine: parsed.data.preferredCuisine,
+                diets: parsed.data.diets,
+                conditions: parsed.data.conditions,
+                allergens: parsed.data.allergens
+              }),
+              { ...parsed.data, ingredients, recipeCount }
+            ).slice(0, recipeCount);
+          }
+        }
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
         const finalRecipes = prepareRecipes(
           mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -606,7 +636,7 @@ function mergeRecipeResults(
 
   const pushRecipe = (recipe: Recipe, fallbackOrigin?: Recipe["recipe_origin"]) => {
     const key = recipe.id ?? recipe.name.trim().toLowerCase();
-    if (!key || seen.has(key) || merged.length >= recipeCount) return;
+    if (!key || seen.has(key)) return;
     seen.add(key);
     merged.push({
       ...recipe,
@@ -622,7 +652,7 @@ function mergeRecipeResults(
     pushRecipe(recipe, markSimilarOrigins ? "similar_ingredients" : undefined);
   }
 
-  return merged;
+  return prioritizePantryBalancedRecipes(merged).slice(0, recipeCount);
 }
 
 function buildAvailableIngredientSet(inputIngredients: string[], normalizedIngredients: string[]) {
@@ -746,6 +776,7 @@ function rankStrictRecipes(
     .map((recipe, index) => ({
       recipe,
       index,
+      isPantryBalanced: isPantryBalancedRecipe(recipe),
       score: scoreStrictRecipe(recipe, {
         targetCaloriesPerMeal,
         preferredCuisine,
@@ -754,7 +785,13 @@ function rankStrictRecipes(
         availableIngredients: options.ingredients ?? []
       })
     }))
-    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .sort((left, right) => {
+      if (left.isPantryBalanced !== right.isPantryBalanced) {
+        return Number(right.isPantryBalanced) - Number(left.isPantryBalanced);
+      }
+
+      return right.score - left.score || left.index - right.index;
+    })
     .map(({ recipe }) => recipe)
     .slice(0, clampRecipeCount(options.recipeCount));
 }
@@ -811,6 +848,21 @@ function queueRecipeCachePersist(input: {
   });
 }
 
+function buildScannerPantryBalanceRetryPrompt(basePrompt: string, recipeCount: number) {
+  return [
+    basePrompt,
+    "",
+    "Scanner repair pass: your previous answer did not produce enough strong pantry-first recipe options.",
+    `Return up to ${recipeCount} recipes.`,
+    "Recommend recipes where available ingredients clearly carry the dish after strict pantry ownership is applied.",
+    "Start with the strongest pantry-friendly recipes first, centered on the scanned or typed ingredients.",
+    "If there are not enough pantry-strong options, fill the remaining recipe slots with the best pantry-first recipes you can find.",
+    "Keep missing_ingredients as low as possible and avoid weak pantry fits unless they are needed to fill later slots.",
+    "If the pantry is sparse, choose simpler dish families, smaller plates, egg dishes, toast dishes, bowls, salads, soups, or direct ingredient-led meals that still respect cuisine and health constraints.",
+    "Return only valid JSON and follow the same schema as before."
+  ].join(" ");
+}
+
 function scoreStrictRecipe(
   recipe: Recipe,
   options: {
@@ -833,6 +885,10 @@ function scoreStrictRecipe(
     : options.targetCaloriesPerMeal;
   const calorieScore = Math.max(0, 8 - calorieDistance / 50);
   const maxMissingBonus = missingCount <= options.maxMissingIngredients ? 4 : -4;
+  const ownershipBalanceScore =
+    ownedCount >= missingCount
+      ? 18 + Math.min(ownedCount - missingCount, 4) * 3
+      : -(24 + Math.min(missingCount - ownedCount, 4) * 12);
   const matchQualityScore = getMatchQualityScore(recipe.match_quality);
   const dishIntentScore = Math.max(0, (recipe.dish_intent?.candidate_score ?? 0) / 8);
   const dishIntentHitScore = Math.min(recipe.dish_intent?.candidate_hits?.length ?? 0, 4) * 2;
@@ -854,9 +910,45 @@ function scoreStrictRecipe(
     dishIntentScore +
     dishIntentHitScore +
     calorieScore +
+    ownershipBalanceScore +
     maxMissingBonus +
     matchQualityScore
   );
+}
+
+function prioritizePantryBalancedRecipes(recipes: Recipe[]) {
+  const balancedExact: Recipe[] = [];
+  const balancedSimilar: Recipe[] = [];
+  const unbalancedExact: Recipe[] = [];
+  const unbalancedSimilar: Recipe[] = [];
+
+  for (const recipe of recipes) {
+    const isBalanced = isPantryBalancedRecipe(recipe);
+    const isExact = recipe.recipe_origin === "exact_scan_match";
+
+    if (isBalanced && isExact) {
+      balancedExact.push(recipe);
+      continue;
+    }
+
+    if (isBalanced) {
+      balancedSimilar.push(recipe);
+      continue;
+    }
+
+    if (isExact) {
+      unbalancedExact.push(recipe);
+      continue;
+    }
+
+    unbalancedSimilar.push(recipe);
+  }
+
+  return [...balancedExact, ...balancedSimilar, ...unbalancedExact, ...unbalancedSimilar];
+}
+
+function isPantryBalancedRecipe(recipe: Recipe) {
+  return recipe.ingredients.length >= recipe.missing_ingredients.length;
 }
 
 function getMatchQualityScore(matchQuality: Recipe["match_quality"]) {

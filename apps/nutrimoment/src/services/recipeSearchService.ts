@@ -14,7 +14,7 @@ import { normalizeIngredients } from "@/services/ingredientNormalizationService"
 import { rankRecipes } from "@/services/rankingService";
 import { retrieveRecipeCandidates } from "@/services/recipeRetrievalService";
 import { listSeededRecipes } from "@/repositories/recipeRepo";
-import { listSharedCachedRecipes, listUserCachedRecipes } from "@/services/userRecipeCacheService";
+import { listSharedCachedRecipes } from "@/services/userRecipeCacheService";
 
 export interface CatalogRecipeSearchInput {
   ingredients: string[];
@@ -44,13 +44,9 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     allergens: input.allergens ?? []
   } satisfies UserPreferenceSnapshot);
 
-  const [cachedRecipes, sharedCachedRecipes] = await Promise.all([
-    listUserCachedRecipes(input.uid),
-    listSharedCachedRecipes()
-  ]);
+  const sharedCachedRecipes = await listSharedCachedRecipes();
   const { candidateRecipes, candidateRecipeIds } = await retrieveRecipeCandidates(normalized.normalized);
   const primaryRecipePool = dedupeCatalogRecipes([
-    ...cachedRecipes,
     ...sharedCachedRecipes,
     ...candidateRecipes
   ]);
@@ -63,7 +59,6 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     preferences
   });
   const fallbackCandidateRecipes = dedupeCatalogRecipes([
-    ...cachedRecipes,
     ...sharedCachedRecipes,
     ...listSeededRecipes().filter((recipe) => recipe.isActive)
   ]);

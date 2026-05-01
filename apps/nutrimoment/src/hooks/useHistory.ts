@@ -6,6 +6,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -17,6 +18,8 @@ import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { logger } from "@/lib/logger";
 import type { HistoryItem, Recipe, RecipeImageSource } from "@/lib/types";
+
+const MAX_HISTORY_ITEMS = 50;
 
 interface UseHistoryResult {
   items: HistoryItem[];
@@ -99,7 +102,16 @@ export function useHistory(): UseHistoryResult {
     }
 
     dispatch({ type: "loading", payload: true });
-    const q = query(collection(db, `users/${user.uid}/history`), orderBy("createdAt", "desc"));
+    void pruneHistoryToLatestLimit(user.uid).catch((error) => {
+      logger.warn("History pruning failed during initialization", {
+        uid: user.uid,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    });
+    const q = query(
+      collection(db, `users/${user.uid}/history`),
+      orderBy("createdAt", "desc")
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -139,6 +151,7 @@ export function useHistory(): UseHistoryResult {
       recipes: entry.recipes,
       createdAt: serverTimestamp()
     });
+    await pruneHistoryToLatestLimit(user.uid);
     return ref.id;
   };
 
@@ -235,4 +248,34 @@ export function useHistory(): UseHistoryResult {
     removeEntry,
     clear
   };
+}
+
+async function pruneHistoryToLatestLimit(uid: string) {
+  const q = query(
+    collection(db, `users/${uid}/history`),
+    orderBy("createdAt", "desc")
+  );
+  const snap = await getDocs(q);
+  if (snap.docs.length <= MAX_HISTORY_ITEMS) {
+    return;
+  }
+
+  const overflowDocs = snap.docs.slice(MAX_HISTORY_ITEMS);
+  const batches = chunkArray(overflowDocs, 400);
+
+  for (const docs of batches) {
+    const batch = writeBatch(db);
+    docs.forEach((entry) => {
+      batch.delete(entry.ref);
+    });
+    await batch.commit();
+  }
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }

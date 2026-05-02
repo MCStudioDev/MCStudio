@@ -373,7 +373,13 @@ export async function POST(request: Request) {
           { ...parsed.data, ingredients, recipeCount }
         ).slice(0, recipeCount);
 
-        if (!strictRecipes.some((recipe) => isPantryBalancedRecipe(recipe)) && ingredients.length) {
+        const hasPantryBalancedRecipe = strictRecipes.some((recipe) => isPantryBalancedRecipe(recipe));
+        const shouldRunRepairPass =
+          ingredients.length >= 3 &&
+          strictRecipes.length < recipeCount &&
+          !hasPantryBalancedRecipe;
+
+        if (shouldRunRepairPass) {
           aiTraceSummary.repairPassTriggered = true;
           const repairRecipeCount = Math.min(
             recipeCount,
@@ -393,7 +399,7 @@ export async function POST(request: Request) {
           const retryNormalizedRecipes = retryRecipes.recipes ?? retryRecipes;
 
           if (Array.isArray(retryNormalizedRecipes) && retryNormalizedRecipes.length) {
-            strictRecipes = rankStrictRecipes(
+            const repairRecipes = rankStrictRecipes(
               applyStrictIngredientOwnership(retryNormalizedRecipes, availableIngredients, {
                 preferredCuisine: parsed.data.preferredCuisine,
                 diets: parsed.data.diets,
@@ -402,6 +408,7 @@ export async function POST(request: Request) {
               }),
               { ...parsed.data, ingredients, recipeCount }
             ).slice(0, recipeCount);
+            strictRecipes = mergeRecipeResults(null, [...repairRecipes, ...strictRecipes], false, recipeCount);
           }
         }
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length);
@@ -1217,16 +1224,29 @@ async function applyImageFirstRecipeRanking(recipes: Recipe[], availableIngredie
   const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
   const resolvedRecipes = await Promise.all(
     recipes.map(async (recipe, index) => {
-      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe);
-      return {
-        index,
-        photoFitScore: resolvedPhoto.photoFitScore * sparsePantryBonus,
-        rawPhotoFitScore: resolvedPhoto.photoFitScore,
-        recipe: {
-          ...recipe,
-          ...(resolvedPhoto.recipePatch ?? {})
-        }
-      };
+      try {
+        const resolvedPhoto = await resolveRecipePhotoCandidate(recipe);
+        return {
+          index,
+          photoFitScore: resolvedPhoto.photoFitScore * sparsePantryBonus,
+          rawPhotoFitScore: resolvedPhoto.photoFitScore,
+          recipe: {
+            ...recipe,
+            ...(resolvedPhoto.recipePatch ?? {})
+          }
+        };
+      } catch (error) {
+        logger.warn("Recipe photo ranking lookup failed", {
+          recipeName: recipe.name,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          index,
+          photoFitScore: 0,
+          rawPhotoFitScore: 0,
+          recipe
+        };
+      }
     })
   );
 

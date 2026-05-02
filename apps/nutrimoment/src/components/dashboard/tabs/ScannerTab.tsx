@@ -498,7 +498,7 @@ export function ScannerTab() {
             <div className="grid gap-5 lg:grid-cols-3">
               {recipes.map((recipe, index) => (
                 <MealRevealCard
-                  key={recipe.name}
+                  key={`${recipe.id ?? recipe.name}-${index}`}
                   deferImageLookup={index >= 2}
                   eyebrow={getRecipeEyebrow(recipe, t)}
                   name={recipe.name}
@@ -519,19 +519,16 @@ export function ScannerTab() {
                           const persistedImageUrl = await persistRecipeImageForUser({
                             uid: user.uid,
                             imageUrl,
-                              query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
-                            });
-                          const recipeIndex = recipes.findIndex((candidate) => candidate.name === recipe.name);
-                          if (recipeIndex >= 0) {
-                            await updateRecipeImage(
-                              historyEntryId,
-                              recipeIndex,
-                              persistedImageUrl || imageUrl,
-                              false,
-                              imageSource,
-                              { name: imageAttributionName, url: imageAttributionUrl }
-                            );
-                          }
+                            query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
+                          });
+                          await updateRecipeImage(
+                            historyEntryId,
+                            index,
+                            persistedImageUrl || imageUrl,
+                            false,
+                            imageSource,
+                            { name: imageAttributionName, url: imageAttributionUrl }
+                          );
                         }
                       : undefined
                   }

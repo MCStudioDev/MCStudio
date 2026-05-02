@@ -20,8 +20,12 @@ type CacheRecipeLanguage = "English" | "Arabic";
 const USER_CACHE_COLLECTION = "offlineRecipeCache";
 const SHARED_CACHE_COLLECTION = "sharedOfflineRecipeCache";
 const MAX_USER_CACHE_DOCS = 120;
-const MAX_SHARED_CACHE_DOCS = 800;
-const CACHE_READ_TIMEOUT_MS = 2500;
+const MAX_SHARED_CACHE_DOCS = 400;
+const CACHE_READ_TIMEOUT_MS = 6000;
+const SHARED_CACHE_STALE_TTL_MS = 30 * 60 * 1000;
+
+let sharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
+let sharedRecipeCacheUpdatedAt = 0;
 
 export async function listUserCachedRecipes(uid?: string | null): Promise<RecipeCatalogDoc[]> {
   if (!uid) return [];
@@ -59,21 +63,57 @@ export async function listUserCachedRecipes(uid?: string | null): Promise<Recipe
 }
 
 export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
+  const db = getAdminDb();
   try {
-    const db = getAdminDb();
     const cacheQuery = db
       .collection(SHARED_CACHE_COLLECTION)
       .orderBy("updatedAt", "desc")
       .limit(MAX_SHARED_CACHE_DOCS);
     const snapshot = await withTimeout(cacheQuery.get(), CACHE_READ_TIMEOUT_MS, "load shared cached recipes");
-
-    return snapshot.docs
+    const recipes = snapshot.docs
       .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
       .filter((recipe) => recipe?.isActive);
+    sharedRecipeCacheSnapshot = recipes;
+    sharedRecipeCacheUpdatedAt = Date.now();
+
+    return recipes;
   } catch (error) {
     logger.warn("Loading shared cached recipes failed", {
-      errorMessage: error instanceof Error ? error.message : String(error)
+      errorMessage: error instanceof Error ? error.message : String(error),
+      fallbackToStaleSnapshot: hasFreshSharedRecipeSnapshot(),
+      staleSnapshotCount: sharedRecipeCacheSnapshot.length
     });
+    if (hasFreshSharedRecipeSnapshot()) {
+      return sharedRecipeCacheSnapshot;
+    }
+
+    try {
+      const reducedSnapshot = await withTimeout(
+        db
+          .collection(SHARED_CACHE_COLLECTION)
+          .orderBy("updatedAt", "desc")
+          .limit(Math.min(100, MAX_SHARED_CACHE_DOCS))
+          .get(),
+        Math.max(3000, Math.round(CACHE_READ_TIMEOUT_MS * 0.6)),
+        "load reduced shared cached recipes"
+      );
+      const reducedRecipes = reducedSnapshot.docs
+        .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+        .filter((recipe) => recipe?.isActive);
+      if (reducedRecipes.length) {
+        sharedRecipeCacheSnapshot = reducedRecipes;
+        sharedRecipeCacheUpdatedAt = Date.now();
+        logger.info("Loaded reduced shared cached recipes after primary read failure", {
+          recipeCount: reducedRecipes.length
+        });
+        return reducedRecipes;
+      }
+    } catch (fallbackError) {
+      logger.warn("Reduced shared cached recipes fallback failed", {
+        errorMessage: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+      });
+    }
+
     return [];
   }
 }
@@ -524,4 +564,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   return Promise.race([promise, timeoutPromise]).finally(() => {
     if (timeoutHandle) clearTimeout(timeoutHandle);
   }) as Promise<T>;
+}
+
+function hasFreshSharedRecipeSnapshot() {
+  return sharedRecipeCacheSnapshot.length > 0 && Date.now() - sharedRecipeCacheUpdatedAt <= SHARED_CACHE_STALE_TTL_MS;
 }

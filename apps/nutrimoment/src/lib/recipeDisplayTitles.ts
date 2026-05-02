@@ -1,6 +1,6 @@
 import { normalizeCuisineLabel } from "@/lib/cuisines";
 import { localizeRecipeForArabic, translateIngredientToArabic, translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
-import type { RecipeCatalogDoc } from "@/lib/domain";
+import type { MealType, RecipeCatalogDoc } from "@/lib/domain";
 
 type RecipeTitleSource = {
   title?: string;

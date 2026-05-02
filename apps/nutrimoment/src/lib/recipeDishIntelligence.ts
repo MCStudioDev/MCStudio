@@ -918,6 +918,7 @@ function scoreDishBlueprint(
   score += scoreHealthCompatibility(dish, context.conditions ?? [], context.calorieTarget, hits);
   score += scoreAllergenSafety(dish, context.allergens ?? [], hits);
   score += scoreIngredientIntent(dish, normalizedIngredients, hits);
+  score += scoreSparseCuisineIntent(dish, normalizedIngredients, preferredCuisine, hits);
   score += scoreCookingSimplicity(dish, hits);
 
   return {
@@ -1124,6 +1125,28 @@ function scoreIngredientIntent(dish: DishBlueprint, normalizedIngredients: strin
   if (includesIngredient(normalizedIngredients, "pasta") && /\b(macarona bechamel|pomodoro|arrabbiata)\b/.test(lowerDish)) {
     score += 10;
     hits.push("intent-pasta");
+  }
+
+  return score;
+}
+
+function scoreSparseCuisineIntent(
+  dish: DishBlueprint,
+  normalizedIngredients: string[],
+  preferredCuisine: string,
+  hits: string[]
+) {
+  const lowerDish = normalizeDishKey(dish.dishName);
+  let score = 0;
+  const hasPastaSignal =
+    includesIngredient(normalizedIngredients, "pasta") ||
+    includesIngredient(normalizedIngredients, "spaghetti") ||
+    includesIngredient(normalizedIngredients, "shell pasta") ||
+    includesIngredient(normalizedIngredients, "macaroni");
+
+  if (preferredCuisine === "egyptian" && hasPastaSignal && /\bmacarona bechamel\b/.test(lowerDish)) {
+    score += 18;
+    hits.push("sparse-egyptian-pasta-bechamel");
   }
 
   return score;

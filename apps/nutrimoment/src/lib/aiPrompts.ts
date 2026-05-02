@@ -1,6 +1,7 @@
 import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
 import { getCuisineDishReferenceText, getCuisinePantryAnchors } from "@/lib/cuisineDishCatalog";
 import { getCuisineVisualReferenceText } from "@/lib/cuisineVisualReferences";
+import { isPastaLikeIngredient } from "@/lib/ingredientFamilies";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -402,6 +403,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const ingredientQuantities = ingredients
     .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
     .filter(Boolean);
+  const hasPastaSignals = ingredientNames.some((ingredient) => isPastaLikeIngredient(String(ingredient)));
   const perMealCalories = Math.round(options.calorieTarget / 3);
   const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
   const cuisineTargetCount = recipeCount <= 2 ? recipeCount : recipeCount - 1;
@@ -430,6 +432,12 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
     "When the pantry strongly matches a known cuisine-specific dish, prefer that exact dish family over a generic fallback. Example: Egyptian plus ground meat should bias toward kofta, hawawshi, or macarona bechamel when the supporting starches and aromatics fit.",
+    hasPastaSignals
+      ? "Pasta rule: if the pantry contains pasta or specific pasta shapes, diversify across structurally different dish families instead of returning near-identical pasta variants."
+      : "",
+    hasPastaSignals
+      ? "For pasta-like inputs, prefer a spread such as shrimp pasta, macarona bechamel, baked pasta, koshary, pomodoro, arrabbiata, creamy pasta, or other real pasta families that genuinely fit the pantry."
+      : "",
     "Think like a chef finishing a real plate from that cuisine. Every dish should have the right aromatics, spice base, herbs, acid, and finishing garnish that make the cuisine recognizable.",
     candidateDishHints
       ? `Internally generate at least 10 dish-family candidates first, then rerank them before writing the final recipes. Use this ranked candidate universe as the starting point: ${candidateDishHints}.`
@@ -464,7 +472,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     cuisineHint,
     `Recipe language: ${options.recipeLanguage}.`,
     languageOutputGuidance,
-    "Bilingual cache rule: the app stores full English and Arabic variants locally after generation. Your job is to output one stable canonical recipe identity in the requested recipe language, not two separate bilingual copies.",
+    "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants. The helper translator should only be used as a fallback when one localized side is incomplete.",
     `Target calories per meal: approximately ${perMealCalories} kcal; keep each recipe within about 15% unless the health profile requires a tighter limit.`,
     `Maximum missing ingredients allowed per recipe: ${options.maxMissingIngredients}.`,
     "Missing ingredients must be compatible with the diet and health rules. Be strict: never put cucumber, herbs, spices, oil, sauces, or staple ingredients in ingredients unless they are in Available pantry ingredients.",
@@ -478,8 +486,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "For ground meat or chopped meat, translate the protein into cuisine-native dish forms and names. Examples: Egyptian kofta or hawawshi, Turkish kofte or adana kebab, Middle Eastern kebab or kofta, Indian keema.",
     "For seafood, choose the correct dish form instead of a generic fish or shrimp recipe. Use cuisine plus starch plus method reasoning to decide between grilled fish, fish rice, fish soup, shrimp linguine, garlic shrimp rice, curry shrimp, fried shrimp, or sandwich-style fish dishes.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, dish_intent, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent.visual_keywords and dish_intent.exclude_keywords must both be arrays of short English strings."
+    "Each recipe object must include: name, cuisine, dish_intent, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent.visual_keywords and dish_intent.exclude_keywords must both be arrays of short English strings. localized must contain exactly English and Arabic, and each localized variant must include the same user-facing recipe fields."
   ].join(" ");
 }
 
@@ -583,11 +591,11 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
     "Even for free-form prompts, use actual established recipes or widely recognized dish families. If the request is vague, choose real dish families instead of inventing generic bowls, skillets, wraps, or fake house specials.",
     `Recipe language: ${recipeLanguage}.`,
     languageOutputGuidance,
-    "Bilingual cache rule: the app stores full English and Arabic variants locally after generation. Output one stable canonical recipe identity in the requested language, not two bilingual copies.",
+    "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants. The helper translator should only be used as a fallback when one localized side is incomplete.",
     "Keep image_search_index and image_search_indices in English only.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings.",
+    "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings. localized must contain exactly English and Arabic, and each localized variant must include the same user-facing recipe fields.",
     `User request: ${prompt}`
   ].join(" ");
 }
@@ -679,11 +687,12 @@ function buildCuisineKnowledgeGuidance(preferredCuisine: string) {
 
 function buildLanguageOutputGuidance(recipeLanguage: string) {
   if (recipeLanguage.toLowerCase() !== "arabic") {
-    return "Write all user-facing recipe text in the requested recipe language. Keep image_search_index and image_search_indices in English.";
+    return "Write all top-level user-facing recipe text in the requested recipe language. Also include localized.English and localized.Arabic for every recipe. Keep image_search_index and image_search_indices in English.";
   }
 
   return [
     "Write every user-facing recipe field in Arabic, including name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day labels, and scan_match_explanation.",
+    "Also include localized.English and localized.Arabic for every recipe so the app can store both language variants directly from the model output.",
     "Keep only image_search_index and image_search_indices in English for image search.",
     "Use natural Arabic cooking language and avoid mixing English into user-facing text unless the term is a common Arabic transliteration."
   ].join(" ");
@@ -807,6 +816,10 @@ function buildIngredientDrivenCuisineGuidance(
   const hints: string[] = [];
 
   if (cuisineKey === "egyptian") {
+    if (hasAny(pantry, ["pasta", "spaghetti", "shell pasta", "macaroni", "penne", "fettuccine"])) {
+      hints.push("Egyptian sparse pantry reasoning: pasta shapes alone can still justify macarona bechamel, baked macarona trays, or other Egyptian pasta dishes if the missing_ingredients list clearly supplies mince, onion, tomato sauce, milk, flour, butter, or bechamel components.");
+    }
+
     if (hasAny(pantry, ["ground meat", "minced meat", "beef mince", "lamb mince", "mince"])) {
       hints.push("Egyptian ingredient reasoning: when ground meat is present, consider kofta first if onion, parsley, cilantro, garlic, or rice are available.");
 
@@ -1065,10 +1078,10 @@ export function buildPlateRecipeMatchVisionPrompt(language = "English") {
     "Also include image_search_index and image_search_indices so photo lookup can find the same dish style later.",
     languageOutputGuidance,
     "Set scan_match_explanation to one short sentence explaining why this recipe matches the plated dish visually.",
-    "The recipe object must include exactly these keys: name, cuisine, recipe_origin, scan_match_explanation, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, match_quality, preference_hits.",
+    "The recipe object must include exactly these keys: name, cuisine, recipe_origin, scan_match_explanation, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, match_quality, preference_hits, localized.",
     "Set recipe_origin to exact_scan_match.",
     "Set match_quality to great when the dish family is clear, good when plausible, possible when somewhat uncertain.",
-    "Return ingredients and missing_ingredients as arrays of short strings. Return steps as an array of detailed strings with timing and quantities. Return preference_hits as an empty array if none apply.",
+    "Return ingredients and missing_ingredients as arrays of short strings. Return steps as an array of detailed strings with timing and quantities. Return preference_hits as an empty array if none apply. localized must contain exactly English and Arabic, and each localized variant must include the same user-facing recipe fields.",
     `Use ${language}.`
   ].join(" ");
 }

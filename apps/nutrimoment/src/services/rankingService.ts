@@ -1,6 +1,7 @@
 import type { RankedRecipeResult, RecipeCatalogDoc } from "@/lib/domain";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
+import { expandIngredientFamilies } from "@/lib/ingredientFamilies";
 import type { ResolvedPreferenceProfile } from "@/lib/preferences";
 
 export interface RankRecipesInput {
@@ -24,10 +25,10 @@ export function rankRecipes({
 
   return recipes
     .map((recipe) => {
-      const matchedRequired = recipe.requiredCanonicals.filter((item) => available.has(item));
-      const missingRequired = recipe.requiredCanonicals.filter((item) => !available.has(item));
-      const matchedOptional = recipe.optionalCanonicals.filter((item) => available.has(item));
-      const missingOptional = recipe.optionalCanonicals.filter((item) => !available.has(item));
+      const matchedRequired = recipe.requiredCanonicals.filter((item) => matchesAvailableIngredient(item, available));
+      const missingRequired = recipe.requiredCanonicals.filter((item) => !matchesAvailableIngredient(item, available));
+      const matchedOptional = recipe.optionalCanonicals.filter((item) => matchesAvailableIngredient(item, available));
+      const missingOptional = recipe.optionalCanonicals.filter((item) => !matchesAvailableIngredient(item, available));
       const allergenViolation = (preferences.allergens ?? []).some((allergen) => recipe.allergenTags.includes(allergen));
       const dietViolation = preferences.requiredDietTags.some((dietTag) => !recipe.dietTags.includes(dietTag));
       const dietMatch = preferences.requiredDietTags.length
@@ -188,6 +189,12 @@ function scoreAliasOverlap(recipe: RecipeCatalogDoc, normalizedIngredients: stri
   }
 
   return Math.min(overlap, 3);
+}
+
+function matchesAvailableIngredient(ingredient: string, available: Set<string>) {
+  if (available.has(ingredient)) return true;
+
+  return expandIngredientFamilies([ingredient]).some((candidate) => available.has(candidate));
 }
 
 function scoreHealthMetadata(recipe: RecipeCatalogDoc, preferences: ResolvedPreferenceProfile) {

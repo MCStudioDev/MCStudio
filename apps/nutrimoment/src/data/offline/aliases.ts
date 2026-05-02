@@ -24,6 +24,24 @@ const DERIVED_ALIASES: IngredientAliasDoc[] = OFFLINE_INGREDIENT_TAXONOMY.map((i
 
 const CUSTOM_ALIASES: IngredientAliasDoc[] = [
   {
+    id: "alias-spaghetti-shape",
+    raw: "spaghetti",
+    canonical: "spaghetti",
+    category: "grain",
+    synonyms: ["spagetti", "spagheti", "سباجيتي", "اسباجتي", "مكرونة سباجيتي"],
+    misspellings: [],
+    isActive: true
+  },
+  {
+    id: "alias-shell-pasta-shape",
+    raw: "shell pasta",
+    canonical: "shell pasta",
+    category: "grain",
+    synonyms: ["pasta shells", "conchiglie", "مكرونة قواقع", "مكرونة صدف", "مكرونة أصداف"],
+    misspellings: [],
+    isActive: true
+  },
+  {
     id: "alias-rice-bag",
     raw: "rice bag",
     canonical: "rice",

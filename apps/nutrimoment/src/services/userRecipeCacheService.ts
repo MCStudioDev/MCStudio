@@ -11,6 +11,12 @@ import {
   buildRecipeSearchMetadata,
   ensureCompleteLocalizedRecipe
 } from "@/data/offline/recipeMetadata";
+import {
+  buildSharedRecipeArabicTitle,
+  buildSharedRecipeEnglishTitle,
+  normalizeEnglishCuisineLabel,
+  translateCuisineLabelToArabic
+} from "@/lib/recipeDisplayTitles";
 import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { logger } from "@/lib/logger";
@@ -23,12 +29,18 @@ const MAX_USER_CACHE_DOCS = 120;
 const MAX_SHARED_CACHE_DOCS = 400;
 const CACHE_READ_TIMEOUT_MS = 6000;
 const SHARED_CACHE_STALE_TTL_MS = 30 * 60 * 1000;
+const USER_RECIPE_CACHE_DISABLED = process.env.DISABLE_USER_RECIPE_CACHE === "true";
+const SHARED_RECIPE_POOL_DISABLED = process.env.DISABLE_SHARED_RECIPE_POOL === "true";
 
 let sharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
 let sharedRecipeCacheUpdatedAt = 0;
 
 export async function listUserCachedRecipes(uid?: string | null): Promise<RecipeCatalogDoc[]> {
   if (!uid) return [];
+  if (USER_RECIPE_CACHE_DISABLED) {
+    logger.info("User recipe cache reads are disabled by environment flag", { uid });
+    return [];
+  }
 
   try {
     const db = getAdminDb();
@@ -63,6 +75,11 @@ export async function listUserCachedRecipes(uid?: string | null): Promise<Recipe
 }
 
 export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
+  if (SHARED_RECIPE_POOL_DISABLED) {
+    logger.info("Shared recipe pool reads are disabled by environment flag");
+    return [];
+  }
+
   const db = getAdminDb();
   try {
     const cacheQuery = db
@@ -124,21 +141,28 @@ export async function persistGeneratedRecipeCache(input: {
   meals?: MealPlanMeal[];
   uid?: string | null;
 }) {
-  if (!input.uid) return;
+  if (USER_RECIPE_CACHE_DISABLED && SHARED_RECIPE_POOL_DISABLED) return;
 
   const cacheDocs = await buildCacheDocs(input);
   if (!cacheDocs.length) return;
 
   const db = getAdminDb();
-  const userCacheCollection = db.collection("users").doc(input.uid).collection(USER_CACHE_COLLECTION);
+  const userCacheCollection =
+    !USER_RECIPE_CACHE_DISABLED && input.uid
+      ? db.collection("users").doc(input.uid).collection(USER_CACHE_COLLECTION)
+      : null;
 
   await writeDocsInBatches(
     cacheDocs,
     75,
     async (batch, recipe) => {
-      batch.set(userCacheCollection.doc(recipe.id), stripUndefinedDeep(recipe));
-      const sharedRecipe = toSharedCacheDoc(recipe);
-      batch.set(db.collection(SHARED_CACHE_COLLECTION).doc(sharedRecipe.id), stripUndefinedDeep(sharedRecipe), { merge: true });
+      if (userCacheCollection) {
+        batch.set(userCacheCollection.doc(recipe.id), stripUndefinedDeep(recipe));
+      }
+      if (!SHARED_RECIPE_POOL_DISABLED) {
+        const sharedRecipe = toSharedCacheDoc(recipe);
+        batch.set(db.collection(SHARED_CACHE_COLLECTION).doc(sharedRecipe.id), stripUndefinedDeep(sharedRecipe), { merge: true });
+      }
     }
   );
 }
@@ -149,6 +173,11 @@ export async function persistSharedRecipeCache(input: {
   meals?: MealPlanMeal[];
   sourceProvider?: string;
 }) {
+  if (SHARED_RECIPE_POOL_DISABLED) {
+    logger.info("Shared recipe pool writes are disabled by environment flag");
+    return;
+  }
+
   const cacheDocs = await buildCacheDocs(input);
   if (!cacheDocs.length) return;
 
@@ -228,9 +257,32 @@ async function buildCacheDocFromRecipe(
   const requiredCanonicals = ingredientCanonicals.slice(0, Math.min(3, ingredientCanonicals.length));
   const optionalCanonicals = ingredientCanonicals.slice(requiredCanonicals.length);
   const timestamp = Date.now();
-  const englishTitle = variants.English.name || recipe.name || fallbackId;
+  const englishTitle = buildSharedRecipeEnglishTitle({
+    title: variants.English.name || recipe.name || fallbackId,
+    englishName: variants.English.name,
+    arabicName: variants.Arabic.name,
+    cuisine: variants.English.cuisine || recipe.cuisine || "Unknown",
+    mealType: inferMealType(variants.English.name || recipe.name || fallbackId),
+    requiredCanonicals,
+    ingredientCanonicals,
+    dishIntentName: variants.English.dish_intent?.dish_name ?? variants.Arabic.dish_intent?.dish_name,
+    imageSearchIndex: variants.English.image_search_index ?? variants.Arabic.image_search_index
+  });
+  const arabicTitle = buildSharedRecipeArabicTitle({
+    title: englishTitle,
+    englishName: englishTitle,
+    arabicName: variants.Arabic.name,
+    cuisine: variants.English.cuisine || recipe.cuisine || "Unknown",
+    mealType: inferMealType(englishTitle),
+    requiredCanonicals,
+    ingredientCanonicals,
+    dishIntentName: variants.English.dish_intent?.dish_name ?? variants.Arabic.dish_intent?.dish_name,
+    imageSearchIndex: variants.English.image_search_index ?? variants.Arabic.image_search_index
+  });
   const id = buildCacheId(englishTitle, ingredientCanonicals, fallbackId);
   const imageSignature = buildImageSignature(id, variants.English.cuisine || "Unknown", ingredientCanonicals);
+  const normalizedEnglishCuisine = normalizeEnglishCuisineLabel(variants.English.cuisine || recipe.cuisine || "Unknown");
+  const normalizedArabicCuisine = translateCuisineLabelToArabic(normalizedEnglishCuisine);
 
   const baseRecipe: RecipeCatalogDoc = {
     id,
@@ -249,7 +301,7 @@ async function buildCacheDocFromRecipe(
     dietTags: [],
     allergenTags: [],
     mealType: inferMealType(englishTitle),
-    cuisine: variants.English.cuisine || "Unknown",
+    cuisine: normalizedEnglishCuisine,
     prepMinutes: inferPrepMinutes(variants.English.cook_time),
     cookMinutes: inferCookMinutes(variants.English.cook_time),
     totalMinutes: inferTotalMinutes(variants.English.cook_time),
@@ -274,17 +326,22 @@ async function buildCacheDocFromRecipe(
     localized: {
       English: {
         ...variants.English,
-        id
+        id,
+        name: englishTitle,
+        cuisine: normalizedEnglishCuisine
       },
       Arabic: {
         ...variants.Arabic,
-        id
+        id,
+        name: arabicTitle,
+        cuisine: normalizedArabicCuisine
       }
     },
     regionalCuisines: inferRegionalCuisines(variants.English.cuisine || "Unknown"),
     styleTags: inferStyleTags(englishTitle, variants.English.steps),
     searchTokens: dedupeStrings([
       englishTitle,
+      arabicTitle,
       variants.English.cuisine,
       recipe.image_search_index,
       ...(recipe.image_search_indices ?? []),

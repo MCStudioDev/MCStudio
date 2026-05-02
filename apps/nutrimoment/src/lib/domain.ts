@@ -4,7 +4,7 @@ export type Difficulty = "easy" | "medium" | "hard";
 
 export type CalorieBand = "0_300" | "301_500" | "501_700" | "701_plus";
 
-export type ServedFrom = "offline_catalog" | "fallback_ai" | "mock";
+export type ServedFrom = "shared_pool" | "fallback_ai" | "mock";
 
 export interface RecipeIngredient {
   name: string;

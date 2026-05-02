@@ -294,7 +294,7 @@ export function ScannerTab() {
       const data = (await response.json()) as {
         result?: string;
         error?: string;
-        servedFrom?: "offline_catalog" | "fallback_ai" | "mock";
+        servedFrom?: "shared_pool" | "fallback_ai" | "mock";
         fallbackNotice?: string;
       };
       await refreshAccess();

@@ -22,9 +22,11 @@ export function normalizeMealPlanData(value: unknown): MealPlanData | null {
     plan,
     shoppingList: normalizeShoppingList(value.shoppingList),
     servedFrom:
-      value.servedFrom === "offline_catalog" || value.servedFrom === "fallback_ai" || value.servedFrom === "mock"
+      value.servedFrom === "shared_pool" || value.servedFrom === "fallback_ai" || value.servedFrom === "mock"
         ? value.servedFrom
-        : undefined
+        : value.servedFrom === "offline_catalog"
+          ? "shared_pool"
+          : undefined
   };
 
   if (Array.isArray(value.recommendedRecipes) && value.recommendedRecipes.length) {

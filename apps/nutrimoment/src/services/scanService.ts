@@ -31,7 +31,7 @@ export async function processScan({
   const ingredientsRaw = await extractIngredientsFromImage({ image, language, isPantry });
   const normalized = await normalizeIngredients(ingredientsRaw);
   const scanId = crypto.randomUUID();
-  const servedFrom: ServedFrom = "offline_catalog";
+  const servedFrom: ServedFrom = "shared_pool";
 
   const scanDoc: ScanDoc = {
     id: scanId,

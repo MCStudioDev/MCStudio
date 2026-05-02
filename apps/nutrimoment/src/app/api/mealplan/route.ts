@@ -1,12 +1,10 @@
 import { z } from "zod";
 import { buildMealPlanPrompt } from "@/lib/aiPrompts";
-import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson } from "@/lib/openai";
-import { cuisineMatchesPreference } from "@/lib/cuisines";
+import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson, getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/openai";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
-import { accessErrorResponse, accessPayload, requireUser } from "@/services/authService";
+import { accessErrorResponse, accessPayload, isFirebaseTransientError, requireUser } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { logger } from "@/lib/logger";
-import { listSeededRecipes } from "@/repositories/recipeRepo";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
@@ -76,6 +74,8 @@ const MOCK_MEAL_PLAN = {
 };
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  logger.info("Meal plan HTTP request received", { requestId });
   try {
     const access = await requireUser(request);
     const rl = applyRateLimit({
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     if (!access.isPremium) {
       return Response.json(
         {
-          error: "Weekly meal plans are a premium feature. Free users can keep using manual pantry and offline recipe discovery.",
+          error: "Weekly meal plans are a premium feature. Free users can keep using manual pantry and the shared recipe pool.",
           access: accessPayload(access)
         },
         { status: 403 }
@@ -141,9 +141,7 @@ export async function POST(request: Request) {
       .filter((recipe): recipe is RecipeCatalogDoc => Boolean(recipe));
     const catalogRecipes = orderedRankedRecipes.length
       ? orderedRankedRecipes
-      : searchResult.candidateRecipes.length
-        ? searchResult.candidateRecipes
-        : getCatalogFallbackRecipes(parsed.data.preferredCuisine);
+      : searchResult.candidateRecipes;
 
     try {
       ensureAiAvailable();
@@ -189,18 +187,28 @@ export async function POST(request: Request) {
         });
       }
 
-      logger.warn("Premium meal plan AI response was not usable; using offline fallback", {
+      logger.warn("Premium meal plan AI response was not usable; using shared-pool fallback", {
         topLevelType: Array.isArray(rawMealPlan) ? "array" : typeof rawMealPlan,
         keys: rawMealPlan && typeof rawMealPlan === "object" && !Array.isArray(rawMealPlan) ? Object.keys(rawMealPlan).slice(0, 10) : [],
         preview: json.slice(0, 600)
       });
     } catch (aiError) {
-      logger.error("Premium meal plan API failed; using offline fallback", aiError);
+      logger.error("Premium meal plan API failed; using shared-pool fallback", aiError);
+    }
+
+    if (!catalogRecipes.length) {
+      return Response.json(
+        {
+          error: "The shared recipe pool is empty right now, so no fallback meal plan is available.",
+          access: accessPayload(access)
+        },
+        { status: 503 }
+      );
     }
 
     const emergencyMealPlan = {
-      ...buildMealPlanData(catalogRecipes.length ? catalogRecipes : getCatalogFallbackRecipes(parsed.data.preferredCuisine), pantryStock),
-      servedFrom: "offline_catalog" as const
+      ...buildMealPlanData(catalogRecipes, pantryStock),
+      servedFrom: "shared_pool" as const
     };
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const outputEmergencyMealPlan = ensureDetailedMealPlanSteps(
@@ -213,22 +221,34 @@ export async function POST(request: Request) {
       meals: outputEmergencyMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
       recipes: outputEmergencyMealPlan.recommendedRecipes
     });
-    logger.info("Meal plan served from offline catalog after AI failure", {
+    logger.info("Meal plan served from shared recipe pool after AI failure", {
       days: outputEmergencyMealPlan.plan.length,
       shoppingItems: outputEmergencyMealPlan.shoppingList.length
     });
     return Response.json({
       result: JSON.stringify(outputEmergencyMealPlan),
-      servedFrom: "offline_catalog",
-      fallbackNotice: "The premium AI meal plan service was unavailable, so we used offline catalog recipes.",
+      servedFrom: "shared_pool",
+      fallbackNotice: "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool.",
       access: accessPayload(access)
     });
   } catch (err) {
-    if (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials"))) {
+    if (
+      isFirebaseTransientError(err) ||
+      (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials")))
+    ) {
+      logger.warn("Meal plan request failed during access checks", {
+        requestId,
+        errorMessage: err instanceof Error ? err.message : String(err)
+      });
       return accessErrorResponse(err);
     }
     const message = err instanceof Error ? err.message : "Meal plan generation failed";
-    return Response.json({ error: message }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
+    const status = message.includes("GEMINI_API_KEY") ? 503 : isTransientModelError(err) ? 503 : 500;
+    const safeMessage = isTransientModelError(err)
+      ? getClientFacingAiErrorMessage(err, "Meal plan generation is temporarily unavailable. Please try again in a few minutes.")
+      : message;
+    logger.error("Meal plan generation failed", err, { requestId });
+    return Response.json({ error: safeMessage }, { status });
   }
 }
 
@@ -236,21 +256,6 @@ function extractPantryFromPrompt(prompt: string): string[] {
   const match = prompt.match(/pantry items:\s*(.+?)\./i);
   if (!match?.[1]) return [];
   return match[1].split(",").map((item) => item.trim()).filter(Boolean);
-}
-
-function getCatalogFallbackRecipes(preferredCuisine?: string): RecipeCatalogDoc[] {
-  const activeRecipes = listSeededRecipes().filter((recipe) => recipe.isActive);
-  const cuisineMatches =
-    preferredCuisine && preferredCuisine !== "Any"
-      ? activeRecipes.filter((recipe) => cuisineMatchesPreference(recipe.cuisine, preferredCuisine))
-      : [];
-
-  const fallbackPool = cuisineMatches.length >= 7 ? cuisineMatches : activeRecipes;
-
-  return fallbackPool
-    .slice()
-    .sort((left, right) => right.qualityScore + right.popularityScore - (left.qualityScore + left.popularityScore))
-    .slice(0, 21);
 }
 
 function queueMealPlanCachePersist(input: {

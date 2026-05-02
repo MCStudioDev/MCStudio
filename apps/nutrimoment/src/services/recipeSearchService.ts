@@ -13,8 +13,6 @@ import {
 import { enrichRecipeWithDishIntent } from "@/lib/recipeDishIntelligence";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { rankRecipes } from "@/services/rankingService";
-import { retrieveRecipeCandidates } from "@/services/recipeRetrievalService";
-import { listSeededRecipes } from "@/repositories/recipeRepo";
 import { listSharedCachedRecipes } from "@/services/userRecipeCacheService";
 
 export interface CatalogRecipeSearchInput {
@@ -46,11 +44,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   } satisfies UserPreferenceSnapshot);
 
   const sharedCachedRecipes = await listSharedCachedRecipes();
-  const { candidateRecipes, candidateRecipeIds } = await retrieveRecipeCandidates(normalized.normalized);
-  const primaryRecipePool = dedupeCatalogRecipes([
-    ...sharedCachedRecipes,
-    ...candidateRecipes
-  ]);
+  const primaryRecipePool = dedupeCatalogRecipes(sharedCachedRecipes);
   const ranked = rankRecipes({
     recipes: primaryRecipePool,
     normalizedIngredients: normalized.normalized,
@@ -59,20 +53,8 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     mealType: input.mealType,
     preferences
   });
-  const fallbackCandidateRecipes = dedupeCatalogRecipes([
-    ...sharedCachedRecipes,
-    ...listSeededRecipes().filter((recipe) => recipe.isActive)
-  ]);
-  const fallbackRanked = rankRecipes({
-        recipes: fallbackCandidateRecipes,
-        normalizedIngredients: normalized.normalized,
-        preferredCuisine: preferences.preferredCuisine,
-        maxCalories: preferences.nutritionGoals.maxCalories,
-        mealType: input.mealType,
-        preferences
-      });
-  const rankedResults = ranked.length ? ranked : fallbackRanked;
-  const rankedRecipePool = ranked.length ? primaryRecipePool : fallbackCandidateRecipes;
+  const rankedResults = ranked;
+  const rankedRecipePool = primaryRecipePool;
 
   const limit = input.maxResults ?? 3;
   const recipeMap = new Map(rankedRecipePool.map((recipe) => [recipe.id, recipe]));
@@ -97,10 +79,9 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   return {
     ingredientsNormalized: normalized.normalized,
     recipes,
-    servedFrom: "offline_catalog",
+    servedFrom: "shared_pool",
     canLoadMore:
-      rankedResults.length > topRanked.length ||
-      Math.max(candidateRecipeIds.length, primaryRecipePool.length, fallbackCandidateRecipes.length) > limit,
+      rankedResults.length > topRanked.length || primaryRecipePool.length > limit,
     rankedRecipeIds: topRanked.map((item) => item.recipeId),
     candidateRecipes: rankedRecipePool
   };

@@ -89,7 +89,7 @@ export function rankRecipes({
         missingOptional,
         preferenceHits,
         hardRejected: allergenViolation || dietViolation,
-        servedFrom: "offline_catalog" as const
+        servedFrom: "shared_pool" as const
       };
     })
     .filter((item) => item.score > -100 && !item.hardRejected)

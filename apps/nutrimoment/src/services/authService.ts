@@ -28,6 +28,21 @@ export interface RequestAccess {
   aiCreditsRemaining: number;
 }
 
+export function isFirebaseTransientError(error: unknown) {
+  const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+
+  return (
+    status === 429 ||
+    status === 503 ||
+    /RESOURCE_EXHAUSTED|Quota exceeded|deadline exceeded|UNAVAILABLE|too many requests/i.test(message)
+  );
+}
+
+export function getFirebaseAccessErrorMessage() {
+  return "Firebase is temporarily busy, so recipe access is unavailable right now. Please try again in a few minutes.";
+}
+
 export async function getRequestAccess(request: Request): Promise<RequestAccess> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
@@ -38,39 +53,46 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
   const decoded = await getAdminAuth().verifyIdToken(token);
   const role = decoded.role === "admin" ? "admin" : "user";
   const tier = decoded.tier === "premium" ? "premium" : "free";
-  const db = getAdminDb();
+  const isAdmin = role === "admin";
+  const isPremium = tier === "premium";
 
-  const usageRef = db.doc(`users/${decoded.uid}/usage/aiCredits`);
-  const entitlementRef = db.doc(`entitlements/${decoded.uid}`);
-  const [usageSnap, entitlementSnap] = await Promise.all([usageRef.get(), entitlementRef.get()]);
-  const usageData = usageSnap.data();
-  const entitlementData = entitlementSnap.data();
-  const mirroredTier = entitlementData?.tier === "premium" ? "premium" : tier;
-  const aiCreditsUsed = Number(usageData?.lifetimeUsed ?? 0);
-
-  if (!entitlementSnap.exists) {
-    await entitlementRef.set(
-      {
-        uid: decoded.uid,
-        email: decoded.email ?? null,
-        tier: mirroredTier,
-        role,
-        status: mirroredTier === "premium" ? "active" : "free",
-        features: buildFeatureMap(mirroredTier),
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
+  if (isAdmin || isPremium) {
+    return {
+      uid: decoded.uid,
+      email: decoded.email ?? null,
+      role,
+      tier,
+      isAdmin,
+      isPremium,
+      aiCreditsUsed: 0,
+      aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
+      aiCreditsRemaining: FREE_LIFETIME_AI_CREDITS
+    };
   }
+
+  const db = getAdminDb();
+  const usageRef = db.doc(`users/${decoded.uid}/usage/aiCredits`);
+  let usageSnap;
+
+  try {
+    usageSnap = await usageRef.get();
+  } catch (error) {
+    if (isFirebaseTransientError(error)) {
+      throw new AccessError(getFirebaseAccessErrorMessage(), 503);
+    }
+    throw error;
+  }
+
+  const usageData = usageSnap.data();
+  const aiCreditsUsed = Number(usageData?.lifetimeUsed ?? 0);
 
   return {
     uid: decoded.uid,
     email: decoded.email ?? null,
     role,
-    tier: mirroredTier,
-    isAdmin: role === "admin",
-    isPremium: mirroredTier === "premium",
+    tier,
+    isAdmin,
+    isPremium,
     aiCreditsUsed,
     aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
     aiCreditsRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - aiCreditsUsed, 0)
@@ -118,16 +140,23 @@ export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiF
 
   const db = getAdminDb();
   const usageRef = db.doc(`users/${access.uid}/usage/aiCredits`);
-  await usageRef.set(
-    {
-      uid: access.uid,
-      lifetimeLimit: FREE_LIFETIME_AI_CREDITS,
-      lifetimeUsed: FieldValue.increment(1),
-      lastFeature: featureKey,
-      updatedAt: FieldValue.serverTimestamp()
-    },
-    { merge: true }
-  );
+  try {
+    await usageRef.set(
+      {
+        uid: access.uid,
+        lifetimeLimit: FREE_LIFETIME_AI_CREDITS,
+        lifetimeUsed: FieldValue.increment(1),
+        lastFeature: featureKey,
+        updatedAt: FieldValue.serverTimestamp()
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    if (isFirebaseTransientError(error)) {
+      throw new AccessError(getFirebaseAccessErrorMessage(), 503);
+    }
+    throw error;
+  }
 
   return {
     ...access,
@@ -151,20 +180,11 @@ export function accessErrorResponse(error: unknown) {
     return Response.json({ error: error.message }, { status: error.status });
   }
 
+  if (isFirebaseTransientError(error)) {
+    return Response.json({ error: getFirebaseAccessErrorMessage() }, { status: 503 });
+  }
+
   const message = error instanceof Error ? error.message : "Authentication failed";
   const status = message.includes("Firebase Admin credentials") ? 503 : 401;
   return Response.json({ error: message }, { status });
-}
-
-function buildFeatureMap(tier: AccessTier) {
-  const premium = tier === "premium";
-  return {
-    "pantry.manual": true,
-    "pantry.imageScan": premium,
-    "recipes.offline": true,
-    "recipes.api": premium,
-    "recipes.imageLookup": true,
-    "mealPlan.weekly": premium,
-    "shoppingList.quantities": true
-  };
 }

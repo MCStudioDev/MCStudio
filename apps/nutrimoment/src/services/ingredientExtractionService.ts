@@ -1,6 +1,7 @@
 import type { PantryItem } from "@/lib/types";
 import { buildIngredientNameArrayVisionPrompt, buildPantryInventoryVisionPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
+import { isArabicRecipeLanguage, translateIngredientToArabic, translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 
 const MOCK_INGREDIENTS = ["tomato", "onion", "garlic", "olive oil", "basil", "chicken breast", "spinach"];
 const MOCK_PANTRY = ["rice", "pasta", "canned beans", "olive oil", "salt", "black pepper"];
@@ -25,7 +26,7 @@ export async function extractIngredientsFromImage({
   isPantry = false
 }: ExtractIngredientsInput): Promise<string[]> {
   if (USE_MOCK) {
-    return isPantry ? MOCK_PANTRY : MOCK_INGREDIENTS;
+    return normalizeDetectedIngredientNames(isPantry ? MOCK_PANTRY : MOCK_INGREDIENTS, { isPantry, language });
   }
 
   ensureAiAvailable();
@@ -41,7 +42,7 @@ export async function extractIngredientsFromImage({
         ? parsed.items.map((item) => item?.name ?? "")
         : [];
 
-  return normalizeDetectedIngredientNames(rawItems, { isPantry });
+  return normalizeDetectedIngredientNames(rawItems, { isPantry, language });
 }
 
 export async function extractPantryItemsFromImage({
@@ -49,7 +50,10 @@ export async function extractPantryItemsFromImage({
   language = "English"
 }: ExtractIngredientsInput): Promise<PantryItem[]> {
   if (USE_MOCK) {
-    return MOCK_PANTRY_ITEMS;
+    return MOCK_PANTRY_ITEMS.map((item) => ({
+      ...item,
+      name: normalizeDetectedIngredientName(item.name, { isPantry: true, language })
+    }));
   }
 
   ensureAiAvailable();
@@ -60,13 +64,13 @@ export async function extractPantryItemsFromImage({
 
   return (parsed.items ?? [])
     .map((item) => ({
-      name: normalizeDetectedIngredientName(item.name ?? "", { isPantry: true }),
+      name: normalizeDetectedIngredientName(item.name ?? "", { isPantry: true, language }),
       quantity: item.quantity?.trim() || "1 item"
     }))
     .filter((item) => Boolean(item.name));
 }
 
-function normalizeDetectedIngredientNames(values: string[], options: { isPantry: boolean }) {
+function normalizeDetectedIngredientNames(values: string[], options: { isPantry: boolean; language?: string }) {
   return Array.from(
     new Set(
       values
@@ -76,8 +80,9 @@ function normalizeDetectedIngredientNames(values: string[], options: { isPantry:
   ).slice(0, 20);
 }
 
-function normalizeDetectedIngredientName(value: string, options: { isPantry: boolean }) {
-  const normalized = value
+function normalizeDetectedIngredientName(value: string, options: { isPantry: boolean; language?: string }) {
+  const englishSeed = translateIngredientToEnglish(value.trim());
+  const normalizedEnglish = englishSeed
     .toLowerCase()
     .replace(/[_]/g, " ")
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")
@@ -105,9 +110,13 @@ function normalizeDetectedIngredientName(value: string, options: { isPantry: boo
     .replace(/\s+/g, " ")
     .trim();
 
-  if (!normalized) return "";
-  if (normalized.length < 2) return "";
-  if (!options.isPantry && /^(food|meal|dish|ingredient)$/.test(normalized)) return "";
+  if (!normalizedEnglish) return "";
+  if (normalizedEnglish.length < 2) return "";
+  if (!options.isPantry && /^(food|meal|dish|ingredient)$/.test(normalizedEnglish)) return "";
 
-  return normalized;
+  if (isArabicRecipeLanguage(options.language)) {
+    return translateIngredientToArabic(normalizedEnglish);
+  }
+
+  return normalizedEnglish;
 }

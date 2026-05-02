@@ -1,16 +1,18 @@
 import { z } from "zod";
-import { USE_MOCK } from "@/lib/openai";
+import { getClientFacingAiErrorMessage, isTransientModelError, USE_MOCK } from "@/lib/openai";
 import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiCredit
+  consumeFreeAiCredit,
+  isFirebaseTransientError
 } from "@/services/authService";
 import { extractPantryItemsFromImage } from "@/services/ingredientExtractionService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
 import { isArabicRecipeLanguage, translateIngredientToArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizeRecipeLanguage } from "@/lib/language";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -25,6 +27,8 @@ const MOCK_INGREDIENTS = ["tomato", "onion", "garlic", "olive oil", "basil", "ch
 const MOCK_PANTRY = ["rice", "pasta", "canned beans", "olive oil", "salt", "black pepper"];
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  logger.info("Image scan HTTP request received", { requestId });
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
     const rl = applyRateLimit({
@@ -90,12 +94,23 @@ export async function POST(request: Request) {
       access: accessPayload(nextAccess)
     });
   } catch (err) {
-    if (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials"))) {
+    if (
+      isFirebaseTransientError(err) ||
+      (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials")))
+    ) {
+      logger.warn("Image scan request failed during access checks", {
+        requestId,
+        errorMessage: err instanceof Error ? err.message : String(err)
+      });
       return accessErrorResponse(err);
     }
     const message = err instanceof Error ? err.message : "Scan failed";
-    const status = message.includes("GEMINI_API_KEY") ? 503 : 500;
-    return Response.json({ error: message, result: "[]" }, { status });
+    const status = message.includes("GEMINI_API_KEY") ? 503 : isTransientModelError(err) ? 503 : 500;
+    const safeMessage = isTransientModelError(err)
+      ? getClientFacingAiErrorMessage(err, "Image scanning is temporarily unavailable. Please try again in a few minutes.")
+      : message;
+    logger.error("Image scan failed", err, { requestId });
+    return Response.json({ error: safeMessage, result: "[]" }, { status });
   }
 }
 

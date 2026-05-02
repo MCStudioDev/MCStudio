@@ -1,12 +1,22 @@
 import { z } from "zod";
-import { USE_MOCK, callOpenAIText, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
+import {
+  getClientFacingAiErrorMessage,
+  isTransientModelError,
+  USE_MOCK,
+  callOpenAIText,
+  callOpenAIVision,
+  ensureAiAvailable,
+  extractJson
+} from "@/lib/openai";
 import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiCredit
+  consumeFreeAiCredit,
+  isFirebaseTransientError
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -85,6 +95,8 @@ const MOCK_RECIPES = [
 ];
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  logger.info("Basic recipe generation HTTP request received", { requestId });
   try {
     const accessCheck = await canUseApiFeature(request, "recipe_generation");
     const rl = applyRateLimit({
@@ -107,8 +119,8 @@ export async function POST(request: Request) {
     if (!accessCheck.allowed) {
       return Response.json({
         result: "[]",
-        servedFrom: "offline_catalog",
-        fallbackNotice: "Your 5 free AI credits are used. Use offline recipe generation or upgrade to premium.",
+        servedFrom: "shared_pool",
+        fallbackNotice: "Your 5 free AI credits are used. Use the shared recipe pool or upgrade to premium.",
         access: accessPayload(accessCheck.access)
       });
     }
@@ -127,10 +139,22 @@ export async function POST(request: Request) {
     const json = extractJson(text);
     return Response.json({ result: json, access: accessPayload(nextAccess) });
   } catch (err) {
-    if (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials"))) {
+    if (
+      isFirebaseTransientError(err) ||
+      (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials")))
+    ) {
+      logger.warn("Basic recipe generation request failed during access checks", {
+        requestId,
+        errorMessage: err instanceof Error ? err.message : String(err)
+      });
       return accessErrorResponse(err);
     }
     const message = err instanceof Error ? err.message : "Recipe generation failed";
-    return Response.json({ error: message, result: "[]" }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
+    const status = message.includes("GEMINI_API_KEY") ? 503 : isTransientModelError(err) ? 503 : 500;
+    const safeMessage = isTransientModelError(err)
+      ? getClientFacingAiErrorMessage(err, "Recipe generation is temporarily unavailable. Please try again in a few minutes.")
+      : message;
+    logger.error("Basic recipe generation failed", err, { requestId });
+    return Response.json({ error: safeMessage, result: "[]" }, { status });
   }
 }

@@ -7,6 +7,17 @@ const fallbackTextModels = (process.env.GEMINI_TEXT_FALLBACK_MODELS ?? "gemini-2
   .split(",")
   .map((model) => model.trim())
   .filter(Boolean);
+const defaultVisionModel = process.env.GEMINI_VISION_MODEL ?? "gemini-2.5-flash";
+const fallbackVisionModels = (process.env.GEMINI_VISION_FALLBACK_MODELS ?? fallbackTextModels.join(","))
+  .split(",")
+  .map((model) => model.trim())
+  .filter(Boolean);
+
+export interface AiCallTraceOptions {
+  feature?: string;
+  phase?: string;
+  requestId?: string;
+}
 
 export const USE_MOCK = process.env.USE_MOCK_API === "true";
 export const HAS_GEMINI_API_KEY = apiKey.length > 0;
@@ -57,15 +68,29 @@ export function extractJson(text: string): string {
   return arrayMatch?.[0] ?? objMatch?.[0] ?? trimmed;
 }
 
-function getTextModelAttempts(modelName: string) {
-  return Array.from(new Set([modelName, ...fallbackTextModels]));
+function getModelAttempts(modelName: string, fallbacks: string[]) {
+  return Array.from(new Set([modelName, ...fallbacks]));
 }
 
-function isTransientModelError(error: unknown) {
+export function isTransientModelError(error: unknown) {
   const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : undefined;
   const message = error instanceof Error ? error.message : String(error);
 
   return status === 429 || status === 503 || /UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|rate limit/i.test(message);
+}
+
+export function getClientFacingAiErrorMessage(error: unknown, fallback = "AI service is temporarily unavailable. Please try again again in a few minutes.") {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/RESOURCE_EXHAUSTED|Quota exceeded|quota exceeded|rate limit|too many requests/i.test(message)) {
+    return "AI quota is temporarily exhausted. Please try again in a few minutes.";
+  }
+
+  if (/UNAVAILABLE|high demand|deadline exceeded|timeout/i.test(message)) {
+    return "AI service is temporarily busy. Please try again in a few minutes.";
+  }
+
+  return fallback;
 }
 
 function getGeminiErrorLog(error: unknown) {
@@ -83,15 +108,23 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function callOpenAIText(prompt: string, modelName = defaultTextModel): Promise<string> {
+export async function callOpenAIText(prompt: string, modelName = defaultTextModel, trace?: AiCallTraceOptions): Promise<string> {
   ensureAiAvailable();
   const client = getClient();
   if (!client) throw new Error("Gemini API key not configured");
 
-  const modelAttempts = getTextModelAttempts(modelName);
+  const modelAttempts = getModelAttempts(modelName, fallbackTextModels);
   let lastError: unknown;
   for (const [index, model] of modelAttempts.entries()) {
     try {
+      logger.debug("Gemini text generation attempt started", {
+        requestId: trace?.requestId,
+        feature: trace?.feature,
+        phase: trace?.phase,
+        model,
+        attempt: index + 1,
+        attempts: modelAttempts.length
+      });
       const response = await client.models.generateContent({
         model,
         contents: prompt
@@ -99,10 +132,21 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
 
       const text = response.text?.trim() ?? "";
       if (!text) throw new Error(`Empty response from Gemini model ${model}`);
+      logger.info("Gemini text generation attempt succeeded", {
+        requestId: trace?.requestId,
+        feature: trace?.feature,
+        phase: trace?.phase,
+        model,
+        attempt: index + 1,
+        attempts: modelAttempts.length
+      });
       return text;
     } catch (error) {
       lastError = error;
       logger.error("Gemini text generation attempt failed", error, {
+        requestId: trace?.requestId,
+        feature: trace?.feature,
+        phase: trace?.phase,
         model,
         attempt: index + 1,
         attempts: modelAttempts.length,
@@ -121,27 +165,67 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
 export async function callOpenAIVision(
   prompt: string,
   image: string,
-  modelName = "gemini-2.5-flash"
+  modelName = defaultVisionModel,
+  trace?: AiCallTraceOptions
 ): Promise<string> {
   ensureAiAvailable();
   const client = getClient();
   if (!client) throw new Error("Gemini API key not configured");
   const normalizedImage = normalizeImageInput(image);
+  const modelAttempts = getModelAttempts(modelName, fallbackVisionModels);
+  let lastError: unknown;
 
-  const response = await client.models.generateContent({
-    model: modelName,
-    contents: [
-      {
-        inlineData: {
-          mimeType: normalizedImage.mimeType,
-          data: normalizedImage.data
-        }
-      },
-      { text: prompt }
-    ]
-  });
+  for (const [index, model] of modelAttempts.entries()) {
+    try {
+      logger.debug("Gemini vision generation attempt started", {
+        requestId: trace?.requestId,
+        feature: trace?.feature,
+        phase: trace?.phase,
+        model,
+        attempt: index + 1,
+        attempts: modelAttempts.length
+      });
+      const response = await client.models.generateContent({
+        model,
+        contents: [
+          {
+            inlineData: {
+              mimeType: normalizedImage.mimeType,
+              data: normalizedImage.data
+            }
+          },
+          { text: prompt }
+        ]
+      });
 
-  const text = response.text?.trim() ?? "";
-  if (!text) throw new Error("Empty response from Gemini");
-  return text;
+      const text = response.text?.trim() ?? "";
+      if (!text) throw new Error(`Empty response from Gemini model ${model}`);
+      logger.info("Gemini vision generation attempt succeeded", {
+        requestId: trace?.requestId,
+        feature: trace?.feature,
+        phase: trace?.phase,
+        model,
+        attempt: index + 1,
+        attempts: modelAttempts.length
+      });
+      return text;
+    } catch (error) {
+      lastError = error;
+      logger.error("Gemini vision generation attempt failed", error, {
+        requestId: trace?.requestId,
+        feature: trace?.feature,
+        phase: trace?.phase,
+        model,
+        attempt: index + 1,
+        attempts: modelAttempts.length,
+        ...getGeminiErrorLog(error)
+      });
+      if (!isTransientModelError(error)) break;
+      if (index < modelAttempts.length - 1) {
+        await delay(400);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Gemini vision generation failed");
 }

@@ -1,14 +1,17 @@
 import { z } from "zod";
+import { getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/openai";
 import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiCredit
+  consumeFreeAiCredit,
+  isFirebaseTransientError
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { processScan } from "@/services/scanService";
 import { isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 import { normalizeRecipeLanguage } from "@/lib/language";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -27,6 +30,8 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  logger.info("Image scan processing HTTP request received", { requestId });
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
     const rl = applyRateLimit({
@@ -49,7 +54,7 @@ export async function POST(request: Request) {
       return Response.json({
         ingredients: [],
         recipes: [],
-        servedFrom: "offline_catalog",
+        servedFrom: "shared_pool",
         fallbackNotice: buildScanProcessFallbackNotice(language),
         access: accessPayload(accessCheck.access)
       });
@@ -72,11 +77,23 @@ export async function POST(request: Request) {
 
     return Response.json({ ...result, access: accessPayload(nextAccess) });
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials"))) {
+    if (
+      isFirebaseTransientError(error) ||
+      (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials")))
+    ) {
+      logger.warn("Image scan processing request failed during access checks", {
+        requestId,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
       return accessErrorResponse(error);
     }
     const message = error instanceof Error ? error.message : "Failed to process scan";
-    return Response.json({ error: message }, { status: message.includes("GEMINI_API_KEY") ? 503 : 500 });
+    const status = message.includes("GEMINI_API_KEY") ? 503 : isTransientModelError(error) ? 503 : 500;
+    const safeMessage = isTransientModelError(error)
+      ? getClientFacingAiErrorMessage(error, "Image scan processing is temporarily unavailable. Please try again in a few minutes.")
+      : message;
+    logger.error("Image scan processing failed", error, { requestId });
+    return Response.json({ error: safeMessage }, { status });
   }
 }
 

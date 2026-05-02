@@ -42,7 +42,7 @@ export function MealPlanTab() {
 
   const generateMealPlan = async () => {
     if (access.tier !== "premium") {
-      setError("Weekly meal plans are a premium feature. Free users can continue with manual pantry and offline recipe discovery.");
+      setError("Weekly meal plans are a premium feature. Free users can continue with manual pantry and the shared recipe pool.");
       return;
     }
 

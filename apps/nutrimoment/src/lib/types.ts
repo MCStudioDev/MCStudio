@@ -92,7 +92,7 @@ export interface MealPlanData {
   plan: MealPlanDay[];
   shoppingList: string[];
   recommendedRecipes?: Recipe[];
-  servedFrom?: "offline_catalog" | "fallback_ai" | "mock";
+  servedFrom?: "shared_pool" | "fallback_ai" | "mock";
 }
 
 export interface HistoryItem {

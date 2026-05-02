@@ -416,7 +416,15 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative marketing titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the recipe's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
     realRecipeGuardrails,
-    `When a preferred cuisine is provided, at least ${cuisineTargetCount} of the ${recipeCount} recipes should clearly belong to that cuisine unless the pantry makes that impossible. If you must go outside it, stay as close as possible and explain the compromise in preference_hits.`,
+    options.preferredCuisine === "Any"
+      ? "When preferred cuisine is Any, intentionally diversify the final list across multiple authentic cuisine styles when the pantry allows it. Do not cluster the whole response around one kitchen if there are strong matches from different cuisines."
+      : `When a preferred cuisine is provided, treat it as a hard target, not a soft suggestion. All returned recipes should belong to ${options.preferredCuisine} unless the pantry makes that objectively impossible.`,
+    options.preferredCuisine === "Any"
+      ? "For Any cuisine, prefer a varied mix such as different cuisine families, dish structures, and meal contexts while still keeping the strongest pantry-first matches at the top."
+      : `If the pantry cannot support ${recipeCount} authentic ${options.preferredCuisine} recipes, return fewer recipes rather than filling the list with weak off-cuisine results.`,
+    options.preferredCuisine === "Any"
+      ? `Try to cover at least ${Math.min(recipeCount, 3)} different cuisine styles when enough plausible options exist.`
+      : `At least ${cuisineTargetCount} of the ${recipeCount} recipes should clearly belong to that cuisine unless the pantry makes that impossible. If you must go outside it, stay as close as possible and explain the compromise in preference_hits.`,
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, vibrant, or loaded unless they are essential to distinguish the dish.",
     "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",

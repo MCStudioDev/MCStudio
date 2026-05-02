@@ -480,13 +480,48 @@ function capitalizeDifficulty(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+type RecipeLocalizedVariant = NonNullable<NonNullable<Recipe["localized"]>["English"]>;
+
 export function ensureCompleteLocalizedRecipe(recipe: Recipe, language: "English" | "Arabic") {
-  const english = language === "Arabic" ? ensureDetailedRecipeSteps(localizeRecipeForEnglish(recipe), "English") : ensureDetailedRecipeSteps(recipe, "English");
-  const arabic = language === "Arabic" ? ensureDetailedRecipeSteps(recipe, "Arabic") : ensureDetailedRecipeSteps(localizeRecipeForArabic(english), "Arabic");
+  const englishSeed = mergeLocalizedRecipeVariant(
+    language === "Arabic" ? localizeRecipeForEnglish(recipe) : recipe,
+    recipe.localized?.English
+  );
+  const arabicSeed = mergeLocalizedRecipeVariant(
+    language === "Arabic" ? recipe : localizeRecipeForArabic(englishSeed),
+    recipe.localized?.Arabic
+  );
+
+  const english = shouldRegenerateEnglishVariant(englishSeed)
+    ? ensureDetailedRecipeSteps(localizeRecipeForEnglish(arabicSeed), "English")
+    : ensureDetailedRecipeSteps(englishSeed, "English");
+  const arabic = shouldRegenerateArabicVariant(arabicSeed)
+    ? ensureDetailedRecipeSteps(localizeRecipeForArabic(english), "Arabic")
+    : ensureDetailedRecipeSteps(arabicSeed, "Arabic");
+
   return stripUndefinedDeep({ English: english, Arabic: arabic }) as {
     English: Recipe;
     Arabic: Recipe;
   };
+}
+
+function mergeLocalizedRecipeVariant(base: Recipe, localized?: RecipeLocalizedVariant): Recipe {
+  if (!localized) return base;
+
+  return stripUndefinedDeep({
+    ...base,
+    ...localized,
+    id: base.id,
+    recipe_origin: base.recipe_origin,
+    scan_match_explanation: base.scan_match_explanation,
+    match_quality: base.match_quality,
+    matched_required_count: base.matched_required_count,
+    matched_optional_count: base.matched_optional_count,
+    visual_match_label: base.visual_match_label,
+    image_loading: base.image_loading,
+    image_error: base.image_error,
+    localized: undefined
+  }) as Recipe;
 }
 
 function projectCatalogDocToRecipe(recipe: RecipeCatalogDoc): Recipe {

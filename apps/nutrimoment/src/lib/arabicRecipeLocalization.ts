@@ -1,4 +1,5 @@
-import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
+﻿import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
+import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
 
 const RECIPE_TITLES: Record<string, string> = {
   "Greek Yogurt Berry Bowl": "وعاء زبادي يوناني بالتوت",
@@ -66,6 +67,11 @@ const INGREDIENTS: Record<string, string> = {
   garlic: "ثوم",
   basil: "ريحان",
   pasta: "مكرونة",
+  spaghetti: "سباجيتي",
+  penne: "بيني",
+  fettuccine: "فيتوتشيني",
+  macaroni: "مكرونة أقلام",
+  linguine: "لينجويني",
   "canned beans": "فول",
   chickpeas: "حمص",
   cucumber: "خيار",
@@ -88,13 +94,33 @@ const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
   beans: "فول",
   "broad beans": "فول",
   "canned beans": "فول",
-  "fava beans": "فول"
+  "fava beans": "فول",
+  "bell peppers": "فلفل رومي",
+  "bell pepper": "فلفل رومي",
+  "black pepper": "فلفل أسود",
+  pepper: "فلفل",
+  salt: "ملح",
+  bechamel: "بشاميل",
+  spaghetti: "سباجيتي",
+  penne: "بيني",
+  fettuccine: "فيتوتشيني",
+  macaroni: "مكرونة أقلام",
+  linguine: "لينجويني"
 };
 
 const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
   "فول": "canned beans",
   "فول مدمس": "fava beans",
-  "فاصوليا عريضة": "fava beans"
+  "فاصوليا عريضة": "fava beans",
+  "فلفل أسود": "black pepper",
+  "فلفل رومي": "bell pepper",
+  "ملح": "salt",
+  "بشاميل": "bechamel",
+  "سباجيتي": "spaghetti",
+  "بيني": "penne",
+  "فيتوتشيني": "fettuccine",
+  "مكرونة أقلام": "macaroni",
+  "لينجويني": "linguine"
 };
 
 const STEP_TRANSLATIONS: Record<string, string> = {
@@ -153,6 +179,23 @@ const REVERSE_RECIPE_TITLES = reverseLookup(RECIPE_TITLES);
 const REVERSE_CUISINES = reverseLookup(CUISINES);
 const REVERSE_INGREDIENTS = reverseLookup(INGREDIENTS);
 const REVERSE_STEP_TRANSLATIONS = reverseLookup(STEP_TRANSLATIONS);
+
+const {
+  englishToArabic: TAXONOMY_ENGLISH_TO_ARABIC,
+  arabicToEnglish: TAXONOMY_ARABIC_TO_ENGLISH
+} = buildIngredientTranslationLookups();
+
+const ENGLISH_TO_ARABIC_INGREDIENT_LOOKUP: Record<string, string> = {
+  ...TAXONOMY_ENGLISH_TO_ARABIC,
+  ...INGREDIENTS,
+  ...ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES
+};
+
+const ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP: Record<string, string> = {
+  ...TAXONOMY_ARABIC_TO_ENGLISH,
+  ...REVERSE_INGREDIENTS,
+  ...ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES
+};
 
 export function localizeRecipeForArabic(recipe: Recipe): Recipe {
   return {
@@ -244,8 +287,18 @@ function translateCuisineToEnglish(value: string) {
 }
 
 function translateIngredient(value: string) {
-  const normalized = value.trim().toLowerCase();
-  return ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES[normalized] ?? INGREDIENTS[normalized] ?? value;
+  const normalized = normalizeTranslationKey(value);
+  const exact = ENGLISH_TO_ARABIC_INGREDIENT_LOOKUP[normalized];
+  if (exact) return exact;
+  if (!/[A-Za-z]/.test(value)) return value;
+
+  const translated = replaceIngredientPhrases(value, ENGLISH_TO_ARABIC_INGREDIENT_LOOKUP)
+    .replace(/\band\b/gi, " و ")
+    .replace(/\bwith\b/gi, " مع ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return translated || value;
 }
 
 export function translateIngredientToArabic(value: string) {
@@ -253,7 +306,17 @@ export function translateIngredientToArabic(value: string) {
 }
 
 export function translateIngredientToEnglish(value: string) {
-  return ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES[value.trim()] ?? REVERSE_INGREDIENTS[value] ?? value;
+  const trimmed = value.trim();
+  const normalized = normalizeTranslationKey(trimmed);
+  const exact = ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[trimmed] ?? ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[normalized];
+  if (exact) return exact;
+  if (!/[\u0600-\u06FF]/.test(value)) return value;
+
+  const translated = replaceIngredientPhrases(trimmed, ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP)
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return translated || value;
 }
 
 function translateStep(value: string) {
@@ -362,7 +425,13 @@ function translateEnglishCookingStep(value: string) {
   let translated = ` ${value.trim()} `;
 
   const phraseReplacements: Array<[RegExp, string]> = [
-    [/\baccording to package directions\b/gi, "وفق تعليمات العبوة"],
+    [/\bstuffed bell peppers\b/gi, " محشي فلفل رومي "],
+    [/\bmahshi bell peppers\b/gi, " محشي فلفل رومي "],
+    [/\bmahshi bell pepper\b/gi, " محشي فلفل رومي "],
+    [/\bbell peppers\b/gi, " فلفل رومي "],
+    [/\bbell pepper\b/gi, " فلفل رومي "],
+    [/\bstuffed\b/gi, " محشي "],
+    [/\bmahshi\b/gi, " محشي "],    [/\baccording to package directions\b/gi, "وفق تعليمات العبوة"],
     [/\bto your liking\b/gi, "حسب الرغبة"],
     [/\buntil tender\b/gi, "حتى يطرى"],
     [/\buntil soft\b/gi, "حتى يلين"],
@@ -453,16 +522,70 @@ function translateEnglishCookingStep(value: string) {
 }
 
 function replaceIngredientsInSentence(value: string) {
-  return Object.entries(INGREDIENTS)
-    .sort((left, right) => right[0].length - left[0].length)
-    .reduce((current, [english, arabic]) => {
-      const escaped = escapeRegExp(english);
-      return current.replace(new RegExp(`\\b${escaped}\\b`, "gi"), arabic);
-    }, value);
+  return replaceIngredientPhrases(value, ENGLISH_TO_ARABIC_INGREDIENT_LOOKUP);
 }
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceIngredientPhrases(value: string, lookup: Record<string, string>) {
+  return Object.entries(lookup)
+    .sort((left, right) => right[0].length - left[0].length)
+    .reduce((current, [source, target]) => {
+      const escaped = escapeRegExp(source);
+      return current.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu"), target);
+    }, value);
+}
+
+function normalizeTranslationKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function buildIngredientTranslationLookups() {
+  const englishToArabic: Record<string, string> = {};
+  const arabicToEnglish: Record<string, string> = {};
+
+  for (const ingredient of OFFLINE_INGREDIENT_TAXONOMY) {
+    const englishValues = ingredient.variants
+      .filter((variant) => variant.locale === "en")
+      .flatMap((variant) => variant.values)
+      .map(normalizeTranslationKey)
+      .filter(Boolean);
+    const arabicValues = ingredient.variants
+      .filter((variant) => variant.locale === "ar")
+      .flatMap((variant) => variant.values)
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (!englishValues.length || !arabicValues.length) {
+      continue;
+    }
+
+    const preferredArabic = arabicValues[0];
+    for (const english of englishValues) {
+      if (!englishToArabic[english]) {
+        englishToArabic[english] = preferredArabic;
+      }
+    }
+
+    const preferredEnglish = englishValues[0];
+    for (const arabic of arabicValues) {
+      if (!arabicToEnglish[arabic]) {
+        arabicToEnglish[arabic] = preferredEnglish;
+      }
+      const normalizedArabic = normalizeTranslationKey(arabic);
+      if (!arabicToEnglish[normalizedArabic]) {
+        arabicToEnglish[normalizedArabic] = preferredEnglish;
+      }
+    }
+  }
+
+  return { englishToArabic, arabicToEnglish };
 }
 
 function reverseLookup(source: Record<string, string>) {
@@ -484,6 +607,16 @@ function translateEnglishRecipeTitle(value: string) {
   let translated = ` ${value.trim()} `;
 
   const phraseReplacements: Array<[RegExp, string]> = [
+    [/\bmacarona bechamel\b/gi, " مكرونة بشاميل "],
+    [/\bmacaroni bechamel\b/gi, " مكرونة بشاميل "],
+    [/\bbechamel pasta\b/gi, " مكرونة بشاميل "],
+    [/\bstuffed bell peppers\b/gi, " محشي فلفل رومي "],
+    [/\bmahshi bell peppers\b/gi, " محشي فلفل رومي "],
+    [/\bmahshi bell pepper\b/gi, " محشي فلفل رومي "],
+    [/\bbell peppers\b/gi, " فلفل رومي "],
+    [/\bbell pepper\b/gi, " فلفل رومي "],
+    [/\bstuffed\b/gi, " محشي "],
+    [/\bmahshi\b/gi, " محشي "],
     [/\bbreakfast\b/gi, " إفطار "],
     [/\bbowl\b/gi, " وعاء "],
     [/\bsalad\b/gi, " سلطة "],

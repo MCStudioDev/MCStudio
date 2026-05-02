@@ -31,6 +31,33 @@ export interface NutritionMacros {
   fat: string;
 }
 
+export interface LocalizedRecipeVariant {
+  name: string;
+  cuisine: string;
+  recipe_origin?: "exact_scan_match" | "similar_ingredients";
+  scan_match_explanation?: string;
+  dish_intent?: RecipeDishIntent;
+  image_search_index?: string;
+  image_search_indices?: string[];
+  ingredients: string[];
+  missing_ingredients: string[];
+  steps: string[];
+  calories: number;
+  protein: string;
+  carbs: string;
+  fat: string;
+  fiber?: string;
+  sugar?: string;
+  sodium?: string;
+  cook_time: string;
+  difficulty: string;
+  image_url?: string;
+  image_source?: RecipeImageSource;
+  image_attribution_name?: string;
+  image_attribution_url?: string;
+  preference_hits?: string[];
+}
+
 export interface Recipe {
   id?: string;
   name: string;
@@ -63,6 +90,7 @@ export interface Recipe {
   matched_optional_count?: number;
   preference_hits?: string[];
   visual_match_label?: string;
+  localized?: Partial<Record<"English" | "Arabic", LocalizedRecipeVariant>>;
 }
 
 export interface MealPlanMeal {

@@ -34,6 +34,7 @@ const PREMIUM_REPLICATE_MAX_RETRIES = 4;
 const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
 const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
 const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
+const SCANNER_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const SCAN_ACCESS_RETRY_ATTEMPTS = 3;
 const SCAN_ACCESS_RETRY_DELAY_MS = 700;
 
@@ -179,6 +180,7 @@ export function ScannerTab() {
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [imageRepairVersion, setImageRepairVersion] = useState(0);
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [confirmState, setConfirmState] = useState<{
@@ -597,6 +599,16 @@ export function ScannerTab() {
       setError(failedEntry.generationMessage ?? t("backgroundRecipesFailed"));
     }
   }, [historyItems, hydrateRecipePhotos, setError, t]);
+
+  const missingPremiumRecipeImages = recipes.filter((recipe) => !hasRenderableImage(recipe.image_url)).length;
+
+  useEffect(() => {
+    if (access.tier !== "premium" || recipeLoading || !missingPremiumRecipeImages) return;
+    const interval = globalThis.setInterval(() => {
+      setImageRepairVersion((value) => value + 1);
+    }, SCANNER_PREMIUM_IMAGE_REPAIR_INTERVAL_MS);
+    return () => globalThis.clearInterval(interval);
+  }, [access.tier, missingPremiumRecipeImages, recipeLoading]);
 
   const dismissOnboarding = () => {
     localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
@@ -1129,8 +1141,9 @@ export function ScannerTab() {
               {recipes.map((recipe, index) => (
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
-                  disableAutoImageLookup
+                  disableAutoImageLookup={access.tier !== "premium"}
                   deferImageLookup={index >= 2}
+                  imageLookupVersion={imageRepairVersion}
                   eyebrow={getRecipeEyebrow(recipe, t)}
                   name={recipe.name}
                   visualMatchLabel={recipe.visual_match_label}

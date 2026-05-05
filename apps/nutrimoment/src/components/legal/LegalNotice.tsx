@@ -27,7 +27,7 @@ export function AppLegalBanner() {
   }
 
   return (
-    <div className="px-3 pt-[7rem] sm:px-4 sm:pt-[7.6rem]">
+    <div className="px-3 pb-2 sm:px-4 sm:pb-3">
       <div className="shell-frame">
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-amber-400/8 px-3 py-2 text-[12px] text-amber-100/90 backdrop-blur sm:px-4">
           <div className="flex items-center gap-2.5">

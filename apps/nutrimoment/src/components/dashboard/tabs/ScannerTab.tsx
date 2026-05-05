@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -70,6 +71,7 @@ export function ScannerTab() {
   const [manualEntry, setManualEntry] = useState("");
   const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
   const [lastScanImage, setLastScanImage] = useState<string | null>(null);
+  const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -403,6 +405,14 @@ export function ScannerTab() {
     setShowOnboarding(localStorage.getItem("nutrimoment.scannerOnboardingDismissed") !== "true");
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (scanPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(scanPreviewUrl);
+      }
+    };
+  }, [scanPreviewUrl]);
+
   const dismissOnboarding = () => {
     localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
     setShowOnboarding(false);
@@ -430,9 +440,17 @@ export function ScannerTab() {
     event.target.value = "";
     if (!file) return;
 
+    const previewUrl = URL.createObjectURL(file);
+    setScanPreviewUrl((current) => {
+      if (current?.startsWith("blob:")) {
+        URL.revokeObjectURL(current);
+      }
+      return previewUrl;
+    });
     setScanLoading(true);
     try {
       const image = await fileToBase64(file);
+      setLastScanImage(image);
       const response = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
@@ -460,7 +478,6 @@ export function ScannerTab() {
         .map((item) => item.trim())
         .filter(Boolean);
 
-      setLastScanImage(image);
       if (!scanned.length) {
         setError(t("noIngredientsDetected"));
         return;
@@ -549,6 +566,14 @@ export function ScannerTab() {
     }
   };
 
+  const loadingStatus = getScannerLoadingStatus({
+    accessTier: access.tier,
+    imageLoadingCount: recipes.filter((recipe) => recipe.image_loading).length,
+    recipeLoading,
+    scanLoading,
+    t
+  });
+
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">
       {showOnboarding ? (
@@ -622,7 +647,26 @@ export function ScannerTab() {
                   aria-label={t("uploadFridgePhoto")}
                 />
                 <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[1.25rem] border border-dashed border-white/12 bg-white/[0.04] px-5 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
-                  <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
+                  {scanPreviewUrl ? (
+                    <span className="relative h-32 w-full overflow-hidden rounded-[1rem] border border-white/10 bg-black/20">
+                      <Image
+                        src={scanPreviewUrl}
+                        alt={t("scannerImagePreviewAlt")}
+                        fill
+                        sizes="(min-width: 1024px) 34rem, 100vw"
+                        className="object-cover"
+                        unoptimized
+                      />
+                      {scanLoading ? (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/38 text-xs font-semibold text-white">
+                          <span className="mr-2 h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                          {t("scannerStageExtracting")}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
+                  )}
                   <span className="text-sm font-semibold text-white" aria-live="polite">
                     {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
                   </span>
@@ -727,6 +771,22 @@ export function ScannerTab() {
               >
                 {recipeLoading ? t("aiThinking") : t("generateRecipes")}
               </Button>
+
+              {loadingStatus ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="theme-scanner-loading-status rounded-[1.2rem] border border-cyan-200/18 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-50 shadow-[0_18px_55px_rgba(20,184,166,0.12)]"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 h-4 w-4 shrink-0 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                    <div className="space-y-1">
+                      <p className="font-semibold">{loadingStatus.title}</p>
+                      <p className="text-xs leading-relaxed text-cyan-50/68">{loadingStatus.detail}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </Card>
@@ -814,6 +874,46 @@ export function ScannerTab() {
 
 function hasRenderableImage(imageUrl?: string): imageUrl is string {
   return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+}
+
+function getScannerLoadingStatus({
+  accessTier,
+  imageLoadingCount,
+  recipeLoading,
+  scanLoading,
+  t
+}: {
+  accessTier: "free" | "premium";
+  imageLoadingCount: number;
+  recipeLoading: boolean;
+  scanLoading: boolean;
+  t: ReturnType<typeof useApp>["t"];
+}) {
+  if (scanLoading) {
+    return {
+      detail: t("scannerKeepOpenHint"),
+      title: t("scannerStageExtracting")
+    };
+  }
+
+  if (recipeLoading) {
+    return {
+      detail: t("scannerKeepOpenHint"),
+      title: t("scannerStageRecipes")
+    };
+  }
+
+  if (imageLoadingCount > 0) {
+    return {
+      detail: t("scannerKeepOpenHint"),
+      title:
+        accessTier === "premium"
+          ? t("scannerStageImagesPremium").replace("{count}", String(imageLoadingCount))
+          : t("scannerStageImages").replace("{count}", String(imageLoadingCount))
+    };
+  }
+
+  return null;
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {

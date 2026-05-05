@@ -128,6 +128,8 @@ export function HistoryTab() {
                       imageAttributionName={recipe.image_attribution_name}
                       imageAttributionUrl={recipe.image_attribution_url}
                       imageQuery={buildRecipePhotoQuery(recipe)}
+                      imageExactNames={buildRecipePhotoExactNames(recipe)}
+                      imageCuisine={buildRecipePhotoCuisine(recipe)}
                       imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                       onImageResolved={
                         user
@@ -220,6 +222,30 @@ function serializeRecipePhotoQuery(queries: string[]) {
 
 function buildRecipePhotoPromptIngredients(recipe: Recipe) {
   return buildEnglishRecipePhotoIngredients(recipe);
+}
+
+function buildRecipePhotoExactNames(recipe: Recipe) {
+  return Array.from(
+    new Set(
+      [
+        recipe.localized?.English?.name,
+        recipe.localized?.Arabic?.name,
+        recipe.name,
+        recipe.dish_intent?.dish_name,
+        recipe.localized?.English?.dish_intent?.dish_name,
+        recipe.localized?.Arabic?.dish_intent?.dish_name,
+        recipe.image_search_index,
+        recipe.localized?.English?.image_search_index,
+        recipe.localized?.Arabic?.image_search_index
+      ]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ).slice(0, 8);
+}
+
+function buildRecipePhotoCuisine(recipe: Recipe) {
+  return recipe.localized?.English?.cuisine ?? recipe.cuisine;
 }
 
 function buildRecipeStats(recipe: Recipe) {

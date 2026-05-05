@@ -147,7 +147,11 @@ export function ScannerTab() {
             buildRecipePhotoRequestUrl(
               buildRecipePhotoQuery(recipe),
               buildRecipePhotoPromptIngredients(recipe),
-              Array.from(usedImageUrls)
+              Array.from(usedImageUrls),
+              {
+                cuisine: buildRecipePhotoCuisine(recipe),
+                exactNames: buildRecipePhotoExactNames(recipe)
+              }
             ),
             {
               headers: authHeaders
@@ -719,6 +723,8 @@ export function ScannerTab() {
                   imageLoading={recipe.image_loading}
                   imageError={recipe.image_error}
                   imageQuery={buildRecipePhotoQuery(recipe)}
+                  imageExactNames={buildRecipePhotoExactNames(recipe)}
+                  imageCuisine={buildRecipePhotoCuisine(recipe)}
                   imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                   onImageResolved={
                     user && historyEntryId
@@ -791,7 +797,12 @@ function buildRecipePhotoQuery(recipe: Recipe) {
   });
 }
 
-function buildRecipePhotoRequestUrl(queries: string[], ingredients: string[] = [], excludeUrls: string[] = []) {
+function buildRecipePhotoRequestUrl(
+  queries: string[],
+  ingredients: string[] = [],
+  excludeUrls: string[] = [],
+  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+) {
   const params = new URLSearchParams();
   queries.slice(0, 5).forEach((query, index) => {
     if (index === 0) {
@@ -805,6 +816,14 @@ function buildRecipePhotoRequestUrl(queries: string[], ingredients: string[] = [
     .filter(Boolean)
     .slice(0, 10)
     .forEach((ingredient) => params.append("ingredient", ingredient));
+  exactContext.exactNames
+    ?.map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .forEach((name) => params.append("exact", name));
+  if (exactContext.cuisine?.trim()) {
+    params.set("cuisine", exactContext.cuisine.trim());
+  }
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
@@ -816,6 +835,30 @@ function serializeRecipePhotoQuery(queries: string[]) {
 
 function buildRecipePhotoPromptIngredients(recipe: Recipe) {
   return buildEnglishRecipePhotoIngredients(recipe);
+}
+
+function buildRecipePhotoExactNames(recipe: Recipe) {
+  return Array.from(
+    new Set(
+      [
+        recipe.localized?.English?.name,
+        recipe.localized?.Arabic?.name,
+        recipe.name,
+        recipe.dish_intent?.dish_name,
+        recipe.localized?.English?.dish_intent?.dish_name,
+        recipe.localized?.Arabic?.dish_intent?.dish_name,
+        recipe.image_search_index,
+        recipe.localized?.English?.image_search_index,
+        recipe.localized?.Arabic?.image_search_index
+      ]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ).slice(0, 8);
+}
+
+function buildRecipePhotoCuisine(recipe: Recipe) {
+  return recipe.localized?.English?.cuisine ?? recipe.cuisine;
 }
 
 function normalizeIngredientKey(value: string) {

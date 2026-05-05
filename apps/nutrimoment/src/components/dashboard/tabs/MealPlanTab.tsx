@@ -169,7 +169,8 @@ export function MealPlanTab() {
           buildRecipePhotoRequestUrl(
             buildMealPlanPhotoQuery(meal),
             buildEnglishMealIngredients(meal.ingredients).slice(0, 10),
-            Array.from(usedImageUrls)
+            Array.from(usedImageUrls),
+            { exactNames: buildMealPlanPhotoExactNames(meal) }
           ),
           {
             headers: await getAuthHeaders()
@@ -518,6 +519,7 @@ function MealPlanRevealCard({
       imageError={imageError}
       imageLoading={imageLoading}
       imageQuery={buildMealPlanPhotoQuery(meal)}
+      imageExactNames={buildMealPlanPhotoExactNames(meal)}
       imagePromptIngredients={buildEnglishMealIngredients(meal.ingredients).slice(0, 10)}
       disableAutoImageLookup={disableAutoImageLookup}
       onImageResolved={onImageResolved}
@@ -601,7 +603,12 @@ function serializeRecipePhotoQuery(queries: string[]) {
   return queries.join(" || ");
 }
 
-function buildRecipePhotoRequestUrl(queries: string[], ingredients: string[] = [], excludeUrls: string[] = []) {
+function buildRecipePhotoRequestUrl(
+  queries: string[],
+  ingredients: string[] = [],
+  excludeUrls: string[] = [],
+  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+) {
   const params = new URLSearchParams();
   queries.slice(0, 5).forEach((query, index) => {
     if (index === 0) {
@@ -615,9 +622,31 @@ function buildRecipePhotoRequestUrl(queries: string[], ingredients: string[] = [
     .filter(Boolean)
     .slice(0, 10)
     .forEach((ingredient) => params.append("ingredient", ingredient));
+  exactContext.exactNames
+    ?.map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .forEach((name) => params.append("exact", name));
+  if (exactContext.cuisine?.trim()) {
+    params.set("cuisine", exactContext.cuisine.trim());
+  }
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
+}
+
+function buildMealPlanPhotoExactNames(meal: MealPlanMeal) {
+  return Array.from(
+    new Set(
+      [
+        meal.name,
+        meal.image_search_index,
+        ...(meal.image_search_indices ?? [])
+      ]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ).slice(0, 8);
 }
 
 function buildEnglishMealIngredients(ingredients?: string[]) {

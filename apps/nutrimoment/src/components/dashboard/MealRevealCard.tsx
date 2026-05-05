@@ -49,6 +49,8 @@ interface MealRevealCardProps {
   imageLoading?: boolean;
   imageError?: boolean;
   imageQuery?: string | string[];
+  imageExactNames?: string[];
+  imageCuisine?: string;
   imagePromptIngredients?: string[];
   onImageResolved?: (payload: {
     imageAttributionName?: string;
@@ -77,6 +79,8 @@ export function MealRevealCard({
   imageLoading,
   imageError,
   imageQuery,
+  imageExactNames,
+  imageCuisine,
   imagePromptIngredients,
   onImageResolved,
   eyebrow,
@@ -112,7 +116,17 @@ export function MealRevealCard({
 
   const queryCandidates = useMemo(() => normalizeRecipePhotoQueries(imageQuery), [imageQuery]);
   const primaryQuery = queryCandidates[0] ?? "";
-  const queryKey = queryCandidates.join(" || ");
+  const exactNamesForLookup = useMemo(
+    () => (imageExactNames?.length ? imageExactNames : [name]).map((value) => value.trim()).filter(Boolean),
+    [imageExactNames, name]
+  );
+  const queryKey = [
+    queryCandidates.join(" || "),
+    exactNamesForLookup.join(" || "),
+    imageCuisine?.trim() ?? ""
+  ]
+    .filter(Boolean)
+    .join(" ## ");
   const cachedImageEntry = !bypassClientCache && queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
   const cachedImage =
     isInternetImageUrl(cachedImageEntry?.imageUrl) &&
@@ -198,7 +212,10 @@ export function MealRevealCard({
       existingRequest ??
       getAuthHeaders()
         .then((headers) =>
-          fetch(buildRecipePhotoRequestUrl(queryCandidates, imagePromptIngredients ?? [], excludedImageUrls), {
+          fetch(buildRecipePhotoRequestUrl(queryCandidates, imagePromptIngredients ?? [], excludedImageUrls, {
+            cuisine: imageCuisine,
+            exactNames: exactNamesForLookup
+          }), {
             headers
           })
         )
@@ -290,6 +307,8 @@ export function MealRevealCard({
     effectiveProvidedImage,
     getAuthHeaders,
     imageLoading,
+    imageCuisine,
+    exactNamesForLookup,
     imagePromptIngredients,
     lookupEnabled,
     lookupFailed,
@@ -719,7 +738,12 @@ function normalizeRecipePhotoQueries(query?: string | string[]) {
   ).slice(0, 5);
 }
 
-function buildRecipePhotoRequestUrl(queries: string[], ingredients: string[] = [], excludeUrls: string[] = []) {
+function buildRecipePhotoRequestUrl(
+  queries: string[],
+  ingredients: string[] = [],
+  excludeUrls: string[] = [],
+  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+) {
   const params = new URLSearchParams();
   queries.forEach((query, index) => {
     if (index === 0) {
@@ -733,6 +757,14 @@ function buildRecipePhotoRequestUrl(queries: string[], ingredients: string[] = [
     .filter(Boolean)
     .slice(0, 10)
     .forEach((ingredient) => params.append("ingredient", ingredient));
+  exactContext.exactNames
+    ?.map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .forEach((name) => params.append("exact", name));
+  if (exactContext.cuisine?.trim()) {
+    params.set("cuisine", exactContext.cuisine.trim());
+  }
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;

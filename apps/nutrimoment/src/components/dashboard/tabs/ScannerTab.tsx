@@ -19,6 +19,13 @@ import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+import { getCuisineDisplayLabel } from "@/lib/cuisines";
+import {
+  forgetPendingRecipeHistoryId,
+  isLikelyBackgroundFetchInterruption,
+  rememberPendingRecipeHistoryId,
+  readPendingRecipeHistoryIds
+} from "@/lib/backgroundRecipeJobs";
 
 // Keep a small gap between premium image requests to avoid Replicate burst rate limits
 // without making the scanner page feel artificially slow.
@@ -27,7 +34,15 @@ const PREMIUM_REPLICATE_MAX_RETRIES = 4;
 const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
 const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
 const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
-const PENDING_RECIPE_HISTORY_STORAGE_KEY = "nutrimoment.pendingRecipeHistoryIds";
+const SCAN_ACCESS_RETRY_ATTEMPTS = 3;
+const SCAN_ACCESS_RETRY_DELAY_MS = 700;
+
+interface ScanResponseData {
+  ingredients?: string[];
+  result?: string;
+  error?: string;
+  fallbackNotice?: string;
+}
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -35,6 +50,23 @@ function safeJsonParse<T>(value: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+async function readScanJson(response: Response): Promise<ScanResponseData> {
+  try {
+    return (await response.json()) as ScanResponseData;
+  } catch {
+    return {};
+  }
+}
+
+function isFirebaseAccessBusyResponse(response: Response, data: ScanResponseData) {
+  if (response.status !== 503) return false;
+  return /firebase.*temporarily busy|ai access.*unavailable|recipe access.*unavailable/i.test(data.error ?? "");
+}
+
+async function waitForScanAccessRetry(attempt: number) {
+  await new Promise((resolve) => setTimeout(resolve, SCAN_ACCESS_RETRY_DELAY_MS * attempt));
 }
 
 interface ScannerIngredient {
@@ -47,28 +79,6 @@ function createScannerIngredient(name: string): ScannerIngredient {
     id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     name
   };
-}
-
-function readPendingRecipeHistoryIds() {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(PENDING_RECIPE_HISTORY_STORAGE_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberPendingRecipeHistoryId(entryId: string) {
-  if (typeof window === "undefined") return;
-  const next = Array.from(new Set([...readPendingRecipeHistoryIds(), entryId]));
-  window.localStorage.setItem(PENDING_RECIPE_HISTORY_STORAGE_KEY, JSON.stringify(next));
-}
-
-function forgetPendingRecipeHistoryId(entryId: string) {
-  if (typeof window === "undefined") return;
-  const next = readPendingRecipeHistoryIds().filter((item) => item !== entryId);
-  window.localStorage.setItem(PENDING_RECIPE_HISTORY_STORAGE_KEY, JSON.stringify(next));
 }
 
 async function readImageFileForScan(file: File) {
@@ -568,11 +578,9 @@ export function ScannerTab() {
     );
     if (completedEntry) {
       notifiedHistoryEntriesRef.current.add(completedEntry.id);
-      forgetPendingRecipeHistoryId(completedEntry.id);
       setHistoryEntryId(completedEntry.id);
       setRecipes(completedEntry.recipes);
       setRecipeLoading(false);
-      addNotification(t("backgroundRecipesReady"), settings.uiLanguage);
       void hydrateRecipePhotos(completedEntry.recipes, completedEntry.id, recipeRequestVersionRef.current);
       return;
     }
@@ -585,11 +593,10 @@ export function ScannerTab() {
     );
     if (failedEntry) {
       notifiedHistoryEntriesRef.current.add(failedEntry.id);
-      forgetPendingRecipeHistoryId(failedEntry.id);
       setRecipeLoading(false);
       setError(failedEntry.generationMessage ?? t("backgroundRecipesFailed"));
     }
-  }, [addNotification, historyItems, hydrateRecipePhotos, setError, settings.uiLanguage, t]);
+  }, [historyItems, hydrateRecipePhotos, setError, t]);
 
   const dismissOnboarding = () => {
     localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
@@ -678,22 +685,32 @@ export function ScannerTab() {
     setScanLoading(true);
     try {
       setLastScanImage(image);
-      const response = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-        body: JSON.stringify({
-          image,
-          language: settings.uiLanguage,
-          isPantry: false
-        })
-      });
-      const data = (await response.json()) as {
-        ingredients?: string[];
-        result?: string;
-        error?: string;
-        fallbackNotice?: string;
-      };
-      await refreshAccess();
+      let response: Response | null = null;
+      let data: ScanResponseData = {};
+
+      for (let attempt = 1; attempt <= SCAN_ACCESS_RETRY_ATTEMPTS; attempt += 1) {
+        response = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+          body: JSON.stringify({
+            image,
+            language: settings.uiLanguage,
+            isPantry: false
+          })
+        });
+        data = await readScanJson(response);
+
+        if (!isFirebaseAccessBusyResponse(response, data) || attempt === SCAN_ACCESS_RETRY_ATTEMPTS) {
+          break;
+        }
+
+        await waitForScanAccessRetry(attempt);
+      }
+
+      await refreshAccess().catch(() => undefined);
+      if (!response) {
+        throw new Error("Failed to scan image");
+      }
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to scan image");
       }
@@ -815,6 +832,10 @@ export function ScannerTab() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Recipe generation failed";
       if (pendingEntryId) {
+        if (isLikelyBackgroundFetchInterruption(error)) {
+          setError(t("backgroundRecipesContinuingInHistory"));
+          return;
+        }
         await updateEntryStatus(pendingEntryId, "failed", message);
         forgetPendingRecipeHistoryId(pendingEntryId);
       }
@@ -1056,7 +1077,9 @@ export function ScannerTab() {
               <div className="grid gap-2.5 sm:grid-cols-3">
                 <Card variant="plain" className="rounded-[1.2rem] p-3.5">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("preferredCuisine")}</p>
-                  <p className="mt-1.5 text-base font-semibold text-white">{settings.preferredCuisine}</p>
+                  <p className="mt-1.5 text-base font-semibold text-white">
+                    {getCuisineDisplayLabel(settings.preferredCuisine, settings.uiLanguage)}
+                  </p>
                 </Card>
                 <Card variant="plain" className="rounded-[1.2rem] p-3.5">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("dailyCalorieTarget")}</p>
@@ -1111,7 +1134,7 @@ export function ScannerTab() {
                   eyebrow={getRecipeEyebrow(recipe, t)}
                   name={recipe.name}
                   visualMatchLabel={recipe.visual_match_label}
-                  summary={buildRecipeSummary(recipe, t)}
+                  summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                   previewLabel={getRecipePreviewLabel(recipe, t)}
                   previewItems={buildRecipePreviewItems(recipe)}
                   imageUrl={recipe.image_url}
@@ -1312,8 +1335,9 @@ function buildRecipeStats(recipe: Recipe) {
   ];
 }
 
-function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"], language: string) {
   const isArabicRecipe = containsArabicText(`${recipe.name} ${recipe.cuisine}`);
+  const cuisineLabel = getCuisineDisplayLabel(recipe.cuisine, language === "ar" || isArabicRecipe ? "ar" : language);
   const originLabel =
     recipe.recipe_origin === "exact_scan_match"
       ? t("exactScannedDish")
@@ -1331,7 +1355,7 @@ function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
 
   return [
     originLabel,
-    recipe.cuisine,
+    cuisineLabel,
     dishStyle,
     formatRecipeMatchQuality(recipe.match_quality, isArabicRecipe),
     preferenceHits,

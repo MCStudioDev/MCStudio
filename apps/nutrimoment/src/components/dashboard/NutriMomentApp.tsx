@@ -10,6 +10,7 @@ import { HealthTab } from "./tabs/HealthTab";
 import { MealPlanTab } from "./tabs/MealPlanTab";
 import { HistoryTab } from "./tabs/HistoryTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { BackgroundRecipeNotifier } from "./BackgroundRecipeNotifier";
 import { AppLegalBanner } from "@/components/legal/LegalNotice";
 import { useApp } from "@/contexts/AppContext";
 import type { Tab } from "@/lib/types";
@@ -55,6 +56,7 @@ export function NutriMomentApp() {
   return (
     <>
       <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BackgroundRecipeNotifier />
 
       <div
         ref={shellRef}

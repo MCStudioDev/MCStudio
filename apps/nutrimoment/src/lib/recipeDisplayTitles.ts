@@ -1,4 +1,4 @@
-import { normalizeCuisineLabel } from "@/lib/cuisines";
+import { getCuisineDisplayLabel, normalizeCuisineLabel } from "@/lib/cuisines";
 import { localizeRecipeForArabic, translateIngredientToArabic, translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 import type { MealType, RecipeCatalogDoc } from "@/lib/domain";
 
@@ -130,7 +130,7 @@ export function normalizeEnglishCuisineLabel(value?: string | null) {
 
 export function translateCuisineLabelToArabic(value?: string | null) {
   const englishCuisine = normalizeEnglishCuisineLabel(value);
-  return ARABIC_CUISINE_LABELS[englishCuisine] ?? englishCuisine;
+  return getCuisineDisplayLabel(englishCuisine, "ar");
 }
 
 export function translateCuisineLabelToEnglish(value?: string | null) {

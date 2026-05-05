@@ -8,13 +8,14 @@ import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
 import { containerVariants, itemVariants } from "@/lib/animations";
-import { CUISINE_OPTIONS, normalizeCuisineLabel } from "@/lib/cuisines";
+import { CUISINE_OPTIONS, getCuisineDisplayLabel } from "@/lib/cuisines";
 import type { TranslationKey } from "@/lib/translations";
 import { SectionHero } from "./shared";
 
 export function SettingsTab() {
   const { t, settings, saveSettings, health } = useApp();
   const currentLanguageLabel = settings.uiLanguage === "ar" ? t("arabic") : t("english");
+  const preferredCuisineLabel = getCuisineDisplayLabel(settings.preferredCuisine, settings.uiLanguage);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-5 sm:space-y-6">
@@ -26,7 +27,7 @@ export function SettingsTab() {
         icon={<SlidersHorizontal className="h-6 w-6" />}
         stats={[
           { label: t("targetStat"), value: `${settings.calorieTarget} kcal` },
-          { label: t("cuisineChip"), value: normalizeCuisineLabel(settings.preferredCuisine) },
+          { label: t("cuisineChip"), value: preferredCuisineLabel },
           { label: t("languageSwitch"), value: currentLanguageLabel }
         ]}
         aside={
@@ -77,7 +78,7 @@ export function SettingsTab() {
         <SettingCard
           icon={<Utensils className="h-5 w-5" />}
           eyebrow={t("preferredCuisine")}
-          title={normalizeCuisineLabel(settings.preferredCuisine)}
+          title={preferredCuisineLabel}
         >
           <div className="flex flex-wrap gap-2">
             {CUISINE_OPTIONS.map((cuisine) => (
@@ -86,7 +87,7 @@ export function SettingsTab() {
                 active={settings.preferredCuisine === cuisine}
                 onClick={() => void saveSettings({ preferredCuisine: cuisine })}
               >
-                {cuisine === "Any" ? t("anyCuisine") : cuisine}
+                {getCuisineDisplayLabel(cuisine, settings.uiLanguage)}
               </Pill>
             ))}
           </div>

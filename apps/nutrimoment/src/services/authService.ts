@@ -44,7 +44,7 @@ export function isFirebaseTransientError(error: unknown) {
 }
 
 export function getFirebaseAccessErrorMessage() {
-  return "Firebase is temporarily busy, so recipe access is unavailable right now. Please try again in a few minutes.";
+  return "Firebase is temporarily busy, so AI access is unavailable right now. Please try again in a few minutes.";
 }
 
 export async function getRequestAccess(request: Request): Promise<RequestAccess> {

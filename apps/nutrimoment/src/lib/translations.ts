@@ -52,6 +52,7 @@ export const translations = {
     backgroundRecipesQueued: "Recipe generation started. Results will be saved to History.",
     backgroundRecipesReady: "Recipes are ready in History.",
     backgroundRecipesFailed: "Recipe generation could not finish. Please try again.",
+    backgroundRecipesContinuingInHistory: "The browser interrupted the live request, but generation may still finish in History. We will notify you when recipes are ready.",
     detectedIng: "Detected Ingredients",
     editList: "Edit List",
     addMissing: "Add missing ingredient…",

@@ -1,4 +1,5 @@
 import { normalizeCuisineLabel } from "@/lib/cuisines";
+import { getCuisineDishCatalog } from "@/lib/cuisineDishCatalog";
 import type { Recipe, RecipeDishIntent, RecipeMealType } from "@/lib/types";
 
 type SupportedDiet =
@@ -1450,6 +1451,10 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
   }
 ];
 
+const CATALOG_INGREDIENT_NAME_ALIASES: Record<string, string[]> = {
+  liver: ["kebda", "kibda", "ciger", "cigeri"]
+};
+
 export function buildCuisineAwareDishCandidates(context: DishCandidateContext): DishCandidate[] {
   const normalizedIngredients = normalizeIngredientList(context.availableIngredients ?? []);
   const cuisineKey = normalizeCuisineKey(context.preferredCuisine ?? "Any");
@@ -1457,9 +1462,13 @@ export function buildCuisineAwareDishCandidates(context: DishCandidateContext): 
     cuisineKey === "any"
       ? DISH_BLUEPRINTS
       : DISH_BLUEPRINTS.filter((dish) => normalizeCuisineKey(dish.cuisine) === cuisineKey);
+  const catalogCandidates = buildCatalogDishCandidates(context, normalizedIngredients, cuisineKey);
 
-  return candidatePool
+  return dedupeDishCandidates([
+    ...catalogCandidates,
+    ...candidatePool
     .map((dish) => scoreDishBlueprint(dish, normalizedIngredients, context))
+  ])
     .filter((candidate) => candidate.score > 0 && hasCandidatePantrySignal(candidate, normalizedIngredients))
     .sort((left, right) => right.score - left.score || left.dishName.localeCompare(right.dishName))
     .slice(0, 10);
@@ -1609,7 +1618,7 @@ function scoreDishBlueprint(
 function hasCandidatePantrySignal(candidate: DishCandidate, normalizedIngredients: string[]) {
   if (!normalizedIngredients.length) return true;
   if (candidate.anchorMatchCount > 0 || candidate.supportMatchCount > 0) return true;
-  return candidate.hits.some((hit) => hit.startsWith("intent-") || hit.startsWith("sparse-"));
+  return candidate.hits.some((hit) => hit.startsWith("intent-") || hit.startsWith("sparse-") || hit.startsWith("catalog-"));
 }
 
 function shouldTrustCandidate(
@@ -1626,6 +1635,7 @@ function shouldTrustCandidate(
     recipeName.includes(candidateName) ||
     candidateName.includes(recipeName);
   const hasIntentSignal = candidate.hits.some((hit) => hit.startsWith("intent-"));
+  const hasCatalogSignal = candidate.hits.some((hit) => hit.startsWith("catalog-"));
   const mealTypeMatch = candidate.mealType === inferredMealType;
   const strongAnchorFit = candidate.anchorMatchCount >= 2;
   const moderateAnchorFit = candidate.anchorMatchCount >= 1 && candidate.supportMatchCount >= 2;
@@ -1641,9 +1651,122 @@ function shouldTrustCandidate(
   if (exactNameMatch) return candidate;
   if (hasStructuralMismatch) return undefined;
   if (strongAnchorFit && mealTypeMatch) return candidate;
-  if (hasIntentSignal && mealTypeMatch) return candidate;
+  if ((hasIntentSignal || hasCatalogSignal) && mealTypeMatch) return candidate;
   if (moderateAnchorFit && mealTypeMatch && candidate.score >= 110) return candidate;
   return undefined;
+}
+
+function buildCatalogDishCandidates(
+  context: DishCandidateContext,
+  normalizedIngredients: string[],
+  cuisineKey: string
+): DishCandidate[] {
+  if (cuisineKey === "any" || !normalizedIngredients.length) return [];
+
+  const catalog = getCuisineDishCatalog(context.preferredCuisine ?? "");
+  if (!catalog?.iconicDishes.length) return [];
+
+  const cuisine = normalizeCuisineLabel(context.preferredCuisine ?? "");
+  const candidates = catalog.iconicDishes
+    .map<DishCandidate | undefined>((dishName, index) => {
+      const dishKey = normalizeDishKey(dishName);
+      const ingredientAnchors = normalizedIngredients.filter((ingredient) => matchesCatalogDishIngredient(dishKey, ingredient));
+      if (!ingredientAnchors.length) return undefined;
+
+      const score = 96 + Math.max(0, 24 - index) + ingredientAnchors.length * 22;
+      const mealType = inferCatalogMealType(dishKey);
+      const cookingMethod = inferCatalogCookingMethod(dishKey);
+
+      return {
+        anchorMatchCount: ingredientAnchors.length,
+        cookingMethod,
+        cuisine,
+        dishName,
+        excludeKeywords: inferCatalogExcludeKeywords(dishKey),
+        hits: uniqueKeywords(["catalog-dish-match", `anchor-match:${ingredientAnchors.length}`]),
+        ingredientAnchors,
+        mealType,
+        searchPhrases: uniqueKeywords([
+          `${dishName} ${cuisine} food`,
+          `${cuisine} traditional ${dishName}`,
+          `${dishName} plate`
+        ]),
+        score,
+        supportMatchCount: 0,
+        visualKeywords: uniqueKeywords([dishName, `${cuisine} ${dishName}`, `${dishName} plate`])
+      };
+    })
+    .filter((candidate): candidate is DishCandidate => Boolean(candidate));
+
+  return candidates;
+}
+
+function dedupeDishCandidates(candidates: DishCandidate[]) {
+  const byDish = new Map<string, DishCandidate>();
+
+  for (const candidate of candidates) {
+    const key = `${normalizeCuisineKey(candidate.cuisine)}|${normalizeDishKey(candidate.dishName)}`;
+    const current = byDish.get(key);
+    if (!current || candidate.score > current.score) {
+      byDish.set(key, candidate);
+    }
+  }
+
+  return Array.from(byDish.values());
+}
+
+function matchesCatalogDishIngredient(dishKey: string, ingredient: string) {
+  if (!dishKey || !ingredient || isWeakCatalogIngredient(ingredient)) return false;
+  const needles = buildCatalogIngredientNeedles(ingredient);
+  if (needles.some((needle) => dishKey.includes(needle))) return true;
+
+  return false;
+}
+
+function buildCatalogIngredientNeedles(ingredient: string) {
+  const tokens = ingredient.split(/\s+/).filter((token) => token.length >= 4);
+  return uniqueKeywords(
+    [ingredient, ...tokens]
+      .filter((value) => !isWeakCatalogIngredient(value))
+      .flatMap((value) => [value, ...(CATALOG_INGREDIENT_NAME_ALIASES[value] ?? [])])
+      .map(normalizeDishKey)
+      .filter((value) => value.length >= 3)
+  );
+}
+
+function isWeakCatalogIngredient(value: string) {
+  return /^(oil|olive|water|salt|pepper|spice|spices|sauce|tomato|onion|garlic|lemon|lime|rice|bread|pita|flatbread|pasta|food|meal|dish|plate|fresh|raw|cooked)$/.test(value);
+}
+
+function inferCatalogMealType(dishKey: string): RecipeMealType {
+  if (/\b(ful|foul|taameya|shakshuka|eggah|menemen|cilbir|sucuklu yumurta|simit|pogaca)\b/.test(dishKey)) {
+    return "breakfast";
+  }
+  if (/\b(soup|corbasi|salad|kisir|balik ekmek|sandwich)\b/.test(dishKey)) return "lunch";
+  if (/\b(baklava|kunefe|basbousa|kunafa|om ali|sutlac|mahalabia|qatayef|zalabya|meshabek)\b/.test(dishKey)) {
+    return "snack";
+  }
+  return "dinner";
+}
+
+function inferCatalogCookingMethod(dishKey: string) {
+  if (/\b(grilled|meshwi|kebab|kofte|sis|izgara)\b/.test(dishKey)) return "grilled";
+  if (/\b(fried|tava|taameya|falafel|arnavut)\b/.test(dishKey)) return "fried";
+  if (/\b(baked|bechamel|pide|boregi|feteer|tagine|taagen|guvec)\b/.test(dishKey)) return "baked";
+  if (/\b(soup|stew|corbasi|molokhia|fasolia|bamia|kurufasulye)\b/.test(dishKey)) return "simmered";
+  if (/\b(shakshuka|menemen|liver|ciger|shrimp|karides)\b/.test(dishKey)) return "skillet";
+  return "assembled";
+}
+
+function inferCatalogExcludeKeywords(dishKey: string) {
+  const excludes = ["dessert", "cookie", "cake"];
+
+  if (/\b(liver|ciger|kebda)\b/.test(dishKey)) excludes.push("chicken", "fish", "shrimp", "dessert");
+  if (/\bfish|samak|balik\b/.test(dishKey)) excludes.push("beef", "chicken", "dessert");
+  if (/\bshrimp|karides\b/.test(dishKey)) excludes.push("beef", "chicken", "dessert");
+  if (/\bchicken|farakh|tavuk\b/.test(dishKey)) excludes.push("fish", "shrimp", "dessert");
+
+  return uniqueKeywords(excludes);
 }
 
 function scoreDietCompatibility(dish: DishBlueprint, diets: string[], hits: string[]) {

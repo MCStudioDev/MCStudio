@@ -13,6 +13,7 @@ import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import { formatDate } from "@/lib/utils";
@@ -207,7 +208,7 @@ export function HistoryTab() {
                       deferImageLookup={entryIndex !== 0 || recipeIndex >= HISTORY_EAGER_IMAGE_COUNT}
                       imageLookupVersion={imageRepairVersion}
                       eyebrow={getRecipeEyebrow(recipe, t)}
-                      name={recipe.name}
+                      name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
                       visualMatchLabel={recipe.visual_match_label}
                       summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                       previewLabel={getRecipePreviewLabel(recipe, t)}

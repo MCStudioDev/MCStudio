@@ -27,6 +27,11 @@ interface UseHistoryResult {
   error: Error | null;
   addEntry: (entry: Omit<HistoryItem, "id">) => Promise<string | null>;
   replaceEntryRecipes: (entryId: string, recipes: Recipe[]) => Promise<void>;
+  updateEntryStatus: (
+    entryId: string,
+    status: NonNullable<HistoryItem["generationStatus"]>,
+    message?: string
+  ) => Promise<void>;
   updateRecipeImage: (
     entryId: string,
     recipeIndex: number,
@@ -117,6 +122,9 @@ export function useHistory(): UseHistoryResult {
       (snap) => {
         const next: HistoryItem[] = snap.docs.map((d) => {
           const data = d.data() as {
+            completedAt?: string;
+            generationMessage?: string;
+            generationStatus?: HistoryItem["generationStatus"];
             timestamp?: string;
             ingredients?: string[];
             recipes?: Recipe[];
@@ -125,7 +133,10 @@ export function useHistory(): UseHistoryResult {
             id: d.id,
             timestamp: data.timestamp ?? new Date().toISOString(),
             ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-            recipes: Array.isArray(data.recipes) ? data.recipes : []
+            recipes: Array.isArray(data.recipes) ? data.recipes : [],
+            generationStatus: data.generationStatus,
+            generationMessage: data.generationMessage,
+            completedAt: data.completedAt
           };
         });
         dispatch({ type: "items", payload: next });
@@ -145,12 +156,15 @@ export function useHistory(): UseHistoryResult {
 
   const addEntry = async (entry: Omit<HistoryItem, "id">): Promise<string | null> => {
     if (!user) return null;
-    const ref = await addDoc(collection(db, `users/${user.uid}/history`), {
+    const ref = await addDoc(collection(db, `users/${user.uid}/history`), stripUndefined({
       timestamp: entry.timestamp,
       ingredients: entry.ingredients,
       recipes: entry.recipes,
+      generationStatus: entry.generationStatus,
+      generationMessage: entry.generationMessage,
+      completedAt: entry.completedAt,
       createdAt: serverTimestamp()
-    });
+    }));
     await pruneHistoryToLatestLimit(user.uid);
     return ref.id;
   };
@@ -161,7 +175,12 @@ export function useHistory(): UseHistoryResult {
     dispatch({ type: "recipes", payload: { entryId, recipes: sanitizedRecipes } });
 
     try {
-      await updateDoc(doc(db, `users/${user.uid}/history`, entryId), { recipes: sanitizedRecipes });
+      await updateDoc(doc(db, `users/${user.uid}/history`, entryId), {
+        recipes: sanitizedRecipes,
+        generationStatus: "completed",
+        generationMessage: null,
+        completedAt: new Date().toISOString()
+      });
     } catch (error) {
       if (isFirestoreQuotaError(error)) {
         logger.warn("Skipping batched history recipe persistence after Firestore throttling", { entryId });
@@ -169,6 +188,19 @@ export function useHistory(): UseHistoryResult {
       }
       throw error;
     }
+  };
+
+  const updateEntryStatus = async (
+    entryId: string,
+    status: NonNullable<HistoryItem["generationStatus"]>,
+    message?: string
+  ) => {
+    if (!user) return;
+    await updateDoc(doc(db, `users/${user.uid}/history`, entryId), stripUndefined({
+      completedAt: status === "completed" ? new Date().toISOString() : undefined,
+      generationMessage: message ?? null,
+      generationStatus: status
+    }));
   };
 
   const updateRecipeImage = async (
@@ -244,6 +276,7 @@ export function useHistory(): UseHistoryResult {
     error: state.error,
     addEntry,
     replaceEntryRecipes,
+    updateEntryStatus,
     updateRecipeImage,
     removeEntry,
     clear

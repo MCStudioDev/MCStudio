@@ -128,6 +128,9 @@ export interface HistoryItem {
   timestamp: string;
   ingredients: string[];
   recipes: Recipe[];
+  generationStatus?: "pending" | "completed" | "failed";
+  generationMessage?: string;
+  completedAt?: string;
 }
 
 export interface HealthProfile {

@@ -1,7 +1,6 @@
 "use client";
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { motion } from "framer-motion";
 import { ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -28,6 +27,7 @@ const PREMIUM_REPLICATE_MAX_RETRIES = 4;
 const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
 const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
 const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
+const PENDING_RECIPE_HISTORY_STORAGE_KEY = "nutrimoment.pendingRecipeHistoryIds";
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -49,6 +49,28 @@ function createScannerIngredient(name: string): ScannerIngredient {
   };
 }
 
+function readPendingRecipeHistoryIds() {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PENDING_RECIPE_HISTORY_STORAGE_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberPendingRecipeHistoryId(entryId: string) {
+  if (typeof window === "undefined") return;
+  const next = Array.from(new Set([...readPendingRecipeHistoryIds(), entryId]));
+  window.localStorage.setItem(PENDING_RECIPE_HISTORY_STORAGE_KEY, JSON.stringify(next));
+}
+
+function forgetPendingRecipeHistoryId(entryId: string) {
+  if (typeof window === "undefined") return;
+  const next = readPendingRecipeHistoryIds().filter((item) => item !== entryId);
+  window.localStorage.setItem(PENDING_RECIPE_HISTORY_STORAGE_KEY, JSON.stringify(next));
+}
+
 function getRecipeIngredientLabel(ingredient: unknown) {
   if (typeof ingredient === "string") return ingredient;
 
@@ -64,14 +86,17 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 export function ScannerTab() {
-  const { t, settings, health, setError, rtl } = useApp();
+  const { t, settings, health, setError, setNotice, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
-  const { addEntry, replaceEntryRecipes, updateRecipeImage } = useHistory();
+  const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
+  const scannerInputRef = useRef<HTMLInputElement | null>(null);
   const recipeRequestVersionRef = useRef(0);
+  const notifiedHistoryEntriesRef = useRef<Set<string>>(new Set());
   const [manualEntry, setManualEntry] = useState("");
   const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
   const [lastScanImage, setLastScanImage] = useState<string | null>(null);
   const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
+  const [scannerInputKey, setScannerInputKey] = useState(0);
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -413,6 +438,42 @@ export function ScannerTab() {
     };
   }, [scanPreviewUrl]);
 
+  useEffect(() => {
+    const pendingIds = readPendingRecipeHistoryIds();
+    if (!pendingIds.length) return;
+
+    const completedEntry = historyItems.find(
+      (entry) =>
+        pendingIds.includes(entry.id) &&
+        entry.generationStatus === "completed" &&
+        entry.recipes.length > 0 &&
+        !notifiedHistoryEntriesRef.current.has(entry.id)
+    );
+    if (completedEntry) {
+      notifiedHistoryEntriesRef.current.add(completedEntry.id);
+      forgetPendingRecipeHistoryId(completedEntry.id);
+      setHistoryEntryId(completedEntry.id);
+      setRecipes(completedEntry.recipes);
+      setRecipeLoading(false);
+      setNotice(t("backgroundRecipesReady"));
+      void hydrateRecipePhotos(completedEntry.recipes, completedEntry.id, recipeRequestVersionRef.current);
+      return;
+    }
+
+    const failedEntry = historyItems.find(
+      (entry) =>
+        pendingIds.includes(entry.id) &&
+        entry.generationStatus === "failed" &&
+        !notifiedHistoryEntriesRef.current.has(entry.id)
+    );
+    if (failedEntry) {
+      notifiedHistoryEntriesRef.current.add(failedEntry.id);
+      forgetPendingRecipeHistoryId(failedEntry.id);
+      setRecipeLoading(false);
+      setError(failedEntry.generationMessage ?? t("backgroundRecipesFailed"));
+    }
+  }, [historyItems, hydrateRecipePhotos, setError, setNotice, t]);
+
   const dismissOnboarding = () => {
     localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
     setShowOnboarding(false);
@@ -438,6 +499,9 @@ export function ScannerTab() {
   const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
+    event.currentTarget.blur();
+    scannerInputRef.current?.blur();
+    setScannerInputKey((current) => current + 1);
     if (!file) return;
 
     const previewUrl = URL.createObjectURL(file);
@@ -508,13 +572,27 @@ export function ScannerTab() {
     const requestVersion = recipeRequestVersionRef.current + 1;
     recipeRequestVersionRef.current = requestVersion;
     setRecipeLoading(true);
+    let pendingEntryId: string | null = null;
     try {
       const ingredientNames = ingredients.map((item) => item.name);
+      pendingEntryId = await addEntry({
+        timestamp: new Date().toISOString(),
+        ingredients: ingredientNames,
+        recipes: [],
+        generationStatus: "pending",
+        generationMessage: t("backgroundRecipesQueued")
+      });
+      setHistoryEntryId(pendingEntryId);
+      if (pendingEntryId) {
+        rememberPendingRecipeHistoryId(pendingEntryId);
+        setNotice(t("backgroundRecipesQueued"));
+      }
       const response = await fetch("/api/generate-recipes", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           ingredients: ingredientNames.length ? ingredientNames : undefined,
+          historyEntryId: pendingEntryId ?? undefined,
           referenceImage: lastScanImage ?? undefined,
           recipeCount: settings.recipeCount,
           uiLanguage: settings.uiLanguage,
@@ -551,15 +629,14 @@ export function ScannerTab() {
         setHistoryEntryId(null);
         return;
       }
-      const entryId = await addEntry({
-        timestamp: new Date().toISOString(),
-        ingredients: ingredientNames,
-        recipes: nextRecipes
-      });
-      setHistoryEntryId(entryId);
-      void hydrateRecipePhotos(nextRecipes, entryId, requestVersion);
+      setHistoryEntryId(pendingEntryId);
+      void hydrateRecipePhotos(nextRecipes, pendingEntryId, requestVersion);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Recipe generation failed";
+      if (pendingEntryId) {
+        await updateEntryStatus(pendingEntryId, "failed", message);
+        forgetPendingRecipeHistoryId(pendingEntryId);
+      }
       setError(message);
     } finally {
       setRecipeLoading(false);
@@ -638,10 +715,13 @@ export function ScannerTab() {
               <label htmlFor="scanner-photo-upload" className="block">
                 <span className="sr-only">{t("uploadFridgePhoto")}</span>
                 <input
+                  key={scannerInputKey}
+                  ref={scannerInputRef}
                   id="scanner-photo-upload"
                   name="scanner-photo-upload"
                   type="file"
                   accept="image/*"
+                  capture="environment"
                   className="sr-only"
                   onChange={handleImageUpload}
                   aria-label={t("uploadFridgePhoto")}
@@ -649,13 +729,12 @@ export function ScannerTab() {
                 <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[1.25rem] border border-dashed border-white/12 bg-white/[0.04] px-5 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
                   {scanPreviewUrl ? (
                     <span className="relative h-32 w-full overflow-hidden rounded-[1rem] border border-white/10 bg-black/20">
-                      <Image
+                      {/* Browser object URLs from camera uploads should render without Next image optimization. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
                         src={scanPreviewUrl}
                         alt={t("scannerImagePreviewAlt")}
-                        fill
-                        sizes="(min-width: 1024px) 34rem, 100vw"
-                        className="object-cover"
-                        unoptimized
+                        className="h-full w-full object-cover"
                       />
                       {scanLoading ? (
                         <span className="absolute inset-0 flex items-center justify-center bg-black/38 text-xs font-semibold text-white">

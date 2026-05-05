@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Calendar, Camera, ChefHat, Heart, History, LogOut, Menu, MoonStar, Settings, ShoppingCart, SunMedium, X } from "lucide-react";
+import { Bell, Calendar, Camera, ChefHat, Heart, History, LogOut, Menu, MoonStar, Settings, ShoppingCart, SunMedium, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,7 +30,7 @@ const TABS: { id: Tab; icon: typeof ChefHat; key: Parameters<ReturnType<typeof u
 
 export function TopNav({ activeTab, onTabChange }: TopNavProps) {
   const { user, access, signOut } = useAuth();
-  const { t, language, rtl, setLanguage, settings, saveSettings } = useApp();
+  const { t, language, notice, rtl, setLanguage, setNotice, settings, saveSettings } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
@@ -107,6 +107,18 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                 </p>
               </div>
             </div>
+
+            {notice ? (
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                className="focus-ring theme-topbar-control flex min-w-0 max-w-[8.5rem] items-center gap-1.5 rounded-[0.9rem] border border-emerald-200/18 bg-emerald-300/12 px-2 py-2 text-start text-[10px] font-semibold text-emerald-50 transition-ui hover:bg-emerald-300/18 sm:max-w-[18rem] sm:gap-2 sm:rounded-2xl sm:px-3 sm:text-[11px]"
+                title={notice}
+              >
+                <Bell className="h-3.5 w-3.5 shrink-0 text-cyan-100" aria-hidden="true" />
+                <span className="truncate">{notice}</span>
+              </button>
+            ) : null}
 
             <div className="theme-topbar-control flex h-9 max-w-[5.2rem] shrink-0 items-center gap-1 rounded-[0.9rem] border border-white/10 px-2 text-[10px] font-semibold sm:h-10 sm:max-w-none sm:gap-2 sm:rounded-2xl sm:px-3 sm:text-[11px]">
               <span className="theme-topbar-accent uppercase tracking-[0.14em]">{access.tier}</span>

@@ -43,6 +43,8 @@ interface AppContextValue {
   loadingProfile: boolean;
   error: string | null;
   setError: (msg: string | null) => void;
+  notice: string | null;
+  setNotice: (msg: string | null) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -135,6 +137,7 @@ export function AppProvider({ children }: AppProviderProps) {
   const { user } = useAuth();
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const loadProfileForUser = useCallback(async () => {
     if (!user) {
@@ -262,9 +265,11 @@ export function AppProvider({ children }: AppProviderProps) {
       t,
       loadingProfile: user ? state.loadingProfile : false,
       error,
-      setError
+      setError,
+      notice,
+      setNotice
     }),
-    [settings, saveSettings, health, saveHealth, setLanguage, t, state.loadingProfile, error, user]
+    [settings, saveSettings, health, saveHealth, setLanguage, t, state.loadingProfile, error, notice, user]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

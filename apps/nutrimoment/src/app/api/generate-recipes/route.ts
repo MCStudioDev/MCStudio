@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FieldValue } from "firebase-admin/firestore";
 import {
   buildPlateRecipeMatchVisionPrompt,
   buildPromptOnlyRecipeGenerationPrompt,
@@ -42,6 +43,7 @@ import {
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
 import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
+import { getAdminDb } from "@/lib/firebaseAdmin";
 import { ensureArabicRecipeLanguage, isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
@@ -148,14 +150,17 @@ const requestSchema = z.object({
   maxMissingIngredients: z.number().optional(),
   diets: z.array(z.string()).optional(),
   conditions: z.array(z.string()).optional(),
-  allergens: z.array(z.string()).optional()
-}).refine((value) => Boolean(value.ingredients?.length || value.prompt), {
+  allergens: z.array(z.string()).optional(),
+  historyEntryId: z.string().min(1).max(160).optional()
+}).refine((value) => Boolean(value.ingredients?.length || value.prompt || value.referenceImage), {
   message: "Provide ingredients or a prompt."
 });
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
+  let historyEntryId: string | undefined;
+  let historyUid: string | undefined;
   logger.info("Recipe generation HTTP request received", { requestId });
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
@@ -177,6 +182,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    historyEntryId = parsed.data.historyEntryId;
+    historyUid = requestAccess.uid;
 
     const ingredients = (parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""))
       .map((ingredient) => ingredient.trim())
@@ -294,6 +301,12 @@ export async function POST(request: Request) {
         recipeLanguage,
         recipes: finalRecipes
       });
+      await persistRecipeGenerationHistoryEntry({
+        historyEntryId,
+        recipes: finalRecipes,
+        status: "completed",
+        uid: requestAccess.uid
+      });
       return Response.json({
         recipes: finalRecipes,
         result: JSON.stringify(finalRecipes),
@@ -347,6 +360,12 @@ export async function POST(request: Request) {
         uid: requestAccess.uid,
         recipeLanguage,
         recipes: finalRecipes
+      });
+      await persistRecipeGenerationHistoryEntry({
+        historyEntryId,
+        recipes: finalRecipes,
+        status: "completed",
+        uid: requestAccess.uid
       });
       logger.info("Recipe generation request completed", {
         ...aiTraceSummary,
@@ -449,6 +468,12 @@ export async function POST(request: Request) {
           recipeLanguage,
           recipes: finalRecipes
         });
+        await persistRecipeGenerationHistoryEntry({
+          historyEntryId,
+          recipes: finalRecipes,
+          status: "completed",
+          uid: requestAccess.uid
+        });
         logger.info("Recipe generation served from Gemini fallback AI", {
           recipeCount: finalRecipes.length,
           hasExactScanMatch: Boolean(exactScanMatch)
@@ -499,6 +524,12 @@ export async function POST(request: Request) {
       recipeLanguage,
       recipes: finalRecipes
     });
+    await persistRecipeGenerationHistoryEntry({
+      historyEntryId,
+      recipes: finalRecipes,
+      status: "completed",
+      uid: requestAccess.uid
+    });
     logger.info("Recipe generation request completed", {
       ...aiTraceSummary,
       servedFrom: "shared_pool",
@@ -533,11 +564,66 @@ export async function POST(request: Request) {
     const safeMessage = isTransientModelError(error)
       ? getClientFacingAiErrorMessage(error, "Recipe generation is temporarily unavailable. Please try again in a few minutes.")
       : message;
+    await persistRecipeGenerationHistoryEntry({
+      errorMessage: safeMessage,
+      historyEntryId,
+      recipes: [],
+      status: "failed",
+      uid: historyUid
+    });
     return Response.json(
       { error: safeMessage },
       { status }
     );
   }
+}
+
+async function persistRecipeGenerationHistoryEntry(input: {
+  errorMessage?: string;
+  historyEntryId?: string;
+  recipes: Recipe[];
+  status: "completed" | "failed";
+  uid?: string;
+}) {
+  if (!input.uid || !input.historyEntryId) return;
+
+  try {
+    const now = new Date().toISOString();
+    await getAdminDb()
+      .doc(`users/${input.uid}/history/${input.historyEntryId}`)
+      .set(
+        stripUndefinedDeep({
+          completedAt: input.status === "completed" ? now : undefined,
+          generationMessage: input.errorMessage,
+          generationStatus: input.status,
+          recipes: input.status === "completed" ? input.recipes : undefined,
+          updatedAt: FieldValue.serverTimestamp()
+        }),
+        { merge: true }
+      );
+  } catch (error) {
+    logger.warn("Recipe generation history persistence failed", {
+      historyEntryId: input.historyEntryId,
+      status: input.status,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripUndefinedDeep(entry)) as T;
+  }
+
+  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
+    ) as T;
+  }
+
+  return value;
 }
 
 function extractIngredientsFromPrompt(prompt: string): string[] {

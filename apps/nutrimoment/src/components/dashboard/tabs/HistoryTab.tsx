@@ -153,8 +153,22 @@ export function HistoryTab() {
                   </button>
                 </div>
 
-                <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
-                  {entry.recipes.map((recipe, recipeIndex) => (
+                {entry.generationStatus === "pending" && !entry.recipes.length ? (
+                  <div className="rounded-[1.4rem] border border-cyan-200/18 bg-cyan-300/10 px-4 py-5 text-sm font-semibold text-cyan-50">
+                    <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent align-[-0.2rem]" />
+                    {entry.generationMessage ?? t("backgroundRecipesQueued")}
+                  </div>
+                ) : null}
+
+                {entry.generationStatus === "failed" && !entry.recipes.length ? (
+                  <div className="rounded-[1.4rem] border border-red-200/18 bg-red-400/10 px-4 py-5 text-sm font-semibold text-red-50">
+                    {entry.generationMessage ?? t("backgroundRecipesFailed")}
+                  </div>
+                ) : null}
+
+                {entry.recipes.length ? (
+                  <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+                    {entry.recipes.map((recipe, recipeIndex) => (
                     <MealRevealCard
                       key={`${entry.id}-${recipe.id ?? recipeIndex}`}
                       deferImageLookup={access.tier === "premium" ? !(entryIndex === 0 && recipeIndex < 3) : false}
@@ -197,8 +211,9 @@ export function HistoryTab() {
                       stats={buildRecipeStats(recipe)}
                       sections={buildRecipeSections(recipe, t)}
                     />
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : null}
               </Card>
             ))}
             {!filteredItems.length ? (

@@ -875,13 +875,14 @@ function buildRecipeStats(recipe: Recipe) {
 }
 
 function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  const isArabicRecipe = containsArabicText(`${recipe.name} ${recipe.cuisine}`);
   const originLabel =
     recipe.recipe_origin === "exact_scan_match"
       ? t("exactScannedDish")
       : recipe.recipe_origin === "similar_ingredients"
         ? t("similarIngredients")
         : null;
-  const dishStyle = [recipe.dish_intent?.meal_type, recipe.dish_intent?.cooking_method].filter(Boolean).join(" ");
+  const dishStyle = formatRecipeDishStyle(recipe, isArabicRecipe);
   const preferenceHits = recipe.preference_hits?.length
     ? t("preferenceMatches").replace("{count}", String(recipe.preference_hits.length))
     : null;
@@ -890,8 +891,60 @@ function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
       ? recipe.scan_match_explanation
       : null;
 
-  return [originLabel, recipe.cuisine, dishStyle, recipe.match_quality, preferenceHits, scanExplanation].filter(Boolean).join(" / ");
+  return [
+    originLabel,
+    recipe.cuisine,
+    dishStyle,
+    formatRecipeMatchQuality(recipe.match_quality, isArabicRecipe),
+    preferenceHits,
+    scanExplanation
+  ].filter(Boolean).join(" / ");
 }
+
+function formatRecipeDishStyle(recipe: Recipe, isArabicRecipe: boolean) {
+  const mealType = recipe.dish_intent?.meal_type;
+  const cookingMethod = recipe.dish_intent?.cooking_method;
+  const genericCookingMethod = cookingMethod === "assembled";
+  const values = [mealType, genericCookingMethod ? undefined : cookingMethod].filter(Boolean) as string[];
+  if (!values.length) return null;
+  if (!isArabicRecipe) return values.join(" ");
+
+  const translated = values
+    .map((value) => ARABIC_DISH_STYLE_LABELS[value.toLowerCase()] ?? "")
+    .filter(Boolean);
+
+  return translated.length ? translated.join(" ") : null;
+}
+
+function formatRecipeMatchQuality(matchQuality: Recipe["match_quality"], isArabicRecipe: boolean) {
+  if (!matchQuality) return null;
+  if (!isArabicRecipe) return matchQuality;
+  return ARABIC_MATCH_QUALITY_LABELS[matchQuality] ?? null;
+}
+
+function containsArabicText(value: string) {
+  return /[\u0600-\u06FF]/.test(value);
+}
+
+const ARABIC_DISH_STYLE_LABELS: Record<string, string> = {
+  breakfast: "فطور",
+  lunch: "غداء",
+  dinner: "عشاء",
+  snack: "وجبة خفيفة",
+  grilled: "مشوي",
+  baked: "مخبوز",
+  fried: "مقلي",
+  "stir-fried": "سوتيه",
+  simmered: "مطهو بهدوء",
+  skillet: "في المقلاة"
+};
+
+const ARABIC_MATCH_QUALITY_LABELS: Record<NonNullable<Recipe["match_quality"]>, string> = {
+  great: "مطابقة ممتازة",
+  good: "مطابقة جيدة",
+  possible: "مطابقة ممكنة",
+  stretch: "مطابقة ضعيفة"
+};
 
 function buildRecipePreviewItems(recipe: Recipe) {
   return [...recipe.ingredients, ...recipe.missing_ingredients].map(getRecipeIngredientLabel).slice(0, 5);

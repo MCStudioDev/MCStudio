@@ -160,6 +160,7 @@ export async function GET(request: Request) {
     ? selectReplicateRecipePhotoQuery(queryCandidates, identities, ingredientHints)
     : null;
   const selectedReplicateSignature = selectedReplicateQuery ? buildGeneratedRecipePhotoSignature(selectedReplicateQuery) : null;
+  const allowProviderPhotoSearch = accessCheck.allowed || !useReplicateGeneration;
   const signatureCandidates = useReplicateGeneration
     ? selectedReplicateSignature
       ? [selectedReplicateSignature]
@@ -171,9 +172,9 @@ export async function GET(request: Request) {
       ...buildLegacyExactRecipePhotoCacheCandidates(queryCandidates, identities)
     ])
   );
-  const imageMode = useReplicateGeneration ? "generated" : accessCheck.allowed ? "search" : "disabled";
+  const imageMode = useReplicateGeneration ? "generated" : allowProviderPhotoSearch ? "search" : "disabled";
   const forceUnsplashFirst =
-    !useReplicateGeneration && accessCheck.allowed && isUnsplashRecipePhotoSearchConfigured();
+    !useReplicateGeneration && allowProviderPhotoSearch && isUnsplashRecipePhotoSearchConfigured();
   const premiumFailureScope =
     useReplicateGeneration && ingredientHints.length
       ? `::ingredients:${ingredientHints.join("|")}`
@@ -340,7 +341,7 @@ export async function GET(request: Request) {
     }
 
     const lookupPromise = performRecipePhotoLookup({
-      accessAllowed: accessCheck.allowed,
+      accessAllowed: allowProviderPhotoSearch,
       failureCacheKey,
       imageMode,
       identities,

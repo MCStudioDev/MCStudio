@@ -42,7 +42,7 @@ import {
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
 import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
-import { isArabicRecipeLanguage, localizeRecipeForArabic } from "@/lib/arabicRecipeLocalization";
+import { ensureArabicRecipeLanguage, isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
@@ -245,7 +245,7 @@ export async function POST(request: Request) {
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const prepareRecipes = (recipes: Recipe[]) =>
-      (wantsArabic ? recipes.map(localizeRecipeForArabic) : recipes).map((recipe) =>
+      (wantsArabic ? recipes.map(ensureArabicRecipeLanguage) : recipes).map((recipe) =>
         ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
       );
     const finalizeRecipes = (recipes: Recipe[]) =>
@@ -257,7 +257,8 @@ export async function POST(request: Request) {
             : enforcePreferredCuisineRecipes(
                 recipes,
                 parsed.data.preferredCuisine,
-                parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict"
+                parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
+                recipeCount
               ),
             requestRestriction,
             recipeCount
@@ -1181,10 +1182,11 @@ function scoreStrictRecipe(
 function enforcePreferredCuisineRecipes(
   recipes: Recipe[],
   preferredCuisine?: string,
-  mode: "strict" | "preserve_exact_scan_match" = "strict"
+  mode: "strict" | "preserve_exact_scan_match" = "strict",
+  recipeCount = recipes.length
 ) {
   if (!preferredCuisine || preferredCuisine === "Any") {
-    return recipes;
+    return recipes.slice(0, recipeCount);
   }
 
   const preservedExactMatches = mode === "preserve_exact_scan_match"
@@ -1193,7 +1195,7 @@ function enforcePreferredCuisineRecipes(
   const cuisineMatchedRecipes = recipes.filter((recipe) => cuisineMatchesPreference(recipe.cuisine, preferredCuisine));
 
   if (!cuisineMatchedRecipes.length) {
-    return recipes;
+    return recipes.slice(0, recipeCount);
   }
 
   const filtered = [...preservedExactMatches];
@@ -1208,9 +1210,24 @@ function enforcePreferredCuisineRecipes(
     if (!key || seen.has(key)) continue;
     seen.add(key);
     filtered.push(recipe);
+    if (filtered.length >= recipeCount) {
+      break;
+    }
   }
 
-  return filtered;
+  if (filtered.length < recipeCount) {
+    for (const recipe of recipes) {
+      const key = recipe.id ?? recipe.name.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      filtered.push(recipe);
+      if (filtered.length >= recipeCount) {
+        break;
+      }
+    }
+  }
+
+  return filtered.slice(0, recipeCount);
 }
 
 function buildHardRequestRestrictionContext(
@@ -1488,7 +1505,20 @@ function diversifyAnyCuisineRecipes(recipes: Recipe[], recipeCount: number, inpu
     }
   }
 
-  return diversified;
+  if (diversified.length < recipeCount) {
+    const selectedKeys = new Set(diversified.map((recipe) => recipe.id ?? recipe.name.trim().toLowerCase()));
+    for (const recipe of recipes) {
+      const key = recipe.id ?? recipe.name.trim().toLowerCase();
+      if (!key || selectedKeys.has(key)) continue;
+      diversified.push(recipe);
+      selectedKeys.add(key);
+      if (diversified.length >= recipeCount) {
+        break;
+      }
+    }
+  }
+
+  return diversified.slice(0, recipeCount);
 }
 
 function selectStructurallyVariedRankedRecipes(limit: number) {

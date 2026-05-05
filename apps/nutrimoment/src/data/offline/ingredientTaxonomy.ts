@@ -280,7 +280,7 @@ export const OFFLINE_INGREDIENT_TAXONOMY: IngredientLexiconDoc[] = [
         values: ["عدس"]
       }
     ],
-    misspellings: [],
+    misspellings: ["\u0639\u0646\u0633"],
     relatedCanonicals: ["chickpeas"],
     isActive: true
   },
@@ -554,6 +554,21 @@ export const OFFLINE_INGREDIENT_TAXONOMY: IngredientLexiconDoc[] = [
     ],
     misspellings: [],
     relatedCanonicals: [],
+    isActive: true
+  },
+  {
+    id: "ingredient-shrimp",
+    canonical: "shrimp",
+    category: "protein",
+    broadCategory: "seafood",
+    dietCompatibility: ["high-protein", "gluten-free"],
+    commonSubstitutes: ["prawns", "white fish"],
+    variants: [
+      { locale: "en", values: ["shrimp", "shrimps", "prawn", "prawns"] },
+      { locale: "ar", values: ["جمبري", "روبيان", "قريدس"] }
+    ],
+    misspellings: [],
+    relatedCanonicals: ["salmon"],
     isActive: true
   },
   {

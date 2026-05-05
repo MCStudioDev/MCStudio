@@ -1,5 +1,6 @@
 import type { Recipe, MealPlanMeal } from "@/lib/types";
 import { normalizeCuisineLabel } from "@/lib/cuisines";
+import { OFFLINE_RECIPES } from "@/data/offline/recipes";
 import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
 import type { RankedRecipeResult, RecipeCatalogDoc, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
 import { buildPreferenceProfile } from "@/lib/preferences";
@@ -16,6 +17,7 @@ import {
 import { expandIngredientFamilies } from "@/lib/ingredientFamilies";
 import {
   isArabicRecipeLanguage,
+  ensureArabicRecipeLanguage,
   localizeRecipeForArabic,
   localizeRecipeForEnglish,
   translateIngredientToArabic,
@@ -24,7 +26,11 @@ import {
 import { enrichRecipeWithDishIntent } from "@/lib/recipeDishIntelligence";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { rankRecipes } from "@/services/rankingService";
-import { listSharedCachedRecipes } from "@/services/userRecipeCacheService";
+import {
+  listSharedCachedRecipes,
+  listSharedCachedRecipesForIngredients,
+  listUserCachedRecipes
+} from "@/services/userRecipeCacheService";
 
 export interface CatalogRecipeSearchInput {
   ingredients: string[];
@@ -55,8 +61,15 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     allergens: input.allergens ?? []
   } satisfies UserPreferenceSnapshot);
 
-  const sharedCachedRecipes = await listSharedCachedRecipes();
-  const primaryRecipePool = dedupeCatalogRecipes(sharedCachedRecipes);
+  const [userCachedRecipes, ingredientSharedCachedRecipes] = await Promise.all([
+    listUserCachedRecipes(input.uid),
+    listSharedCachedRecipesForIngredients(expandedNormalizedIngredients)
+  ]);
+  const sharedCachedRecipes = ingredientSharedCachedRecipes.length
+    ? ingredientSharedCachedRecipes
+    : await listSharedCachedRecipes();
+  const seededRecipes = OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe));
+  const primaryRecipePool = dedupeCatalogRecipes([...userCachedRecipes, ...sharedCachedRecipes, ...seededRecipes]);
   const ranked = rankRecipes({
     recipes: primaryRecipePool,
     normalizedIngredients: expandedNormalizedIngredients,
@@ -65,7 +78,10 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     mealType: input.mealType,
     preferences
   });
-  const rankedResults = ranked;
+  const ingredientMatchedRanked = ranked.filter(
+    (result) => result.matchedRequiredCount + result.matchedOptionalCount > 0
+  );
+  const rankedResults = ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked;
   const rankedRecipePool = primaryRecipePool;
 
   const limit = input.maxResults ?? 3;
@@ -335,7 +351,7 @@ function buildStrictArabicFallbackRecipe(input: {
   englishBase: Recipe;
   localizedRecipe: Recipe;
 }) {
-  const localizedFallback = localizeRecipeForArabic({
+  const localizedFallback = ensureArabicRecipeLanguage({
     ...input.englishBase,
     name: buildSharedRecipeEnglishTitle(input.recipeTitleSource),
     cuisine: normalizeEnglishCuisineLabel(input.englishBase.cuisine)

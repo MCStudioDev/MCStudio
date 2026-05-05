@@ -144,6 +144,7 @@ export interface HealthProfile {
   diets: string[];
   conditions: string[];
   allergens?: string[];
+  ageYears?: number | null;
   weightKg?: number | null;
   heightCm?: number | null;
 }

@@ -43,6 +43,7 @@ interface MealRevealStat {
 interface MealRevealCardProps {
   disableAutoImageLookup?: boolean;
   deferImageLookup?: boolean;
+  imageLookupVersion?: number;
   name: string;
   imageUrl?: string;
   imageSource?: RecipeImageSource;
@@ -73,6 +74,7 @@ interface MealRevealCardProps {
 export function MealRevealCard({
   disableAutoImageLookup = false,
   deferImageLookup = false,
+  imageLookupVersion = 0,
   name,
   imageUrl,
   imageLoading,
@@ -137,6 +139,28 @@ export function MealRevealCard({
     (candidate?: string) => Boolean(candidate && failedImageUrls.has(candidate)),
     [failedImageUrls]
   );
+
+  useEffect(() => {
+    if (!imageLookupVersion || !queryKey) return;
+    premiumRetryCountsRef.current.delete(queryKey);
+    const timeout = globalThis.setTimeout(() => {
+      setLookupState((current) => {
+        if (current.queryKey !== queryKey || (!current.failed && !current.retrying)) return current;
+        return {
+          failed: false,
+          imageAttributionName: undefined,
+          imageAttributionUrl: undefined,
+          image: "",
+          imageSource: undefined,
+          queryKey,
+          retrying: false
+        };
+      });
+      setLookupActivated(true);
+      setLookupRetryToken((value) => value + 1);
+    }, 0);
+    return () => globalThis.clearTimeout(timeout);
+  }, [imageLookupVersion, queryKey]);
   const cachedImageEntry = !bypassClientCache && queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
   const cachedImage =
     isInternetImageUrl(cachedImageEntry?.imageUrl) &&

@@ -28,8 +28,8 @@ import { isRtl, t as translate, type TranslationKey } from "@/lib/translations";
 
 const DEFAULT_SETTINGS: UserSettings = {
   calorieTarget: 2000,
-  preferredCuisine: "Any",
-  maxMissingIngredients: 2,
+  preferredCuisine: "Egyptian",
+  maxMissingIngredients: 3,
   recipeCount: 5,
   uiLanguage: "en",
   themeMode: "auroraDark",
@@ -41,7 +41,8 @@ const DEFAULT_HEALTH: HealthProfile = {
   diets: [],
   conditions: [],
   allergens: [],
-  weightKg: null,
+  ageYears: 30,
+  weightKg: 75,
   heightCm: null
 };
 const MAX_USER_NOTIFICATIONS = 50;
@@ -147,6 +148,7 @@ function normalizeHealth(raw: Partial<HealthProfile> | undefined): HealthProfile
     diets: Array.isArray(raw?.diets) ? raw.diets : [],
     conditions: Array.isArray(raw?.conditions) ? raw.conditions : [],
     allergens: Array.isArray(raw?.allergens) ? raw.allergens : [],
+    ageYears: normalizeMetric(raw?.ageYears, 120) ?? DEFAULT_HEALTH.ageYears,
     weightKg: normalizeMetric(raw?.weightKg, 400),
     heightCm: normalizeMetric(raw?.heightCm, 260)
   };
@@ -276,6 +278,7 @@ export function AppProvider({ children }: AppProviderProps) {
         diets: next.diets ?? health.diets,
         conditions: next.conditions ?? health.conditions,
         allergens: next.allergens ?? health.allergens ?? [],
+        ageYears: next.ageYears ?? health.ageYears ?? DEFAULT_HEALTH.ageYears,
         weightKg: next.weightKg ?? health.weightKg ?? null,
         heightCm: next.heightCm ?? health.heightCm ?? null
       });

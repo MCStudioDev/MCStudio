@@ -2,7 +2,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from "react";
 import {
-  addDoc,
   collection,
   deleteDoc,
   deleteField,
@@ -309,10 +308,11 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const addNotification = useCallback(
     (message: string, language = settings.uiLanguage) => {
-      const id =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
+      const notificationRef = user ? doc(collection(db, `users/${user.uid}/notifications`)) : null;
+      const id = notificationRef?.id ??
+        (typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random()}`;
+          : `${Date.now()}-${Math.random()}`);
       const notification = {
         id,
         createdAt: new Date().toISOString(),
@@ -322,15 +322,16 @@ export function AppProvider({ children }: AppProviderProps) {
 
       setNotifications((current) => [notification, ...current].slice(0, MAX_USER_NOTIFICATIONS));
 
-      if (!user) return;
-      void addDoc(collection(db, `users/${user.uid}/notifications`), {
+      if (!user || !notificationRef) return;
+      void setDoc(notificationRef, {
         createdAt: serverTimestamp(),
         createdAtIso: notification.createdAt,
         language: notification.language,
         message: notification.message
-      })
+      }, { merge: true })
         .then(() => pruneNotificationsToLatestLimit(user.uid))
         .catch((error) => {
+          if (isAlreadyExistsError(error)) return;
           const errorMessage = error instanceof Error ? error.message : "Failed to save notification";
           setError(errorMessage);
         });
@@ -431,6 +432,11 @@ async function pruneNotificationsToLatestLimit(uid: string) {
     docs.forEach((item) => batch.delete(item.ref));
     await batch.commit();
   }
+}
+
+function isAlreadyExistsError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /already exists|already-exists|ALREADY_EXISTS/i.test(message);
 }
 
 async function clearUserNotifications(uid: string) {

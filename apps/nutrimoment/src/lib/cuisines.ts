@@ -12,6 +12,24 @@ export const CUISINE_OPTIONS = [
   "Turkish"
 ] as const;
 
+const ARABIC_CUISINE_LABELS: Record<string, string> = {
+  American: "أمريكي",
+  Any: "أي مطبخ",
+  Asian: "آسيوي",
+  Egyptian: "مصري",
+  Global: "عالمي",
+  Indian: "هندي",
+  Italian: "إيطالي",
+  "Italian-American": "إيطالي أمريكي",
+  "Latin American": "لاتيني",
+  Mediterranean: "متوسطي",
+  Mexican: "مكسيكي",
+  "Middle Eastern": "شرق أوسطي",
+  Thai: "تايلندي",
+  Turkish: "تركي",
+  Unknown: "غير محدد"
+};
+
 const CUISINE_GROUPS: Record<string, string[]> = {
   any: ["any"],
   egyptian: ["egyptian", "middleeastern", "middle eastern", "mediterranean", "arabic"],
@@ -64,6 +82,12 @@ export function normalizeCuisineLabel(value: string) {
     default:
       return value;
   }
+}
+
+export function getCuisineDisplayLabel(value: string | undefined | null, language?: string) {
+  const normalized = normalizeCuisineLabel(value ?? "Any");
+  if (language !== "ar") return normalized;
+  return ARABIC_CUISINE_LABELS[normalized] ?? normalized;
 }
 
 function normalizeCuisineKey(value: string) {

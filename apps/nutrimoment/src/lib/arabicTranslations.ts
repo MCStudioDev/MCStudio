@@ -3,6 +3,7 @@ export const arabicTranslations: Record<string, string> = {
   backgroundRecipesQueued: "بدأ توليد الوصفات. سيتم حفظ النتائج في السجل.",
   backgroundRecipesReady: "الوصفات جاهزة في السجل.",
   backgroundRecipesFailed: "لم يكتمل توليد الوصفات. حاول مرة أخرى.",
+  backgroundRecipesContinuingInHistory: "أوقف المتصفح الطلب المباشر، لكن قد يكتمل توليد الوصفات في السجل. سنخبرك عند جاهزيتها.",
   notifications: "الإشعارات",
   noNotifications: "لا توجد إشعارات بعد",
   dismissNotification: "إخفاء الإشعار",

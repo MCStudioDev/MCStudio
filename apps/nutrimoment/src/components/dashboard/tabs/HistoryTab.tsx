@@ -14,12 +14,13 @@ import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { containerVariants, itemVariants } from "@/lib/animations";
+import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import { formatDate } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
 export function HistoryTab() {
-  const { t, setError } = useApp();
+  const { t, setError, settings } = useApp();
   const { access, user } = useAuth();
   const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
@@ -175,7 +176,7 @@ export function HistoryTab() {
                       eyebrow={getRecipeEyebrow(recipe, t)}
                       name={recipe.name}
                       visualMatchLabel={recipe.visual_match_label}
-                      summary={buildRecipeSummary(recipe, t)}
+                      summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                       previewLabel={getRecipePreviewLabel(recipe, t)}
                       previewItems={buildRecipePreviewItems(recipe)}
                       imageUrl={recipe.image_url}
@@ -313,8 +314,9 @@ function buildRecipeStats(recipe: Recipe) {
   ];
 }
 
-function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"], language: string) {
   const isArabicRecipe = containsArabicText(`${recipe.name} ${recipe.cuisine}`);
+  const cuisineLabel = getCuisineDisplayLabel(recipe.cuisine, language === "ar" || isArabicRecipe ? "ar" : language);
   const originLabel =
     recipe.recipe_origin === "exact_scan_match"
       ? t("exactScannedDish")
@@ -332,7 +334,7 @@ function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
 
   return [
     originLabel,
-    recipe.cuisine,
+    cuisineLabel,
     dishStyle,
     formatRecipeMatchQuality(recipe.match_quality, isArabicRecipe),
     preferenceHits,

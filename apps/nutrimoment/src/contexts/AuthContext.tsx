@@ -39,6 +39,7 @@ const DEFAULT_ACCESS: UserAccessState = {
   aiCreditsRemaining: 5,
   loading: true
 };
+const FIREBASE_CLIENT_RETRY_ATTEMPTS = 3;
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
@@ -64,9 +65,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const [tokenResult, usageDoc, entitlementDoc] = await Promise.all([
-      getIdTokenResult(currentUser, true),
-      getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits")),
-      getDoc(doc(db, "entitlements", currentUser.uid))
+      withFirebaseClientRetry(() => getIdTokenResult(currentUser, true)),
+      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits"))),
+      withFirebaseClientRetry(() => getDoc(doc(db, "entitlements", currentUser.uid)))
     ]);
 
     const usage = usageDoc.data();
@@ -89,19 +90,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        // Ensure user document exists in Firestore
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        if (!userDoc.exists()) {
-          await setDoc(userDocRef, {
-            email: currentUser.email,
-            displayName: currentUser.displayName,
-            createdAt: new Date().toISOString(),
-          });
-        }
+        try {
+          // Ensure user document exists in Firestore
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDoc = await withFirebaseClientRetry(() => getDoc(userDocRef));
 
-        await refreshAccessForUser(currentUser);
+          if (!userDoc.exists()) {
+            await withFirebaseClientRetry(() => setDoc(userDocRef, {
+              email: currentUser.email,
+              displayName: currentUser.displayName,
+              createdAt: new Date().toISOString(),
+            }));
+          }
+
+          await refreshAccessForUser(currentUser);
+        } catch (error) {
+          console.warn("Access refresh failed; keeping previous access state.", error);
+          setAccess((current) => ({ ...current, loading: false }));
+        }
       } else {
         setAccess({ ...DEFAULT_ACCESS, loading: false });
       }
@@ -132,7 +138,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshAccess = useCallback(async () => {
-    await refreshAccessForUser(auth.currentUser);
+    try {
+      await refreshAccessForUser(auth.currentUser);
+    } catch (error) {
+      console.warn("Access refresh failed; keeping previous access state.", error);
+      setAccess((current) => ({ ...current, loading: false }));
+    }
   }, [refreshAccessForUser]);
 
   const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
@@ -147,4 +158,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
+}
+
+async function withFirebaseClientRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < FIREBASE_CLIENT_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const isTransient = /RESOURCE_EXHAUSTED|Quota exceeded|deadline exceeded|UNAVAILABLE|too many requests|ECONNRESET|ETIMEDOUT|socket hang up|network|offline/i.test(message);
+      if (!isTransient || attempt === FIREBASE_CLIENT_RETRY_ATTEMPTS - 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+    }
+  }
+
+  throw lastError;
 }

@@ -28,10 +28,49 @@ const TABS: { id: Tab; icon: typeof ChefHat; key: Parameters<ReturnType<typeof u
   { id: "settings", icon: Settings, key: "settings" }
 ];
 
+function formatNotificationDate(value: string, language: Language) {
+  try {
+    return new Date(value).toLocaleString(language === "ar" ? "ar" : "en", {
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      month: "short"
+    });
+  } catch {
+    return value;
+  }
+}
+
+function localizeNotificationMessage(message: string, translate: ReturnType<typeof useApp>["t"]) {
+  switch (message) {
+    case "Recipe generation started. Results will be saved to History.":
+      return translate("backgroundRecipesQueued");
+    case "Recipes are ready in History.":
+      return translate("backgroundRecipesReady");
+    case "Recipe generation could not finish. Please try again.":
+      return translate("backgroundRecipesFailed");
+    default:
+      return message;
+  }
+}
+
 export function TopNav({ activeTab, onTabChange }: TopNavProps) {
   const { user, access, signOut } = useAuth();
-  const { t, language, notice, rtl, setLanguage, setNotice, settings, saveSettings } = useApp();
+  const {
+    t,
+    language,
+    notifications,
+    unreadNotificationCount,
+    rtl,
+    setLanguage,
+    markNotificationsRead,
+    dismissNotification,
+    clearNotifications,
+    settings,
+    saveSettings
+  } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
   const activeLanguage = PILOT_LANGUAGES.find((item) => item.code === language) ?? PILOT_LANGUAGES[0];
@@ -69,8 +108,8 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
 
   return (
     <header className="theme-topbar pointer-events-none fixed inset-x-0 top-0 z-[160] px-1.5 sm:px-4" data-theme={settings.themeMode ?? "auroraDark"}>
-      <div className="shell-frame pointer-events-none">
-        <div className="pointer-events-auto floating-shell theme-topbar-shell overflow-hidden rounded-b-[1rem] border-x border-b border-t-0 border-white/10 px-2.5 py-2 shadow-soft sm:rounded-b-[1.35rem] sm:px-4 sm:py-2.5">
+      <div className="shell-frame pointer-events-none relative">
+        <div className="pointer-events-auto floating-shell theme-topbar-shell relative overflow-hidden rounded-b-[1rem] border-x border-b border-t-0 border-white/10 px-2.5 py-2 shadow-soft sm:rounded-b-[1.35rem] sm:px-4 sm:py-2.5">
           <div className="relative flex min-w-0 items-center justify-between gap-2 sm:gap-3">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <button
@@ -97,9 +136,6 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
                   <h1 className="theme-topbar-title truncate font-display text-sm font-bold leading-none sm:text-lg">
                     {t("appTitle")}
                   </h1>
-                  <span className="hidden rounded-full border border-cyan-200/18 bg-cyan-300/12 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-100 sm:inline-flex">
-                    {access.tier}
-                  </span>
                 </div>
                 <p className="theme-topbar-kicker mt-1 flex min-w-0 items-center gap-1 truncate text-[10px] font-semibold text-emerald-50/72 sm:gap-1.5 sm:text-[11px]">
                   <ActiveTabIcon className="h-3.5 w-3.5 shrink-0 text-cyan-100" aria-hidden="true" />
@@ -108,28 +144,73 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
               </div>
             </div>
 
-            {notice ? (
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                className="focus-ring theme-topbar-control flex min-w-0 max-w-[8.5rem] items-center gap-1.5 rounded-[0.9rem] border border-emerald-200/18 bg-emerald-300/12 px-2 py-2 text-start text-[10px] font-semibold text-emerald-50 transition-ui hover:bg-emerald-300/18 sm:max-w-[18rem] sm:gap-2 sm:rounded-2xl sm:px-3 sm:text-[11px]"
-                title={notice}
-              >
-                <Bell className="h-3.5 w-3.5 shrink-0 text-cyan-100" aria-hidden="true" />
-                <span className="truncate">{notice}</span>
-              </button>
-            ) : null}
-
-            <div className="theme-topbar-control flex h-9 max-w-[5.2rem] shrink-0 items-center gap-1 rounded-[0.9rem] border border-white/10 px-2 text-[10px] font-semibold sm:h-10 sm:max-w-none sm:gap-2 sm:rounded-2xl sm:px-3 sm:text-[11px]">
-              <span className="theme-topbar-accent uppercase tracking-[0.14em]">{access.tier}</span>
-              {access.tier === "free" ? (
-                <span className="hidden tabular-nums theme-topbar-muted xs:inline">
-                  {access.aiCreditsRemaining}/{access.aiCreditsLimit}
+            <button
+              type="button"
+              onClick={() => {
+                setIsNotificationsOpen((current) => !current);
+                markNotificationsRead();
+              }}
+              className="focus-ring theme-topbar-control relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.9rem] border border-white/10 transition-ui hover:bg-white/[0.08] sm:h-10 sm:w-10 sm:rounded-2xl"
+              aria-label={t("notifications")}
+              aria-expanded={isNotificationsOpen}
+            >
+              <Bell className="h-4 w-4 text-cyan-100" aria-hidden="true" />
+              {unreadNotificationCount ? (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-cyan-300 px-1 text-[9px] font-bold leading-none text-[#032019]">
+                  {unreadNotificationCount}
                 </span>
               ) : null}
-            </div>
+            </button>
+
           </div>
         </div>
+        {isNotificationsOpen ? (
+          <div
+            className={cn(
+              "theme-topbar-notifications pointer-events-auto absolute top-[3.75rem] z-[175] w-[min(21rem,calc(100vw-1rem))] rounded-[1.2rem] border border-white/10 bg-[#06241d]/96 p-3 text-emerald-50 shadow-2xl backdrop-blur-xl sm:top-[4.25rem]",
+              rtl ? "left-0" : "right-0"
+            )}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-100">{t("notifications")}</p>
+              {notifications.length ? (
+                <button
+                  type="button"
+                  onClick={clearNotifications}
+                  className="focus-ring rounded-lg px-2 py-1 text-[11px] font-semibold text-emerald-50/70 hover:bg-white/[0.08] hover:text-white"
+                >
+                  {t("clearAll")}
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-3 grid max-h-[18rem] gap-2 overflow-y-auto pr-1 scrollbar-hidden">
+              {notifications.length ? notifications.map((item) => (
+                <div key={item.id} className="rounded-xl border border-white/10 bg-white/[0.05] p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-snug text-white">{localizeNotificationMessage(item.message, t)}</p>
+                      <p className="mt-1 text-[11px] font-medium text-emerald-50/58">
+                        {formatNotificationDate(item.createdAt, language)} - {t(item.language === "ar" ? "arabic" : "english")}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => dismissNotification(item.id)}
+                      className="focus-ring shrink-0 rounded-lg p-1 text-emerald-50/58 hover:bg-white/[0.08] hover:text-white"
+                      aria-label={t("dismissNotification")}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              )) : (
+                <p className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/68">
+                  {t("noNotifications")}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div

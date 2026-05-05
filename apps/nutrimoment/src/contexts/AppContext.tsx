@@ -1,10 +1,25 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from "react";
-import { deleteField, doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  deleteField,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  writeBatch
+} from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import type { DashboardTheme, HealthProfile, Language, UserSettings } from "@/lib/types";
+import type { AppNotification, DashboardTheme, HealthProfile, Language, UserSettings } from "@/lib/types";
 import {
   getStoredOrDetectedPilotLanguage,
   normalizePilotLanguage,
@@ -30,6 +45,7 @@ const DEFAULT_HEALTH: HealthProfile = {
   weightKg: null,
   heightCm: null
 };
+const MAX_USER_NOTIFICATIONS = 50;
 
 interface AppContextValue {
   settings: UserSettings;
@@ -43,8 +59,12 @@ interface AppContextValue {
   loadingProfile: boolean;
   error: string | null;
   setError: (msg: string | null) => void;
-  notice: string | null;
-  setNotice: (msg: string | null) => void;
+  notifications: AppNotification[];
+  unreadNotificationCount: number;
+  addNotification: (message: string, language?: Language) => void;
+  markNotificationsRead: () => void;
+  dismissNotification: (id: string) => void;
+  clearNotifications: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -137,7 +157,41 @@ export function AppProvider({ children }: AppProviderProps) {
   const { user } = useAuth();
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [lastReadNotificationAt, setLastReadNotificationAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, `users/${user.uid}/notifications`),
+      orderBy("createdAt", "desc"),
+      limit(MAX_USER_NOTIFICATIONS)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setNotifications(
+        snapshot.docs.map((item) => {
+          const data = item.data() as {
+            createdAtIso?: string;
+            language?: Language;
+            message?: string;
+          };
+          const notificationLanguage: Language = data.language === "ar" ? "ar" : "en";
+          return {
+            id: item.id,
+            createdAt: data.createdAtIso ?? new Date().toISOString(),
+            language: notificationLanguage,
+            message: data.message ?? ""
+          };
+        }).filter((item) => item.message.trim().length > 0)
+      );
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const loadProfileForUser = useCallback(async () => {
     if (!user) {
@@ -253,6 +307,65 @@ export function AppProvider({ children }: AppProviderProps) {
     [settings.uiLanguage]
   );
 
+  const addNotification = useCallback(
+    (message: string, language = settings.uiLanguage) => {
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
+      const notification = {
+        id,
+        createdAt: new Date().toISOString(),
+        language,
+        message
+      } satisfies AppNotification;
+
+      setNotifications((current) => [notification, ...current].slice(0, MAX_USER_NOTIFICATIONS));
+
+      if (!user) return;
+      void addDoc(collection(db, `users/${user.uid}/notifications`), {
+        createdAt: serverTimestamp(),
+        createdAtIso: notification.createdAt,
+        language: notification.language,
+        message: notification.message
+      })
+        .then(() => pruneNotificationsToLatestLimit(user.uid))
+        .catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : "Failed to save notification";
+          setError(errorMessage);
+        });
+    },
+    [settings.uiLanguage, user]
+  );
+
+  const dismissNotification = useCallback((id: string) => {
+    setNotifications((current) => current.filter((item) => item.id !== id));
+    if (!user) return;
+    void deleteDoc(doc(db, `users/${user.uid}/notifications`, id)).catch((error) => {
+      const errorMessage = error instanceof Error ? error.message : "Failed to dismiss notification";
+      setError(errorMessage);
+    });
+  }, [user]);
+
+  const clearNotifications = useCallback(() => {
+    setNotifications([]);
+    if (!user) return;
+    void clearUserNotifications(user.uid).catch((error) => {
+      const errorMessage = error instanceof Error ? error.message : "Failed to clear notifications";
+      setError(errorMessage);
+    });
+  }, [user]);
+
+  const markNotificationsRead = useCallback(() => {
+    setLastReadNotificationAt(new Date().toISOString());
+  }, []);
+
+  const unreadNotificationCount = useMemo(() => {
+    if (!lastReadNotificationAt) return notifications.length;
+    const lastReadTime = new Date(lastReadNotificationAt).getTime();
+    return notifications.filter((item) => new Date(item.createdAt).getTime() > lastReadTime).length;
+  }, [lastReadNotificationAt, notifications]);
+
   const value = useMemo<AppContextValue>(
     () => ({
       settings,
@@ -266,10 +379,30 @@ export function AppProvider({ children }: AppProviderProps) {
       loadingProfile: user ? state.loadingProfile : false,
       error,
       setError,
-      notice,
-      setNotice
+      notifications,
+      unreadNotificationCount,
+      addNotification,
+      markNotificationsRead,
+      dismissNotification,
+      clearNotifications
     }),
-    [settings, saveSettings, health, saveHealth, setLanguage, t, state.loadingProfile, error, notice, user]
+    [
+      settings,
+      saveSettings,
+      health,
+      saveHealth,
+      setLanguage,
+      t,
+      state.loadingProfile,
+      error,
+      notifications,
+      unreadNotificationCount,
+      addNotification,
+      markNotificationsRead,
+      dismissNotification,
+      clearNotifications,
+      user
+    ]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
@@ -281,4 +414,39 @@ export function useApp(): AppContextValue {
     throw new Error("useApp must be used within an AppProvider");
   }
   return ctx;
+}
+
+async function pruneNotificationsToLatestLimit(uid: string) {
+  const q = query(
+    collection(db, `users/${uid}/notifications`),
+    orderBy("createdAt", "desc")
+  );
+  const snapshot = await getDocs(q);
+  const overflow = snapshot.docs.slice(MAX_USER_NOTIFICATIONS);
+  if (!overflow.length) return;
+
+  const batches = chunkArray(overflow, 400);
+  for (const docs of batches) {
+    const batch = writeBatch(db);
+    docs.forEach((item) => batch.delete(item.ref));
+    await batch.commit();
+  }
+}
+
+async function clearUserNotifications(uid: string) {
+  const snapshot = await getDocs(collection(db, `users/${uid}/notifications`));
+  const batches = chunkArray(snapshot.docs, 400);
+  for (const docs of batches) {
+    const batch = writeBatch(db);
+    docs.forEach((item) => batch.delete(item.ref));
+    await batch.commit();
+  }
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }

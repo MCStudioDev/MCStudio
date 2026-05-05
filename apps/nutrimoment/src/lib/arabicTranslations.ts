@@ -361,3 +361,13 @@ Object.assign(arabicTranslations, {
   useWithVerification: "استخدم مع التحقق",
   settingsLegalDesc: "NutriMoment مصمم لدعم الوجبات معلوماتياً. راجع إخلاء المسؤولية والشروط والخصوصية قبل الاعتماد على الوصفات أو خطط الوجبات."
 });
+
+Object.assign(arabicTranslations, {
+  confirm: "تأكيد",
+  loadingKitchen: "جار تجهيز مطبخك...",
+  searchHistory: "ابحث باسم الوصفة أو المكون أو التاريخ",
+  noHistoryMatches: "لا توجد جلسات مطابقة",
+  noHistoryMatchesDesc: "جرّب اسم وصفة أو مكونًا أو تاريخًا آخر.",
+  premiumPlanScanner: "الخطة المميزة: المسح الذكي وتوليد الوصفات وصور الطعام جاهزة تلقائيًا.",
+  premiumPantryNotice: "الخطة المميزة: امسح صور المخزن في أي وقت، مع بقاء الإدخال اليدوي متاحًا دائمًا."
+});

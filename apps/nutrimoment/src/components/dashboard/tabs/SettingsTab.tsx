@@ -39,7 +39,7 @@ export function SettingsTab() {
         }
       />
 
-      <motion.div variants={itemVariants} className="grid gap-5 2xl:grid-cols-2">
+      <motion.div variants={itemVariants} className="grid min-w-0 grid-cols-1 gap-5 2xl:grid-cols-2">
         <SettingCard
           icon={<Flame className="h-5 w-5" />}
           eyebrow={t("dailyCalorieTarget")}
@@ -212,10 +212,10 @@ function SettingCard({
   className?: string;
 }) {
   return (
-    <Card className={className ? `rounded-[1.6rem] space-y-4 sm:rounded-[2rem] ${className}` : "rounded-[1.6rem] space-y-4 sm:rounded-[2rem]"}>
+    <Card className={className ? `min-w-0 rounded-[1.6rem] space-y-4 sm:rounded-[2rem] ${className}` : "min-w-0 rounded-[1.6rem] space-y-4 sm:rounded-[2rem]"}>
       <div className="flex items-start gap-4">
         <div className="rounded-2xl bg-white/[0.08] p-3 text-cyan-100">{icon}</div>
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{eyebrow}</p>
           <h3 className="text-xl font-display font-bold text-white sm:text-2xl">{title}</h3>
         </div>

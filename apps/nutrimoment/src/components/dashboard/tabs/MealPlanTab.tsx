@@ -105,6 +105,10 @@ export function MealPlanTab() {
   };
 
   const shoppingList = normalizeShoppingList(mealPlan?.shoppingList);
+  const localizedShoppingList = useMemo(
+    () => shoppingList.map((item) => localizeShoppingListItem(item, settings.uiLanguage)),
+    [settings.uiLanguage, shoppingList]
+  );
   const pantryKeys = useMemo(
     () => new Set(items.map((item) => normalizePantryIngredientName(item.name)).filter(Boolean)),
     [items]
@@ -332,7 +336,18 @@ export function MealPlanTab() {
         </div>
       </motion.div>
 
-      {mealPlan ? (
+      {savedPlanLoading ? (
+        <motion.div variants={itemVariants}>
+          <Card className="rounded-[2rem] space-y-4" aria-busy="true">
+            <p className="text-sm font-semibold text-emerald-50/72">{t("craftingMenu")}</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="h-80 animate-pulse rounded-[1.7rem] border border-white/10 bg-white/[0.06]" />
+              ))}
+            </div>
+          </Card>
+        </motion.div>
+      ) : mealPlan ? (
         <motion.div variants={itemVariants} className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="grid gap-4">
             <ResultLegalNotice mode="mealplan" />
@@ -443,8 +458,8 @@ export function MealPlanTab() {
               <h3 className="mt-2 text-2xl font-display font-bold text-white">{t("shoppingListDesc")}</h3>
             </div>
             <div className="space-y-2">
-              {shoppingList.length ? (
-                shoppingList.map((item, index) => (
+              {localizedShoppingList.length ? (
+                localizedShoppingList.map((item, index) => (
                   <div key={`shopping-${index}-${item}`} className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-emerald-50/82">
                     {item}
                   </div>
@@ -537,6 +552,14 @@ function MealPlanRevealCard({
 
 function indexOfDay(plan: Array<{ day: string }>, day: string) {
   return plan.findIndex((entry) => entry.day === day);
+}
+
+function localizeShoppingListItem(item: string, uiLanguage: string) {
+  if (uiLanguage !== "en" || !/[\u0600-\u06FF]/.test(item)) return item;
+
+  const [namePart, ...rest] = item.split(/\s+-\s+/);
+  const translatedName = translateIngredientToEnglish(namePart);
+  return [translatedName, ...rest].filter(Boolean).join(" - ");
 }
 
 interface MealPlanImageSlot {

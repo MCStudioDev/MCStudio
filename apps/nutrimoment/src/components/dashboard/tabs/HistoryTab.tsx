@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { History, Trash2 } from "lucide-react";
+import { History, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -22,6 +22,7 @@ export function HistoryTab() {
   const { t, setError } = useApp();
   const { access, user } = useAuth();
   const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
+  const [searchQuery, setSearchQuery] = useState("");
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -37,6 +38,29 @@ export function HistoryTab() {
       setError(message);
     }
   };
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return items;
+
+    return items.filter((entry) => {
+      const haystack = [
+        formatDate(entry.timestamp),
+        ...entry.recipes.flatMap((recipe) => [
+          recipe.name,
+          recipe.cuisine,
+          recipe.image_search_index,
+          ...(recipe.image_search_indices ?? []),
+          ...(recipe.ingredients ?? []),
+          ...(recipe.missing_ingredients ?? []),
+          ...(recipe.steps ?? [])
+        ])
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [items, searchQuery]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -63,11 +87,28 @@ export function HistoryTab() {
 
       {loading ? (
         <motion.div variants={itemVariants}>
-          <Card className="theme-history-entry rounded-[2rem] text-sm text-emerald-50/58">{t("loadingHistory")}</Card>
+          <Card className="theme-history-entry rounded-[2rem] space-y-4" aria-busy="true">
+            <p className="text-sm font-semibold text-emerald-50/72">{t("loadingHistory")}</p>
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="h-64 animate-pulse rounded-[1.7rem] border border-white/10 bg-white/[0.06]" />
+              ))}
+            </div>
+          </Card>
         </motion.div>
       ) : items.length ? (
         <motion.div variants={itemVariants} className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <label className="relative block w-full sm:max-w-md">
+              <span className="sr-only">{t("searchHistory")}</span>
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-50/45" aria-hidden="true" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t("searchHistory")}
+                className="focus-ring neo-input h-12 w-full rounded-2xl px-11 text-sm transition-ui"
+              />
+            </label>
             <Button
               variant="ghost"
               onClick={() =>
@@ -84,7 +125,7 @@ export function HistoryTab() {
           </div>
 
           <div className="grid gap-4">
-            {items.map((entry, entryIndex) => (
+            {filteredItems.map((entry, entryIndex) => (
               <Card key={entry.id} className="theme-history-entry rounded-[2rem] space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -112,10 +153,10 @@ export function HistoryTab() {
                   </button>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-3">
+                <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
                   {entry.recipes.map((recipe, recipeIndex) => (
                     <MealRevealCard
-                      key={`${entry.id}-${recipe.name}`}
+                      key={`${entry.id}-${recipe.id ?? recipeIndex}`}
                       deferImageLookup={access.tier === "premium" ? !(entryIndex === 0 && recipeIndex < 3) : false}
                       eyebrow={getRecipeEyebrow(recipe, t)}
                       name={recipe.name}
@@ -142,17 +183,14 @@ export function HistoryTab() {
                                       imageUrl,
                                       query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
                                     });
-                              const recipeIndex = entry.recipes.findIndex((candidate) => candidate.name === recipe.name);
-                              if (recipeIndex >= 0) {
-                                await updateRecipeImage(
-                                  entry.id,
-                                  recipeIndex,
-                                  persistedImageUrl || imageUrl,
-                                  false,
-                                  imageSource,
-                                  { name: imageAttributionName, url: imageAttributionUrl }
-                                );
-                              }
+                              await updateRecipeImage(
+                                entry.id,
+                                recipeIndex,
+                                persistedImageUrl || imageUrl,
+                                false,
+                                imageSource,
+                                { name: imageAttributionName, url: imageAttributionUrl }
+                              );
                             }
                           : undefined
                       }
@@ -163,6 +201,9 @@ export function HistoryTab() {
                 </div>
               </Card>
             ))}
+            {!filteredItems.length ? (
+              <EmptyState title={t("noHistoryMatches")} description={t("noHistoryMatchesDesc")} />
+            ) : null}
           </div>
         </motion.div>
       ) : (
@@ -258,20 +299,76 @@ function buildRecipeStats(recipe: Recipe) {
 }
 
 function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  const isArabicRecipe = containsArabicText(`${recipe.name} ${recipe.cuisine}`);
   const originLabel =
     recipe.recipe_origin === "exact_scan_match"
       ? t("exactScannedDish")
       : recipe.recipe_origin === "similar_ingredients"
         ? t("similarIngredients")
         : null;
-  const dishStyle = [recipe.dish_intent?.meal_type, recipe.dish_intent?.cooking_method].filter(Boolean).join(" ");
+  const dishStyle = formatRecipeDishStyle(recipe, isArabicRecipe);
+  const preferenceHits = recipe.preference_hits?.length
+    ? t("preferenceMatches").replace("{count}", String(recipe.preference_hits.length))
+    : null;
   const scanExplanation =
     recipe.recipe_origin === "exact_scan_match" && recipe.scan_match_explanation
       ? recipe.scan_match_explanation
       : null;
 
-  return [originLabel, recipe.cuisine, dishStyle, recipe.match_quality, scanExplanation].filter(Boolean).join(" / ");
+  return [
+    originLabel,
+    recipe.cuisine,
+    dishStyle,
+    formatRecipeMatchQuality(recipe.match_quality, isArabicRecipe),
+    preferenceHits,
+    scanExplanation
+  ].filter(Boolean).join(" / ");
 }
+
+function formatRecipeDishStyle(recipe: Recipe, isArabicRecipe: boolean) {
+  const mealType = recipe.dish_intent?.meal_type;
+  const cookingMethod = recipe.dish_intent?.cooking_method;
+  const genericCookingMethod = cookingMethod === "assembled";
+  const values = [mealType, genericCookingMethod ? undefined : cookingMethod].filter(Boolean) as string[];
+  if (!values.length) return null;
+  if (!isArabicRecipe) return values.join(" ");
+
+  const translated = values
+    .map((value) => ARABIC_DISH_STYLE_LABELS[value.toLowerCase()] ?? "")
+    .filter(Boolean);
+
+  return translated.length ? translated.join(" ") : null;
+}
+
+function formatRecipeMatchQuality(matchQuality: Recipe["match_quality"], isArabicRecipe: boolean) {
+  if (!matchQuality) return null;
+  if (!isArabicRecipe) return matchQuality;
+  return ARABIC_MATCH_QUALITY_LABELS[matchQuality] ?? null;
+}
+
+function containsArabicText(value: string) {
+  return /[\u0600-\u06FF]/.test(value);
+}
+
+const ARABIC_DISH_STYLE_LABELS: Record<string, string> = {
+  breakfast: "فطور",
+  lunch: "غداء",
+  dinner: "عشاء",
+  snack: "وجبة خفيفة",
+  grilled: "مشوي",
+  baked: "مخبوز",
+  fried: "مقلي",
+  "stir-fried": "سوتيه",
+  simmered: "مطهو بهدوء",
+  skillet: "في المقلاة"
+};
+
+const ARABIC_MATCH_QUALITY_LABELS: Record<NonNullable<Recipe["match_quality"]>, string> = {
+  great: "مطابقة ممتازة",
+  good: "مطابقة جيدة",
+  possible: "مطابقة ممكنة",
+  stretch: "مطابقة ضعيفة"
+};
 
 function buildRecipePreviewItems(recipe: Recipe) {
   return [...recipe.ingredients, ...recipe.missing_ingredients].map(getRecipeIngredientLabel).slice(0, 5);

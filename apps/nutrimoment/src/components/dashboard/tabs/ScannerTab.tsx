@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -63,7 +63,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 export function ScannerTab() {
-  const { t, settings, health, setError } = useApp();
+  const { t, settings, health, setError, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const { addEntry, replaceEntryRecipes, updateRecipeImage } = useHistory();
   const recipeRequestVersionRef = useRef(0);
@@ -74,6 +74,7 @@ export function ScannerTab() {
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -398,6 +399,15 @@ export function ScannerTab() {
     [access.tier, getAuthHeaders, refreshAccess, replaceEntryRecipes, updateRecipeImage]
   );
 
+  useEffect(() => {
+    setShowOnboarding(localStorage.getItem("nutrimoment.scannerOnboardingDismissed") !== "true");
+  }, []);
+
+  const dismissOnboarding = () => {
+    localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
+    setShowOnboarding(false);
+  };
+
   const addManualIngredient = () => {
     const next = manualEntry
       .split(",")
@@ -541,6 +551,28 @@ export function ScannerTab() {
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">
+      {showOnboarding ? (
+        <motion.div variants={itemVariants}>
+          <Card className="rounded-[1.4rem] border-cyan-200/18 bg-cyan-400/10 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                  {rtl ? "ابدأ بسرعة" : "Quick start"}
+                </p>
+                <ol className="grid gap-2 text-sm font-medium leading-relaxed text-emerald-50/82 sm:grid-cols-3">
+                  <li>{rtl ? "1. أضف أو امسح المكونات" : "1. Add or scan ingredients"}</li>
+                  <li>{rtl ? "2. ولّد وصفات مناسبة" : "2. Generate matched recipes"}</li>
+                  <li>{rtl ? "3. افتح الوصفة واطبخ" : "3. Open the recipe and cook"}</li>
+                </ol>
+              </div>
+              <Button variant="secondary" onClick={dismissOnboarding}>
+                {rtl ? "فهمت" : "Got it"}
+              </Button>
+            </div>
+          </Card>
+        </motion.div>
+      ) : null}
+
       <motion.div variants={itemVariants}>
         <Card className="space-y-3.5 rounded-[1.4rem] p-3.5 sm:rounded-[1.7rem] sm:p-4.5">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -652,7 +684,7 @@ export function ScannerTab() {
                         onClick={() =>
                           setConfirmState({
                             title: t("removeIngredientTitle"),
-                            description: t("removeIngredientDescription"),
+                            description: t("removeIngredientDescription").replace("{name}", ingredient.name),
                             confirmLabel: t("remove"),
                             action: () => removeIngredient(ingredient.id)
                           })
@@ -704,7 +736,7 @@ export function ScannerTab() {
         {recipes.length ? (
           <div className="space-y-4">
             <ResultLegalNotice mode="recipes" />
-            <div className="grid gap-5 lg:grid-cols-3">
+            <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
               {recipes.map((recipe, index) => (
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}

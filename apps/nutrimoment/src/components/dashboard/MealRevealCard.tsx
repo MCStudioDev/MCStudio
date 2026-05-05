@@ -73,9 +73,6 @@ export function MealRevealCard({
   deferImageLookup = false,
   name,
   imageUrl,
-  imageSource,
-  imageAttributionName,
-  imageAttributionUrl,
   imageLoading,
   imageError,
   imageQuery,
@@ -136,9 +133,6 @@ export function MealRevealCard({
   const cachedFailure = !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage =
     lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) ? lookupState.image : "";
-  const lookedUpSource = lookupState.queryKey === queryKey ? lookupState.imageSource : undefined;
-  const lookedUpAttributionName = lookupState.queryKey === queryKey ? lookupState.imageAttributionName : undefined;
-  const lookedUpAttributionUrl = lookupState.queryKey === queryKey ? lookupState.imageAttributionUrl : undefined;
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
   const internetProvidedImage = isInternetImageUrl(imageUrl) ? imageUrl : undefined;
   const shouldRefreshProvidedImage = internetProvidedImage
@@ -146,22 +140,6 @@ export function MealRevealCard({
     : false;
   const effectiveProvidedImage = shouldRefreshProvidedImage ? "" : internetProvidedImage;
   const resolvedImage = imageLoading ? "" : effectiveProvidedImage || lookedUpImage || cachedImage;
-  const resolvedSource = imageLoading
-    ? undefined
-    : (shouldRefreshProvidedImage ? undefined : imageSource) ||
-      lookedUpSource ||
-      cachedImageEntry?.imageSource ||
-      inferImageSource(effectiveProvidedImage);
-  const resolvedAttributionName = imageLoading
-    ? undefined
-    : (shouldRefreshProvidedImage ? undefined : imageAttributionName) ||
-      lookedUpAttributionName ||
-      cachedImageEntry?.imageAttributionName;
-  const resolvedAttributionUrl = imageLoading
-    ? undefined
-    : (shouldRefreshProvidedImage ? undefined : imageAttributionUrl) ||
-      lookedUpAttributionUrl ||
-      cachedImageEntry?.imageAttributionUrl;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const showNoExactPhoto = !resolvedImage && (imageError || lookupFailed || cachedFailure);
   const excludedImageUrls = useMemo(() => getRecentlyAssignedRecipePhotoUrls(queryKey), [queryKey]);
@@ -326,11 +304,7 @@ export function MealRevealCard({
     const target = event.target as HTMLElement | null;
     if (target?.closest("button, a, input, textarea, select")) return;
     setLookupActivated(true);
-    setIsOpen((value) => {
-      const nextValue = !value;
-      setIsFlipped(nextValue);
-      return nextValue;
-    });
+    toggleRecipeDetails();
   };
 
   const handleSurfaceKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -339,11 +313,21 @@ export function MealRevealCard({
     if (target?.tagName === "BUTTON" || target?.tagName === "A") return;
     event.preventDefault();
     setLookupActivated(true);
+    toggleRecipeDetails();
+  };
+
+  const toggleRecipeDetails = () => {
     setIsOpen((value) => {
       const nextValue = !value;
       setIsFlipped(nextValue);
       return nextValue;
     });
+  };
+
+  const openRecipeDetails = () => {
+    setLookupActivated(true);
+    setIsOpen(true);
+    setIsFlipped(true);
   };
 
   return (
@@ -380,9 +364,9 @@ export function MealRevealCard({
                 summary={cardSummary}
                 headlineStats={headlineStats}
                 resolvedImage={resolvedImage}
-                resolvedSource={resolvedSource}
                 imageLoading={imageLoading}
                 showNoExactPhoto={showNoExactPhoto}
+                onOpenRecipe={openRecipeDetails}
               />
             </div>
 
@@ -393,40 +377,11 @@ export function MealRevealCard({
                 previewLabel={resolvedPreviewLabel}
                 previewItems={derivedPreviewItems}
                 isOpen={isOpen}
-                onToggleOpen={() =>
-                  setIsOpen((value) => {
-                    const nextValue = !value;
-                    setIsFlipped(nextValue);
-                    return nextValue;
-                  })
-                }
+                onToggleOpen={toggleRecipeDetails}
               />
             </div>
           </div>
         </div>
-
-        {resolvedSource === "unsplash" && resolvedAttributionName && resolvedAttributionUrl ? (
-          <div className="theme-recipe-attribution border-t border-white/8 bg-[#071714]/86 px-5 py-3 text-[11px] text-white/65">
-            Photo by{" "}
-            <a
-              href={resolvedAttributionUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="underline decoration-white/35 underline-offset-2 hover:text-white"
-            >
-              {resolvedAttributionName}
-            </a>{" "}
-            on{" "}
-            <a
-              href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
-              target="_blank"
-              rel="noreferrer"
-              className="underline decoration-white/35 underline-offset-2 hover:text-white"
-            >
-              Unsplash
-            </a>
-          </div>
-        ) : null}
 
         <div
           id={detailId}
@@ -493,9 +448,9 @@ function RecipeFrontFace({
   summary,
   headlineStats,
   resolvedImage,
-  resolvedSource,
   imageLoading,
-  showNoExactPhoto
+  showNoExactPhoto,
+  onOpenRecipe
 }: {
   eyebrow?: string;
   visualMatchLabel?: string;
@@ -503,9 +458,9 @@ function RecipeFrontFace({
   summary: string;
   headlineStats: MealRevealStat[];
   resolvedImage?: string;
-  resolvedSource?: RecipeImageSource;
   imageLoading?: boolean;
   showNoExactPhoto: boolean;
+  onOpenRecipe: () => void;
 }) {
   const { t } = useApp();
   const noImageState = !resolvedImage;
@@ -571,9 +526,17 @@ function RecipeFrontFace({
               </div>
             ) : null}
 
-            <div className="theme-recipe-front-badge mt-4 inline-flex items-center rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80 backdrop-blur-md">
-              {t("hoverPreview")}
-            </div>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenRecipe();
+              }}
+              className="focus-ring theme-recipe-front-badge mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/88 backdrop-blur-md transition hover:bg-white/[0.18]"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("viewRecipe")}
+            </button>
           </div>
         </div>
       ) : null}
@@ -582,32 +545,6 @@ function RecipeFrontFace({
         <div className="absolute right-4 top-4 rounded-full border border-white/10 bg-[#f5fffc]/88 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#07201a]">
           {t("findingPhoto")}
         </div>
-      ) : null}
-
-      {resolvedSource ? (
-        resolvedSource === "search" ? (
-          <a
-            href="https://www.pexels.com"
-            target="_blank"
-            rel="noreferrer"
-            className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
-          >
-            {formatImageSourceLabel(resolvedSource)}
-          </a>
-        ) : resolvedSource === "unsplash" ? (
-          <a
-            href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
-            target="_blank"
-            rel="noreferrer"
-            className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
-          >
-            {formatImageSourceLabel(resolvedSource)}
-          </a>
-        ) : (
-          <div className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md">
-            {formatImageSourceLabel(resolvedSource)}
-          </div>
-        )
       ) : null}
 
       {visualMatchLabel ? (
@@ -649,9 +586,17 @@ function RecipeFrontFace({
             </div>
           ) : null}
 
-          <div className="theme-recipe-front-badge inline-flex items-center rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80 backdrop-blur-md">
-            {t("hoverPreview")}
-          </div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenRecipe();
+            }}
+            className="focus-ring theme-recipe-front-badge inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/88 backdrop-blur-md transition hover:bg-white/[0.18]"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("viewRecipe")}
+          </button>
         </div>
       ) : null}
     </div>
@@ -823,29 +768,3 @@ function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKe
   return existing.queryKey !== queryKey;
 }
 
-function formatImageSourceLabel(source: RecipeImageSource) {
-  switch (source) {
-    case "api":
-      return "Replicate";
-    case "cache":
-      return "Cache";
-    case "search":
-      return "Pexels";
-    case "unsplash":
-      return "Unsplash";
-    case "wikimedia":
-      return "Wikimedia";
-    default:
-      return "Photo";
-  }
-}
-
-function inferImageSource(imageUrl?: string): RecipeImageSource | undefined {
-  if (!imageUrl) return undefined;
-  if (/upload\.wikimedia\.org/i.test(imageUrl)) return "wikimedia";
-  if (/images\.unsplash\.com|unsplash\.com/i.test(imageUrl)) return "unsplash";
-  if (/images\.pexels\.com|pexels\.com/i.test(imageUrl)) return "search";
-  if (/firebasestorage\.googleapis\.com|firebasestorage\.app/i.test(imageUrl)) return "cache";
-  if (/replicate\.delivery/i.test(imageUrl)) return "api";
-  return undefined;
-}

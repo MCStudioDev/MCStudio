@@ -19,6 +19,7 @@ import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import {
   forgetPendingRecipeHistoryId,
@@ -1145,7 +1146,7 @@ export function ScannerTab() {
                   deferImageLookup={index >= 2}
                   imageLookupVersion={imageRepairVersion}
                   eyebrow={getRecipeEyebrow(recipe, t)}
-                  name={recipe.name}
+                  name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
                   visualMatchLabel={recipe.visual_match_label}
                   summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                   previewLabel={getRecipePreviewLabel(recipe, t)}

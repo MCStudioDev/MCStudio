@@ -35,6 +35,11 @@ const RECIPE_TITLES: Record<string, string> = {
   "Shrimp Saganaki": "جمبري ساجاناكي",
   "Camarones al Ajo": "جمبري بالثوم",
   "Karides Guvec": "طاجن جمبري تركي",
+  "Alexandrian Liver": "كبدة إسكندراني",
+  "Fried Liver": "كبدة مقلية",
+  "Liver Shawarma": "شاورما كبدة",
+  "Spiced Liver": "كبدة متبلة",
+  "Liver": "كبدة",
   "Lime Skewers & Shrimp": "أسياخ جمبري بالليمون",
   "Lime Skewers & Shrimp Marinade": "تتبيلة جمبري بالليمون",
   "Simple & Lime Skewers & Shrimp Marinade": "تتبيلة جمبري بسيطة بالليمون",
@@ -174,6 +179,9 @@ const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
   prawn: "جمبري",
   prawns: "جمبري",
   seafood: "مأكولات بحرية",
+  liver: "كبدة",
+  "beef liver": "كبدة",
+  "chicken liver": "كبدة دجاج",
   lime: "ليمون أخضر",
   limes: "ليمون أخضر",
   "lime juice": "عصير ليمون أخضر",
@@ -220,6 +228,9 @@ const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
   "فاصوليا عريضة": "fava beans",
   "فلفل أسود": "black pepper",
   "فلفل رومي": "bell pepper",
+  "كبدة": "liver",
+  "كبده": "liver",
+  "كبدة دجاج": "chicken liver",
   "ملح": "salt",
   "بشاميل": "bechamel",
   "سباجيتي": "spaghetti",
@@ -436,6 +447,7 @@ function ensureArabicTitleText(recipe: Pick<Recipe, "name" | "image_search_index
 function isWeakArabicGeneratedTitle(value: string) {
   return (
     /مكون إضافي/u.test(value) ||
+    /^مع\s+\S+/u.test(value.trim()) ||
     /^(طبق|وعاء|وجبة)\s+(عشاء|غداء|فطور|خفيفة)\b/u.test(value) ||
     /\b(عشاء|غداء|فطور)\s+(جمبري|دجاج|لحم|سمك|أرز|طماطم|ثوم|ليمون)/u.test(value)
   );
@@ -464,6 +476,15 @@ export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: str
   if (/سمك\s+سنجاري|سنجاري/.test(normalized)) return "Samak Singari";
   if (/طاجن\s+سمك/.test(normalized)) return "Egyptian Fish Tagine";
   if (/جمبري\s+إسكندراني|جمبري\s+اسكندراني|اسكندراني/.test(normalized)) return "Alexandrian Shrimp";
+  if (/كبدة\s+إسكندراني|كبدة\s+اسكندراني|كبده\s+إسكندراني|كبده\s+اسكندراني/.test(normalized)) {
+    return "Alexandrian Liver";
+  }
+  if (/كبدة|كبده/.test(normalized)) {
+    if (/مقرمشة|مقرمش|مقلية|مقلي|تحمير/.test(normalized)) return "Fried Liver";
+    if (/شاورما/.test(normalized)) return "Liver Shawarma";
+    if (/بهارات|متبلة|متبل/.test(normalized)) return "Spiced Liver";
+    return "Liver";
+  }
   if (/شيش\s+طاووق/.test(normalized)) return "Shish Tawook";
   if (/شاورما/.test(normalized)) return "Shawarma Plate";
   if (/كبة|كبه/.test(normalized)) return "Kibbeh";
@@ -948,6 +969,19 @@ function translateEnglishRecipeTitle(value: string) {
     [/\bshrimp saganaki\b/gi, " جمبري ساجاناكي "],
     [/\bcamarones al ajo\b/gi, " جمبري بالثوم "],
     [/\bkarides guvec\b/gi, " طاجن جمبري تركي "],
+    [/\balexandrian liver\b/gi, " كبدة إسكندراني "],
+    [/\biskandarani liver\b/gi, " كبدة إسكندراني "],
+    [/\beskandarani liver\b/gi, " كبدة إسكندراني "],
+    [/\bkibda iskandarani\b/gi, " كبدة إسكندراني "],
+    [/\bkebda iskandarani\b/gi, " كبدة إسكندراني "],
+    [/\bfried liver\b/gi, " كبدة مقلية "],
+    [/\bliver shawarma\b/gi, " شاورما كبدة "],
+    [/\bspiced liver\b/gi, " كبدة متبلة "],
+    [/\bbeef liver\b/gi, " كبدة "],
+    [/\bchicken liver\b/gi, " كبدة دجاج "],
+    [/\bliver\b/gi, " كبدة "],
+    [/\bkibda\b/gi, " كبدة "],
+    [/\bkebda\b/gi, " كبدة "],
     [/\blime skewers? (?:and|&) shrimp\b/gi, " أسياخ جمبري بالليمون "],
     [/\bshrimp\b/gi, " جمبري "],
     [/\bshrimps\b/gi, " جمبري "],

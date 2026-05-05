@@ -699,6 +699,7 @@ function buildNamedPlateGenerationPolicy({
     preferredCuisine && preferredCuisine !== "Any"
       ? `Selected-cuisine closed-world rule: ${preferredCuisine} is the recipe universe. Use traditional ${preferredCuisine} plates, direct regional relatives, or safe traditional adaptations. Do not borrow famous dishes from other cuisines just because they fit the ingredients.`
       : "Open-cuisine rule: because the user selected Any, you may choose the best-fitting named dishes across cuisines and should use that freedom for variety.",
+    "Before inventing or genericizing a title, map the main pantry ingredients to the selected cuisine's known dish reference set. If a famous dish family naturally centers the ingredient, use that canonical plate name and put missing support items in missing_ingredients.",
     `Every ${itemLabel} name should be a recognizable dish identity or a clear established dish-family variant that a food photo model can visualize.`,
     "Go deeper than broad cuisine labels: choose specific plates such as hawawshi, kofta, koshary, ful medames, macarona bechamel, menemen, adana kebab, chana masala, dal tadka, arroz con pollo, pad krapow, tom yum, frittata, shrimp linguine, mujadara, shawarma plate, or the closest real dish family for the selected cuisine.",
     "For each named plate, make image_search_index, image_search_indices, and dish_intent.dish_name point to that same canonical visual identity. Do not let photo phrases collapse to generic food, dinner assembled, beef plate, chicken plate, or cuisine food.",
@@ -790,7 +791,9 @@ function buildCuisineDishCatalogGuidance(preferredCuisine: string) {
   return [
     `Famous ${preferredCuisine} dish reference set for authenticity and recall: ${referenceDishes}.`,
     "Use this reference set as the target dish universe when naming recipes.",
+    "For each primary pantry ingredient, first scan this reference set for dish names or families that naturally contain, feature, or traditionally center that ingredient before falling back to a generic preparation.",
     "When the pantry is sparse, choose the closest authentic dish family from this cuisine reference set instead of inventing a generic bowl, skillet, wrap, or salad.",
+    "Generic titles are only acceptable when no recognizable dish family from the selected cuisine fits the ingredient set.",
     "If the pantry only supports part of a classic dish, keep the authentic dish family and move the missing support items into missing_ingredients."
   ].join(" ");
 }
@@ -1053,6 +1056,7 @@ function buildSparseIngredientGuidance(
   const baseGuidance = [
     `Sparse pantry guidance: the user only provided ${ingredients.length} ingredient${ingredients.length === 1 ? "" : "s"} (${ingredientList}).`,
     "Start from the strongest authentic dish family that naturally centers those ingredients, then list missing support items in missing_ingredients instead of forcing a generic recipe.",
+    "If a cuisine reference dish clearly centers the sparse ingredient, use that dish family even when most aromatics, bread, rice, sauces, or garnishes are missing.",
     "When only one or two ingredients are available, it is acceptable for missing_ingredients to carry the aromatics, sauce components, starches, bread, herbs, or garnish that make the dish authentic.",
     "Do not pretend the user already owns support ingredients. Keep ingredients strictly limited to the provided pantry items, but still choose the most recognizable real dish family those items suggest.",
     "For image_search_indices in sparse-pantries, keep the first phrase exact if a real iconic dish family fits, then add one or two broader ingredient-led food-photo phrases so image lookup can still succeed."

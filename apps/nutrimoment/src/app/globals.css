@@ -717,6 +717,19 @@
     color: #173a31 !important;
     background-color: rgba(41, 133, 112, 0.08) !important;
   }
+
+  .theme-topbar[data-theme="mintWhite"] .theme-topbar-notifications {
+    border-color: rgba(90, 177, 154, 0.18) !important;
+    background: rgba(250, 255, 253, 0.96) !important;
+    color: #173a31 !important;
+  }
+
+  .theme-topbar[data-theme="mintWhite"] .theme-topbar-notifications *,
+  .theme-topbar[data-theme="mintWhite"] .theme-topbar-notifications [class*="text-white"],
+  .theme-topbar[data-theme="mintWhite"] .theme-topbar-notifications [class*="text-emerald-50"],
+  .theme-topbar[data-theme="mintWhite"] .theme-topbar-notifications [class*="text-cyan-100"] {
+    color: #173a31 !important;
+  }
 }
 
 @keyframes blob-float {

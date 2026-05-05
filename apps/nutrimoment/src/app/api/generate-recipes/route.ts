@@ -53,6 +53,7 @@ import { logger } from "@/lib/logger";
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
 const MIN_RECIPE_RESULT_COUNT = 1;
 const MAX_SHARED_POOL_RECIPE_RESULT_COUNT = 10;
+const AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS = 3;
 const AWAIT_SHARED_POOL_CACHE_PERSISTENCE =
   process.env.DISABLE_USER_RECIPE_CACHE === "true" &&
   process.env.DISABLE_SHARED_RECIPE_POOL !== "true";
@@ -405,7 +406,9 @@ export async function POST(request: Request) {
             }
           )
         : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
-      const text = await generateFallbackRecipes(prompt, traceTextCall("primary_generation"));
+      const text = await generateRecipesWithTransientRetry(prompt, (attempt) =>
+        traceTextCall(attempt === 1 ? "primary_generation" : `primary_generation_retry_${attempt}`)
+      );
       const recipes = parseAiJsonPayload(text, "recipe_generation");
       const normalizedRecipes = recipes.recipes ?? recipes;
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
@@ -437,9 +440,9 @@ export async function POST(request: Request) {
             repairRecipeCount
           });
 
-          const retryText = await generateFallbackRecipes(
+          const retryText = await generateRecipesWithTransientRetry(
             buildScannerPantryBalanceRetryPrompt(prompt, repairRecipeCount),
-            traceTextCall("repair_generation")
+            (attempt) => traceTextCall(attempt === 1 ? "repair_generation" : `repair_generation_retry_${attempt}`)
           );
           const retryRecipes = parseAiJsonPayload(retryText, "recipe_generation");
           const retryNormalizedRecipes = retryRecipes.recipes ?? retryRecipes;
@@ -535,11 +538,15 @@ export async function POST(request: Request) {
       servedFrom: "shared_pool",
       recipeCountReturned: finalRecipes.length
     });
+    const fallbackNotice =
+      offlineFallbackKind === "ai_busy_shared_pool" && finalRecipes.length
+        ? undefined
+        : buildRecipeFallbackNotice(offlineFallbackKind, recipeLanguage);
     return Response.json({
       result: JSON.stringify(finalRecipes),
       servedFrom: "shared_pool",
       canLoadMore: searchResult.canLoadMore,
-      fallbackNotice: buildRecipeFallbackNotice(offlineFallbackKind, recipeLanguage),
+      fallbackNotice,
       access: accessPayload(nextAccess)
     });
   } catch (error) {
@@ -1138,6 +1145,34 @@ function buildRecipeFallbackNotice(
   }
 
   return "تعذر توليد الوصفات بالذكاء الاصطناعي، لذلك استخدمنا مطابقات من مجموعة الوصفات المشتركة.";
+}
+
+async function generateRecipesWithTransientRetry(
+  prompt: string,
+  traceForAttempt: (attempt: number) => import("@/lib/openai").AiCallTraceOptions
+) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await generateFallbackRecipes(prompt, traceForAttempt(attempt));
+    } catch (error) {
+      lastError = error;
+      if (!isTransientAiOverload(error) || attempt === AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS) {
+        break;
+      }
+
+      logger.warn("Retrying transient AI recipe generation failure", {
+        attempt,
+        nextAttempt: attempt + 1,
+        retryAttempts: AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+      await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("AI recipe generation failed");
 }
 
 function isTransientAiOverload(error: unknown) {

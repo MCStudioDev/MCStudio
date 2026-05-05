@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
+import { Camera, ChefHat, ImagePlus, Plus, Sparkles, Upload, Utensils, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -71,6 +71,69 @@ function forgetPendingRecipeHistoryId(entryId: string) {
   window.localStorage.setItem(PENDING_RECIPE_HISTORY_STORAGE_KEY, JSON.stringify(next));
 }
 
+async function readImageFileForScan(file: File) {
+  if (!file.type.startsWith("image/")) {
+    return fileToBase64(file);
+  }
+
+  try {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await loadImageElement(objectUrl);
+      return scaleImageToDataUrl(image);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    return fileToBase64(file);
+  }
+}
+
+function loadImageElement(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to load image"));
+    image.src = src;
+  });
+}
+
+function captureVideoFrame(video: HTMLVideoElement) {
+  return scaleImageToDataUrl(video);
+}
+
+function scaleImageToDataUrl(source: CanvasImageSource) {
+  const sourceWidth =
+    "videoWidth" in source && typeof source.videoWidth === "number"
+      ? source.videoWidth
+      : "naturalWidth" in source && typeof source.naturalWidth === "number"
+        ? source.naturalWidth
+        : "width" in source && typeof source.width === "number"
+          ? source.width
+          : 1280;
+  const sourceHeight =
+    "videoHeight" in source && typeof source.videoHeight === "number"
+      ? source.videoHeight
+      : "naturalHeight" in source && typeof source.naturalHeight === "number"
+        ? source.naturalHeight
+        : "height" in source && typeof source.height === "number"
+          ? source.height
+          : 1280;
+  const maxSide = 1280;
+  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Could not prepare image");
+  }
+  context.drawImage(source, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.84);
+}
+
 function getRecipeIngredientLabel(ingredient: unknown) {
   if (typeof ingredient === "string") return ingredient;
 
@@ -86,10 +149,12 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 export function ScannerTab() {
-  const { t, settings, health, setError, setNotice, rtl } = useApp();
+  const { t, settings, health, setError, addNotification, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
   const scannerInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const recipeRequestVersionRef = useRef(0);
   const notifiedHistoryEntriesRef = useRef<Set<string>>(new Set());
   const [manualEntry, setManualEntry] = useState("");
@@ -97,6 +162,10 @@ export function ScannerTab() {
   const [lastScanImage, setLastScanImage] = useState<string | null>(null);
   const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
   const [scannerInputKey, setScannerInputKey] = useState(0);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraStarting, setCameraStarting] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -439,6 +508,54 @@ export function ScannerTab() {
   }, [scanPreviewUrl]);
 
   useEffect(() => {
+    return () => {
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!cameraOpen || !cameraStream || !video) return;
+
+    let cancelled = false;
+    setCameraReady(false);
+    video.srcObject = cameraStream;
+    video.muted = true;
+    video.setAttribute("playsinline", "true");
+
+    const markReady = () => {
+      if (!cancelled && video.videoWidth > 0 && video.videoHeight > 0) {
+        setCameraReady(true);
+      }
+    };
+
+    const playPreview = async () => {
+      try {
+        await video.play();
+        markReady();
+      } catch {
+        markReady();
+      }
+    };
+
+    video.addEventListener("loadedmetadata", playPreview);
+    video.addEventListener("canplay", markReady);
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      void playPreview();
+    }
+
+    return () => {
+      cancelled = true;
+      video.removeEventListener("loadedmetadata", playPreview);
+      video.removeEventListener("canplay", markReady);
+      if (video.srcObject === cameraStream) {
+        video.srcObject = null;
+      }
+    };
+  }, [cameraOpen, cameraStream]);
+
+  useEffect(() => {
     const pendingIds = readPendingRecipeHistoryIds();
     if (!pendingIds.length) return;
 
@@ -455,7 +572,7 @@ export function ScannerTab() {
       setHistoryEntryId(completedEntry.id);
       setRecipes(completedEntry.recipes);
       setRecipeLoading(false);
-      setNotice(t("backgroundRecipesReady"));
+      addNotification(t("backgroundRecipesReady"), settings.uiLanguage);
       void hydrateRecipePhotos(completedEntry.recipes, completedEntry.id, recipeRequestVersionRef.current);
       return;
     }
@@ -472,7 +589,7 @@ export function ScannerTab() {
       setRecipeLoading(false);
       setError(failedEntry.generationMessage ?? t("backgroundRecipesFailed"));
     }
-  }, [historyItems, hydrateRecipePhotos, setError, setNotice, t]);
+  }, [addNotification, historyItems, hydrateRecipePhotos, setError, settings.uiLanguage, t]);
 
   const dismissOnboarding = () => {
     localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
@@ -496,24 +613,70 @@ export function ScannerTab() {
     setIngredients((current) => current.filter((item) => item.id !== ingredientId));
   };
 
-  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    event.currentTarget.blur();
-    scannerInputRef.current?.blur();
-    setScannerInputKey((current) => current + 1);
-    if (!file) return;
+  function stopScannerCamera() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraStream(null);
+    setCameraReady(false);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraOpen(false);
+    setCameraStarting(false);
+  }
 
-    const previewUrl = URL.createObjectURL(file);
-    setScanPreviewUrl((current) => {
-      if (current?.startsWith("blob:")) {
-        URL.revokeObjectURL(current);
-      }
-      return previewUrl;
-    });
+  const startScannerCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      scannerInputRef.current?.click();
+      return;
+    }
+
+    setCameraStarting(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" }
+        }
+      });
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+      setCameraOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Camera unavailable";
+      setError(message);
+      scannerInputRef.current?.click();
+    } finally {
+      setCameraStarting(false);
+    }
+  };
+
+  const captureScannerCamera = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (!cameraReady || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      setError(t("cameraStillStarting"));
+      return;
+    }
+
+    const image = captureVideoFrame(video);
+    const previewUrl = image;
+    stopScannerCamera();
+    await processScannedImage(image, previewUrl);
+  };
+
+  const processScannedImage = async (image: string, previewUrl?: string) => {
+    if (previewUrl) {
+      setScanPreviewUrl((current) => {
+        if (current?.startsWith("blob:")) {
+          URL.revokeObjectURL(current);
+        }
+        return previewUrl;
+      });
+    }
+
     setScanLoading(true);
     try {
-      const image = await fileToBase64(file);
       setLastScanImage(image);
       const response = await fetch("/api/scan", {
         method: "POST",
@@ -563,6 +726,24 @@ export function ScannerTab() {
     }
   };
 
+  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    event.currentTarget.blur();
+    scannerInputRef.current?.blur();
+    setScannerInputKey((current) => current + 1);
+    if (!file) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const image = await readImageFileForScan(file);
+      await processScannedImage(image, previewUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to scan image";
+      setError(message);
+    }
+  };
+
   const handleGenerateRecipes = async () => {
     if (!ingredients.length && !lastScanImage) {
       setError(t("addOrScanFirst"));
@@ -585,7 +766,7 @@ export function ScannerTab() {
       setHistoryEntryId(pendingEntryId);
       if (pendingEntryId) {
         rememberPendingRecipeHistoryId(pendingEntryId);
-        setNotice(t("backgroundRecipesQueued"));
+        addNotification(t("backgroundRecipesQueued"), settings.uiLanguage);
       }
       const response = await fetch("/api/generate-recipes", {
         method: "POST",
@@ -712,6 +893,53 @@ export function ScannerTab() {
 
           <div className="grid gap-3.5 xl:grid-cols-[1.08fr_0.92fr]">
             <div className="space-y-3.5">
+              {cameraOpen ? (
+                <div className="overflow-hidden rounded-[1.25rem] border border-cyan-200/18 bg-black/35">
+                  <div className="relative aspect-[4/3] bg-black">
+                    <video
+                      ref={videoRef}
+                      className="h-full w-full object-cover"
+                      muted
+                      playsInline
+                      autoPlay
+                    />
+                    {!cameraReady ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 text-sm font-semibold text-white">
+                        <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        {t("cameraPreviewStarting")}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 p-2.5">
+                    <Button variant="secondary" leftIcon={<Camera className="h-4 w-4" />} onClick={captureScannerCamera} disabled={!cameraReady}>
+                      {t("capturePhoto")}
+                    </Button>
+                    <Button variant="ghost" leftIcon={<X className="h-4 w-4" />} onClick={stopScannerCamera}>
+                      {t("cancel")}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="secondary"
+                    leftIcon={<Camera className="h-4 w-4" />}
+                    onClick={startScannerCamera}
+                    disabled={cameraStarting || scanLoading}
+                  >
+                    {cameraStarting ? t("identifying") : t("takePhoto")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    leftIcon={<Upload className="h-4 w-4" />}
+                    onClick={() => scannerInputRef.current?.click()}
+                    disabled={scanLoading}
+                  >
+                    {t("uploadFridgePhoto")}
+                  </Button>
+                </div>
+              )}
+
               <label htmlFor="scanner-photo-upload" className="block">
                 <span className="sr-only">{t("uploadFridgePhoto")}</span>
                 <input
@@ -721,7 +949,6 @@ export function ScannerTab() {
                   name="scanner-photo-upload"
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="sr-only"
                   onChange={handleImageUpload}
                   aria-label={t("uploadFridgePhoto")}

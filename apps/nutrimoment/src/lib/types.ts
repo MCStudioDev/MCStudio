@@ -5,6 +5,13 @@ export type RecipeImageSource = "api" | "cache" | "search" | "unsplash" | "wikim
 export type DashboardTheme = "auroraDark" | "mintWhite";
 export type RecipeMealType = "breakfast" | "lunch" | "dinner" | "snack";
 
+export interface AppNotification {
+  id: string;
+  createdAt: string;
+  language: Language;
+  message: string;
+}
+
 export interface RecipeDishIntent {
   dish_name: string;
   cuisine: string;

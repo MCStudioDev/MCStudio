@@ -382,6 +382,10 @@ Object.assign(arabicTranslations, {
 });
 
 Object.assign(arabicTranslations, {
+  showMoreHistory: "عرض المزيد من السجل"
+});
+
+Object.assign(arabicTranslations, {
   confirm: "تأكيد",
   loadingKitchen: "جار تجهيز مطبخك...",
   searchHistory: "ابحث باسم الوصفة أو المكون أو التاريخ",

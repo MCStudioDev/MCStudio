@@ -61,9 +61,7 @@ export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
 export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
   if (!hasFirebaseAdminConfig()) return entry;
 
-  const persistedImageUrl = /^data:/i.test(entry.imageUrl)
-    ? await uploadSharedRecipeImage(entry.signature, entry.imageUrl)
-    : entry.imageUrl;
+  const persistedImageUrl = await persistSharedRecipeImageUrl(entry);
 
   const nextEntry = {
     ...entry,
@@ -130,16 +128,29 @@ export async function persistSharedRecipePhotoExactAliases(entry: SharedRecipePh
   return persistSharedRecipePhotoAliases(entry, aliases);
 }
 
-async function uploadSharedRecipeImage(signature: string, imageUrl: string) {
-  const parsed = parseDataUrl(imageUrl);
+async function persistSharedRecipeImageUrl(entry: SharedRecipePhotoEntry) {
+  if (/^data:/i.test(entry.imageUrl)) {
+    const parsed = parseDataUrl(entry.imageUrl);
+    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
+  }
+
+  if (entry.source === "generated" && /^https?:\/\//i.test(entry.imageUrl)) {
+    const parsed = await fetchRemoteImage(entry.imageUrl);
+    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
+  }
+
+  return entry.imageUrl;
+}
+
+async function uploadSharedRecipeImage(signature: string, buffer: Buffer, mimeType: string) {
   const bucket = getAdminStorageBucket();
-  const extension = getImageExtension(parsed.mimeType);
+  const extension = getImageExtension(mimeType);
   const objectPath = `recipe-photo-cache/${signature}.${extension}`;
   const downloadToken = randomUUID();
   const file = bucket.file(objectPath);
 
-  await file.save(parsed.buffer, {
-    contentType: parsed.mimeType,
+  await file.save(buffer, {
+    contentType: mimeType,
     metadata: {
       cacheControl: "public,max-age=31536000,immutable",
       metadata: {
@@ -150,6 +161,23 @@ async function uploadSharedRecipeImage(signature: string, imageUrl: string) {
   });
 
   return buildFirebaseDownloadUrl(bucket, objectPath, downloadToken);
+}
+
+async function fetchRemoteImage(imageUrl: string) {
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Generated image download failed with status ${response.status}.`);
+  }
+
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() || "image/jpeg";
+  if (!contentType.startsWith("image/")) {
+    throw new Error(`Generated image download returned ${contentType}.`);
+  }
+
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    mimeType: contentType
+  };
 }
 
 function parseDataUrl(dataUrl: string) {

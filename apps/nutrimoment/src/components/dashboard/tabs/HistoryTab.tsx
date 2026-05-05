@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { History, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -19,11 +19,16 @@ import { formatDate } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
+const HISTORY_INITIAL_ENTRY_COUNT = 6;
+const HISTORY_LOAD_MORE_COUNT = 6;
+const HISTORY_EAGER_IMAGE_COUNT = 3;
+
 export function HistoryTab() {
   const { t, setError, settings } = useApp();
   const { access, user } = useAuth();
   const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
+  const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -62,6 +67,15 @@ export function HistoryTab() {
       return haystack.includes(query);
     });
   }, [items, searchQuery]);
+  const visibleItems = useMemo(
+    () => filteredItems.slice(0, visibleEntryCount),
+    [filteredItems, visibleEntryCount]
+  );
+  const hasMoreHistory = visibleEntryCount < filteredItems.length;
+
+  useEffect(() => {
+    setVisibleEntryCount(HISTORY_INITIAL_ENTRY_COUNT);
+  }, [searchQuery]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -126,7 +140,7 @@ export function HistoryTab() {
           </div>
 
           <div className="grid gap-4">
-            {filteredItems.map((entry, entryIndex) => (
+            {visibleItems.map((entry, entryIndex) => (
               <Card key={entry.id} className="theme-history-entry rounded-[2rem] space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -172,7 +186,7 @@ export function HistoryTab() {
                     {entry.recipes.map((recipe, recipeIndex) => (
                     <MealRevealCard
                       key={`${entry.id}-${recipe.id ?? recipeIndex}`}
-                      deferImageLookup={access.tier === "premium" ? !(entryIndex === 0 && recipeIndex < 3) : false}
+                      deferImageLookup={entryIndex !== 0 || recipeIndex >= HISTORY_EAGER_IMAGE_COUNT}
                       eyebrow={getRecipeEyebrow(recipe, t)}
                       name={recipe.name}
                       visualMatchLabel={recipe.visual_match_label}
@@ -217,6 +231,16 @@ export function HistoryTab() {
                 ) : null}
               </Card>
             ))}
+            {hasMoreHistory ? (
+              <div className="flex justify-center pt-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setVisibleEntryCount((current) => current + HISTORY_LOAD_MORE_COUNT)}
+                >
+                  {t("showMoreHistory")}
+                </Button>
+              </div>
+            ) : null}
             {!filteredItems.length ? (
               <EmptyState title={t("noHistoryMatches")} description={t("noHistoryMatchesDesc")} />
             ) : null}

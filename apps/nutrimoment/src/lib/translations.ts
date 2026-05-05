@@ -367,6 +367,7 @@ export const translations = {
     searchHistory: "Search recipes, ingredients, or dates",
     noHistoryMatches: "No matching sessions",
     noHistoryMatchesDesc: "Try another recipe name, ingredient, or date.",
+    showMoreHistory: "Show more history",
     clearHistoryTitle: "Clear history?",
     clearHistoryDescription: "This removes every saved recipe session from your history.",
     savedRecipeSession: "Saved recipe session",

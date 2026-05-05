@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type KeyboardEvent } from "react";
 import { ChefHat, ChevronDown, Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
@@ -26,6 +26,8 @@ const inFlightRecipePhotoRequests = new Map<
 const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKey: string }>();
 const DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS = 10 * 60 * 1000;
 const RECENT_RECIPE_PHOTO_SELECTION_TTL_MS = 10 * 60 * 1000;
+const PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES = 8;
+const PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS = 10 * 1000;
 
 export interface MealRevealSection {
   title: string;
@@ -92,7 +94,11 @@ export function MealRevealCard({
   const { t } = useApp();
   const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
   const bypassClientCache = access.tier === "premium";
+  const cardRef = useRef<HTMLElement | null>(null);
+  const retryTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const premiumRetryCountsRef = useRef<Map<string, number>>(new Map());
   const [lookupActivated, setLookupActivated] = useState(false);
+  const [lookupRetryToken, setLookupRetryToken] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
@@ -103,13 +109,15 @@ export function MealRevealCard({
     image: string;
     imageSource?: RecipeImageSource;
     queryKey: string;
+    retrying: boolean;
   }>({
     failed: false,
     imageAttributionName: undefined,
     imageAttributionUrl: undefined,
     image: "",
     imageSource: undefined,
-    queryKey: ""
+    queryKey: "",
+    retrying: false
   });
 
   const queryCandidates = useMemo(() => normalizeRecipePhotoQueries(imageQuery), [imageQuery]);
@@ -142,6 +150,7 @@ export function MealRevealCard({
       ? lookupState.image
       : "";
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
+  const lookupRetrying = lookupState.queryKey === queryKey ? lookupState.retrying : false;
   const internetProvidedImage = isInternetImageUrl(imageUrl) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
   const shouldRefreshProvidedImage = internetProvidedImage
     ? Boolean(queryKey) && isRecipePhotoRecentlyAssignedToDifferentQuery(internetProvidedImage, queryKey)
@@ -190,6 +199,37 @@ export function MealRevealCard({
     if (!queryKey || !resolvedImage) return;
     rememberRecentRecipePhotoSelection(resolvedImage, queryKey);
   }, [queryKey, resolvedImage]);
+
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        globalThis.clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!deferImageLookup || lookupActivated) return;
+    const card = cardRef.current;
+    if (!card) return;
+
+    if (!("IntersectionObserver" in window)) {
+      const timeout = globalThis.setTimeout(() => setLookupActivated(true), 0);
+      return () => globalThis.clearTimeout(timeout);
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setLookupActivated(true);
+        observer.disconnect();
+      },
+      { rootMargin: "720px 0px" }
+    );
+
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [deferImageLookup, lookupActivated]);
 
   useEffect(() => {
     if (disableAutoImageLookup) return;
@@ -272,8 +312,10 @@ export function MealRevealCard({
           imageAttributionUrl: data.imageAttributionUrl,
           image: data.imageUrl,
           imageSource: data.imageSource,
-          queryKey
+          queryKey,
+          retrying: false
         });
+        premiumRetryCountsRef.current.delete(queryKey);
         void onImageResolved?.({
           imageAttributionName: data.imageAttributionName,
           imageAttributionUrl: data.imageAttributionUrl,
@@ -287,6 +329,27 @@ export function MealRevealCard({
 
         const retryAfterSeconds = Number(error instanceof Error ? error.message : "0") || 0;
         const retryUntil = now + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS);
+        const premiumRetryCount = premiumRetryCountsRef.current.get(queryKey) ?? 0;
+        if (bypassClientCache && retryAfterSeconds > 0 && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
+          premiumRetryCountsRef.current.set(queryKey, premiumRetryCount + 1);
+          setLookupState({
+            failed: false,
+            imageAttributionName: undefined,
+            imageAttributionUrl: undefined,
+            image: "",
+            imageSource: undefined,
+            queryKey,
+            retrying: true
+          });
+          if (retryTimeoutRef.current) {
+            globalThis.clearTimeout(retryTimeoutRef.current);
+          }
+          retryTimeoutRef.current = globalThis.setTimeout(
+            () => setLookupRetryToken((value) => value + 1),
+            Math.min(retryAfterSeconds * 1000, PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS)
+          );
+          return;
+        }
         if (!bypassClientCache) {
           recipePhotoFailureCache.set(queryKey, retryUntil);
         }
@@ -296,7 +359,8 @@ export function MealRevealCard({
           imageAttributionUrl: undefined,
           image: "",
           imageSource: undefined,
-          queryKey
+          queryKey,
+          retrying: false
         });
       });
 
@@ -316,6 +380,7 @@ export function MealRevealCard({
     imagePromptIngredients,
     lookupEnabled,
     lookupFailed,
+    lookupRetryToken,
     lookedUpImage,
     onImageResolved,
     primaryQuery,
@@ -358,6 +423,7 @@ export function MealRevealCard({
 
   return (
     <article
+      ref={cardRef}
       tabIndex={0}
       onFocusCapture={() => {
         setLookupActivated(true);
@@ -390,7 +456,7 @@ export function MealRevealCard({
                 summary={cardSummary}
                 headlineStats={headlineStats}
                 resolvedImage={resolvedImage}
-                imageLoading={imageLoading}
+                imageLoading={imageLoading || lookupRetrying}
                 showNoExactPhoto={showNoExactPhoto}
                 onImageLoadError={handleImageLoadError}
                 onOpenRecipe={openRecipeDetails}

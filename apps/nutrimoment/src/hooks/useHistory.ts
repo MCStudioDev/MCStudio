@@ -7,6 +7,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -115,7 +116,8 @@ export function useHistory(): UseHistoryResult {
     });
     const q = query(
       collection(db, `users/${user.uid}/history`),
-      orderBy("createdAt", "desc")
+      orderBy("createdAt", "desc"),
+      limit(MAX_HISTORY_ITEMS)
     );
     const unsub = onSnapshot(
       q,

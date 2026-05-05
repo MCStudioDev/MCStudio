@@ -50,8 +50,8 @@ const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
   ],
   egyptian: [
     "Use clearly Egyptian dish logic, not just generic Middle Eastern labeling.",
-    "Prefer real Egyptian dish families when the ingredients fit, such as ful medames, taameya or tameya, shakshuka or shakshouka, eggah, koshary, lentil soup, fasolia, molokhia, hawawshi, kofta kebab, macarona bechamel, sayadeya, or rice-based stews.",
-    "Egyptian breakfast patterns often center on eggs with tomato and pepper, ful, taameya, cheese, tomato, cucumber, bread, and legumes; lunch and dinner often center on rice, legumes, tomato-based stews, grilled meats, kofta, or baked casseroles.",
+    "Prefer real Egyptian dish families when the ingredients fit, such as ful medames, taameya or tameya, shakshuka or shakshouka, eggah, koshary, lentil soup, fasolia, molokhia, hawawshi, kofta kebab, taagen kofta, macarona bechamel, sayadeya, samak singari, fish tagine, alexandrian shrimp, farakh meshwi, chicken molokhia, chicken fattah, chicken negresco, or rice-based stews.",
+    "Egyptian breakfast patterns often center on eggs with tomato and pepper, ful, taameya, cheese, tomato, cucumber, bread, and legumes; lunch and dinner often center on rice, legumes, tomato-based stews, grilled meats, kofta, chicken molokhia, farakh meshwi, sayadeya, fish tagine, seafood rice, or baked casseroles.",
     "Taameya is traditionally made with fava beans; do not call a recipe taameya unless fava beans or a clearly Egyptian taameya-style base is plausible.",
     "Use Egyptian flavor logic such as onion, garlic, tomato, cumin, coriander, parsley, cilantro, lemon, tahini, rice, vermicelli, lentils, and fava beans where appropriate."
   ],
@@ -120,7 +120,7 @@ interface CuisineKnowledge {
 const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
   egyptian: {
     substyles: ["Cairene street food", "home-style breakfast plates", "rice-and-stew comfort dishes", "grilled meat plates"],
-    stapleProteins: ["egg", "ground beef", "ground lamb", "chicken", "fava bean", "lentil"],
+    stapleProteins: ["egg", "ground beef", "ground lamb", "chicken", "fish", "shrimp", "fava bean", "lentil"],
     stapleStarches: ["baladi bread", "rice", "vermicelli rice", "pasta", "lentils"],
     stapleAromatics: ["onion", "garlic", "tomato", "cumin", "coriander", "parsley", "cilantro"],
     stapleSauces: ["tomato sauce", "bechamel", "tahini", "lemon-garlic dressing"],
@@ -135,7 +135,13 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
       "kofta with rice or tomato sauce",
       "hawawshi with stuffed bread",
       "macarona bechamel with ground meat",
+      "farakh meshwi or Egyptian grilled chicken",
+      "chicken molokhia with rice",
+      "chicken fattah with rice and bread",
+      "chicken negresco when chicken and pasta fit",
       "sayadeya fish rice",
+      "samak singari or Egyptian fish tagine",
+      "alexandrian shrimp or seafood sayadeya",
       "koshary with lentils, rice, pasta, and tomato sauce",
       "fasolia or tomato-based bean stews"
     ],
@@ -143,7 +149,14 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
       "ground meat + parsley/onion/garlic -> kofta",
       "ground meat + bread/pita -> hawawshi",
       "ground meat + pasta + milk or flour or butter -> macarona bechamel",
+      "chicken + garlic/lemon/spices -> farakh meshwi",
+      "chicken + rice/bread/garlic/vinegar -> chicken fattah",
+      "chicken + molokhia/garlic/coriander -> chicken molokhia",
+      "chicken + pasta + milk/flour/butter -> chicken negresco",
       "fish + rice + onion -> sayadeya",
+      "fish + tomato/pepper/garlic/lemon -> samak singari or Egyptian fish tagine",
+      "shrimp + garlic/cumin/coriander/lemon -> alexandrian shrimp",
+      "shrimp + rice + onion/tomato -> seafood sayadeya",
       "egg + tomato + bell pepper/onion -> shakshuka",
       "fava bean + herbs + onion/garlic -> taameya",
       "lentil + rice + pasta -> koshary"
@@ -392,6 +405,13 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
   const sparseIngredientGuidance = buildSparseIngredientGuidance(ingredients, options.preferredCuisine);
   const realRecipeGuardrails = buildRealRecipeGuardrails(options.preferredCuisine);
+  const namedPlatePolicy = buildNamedPlateGenerationPolicy({
+    allergens: options.allergens ?? [],
+    conditions: options.conditions,
+    diets: options.diets,
+    mode: "recipe",
+    preferredCuisine: options.preferredCuisine
+  });
   const preferenceBrief = buildPromptPreferenceBrief({
     preferredCuisine: options.preferredCuisine,
     calorieTarget: options.calorieTarget,
@@ -418,20 +438,26 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative marketing titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the recipe's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
     realRecipeGuardrails,
+    namedPlatePolicy,
     options.preferredCuisine === "Any"
       ? "When preferred cuisine is Any, intentionally diversify the final list across multiple authentic cuisine styles when the pantry allows it. Do not cluster the whole response around one kitchen if there are strong matches from different cuisines."
-      : `When a preferred cuisine is provided, treat it as a hard target, not a soft suggestion. All returned recipes should belong to ${options.preferredCuisine} unless the pantry makes that objectively impossible.`,
+      : `When a preferred cuisine is provided, act like a professional traditional ${options.preferredCuisine} chef. Start from that cuisine's real dish universe first, then fit the pantry into those dishes. Do not start from generic ingredient combinations and add a ${options.preferredCuisine} label later.`,
     options.preferredCuisine === "Any"
       ? "For Any cuisine, prefer a varied mix such as different cuisine families, dish structures, and meal contexts while still keeping the strongest pantry-first matches at the top."
-      : `If the pantry cannot support ${recipeCount} authentic ${options.preferredCuisine} recipes, return fewer recipes rather than filling the list with weak off-cuisine results.`,
+      : `For ${options.preferredCuisine}, generate the requested count by choosing traditional or directly related named dishes from that cuisine. Use missing_ingredients for authentic support items instead of drifting to off-cuisine recipes.`,
     options.preferredCuisine === "Any"
       ? `Try to cover at least ${Math.min(recipeCount, 3)} different cuisine styles when enough plausible options exist.`
-      : `At least ${cuisineTargetCount} of the ${recipeCount} recipes should clearly belong to that cuisine unless the pantry makes that impossible. If you must go outside it, stay as close as possible and explain the compromise in preference_hits.`,
+      : `At least ${cuisineTargetCount} of the ${recipeCount} recipes must clearly belong to ${options.preferredCuisine}. Only go outside ${options.preferredCuisine} when the user selected highly restrictive diets, allergies, or medical conditions that make a traditional option unsafe; explain that compromise in preference_hits.`,
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, vibrant, or loaded unless they are essential to distinguish the dish.",
     "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
     "When the pantry strongly matches a known cuisine-specific dish, prefer that exact dish family over a generic fallback. Example: Egyptian plus ground meat should bias toward kofta, hawawshi, or macarona bechamel when the supporting starches and aromatics fit.",
+    "Variety hard rule: do not return the same named plate, same dish_intent.dish_name, or same visual structure twice with only a different sauce, garnish, photo, or wording. Each recipe should represent a meaningfully different meal family, cooking form, starch/sauce structure, or serving format while staying accurate to the pantry and cuisine.",
+    "Accuracy plus creativity rule: be creative inside real cuisine boundaries. Prefer a spread of different authentic forms such as grilled plate, stuffed bread, stew, baked casserole, rice dish, pasta dish, soup, salad, skillet, or sandwich only when that form is genuinely correct for the cuisine and ingredients.",
+    options.preferredCuisine === "Any"
+      ? "Chicken variety examples for Any cuisine: when chicken is the main pantry ingredient, consider distinct real dish families such as honey garlic chicken, shish tawook, breaded chicken cutlets, chicken tenders, creamy chicken soup, chicken negresco pasta, chicken alfredo pasta, chicken shawarma plate, chicken piccata, butter chicken, teriyaki chicken, chicken biryani, or arroz con pollo. Pick only those that fit the available pantry, diet, and missing-ingredient budget."
+      : `Chicken rule for selected cuisine: if chicken is the main pantry ingredient, choose chicken dishes that genuinely belong to ${options.preferredCuisine} or its closest traditional regional family. Do not use global chicken ideas like honey garlic chicken, tenders, alfredo, teriyaki, piccata, or arroz con pollo unless ${options.preferredCuisine} is Any or that cuisine truly owns the dish.`,
     hasPastaSignals
       ? "Pasta rule: if the pantry contains pasta or specific pasta shapes, diversify across structurally different dish families instead of returning near-identical pasta variants."
       : "",
@@ -517,6 +543,13 @@ export function buildMealPlanPrompt({
   const imageGuidance = buildCuisineImageGuidance(preferredCuisine);
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(preferredCuisine, pantryIngredients);
   const realRecipeGuardrails = buildRealRecipeGuardrails(preferredCuisine);
+  const namedPlatePolicy = buildNamedPlateGenerationPolicy({
+    allergens,
+    conditions,
+    diets,
+    mode: "meal-plan",
+    preferredCuisine
+  });
   const preferenceBrief = buildPromptPreferenceBrief({
     preferredCuisine,
     calorieTarget,
@@ -533,12 +566,14 @@ export function buildMealPlanPrompt({
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the meal's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
     realRecipeGuardrails,
+    namedPlatePolicy,
     "When a preferred cuisine is provided, breakfast, lunch, and dinner should mostly stay within that cuisine or its direct regional family unless pantry constraints make that impossible.",
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, or loaded unless they are essential.",
     "When a meal matches a known family, title it that way, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the meal name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before planning the week. Infer which authentic dish families the pantry best supports, then build breakfast, lunch, and dinner around those families.",
     "Use breakfast, lunch, and dinner patterns that make sense for the selected cuisine rather than repeating the same generic bowl structure every day.",
+    "Weekly variety hard rule: do not repeat the same named plate or visual structure across the same day unless the user's restrictions leave no safer alternative. Vary dish family, cooking form, starch/sauce structure, and meal context while keeping nutrition and cuisine accuracy.",
     cuisineSpecificGuidance,
     cuisineKnowledgeGuidance,
     cuisineDishCatalogGuidance,
@@ -580,6 +615,12 @@ export function buildMealPlanPrompt({
 export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLanguage = "English", requestedRecipeCount = 5) {
   const languageOutputGuidance = buildLanguageOutputGuidance(recipeLanguage);
   const realRecipeGuardrails = buildRealRecipeGuardrails("Any");
+  const namedPlatePolicy = buildNamedPlateGenerationPolicy({
+    conditions: [],
+    diets: [],
+    mode: "prompt-only",
+    preferredCuisine: "Any"
+  });
   const recipeCount = Math.min(10, Math.max(1, requestedRecipeCount || 5));
 
   return [
@@ -588,7 +629,9 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     `Generate exactly ${recipeCount} practical recipes.`,
     realRecipeGuardrails,
+    namedPlatePolicy,
     "Even for free-form prompts, use actual established recipes or widely recognized dish families. If the request is vague, choose real dish families instead of inventing generic bowls, skillets, wraps, or fake house specials.",
+    "Variety hard rule: do not return repeated versions of the same recipe under different titles or photos. Each recipe must be a distinct named dish family or distinct serving structure.",
     `Recipe language: ${recipeLanguage}.`,
     languageOutputGuidance,
     "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants. The helper translator should only be used as a fallback when one localized side is incomplete.",
@@ -626,6 +669,46 @@ function buildPromptPreferenceBrief(snapshot: {
     `Preferred diet compatibility: ${preferredDietTags}.`,
     `Known allergens to avoid: ${allergens}.`,
     `Nutrition targets derived from the profile: ${nutritionTargets}.`
+  ].join(" ");
+}
+
+function buildNamedPlateGenerationPolicy({
+  allergens = [],
+  conditions,
+  diets,
+  mode,
+  preferredCuisine
+}: {
+  allergens?: string[];
+  conditions: string[];
+  diets: string[];
+  mode: "recipe" | "meal-plan" | "prompt-only";
+  preferredCuisine: string;
+}) {
+  const selectedConstraintCount = diets.length + conditions.length + allergens.length;
+  const isHighlyConstrained = selectedConstraintCount >= 2 || conditions.length >= 1;
+  const cuisineScope =
+    preferredCuisine && preferredCuisine !== "Any"
+      ? `${preferredCuisine} and its direct regional dish families`
+      : "the best-fitting cuisines from the pantry";
+  const itemLabel = mode === "meal-plan" ? "meal" : "recipe";
+  const collectionLabel = mode === "meal-plan" ? "weekly meal plan" : "recipe list";
+
+  return [
+    `Named-plate policy for this ${collectionLabel}: by default, generate real named plates from ${cuisineScope}, not generic ingredient combinations.`,
+    preferredCuisine && preferredCuisine !== "Any"
+      ? `Selected-cuisine closed-world rule: ${preferredCuisine} is the recipe universe. Use traditional ${preferredCuisine} plates, direct regional relatives, or safe traditional adaptations. Do not borrow famous dishes from other cuisines just because they fit the ingredients.`
+      : "Open-cuisine rule: because the user selected Any, you may choose the best-fitting named dishes across cuisines and should use that freedom for variety.",
+    `Every ${itemLabel} name should be a recognizable dish identity or a clear established dish-family variant that a food photo model can visualize.`,
+    "Go deeper than broad cuisine labels: choose specific plates such as hawawshi, kofta, koshary, ful medames, macarona bechamel, menemen, adana kebab, chana masala, dal tadka, arroz con pollo, pad krapow, tom yum, frittata, shrimp linguine, mujadara, shawarma plate, or the closest real dish family for the selected cuisine.",
+    "For each named plate, make image_search_index, image_search_indices, and dish_intent.dish_name point to that same canonical visual identity. Do not let photo phrases collapse to generic food, dinner assembled, beef plate, chicken plate, or cuisine food.",
+    "If a real dish needs support ingredients to be recognizable, keep the named dish and list those support ingredients in missing_ingredients instead of renaming it into a generic bowl or skillet.",
+    isHighlyConstrained
+      ? "Highly constrained nutrition mode is active because the user selected diets, allergens, or medical conditions. In this mode, safety and nutrition rules outrank strict authenticity: adapt the named dish, simplify it, or choose a safer neighboring named dish family when needed."
+      : "Normal named-plate mode is active. Authentic dish identity should outrank generic macro-friendly substitutions when the pantry allows it.",
+    isHighlyConstrained
+      ? "Even in highly constrained mode, do not invent fake dish names. Use names like diabetes-friendly shakshuka only if it remains visually and structurally shakshuka; otherwise choose a real safer dish family and explain the adaptation in preference_hits."
+      : "Do not add health words to the recipe title unless the user explicitly asked for that diet style; keep health compatibility in preference_hits instead."
   ].join(" ");
 }
 
@@ -836,6 +919,16 @@ function buildIngredientDrivenCuisineGuidance(
       }
     }
 
+    if (hasAny(pantry, ["chicken", "chicken breast", "chicken thigh", "whole chicken"])) {
+      hints.push("Egyptian ingredient reasoning: chicken should first map to authentic Egyptian plates such as farakh meshwi, chicken molokhia, chicken fattah, taagen chicken and onions, or chicken negresco before generic garlic chicken.");
+      if (hasAny(pantry, ["pasta", "macaroni", "penne", "spaghetti"]) || hasAny(pantry, ["milk", "butter", "flour", "cream", "cheese"])) {
+        hints.push("Egyptian ingredient reasoning: chicken plus pasta or white-sauce staples can support chicken negresco, with missing bechamel items listed explicitly.");
+      }
+      if (hasAny(pantry, ["rice", "bread", "baladi bread", "garlic", "vinegar"])) {
+        hints.push("Egyptian ingredient reasoning: chicken plus rice, bread, garlic, or vinegar can support chicken fattah instead of a generic chicken rice plate.");
+      }
+    }
+
     if (hasAny(pantry, ["fava bean", "broad bean", "ful"])) {
       hints.push("Egyptian ingredient reasoning: fava beans strongly suggest ful medames for breakfast or taameya-style dishes when herbs and aromatics fit.");
       if (hasAny(pantry, ["onion", "garlic"]) && hasAny(pantry, ["cilantro", "coriander", "parsley", "dill"])) {
@@ -851,8 +944,24 @@ function buildIngredientDrivenCuisineGuidance(
       hints.push("Egyptian ingredient reasoning: lentils plus rice plus pasta strongly suggest koshary, especially if tomato sauce, chickpeas, or fried onion are plausible missing ingredients.");
     }
 
-    if (hasAny(pantry, ["fish", "tilapia", "sea bass", "snapper"]) && hasAny(pantry, ["rice", "vermicelli", "onion"])) {
-      hints.push("Egyptian ingredient reasoning: fish plus rice and onion should strongly suggest sayadeya before a generic grilled fish plate.");
+    if (hasAny(pantry, ["fish", "tilapia", "sea bass", "snapper"])) {
+      hints.push("Egyptian ingredient reasoning: fish should first map to sayadeya, samak singari, or Egyptian fish tagine before a generic grilled fish plate.");
+      if (hasAny(pantry, ["rice", "vermicelli", "onion"])) {
+        hints.push("Egyptian ingredient reasoning: fish plus rice and onion should strongly suggest sayadeya before a generic fish plate.");
+      }
+      if (hasAny(pantry, ["tomato", "bell pepper", "pepper", "garlic", "lemon"])) {
+        hints.push("Egyptian ingredient reasoning: fish plus tomato, pepper, garlic, or lemon should strongly suggest samak singari or Egyptian fish tagine.");
+      }
+    }
+
+    if (hasAny(pantry, ["shrimp", "prawn", "seafood"])) {
+      hints.push("Egyptian ingredient reasoning: shrimp or seafood should first map to Alexandrian shrimp or seafood sayadeya before generic shrimp plates.");
+      if (hasAny(pantry, ["rice", "onion", "tomato"])) {
+        hints.push("Egyptian ingredient reasoning: shrimp plus rice, onion, or tomato can support seafood sayadeya.");
+      }
+      if (hasAny(pantry, ["garlic", "lemon", "cumin", "coriander", "chili"])) {
+        hints.push("Egyptian ingredient reasoning: shrimp plus garlic, lemon, cumin, coriander, or chili can support Alexandrian shrimp.");
+      }
     }
   }
 

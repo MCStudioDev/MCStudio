@@ -2,6 +2,61 @@
 import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
 
 const RECIPE_TITLES: Record<string, string> = {
+  "Kofta": "كفتة",
+  "Egyptian Kofta": "كفتة مصرية",
+  "Kofta Kebab": "كفتة مشوية",
+  "Taagen Kofta": "طاجن كفتة",
+  "Hawawshi": "حواوشي",
+  "Macarona Bechamel": "مكرونة بشاميل",
+  "Koshary": "كشري",
+  "Ful Medames": "فول مدمس",
+  "Taameya": "طعمية",
+  "Shakshuka": "شكشوكة",
+  "Farakh Meshwi": "فراخ مشوية",
+  "Chicken Molokhia": "ملوخية بالدجاج",
+  "Chicken Fattah": "فتة دجاج",
+  "Chicken Negresco": "نجرسكو دجاج",
+  "Sayadeya": "صيادية سمك",
+  "Samak Singari": "سمك سنجاري",
+  "Egyptian Fish Tagine": "طاجن سمك مصري",
+  "Alexandrian Shrimp": "جمبري إسكندراني",
+  "Seafood Sayadeya": "صيادية بالمأكولات البحرية",
+  "Shish Tawook": "شيش طاووق",
+  "Shawarma Plate": "طبق شاورما",
+  "Kibbeh": "كبة",
+  "Samak Harra": "سمك حار",
+  "Shrimp Sayadieh": "صيادية جمبري",
+  "Pollo Cacciatore": "دجاج كاتشاتوري",
+  "Chicken Piccata": "دجاج بيكاتا",
+  "Tagliatelle al Ragu": "تالياتيلي بالراجو",
+  "Shrimp Scampi": "جمبري سكامبي",
+  "Butter Chicken": "دجاج بالزبدة",
+  "Tandoori Chicken": "دجاج تندوري",
+  "Keema Matar": "كيما بالبازلاء",
+  "Fish Curry": "كاري سمك",
+  "Prawn Masala": "جمبري ماسالا",
+  "Tinga de Pollo": "تينجا دجاج",
+  "Picadillo": "بيكاديو",
+  "Pescado a la Veracruzana": "سمك فيراكروز",
+  "Aguachile": "أجوا تشيلي",
+  "Fried Chicken": "دجاج مقلي",
+  "Chicken Pot Pie": "فطيرة دجاج",
+  "Sloppy Joe": "سلوبي جو",
+  "Blackened Fish": "سمك متبل محمر",
+  "Shrimp and Grits": "جمبري مع جريتس",
+  "Kung Pao Chicken": "دجاج كونغ باو",
+  "Mapo Tofu": "مابو توفو",
+  "Miso Salmon": "سلمون ميسو",
+  "Gai Yang": "دجاج تايلندي مشوي",
+  "Larb Gai": "لارب دجاج",
+  "Pla Rad Prik": "سمك تايلندي بصلصة الفلفل",
+  "Goong Ob Woon Sen": "جمبري تايلندي بالنودلز الزجاجية",
+  "Tavuk Sis": "شيش دجاج تركي",
+  "Turkish Kofte": "كفتة تركية",
+  "Adana Kebab": "كباب أضنة",
+  "Manti": "مانتي تركي",
+  "Levrek Bugulama": "سمك تركي مطهو بالبخار",
+  "Karides Guvec": "طاجن جمبري تركي",
   "Greek Yogurt Berry Bowl": "وعاء زبادي يوناني بالتوت",
   "Cinnamon Banana Oatmeal": "شوفان بالموز والقرفة",
   "Avocado Egg Toast": "توست الأفوكادو والبيض",
@@ -44,6 +99,7 @@ const CUISINES: Record<string, string> = {
   Egyptian: "مصري",
   Asian: "آسيوي",
   Thai: "تايلندي",
+  Turkish: "تركي",
   Unknown: "غير محدد"
 };
 
@@ -109,6 +165,12 @@ const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
 };
 
 const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
+  "عيش": "baladi bread",
+  "خبز": "bread",
+  "خبز بلدي": "baladi bread",
+  "عيش بلدي": "baladi bread",
+  "لحم مفروم": "ground meat",
+  "اللحم المفروم": "ground meat",
   "فول": "canned beans",
   "فول مدمس": "fava beans",
   "فاصوليا عريضة": "fava beans",
@@ -274,7 +336,42 @@ function translateRecipeTitle(value: string) {
   return translateEnglishRecipeTitle(value);
 }
 
-function translateRecipeTitleToEnglish(value: string, fallbackQuery?: string) {
+export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: string) {
+  const normalized = normalizeTranslationKey(value);
+  if (/حواوشي|خبز\s+محشو|عيش\s+محشو|محشو\s+باللحم\s+المفروم/.test(normalized)) {
+    return "Hawawshi";
+  }
+  if (/mahshi.*فلفل|محشي.*فلفل|فلفل.*محشي|bell.*فلفل/.test(normalized)) return "Mahshi Bell Peppers";
+  if (/مكرونة\s+بشاميل|مكرونه\s+بشاميل|بشاميل/.test(normalized)) return "Macarona Bechamel";
+  if (/كشري/.test(normalized)) return "Koshary";
+  if (/كفتة|كفته|kofta/.test(normalized)) return "Kofta";
+  if (/طاجن\s+كفتة|طاجن\s+كفته/.test(normalized)) return "Taagen Kofta";
+  if (/فراخ\s+مشوية|دجاج\s+مشوي|farakh/.test(normalized)) return "Farakh Meshwi";
+  if (/ملوخية.*دجاج|دجاج.*ملوخية/.test(normalized)) return "Chicken Molokhia";
+  if (/فتة.*دجاج|دجاج.*فتة/.test(normalized)) return "Chicken Fattah";
+  if (/نجرسكو|negresco/.test(normalized)) return "Chicken Negresco";
+  if (/صيادية|صياديه/.test(normalized)) return /جمبري|seafood|مأكولات/.test(normalized) ? "Seafood Sayadeya" : "Sayadeya";
+  if (/سمك\s+سنجاري|سنجاري/.test(normalized)) return "Samak Singari";
+  if (/طاجن\s+سمك/.test(normalized)) return "Egyptian Fish Tagine";
+  if (/جمبري\s+إسكندراني|جمبري\s+اسكندراني|اسكندراني/.test(normalized)) return "Alexandrian Shrimp";
+  if (/شيش\s+طاووق/.test(normalized)) return "Shish Tawook";
+  if (/شاورما/.test(normalized)) return "Shawarma Plate";
+  if (/كبة|كبه/.test(normalized)) return "Kibbeh";
+  if (/طعمية|طعميه/.test(normalized)) return "Taameya";
+  if (/فول\s+مدمس|فول/.test(normalized)) return "Ful Medames";
+  if (/شكشوكة|شكشوكه/.test(normalized)) return "Shakshuka";
+  if (/دجاج\s+بالزبدة|دجاج\s+بالزبده/.test(normalized)) return "Butter Chicken";
+  if (/دجاج\s+تندوري/.test(normalized)) return "Tandoori Chicken";
+  if (/كاري\s+سمك/.test(normalized)) return "Fish Curry";
+  if (/جمبري\s+ماسالا/.test(normalized)) return "Prawn Masala";
+  if (/دجاج\s+مقلي/.test(normalized)) return "Fried Chicken";
+  if (/سمك\s+متبل\s+محمر/.test(normalized)) return "Blackened Fish";
+  if (/دجاج\s+كونغ\s+باو/.test(normalized)) return "Kung Pao Chicken";
+  if (/سلمون\s+ميسو/.test(normalized)) return "Miso Salmon";
+  if (/كباب\s+أضنة|كباب\s+اضنة/.test(normalized)) return "Adana Kebab";
+  if (/مانتي/.test(normalized)) return "Manti";
+  if (/كفتة\s+تركية|كفته\s+تركيه/.test(normalized)) return "Turkish Kofte";
+
   return REVERSE_RECIPE_TITLES[value] ?? toTitleCase(fallbackQuery ?? value);
 }
 
@@ -282,7 +379,7 @@ function translateCuisine(value: string) {
   return CUISINES[value] ?? value;
 }
 
-function translateCuisineToEnglish(value: string) {
+export function translateCuisineToEnglish(value: string) {
   return REVERSE_CUISINES[value] ?? value;
 }
 
@@ -380,10 +477,10 @@ function coerceTextValue(value: unknown) {
 
 function translateCookTimeToArabic(value: string) {
   return coerceTextValue(value)
-    .replace(/\bmins\b/gi, "Ø¯Ù‚Ø§Ø¦Ù‚")
-    .replace(/\bmin\b/gi, "Ø¯Ù‚ÙŠÙ‚Ø©")
-    .replace(/\bhours\b/gi, "Ø³Ø§Ø¹Ø§Øª")
-    .replace(/\bhour\b/gi, "Ø³Ø§Ø¹Ø©");
+    .replace(/\bmins\b/gi, "دقائق")
+    .replace(/\bmin\b/gi, "دقيقة")
+    .replace(/\bhours\b/gi, "ساعات")
+    .replace(/\bhour\b/gi, "ساعة");
 }
 
 function translateCookTimeToEnglish(value: string) {
@@ -396,9 +493,9 @@ function translateCookTimeToEnglish(value: string) {
 
 function translateDifficultyToArabic(value: string) {
   return coerceTextValue(value)
-    .replace(/\beasy\b/gi, "Ø³Ù‡Ù„")
-    .replace(/\bmedium\b/gi, "Ù…ØªÙˆØ³Ø·")
-    .replace(/\bhard\b/gi, "ØµØ¹Ø¨");
+    .replace(/\beasy\b/gi, "سهل")
+    .replace(/\bmedium\b/gi, "متوسط")
+    .replace(/\bhard\b/gi, "صعب");
 }
 
 function translateDifficultyToEnglish(value: string) {
@@ -610,8 +707,41 @@ function translateEnglishRecipeTitle(value: string) {
     [/\bmacarona bechamel\b/gi, " مكرونة بشاميل "],
     [/\bmacaroni bechamel\b/gi, " مكرونة بشاميل "],
     [/\bbechamel pasta\b/gi, " مكرونة بشاميل "],
-    [/\bstuffed bell peppers\b/gi, " محشي فلفل رومي "],
+    [/\begyptian kofta\b/gi, " كفتة مصرية "],
+    [/\btaagen kofta\b/gi, " طاجن كفتة "],
+    [/\bkofta kebab\b/gi, " كفتة مشوية "],
+    [/\bkofta\b/gi, " كفتة "],
+    [/\bhawawshi\b/gi, " حواوشي "],
+    [/\bkoshary\b/gi, " كشري "],
+    [/\bful medames\b/gi, " فول مدمس "],
+    [/\btaameya\b/gi, " طعمية "],
+    [/\bshakshuka\b/gi, " شكشوكة "],
+    [/\bfarakh meshwi\b/gi, " فراخ مشوية "],
+    [/\bchicken molokhia\b/gi, " ملوخية بالدجاج "],
+    [/\bchicken fattah\b/gi, " فتة دجاج "],
+    [/\bchicken negresco\b/gi, " نجرسكو دجاج "],
+    [/\bsayadeya\b/gi, " صيادية سمك "],
+    [/\bsamak singari\b/gi, " سمك سنجاري "],
+    [/\begyptian fish tagine\b/gi, " طاجن سمك مصري "],
+    [/\balexandrian shrimp\b/gi, " جمبري إسكندراني "],
+    [/\bseafood sayadeya\b/gi, " صيادية بالمأكولات البحرية "],
+    [/\bshish tawook\b/gi, " شيش طاووق "],
+    [/\bshawarma plate\b/gi, " طبق شاورما "],
+    [/\bkibbeh\b/gi, " كبة "],
+    [/\bbutter chicken\b/gi, " دجاج بالزبدة "],
+    [/\btandoori chicken\b/gi, " دجاج تندوري "],
+    [/\bfish curry\b/gi, " كاري سمك "],
+    [/\bprawn masala\b/gi, " جمبري ماسالا "],
+    [/\bfried chicken\b/gi, " دجاج مقلي "],
+    [/\bblackened fish\b/gi, " سمك متبل محمر "],
+    [/\bkung pao chicken\b/gi, " دجاج كونغ باو "],
+    [/\bmiso salmon\b/gi, " سلمون ميسو "],
+    [/\bturkish kofte\b/gi, " كفتة تركية "],
+    [/\badana kebab\b/gi, " كباب أضنة "],
+    [/\bmanti\b/gi, " مانتي تركي "],
     [/\bmahshi bell peppers\b/gi, " محشي فلفل رومي "],
+    [/\bstuffed bell peppers\b/gi, " محشي فلفل رومي "],
+    [/\bmahshi bell\b/gi, " محشي فلفل رومي "],
     [/\bmahshi bell pepper\b/gi, " محشي فلفل رومي "],
     [/\bbell peppers\b/gi, " فلفل رومي "],
     [/\bbell pepper\b/gi, " فلفل رومي "],

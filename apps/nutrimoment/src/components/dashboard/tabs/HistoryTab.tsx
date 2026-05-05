@@ -11,6 +11,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { formatDate } from "@/lib/utils";
@@ -19,7 +20,7 @@ import { EmptyState, SectionHero } from "./shared";
 
 export function HistoryTab() {
   const { t, setError } = useApp();
-  const { user } = useAuth();
+  const { access, user } = useAuth();
   const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
   const [confirmState, setConfirmState] = useState<{
     title: string;
@@ -83,7 +84,7 @@ export function HistoryTab() {
           </div>
 
           <div className="grid gap-4">
-            {items.map((entry) => (
+            {items.map((entry, entryIndex) => (
               <Card key={entry.id} className="theme-history-entry rounded-[2rem] space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -112,9 +113,10 @@ export function HistoryTab() {
                 </div>
 
                 <div className="grid gap-3 lg:grid-cols-3">
-                  {entry.recipes.map((recipe) => (
+                  {entry.recipes.map((recipe, recipeIndex) => (
                     <MealRevealCard
                       key={`${entry.id}-${recipe.name}`}
+                      deferImageLookup={access.tier === "premium" ? !(entryIndex === 0 && recipeIndex < 3) : false}
                       eyebrow={getRecipeEyebrow(recipe, t)}
                       name={recipe.name}
                       visualMatchLabel={recipe.visual_match_label}
@@ -126,14 +128,18 @@ export function HistoryTab() {
                       imageAttributionName={recipe.image_attribution_name}
                       imageAttributionUrl={recipe.image_attribution_url}
                       imageQuery={buildRecipePhotoQuery(recipe)}
+                      imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                       onImageResolved={
                         user
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
-                              const persistedImageUrl = await persistRecipeImageForUser({
-                                uid: user.uid,
-                                imageUrl,
-                                query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
-                              });
+                              const persistedImageUrl =
+                                access.tier === "premium"
+                                  ? null
+                                  : await persistRecipeImageForUser({
+                                      uid: user.uid,
+                                      imageUrl,
+                                      query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
+                                    });
                               const recipeIndex = entry.recipes.findIndex((candidate) => candidate.name === recipe.name);
                               if (recipeIndex >= 0) {
                                 await updateRecipeImage(
@@ -196,19 +202,24 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
+  const photoContext = buildEnglishRecipePhotoContext(recipe);
   return buildRecipePhotoQueryCandidates({
-    cuisine: recipe.cuisine,
-    dishIntent: recipe.dish_intent,
-    imageSearchIndex: recipe.image_search_index,
-    imageSearchIndices: recipe.image_search_indices,
-    ingredients: recipe.ingredients,
-    missingIngredients: recipe.missing_ingredients,
-    name: recipe.name
+    cuisine: photoContext.cuisine,
+    dishIntent: photoContext.dishIntent,
+    imageSearchIndex: photoContext.imageSearchIndex,
+    imageSearchIndices: photoContext.imageSearchIndices,
+    ingredients: photoContext.ingredients,
+    missingIngredients: photoContext.missingIngredients,
+    name: photoContext.name
   });
 }
 
 function serializeRecipePhotoQuery(queries: string[]) {
   return queries.join(" || ");
+}
+
+function buildRecipePhotoPromptIngredients(recipe: Recipe) {
+  return buildEnglishRecipePhotoIngredients(recipe);
 }
 
 function buildRecipeStats(recipe: Recipe) {

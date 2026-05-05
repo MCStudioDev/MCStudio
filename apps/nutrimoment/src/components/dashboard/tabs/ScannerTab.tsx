@@ -17,7 +17,16 @@ import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+
+// Keep a small gap between premium image requests to avoid Replicate burst rate limits
+// without making the scanner page feel artificially slow.
+const PREMIUM_REPLICATE_LOOKUP_DELAY_MS = 1200;
+const PREMIUM_REPLICATE_MAX_RETRIES = 4;
+const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
+const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
+const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -75,6 +84,7 @@ export function ScannerTab() {
   const hydrateRecipePhotos = useCallback(
     async (inputRecipes: Recipe[], historyEntryId: string | null, requestVersion: number) => {
       if (requestVersion !== recipeRequestVersionRef.current) return;
+      const isPremium = access.tier === "premium";
 
       const renderableImageCounts = new Map<string, number>();
       inputRecipes.forEach((recipe) => {
@@ -112,9 +122,78 @@ export function ScannerTab() {
           .map((recipe) => recipe.image_url)
           .filter((imageUrl): imageUrl is string => hasRenderableImage(imageUrl))
       );
-      const resolved: Recipe[] = [];
+      const resolved: Recipe[] = [...seeded];
+      const pendingPremiumIndexes = new Set<number>();
       let lookupCount = 0;
-      const maxLookups = Math.min(Math.max(inputRecipes.length, 4), 8);
+      const maxLookups = isPremium ? inputRecipes.length : Math.min(Math.max(inputRecipes.length, 4), 8);
+
+      const resolveRecipePhoto = async (recipe: Recipe) => {
+        let response: Response | null = null;
+        let data:
+          | {
+              imageAttributionName?: string;
+              imageAttributionUrl?: string;
+              imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+              imageUrl?: string;
+              fallbackNotice?: string;
+              source?: string;
+            }
+          | null = null;
+        let attempt = 0;
+
+        while (attempt <= (isPremium ? PREMIUM_REPLICATE_MAX_RETRIES : 0)) {
+          const authHeaders = await getAuthHeaders();
+          response = await fetch(
+            buildRecipePhotoRequestUrl(
+              buildRecipePhotoQuery(recipe),
+              buildRecipePhotoPromptIngredients(recipe),
+              Array.from(usedImageUrls)
+            ),
+            {
+              headers: authHeaders
+            }
+          );
+          data = (await response.json()) as {
+            imageAttributionName?: string;
+            imageAttributionUrl?: string;
+            imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+            imageUrl?: string;
+            fallbackNotice?: string;
+            source?: string;
+          };
+
+          if (!isPremium) {
+            await refreshAccess();
+          }
+
+          if (response.ok && data.imageUrl) {
+            return { data, ok: true as const, response };
+          }
+
+          const retryAfterSeconds = Number(response.headers.get("Retry-After") ?? "0") || 0;
+          const canRetry =
+            isPremium &&
+            attempt < PREMIUM_REPLICATE_MAX_RETRIES &&
+            (response.status === 429 || response.status === 503);
+
+          if (!canRetry) {
+            break;
+          }
+
+          attempt += 1;
+          await new Promise((resolve) =>
+            setTimeout(
+              resolve,
+              Math.min(
+                PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS,
+                Math.max(PREMIUM_REPLICATE_LOOKUP_DELAY_MS, retryAfterSeconds * 1000)
+              )
+            )
+          );
+        }
+
+        return { data, ok: false as const, response };
+      };
 
       for (const [index, recipe] of seeded.entries()) {
         if (requestVersion !== recipeRequestVersionRef.current) {
@@ -124,46 +203,50 @@ export function ScannerTab() {
         const needsLookup = duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url);
 
         if (!needsLookup) {
-          resolved.push({ ...recipe, image_loading: false, image_error: false });
+          resolved[index] = { ...recipe, image_loading: false, image_error: false };
           continue;
         }
 
         if (lookupCount >= maxLookups) {
-          resolved.push({ ...recipe, image_loading: false, image_error: false });
+          resolved[index] = { ...recipe, image_loading: false, image_error: false };
           continue;
         }
 
         lookupCount += 1;
 
         try {
-          const authHeaders = await getAuthHeaders();
-          const response = await fetch(
-            buildRecipePhotoRequestUrl(buildRecipePhotoQuery(recipe), Array.from(usedImageUrls)),
-            {
-              headers: authHeaders
-            }
-          );
-          const data = (await response.json()) as {
-            imageAttributionName?: string;
-            imageAttributionUrl?: string;
-            imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
-            imageUrl?: string;
-            fallbackNotice?: string;
-            source?: string;
-          };
-          await refreshAccess();
+          const { data, ok } = await resolveRecipePhoto(recipe);
 
-          if (!response.ok || !data.imageUrl) {
-            resolved.push({
+          if (!ok || !data?.imageUrl) {
+            resolved[index] = {
               ...recipe,
-              image_loading: false,
-              image_error: true
-            });
+              image_loading: isPremium,
+              image_error: !isPremium
+            };
+            if (isPremium) {
+              pendingPremiumIndexes.add(index);
+            }
+            if (requestVersion === recipeRequestVersionRef.current) {
+              setRecipes([...resolved]);
+            }
+            if (historyEntryId && !isPremium) {
+              await updateRecipeImage(
+                historyEntryId,
+                index,
+                recipe.image_url ?? "",
+                true,
+                recipe.image_source,
+                {
+                  name: recipe.image_attribution_name,
+                  url: recipe.image_attribution_url
+                }
+              );
+            }
             continue;
           }
 
           usedImageUrls.add(data.imageUrl);
-          resolved.push({
+          resolved[index] = {
             ...recipe,
             image_attribution_name: data.imageAttributionName,
             image_attribution_url: data.imageAttributionUrl,
@@ -171,9 +254,131 @@ export function ScannerTab() {
             image_url: data.imageUrl,
             image_loading: false,
             image_error: false
-          });
+          };
+          if (requestVersion === recipeRequestVersionRef.current) {
+            setRecipes([...resolved]);
+          }
+          if (historyEntryId) {
+            await updateRecipeImage(
+              historyEntryId,
+              index,
+              data.imageUrl,
+              false,
+              data.imageSource,
+              {
+                name: data.imageAttributionName,
+                url: data.imageAttributionUrl
+              }
+            );
+          }
         } catch {
-          resolved.push({ ...recipe, image_loading: false, image_error: true });
+          resolved[index] = { ...recipe, image_loading: false, image_error: true };
+          if (requestVersion === recipeRequestVersionRef.current) {
+            setRecipes([...resolved]);
+          }
+          if (historyEntryId) {
+            await updateRecipeImage(
+              historyEntryId,
+              index,
+              recipe.image_url ?? "",
+              true,
+              recipe.image_source,
+              {
+                name: recipe.image_attribution_name,
+                url: recipe.image_attribution_url
+              }
+            );
+          }
+        }
+
+        if (isPremium && lookupCount < maxLookups && index < seeded.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_LOOKUP_DELAY_MS));
+        }
+      }
+
+      if (isPremium) {
+        for (let round = 0; round < PREMIUM_REPLICATE_REQUEUE_ROUNDS && pendingPremiumIndexes.size > 0; round += 1) {
+          await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_REQUEUE_DELAY_MS));
+
+          for (const index of Array.from(pendingPremiumIndexes)) {
+            if (requestVersion !== recipeRequestVersionRef.current) {
+              return;
+            }
+
+            const recipe = resolved[index];
+            try {
+              const { data, ok } = await resolveRecipePhoto(recipe);
+              if (!ok || !data?.imageUrl) {
+                const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS - 1;
+                resolved[index] = {
+                  ...recipe,
+                  image_loading: !isLastRound,
+                  image_error: false
+                };
+
+                if (isLastRound) {
+                  pendingPremiumIndexes.delete(index);
+                  if (historyEntryId) {
+                    await updateRecipeImage(
+                      historyEntryId,
+                      index,
+                      recipe.image_url ?? "",
+                      false,
+                      recipe.image_source,
+                      {
+                        name: recipe.image_attribution_name,
+                        url: recipe.image_attribution_url
+                      }
+                    );
+                  }
+                }
+              } else {
+                usedImageUrls.add(data.imageUrl);
+                resolved[index] = {
+                  ...recipe,
+                  image_attribution_name: data.imageAttributionName,
+                  image_attribution_url: data.imageAttributionUrl,
+                  image_source: data.imageSource,
+                  image_url: data.imageUrl,
+                  image_loading: false,
+                  image_error: false
+                };
+                pendingPremiumIndexes.delete(index);
+
+                if (historyEntryId) {
+                  await updateRecipeImage(
+                    historyEntryId,
+                    index,
+                    data.imageUrl,
+                    false,
+                    data.imageSource,
+                    {
+                      name: data.imageAttributionName,
+                      url: data.imageAttributionUrl
+                    }
+                  );
+                }
+              }
+            } catch {
+              const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS - 1;
+              resolved[index] = {
+                ...recipe,
+                image_loading: !isLastRound,
+                image_error: false
+              };
+              if (isLastRound) {
+                pendingPremiumIndexes.delete(index);
+              }
+            }
+
+            if (requestVersion === recipeRequestVersionRef.current) {
+              setRecipes([...resolved]);
+            }
+
+            if (pendingPremiumIndexes.size > 0) {
+              await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_LOOKUP_DELAY_MS));
+            }
+          }
         }
       }
 
@@ -186,7 +391,7 @@ export function ScannerTab() {
       if (requestVersion !== recipeRequestVersionRef.current) return;
       setRecipes(resolved);
     },
-    [getAuthHeaders, refreshAccess, replaceEntryRecipes]
+    [access.tier, getAuthHeaders, refreshAccess, replaceEntryRecipes, updateRecipeImage]
   );
 
   const addManualIngredient = () => {
@@ -499,6 +704,7 @@ export function ScannerTab() {
               {recipes.map((recipe, index) => (
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
+                  disableAutoImageLookup
                   deferImageLookup={index >= 2}
                   eyebrow={getRecipeEyebrow(recipe, t)}
                   name={recipe.name}
@@ -513,14 +719,18 @@ export function ScannerTab() {
                   imageLoading={recipe.image_loading}
                   imageError={recipe.image_error}
                   imageQuery={buildRecipePhotoQuery(recipe)}
+                  imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                   onImageResolved={
                     user && historyEntryId
                       ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
-                          const persistedImageUrl = await persistRecipeImageForUser({
-                            uid: user.uid,
-                            imageUrl,
-                            query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
-                          });
+                          const persistedImageUrl =
+                            access.tier === "premium"
+                              ? null
+                              : await persistRecipeImageForUser({
+                                  uid: user.uid,
+                                  imageUrl,
+                                  query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
+                                });
                           await updateRecipeImage(
                             historyEntryId,
                             index,
@@ -569,18 +779,19 @@ function hasRenderableImage(imageUrl?: string): imageUrl is string {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
+  const photoContext = buildEnglishRecipePhotoContext(recipe);
   return buildRecipePhotoQueryCandidates({
-    cuisine: recipe.cuisine,
-    dishIntent: recipe.dish_intent,
-    imageSearchIndex: recipe.image_search_index,
-    imageSearchIndices: recipe.image_search_indices,
-    ingredients: recipe.ingredients,
-    missingIngredients: recipe.missing_ingredients,
-    name: recipe.name
+    cuisine: photoContext.cuisine,
+    dishIntent: photoContext.dishIntent,
+    imageSearchIndex: photoContext.imageSearchIndex,
+    imageSearchIndices: photoContext.imageSearchIndices,
+    ingredients: photoContext.ingredients,
+    missingIngredients: photoContext.missingIngredients,
+    name: photoContext.name
   });
 }
 
-function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = []) {
+function buildRecipePhotoRequestUrl(queries: string[], ingredients: string[] = [], excludeUrls: string[] = []) {
   const params = new URLSearchParams();
   queries.slice(0, 5).forEach((query, index) => {
     if (index === 0) {
@@ -589,6 +800,11 @@ function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = [
       params.append("alt", query);
     }
   });
+  ingredients
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .forEach((ingredient) => params.append("ingredient", ingredient));
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
@@ -596,6 +812,10 @@ function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = [
 
 function serializeRecipePhotoQuery(queries: string[]) {
   return queries.join(" || ");
+}
+
+function buildRecipePhotoPromptIngredients(recipe: Recipe) {
+  return buildEnglishRecipePhotoIngredients(recipe);
 }
 
 function normalizeIngredientKey(value: string) {

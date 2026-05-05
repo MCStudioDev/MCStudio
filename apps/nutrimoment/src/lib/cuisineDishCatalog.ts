@@ -45,6 +45,15 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "taagen bamia",
       "taagen kofta",
       "taagen chicken and onions",
+      "farakh meshwi",
+      "egyptian grilled chicken",
+      "chicken molokhia",
+      "chicken fattah",
+      "chicken negresco",
+      "samak singari",
+      "egyptian fish tagine",
+      "alexandrian shrimp",
+      "seafood sayadeya",
       "roz bel khalta",
       "basbousa",
       "kunafa",
@@ -57,7 +66,21 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "goulash",
       "sabanegh"
     ],
-    pantryAnchors: ["fava bean", "lentil", "rice", "pasta", "tomato", "egg", "ground meat", "baladi bread"]
+    pantryAnchors: [
+      "fava bean",
+      "lentil",
+      "rice",
+      "pasta",
+      "tomato",
+      "egg",
+      "ground meat",
+      "beef",
+      "chicken",
+      "fish",
+      "shrimp",
+      "seafood",
+      "baladi bread"
+    ]
   },
   turkish: {
     iconicDishes: [
@@ -109,6 +132,9 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "yogurt",
       "eggplant",
       "ground meat",
+      "chicken",
+      "fish",
+      "shrimp",
       "bulgur",
       "flatbread"
     ]
@@ -166,7 +192,20 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "puttanesca",
       "aglio e olio"
     ],
-    pantryAnchors: ["pasta", "tomato", "olive oil", "garlic", "parmesan", "mozzarella", "basil", "rice"]
+    pantryAnchors: [
+      "pasta",
+      "tomato",
+      "olive oil",
+      "garlic",
+      "parmesan",
+      "mozzarella",
+      "basil",
+      "rice",
+      "ground meat",
+      "chicken",
+      "fish",
+      "shrimp"
+    ]
   },
   middleeastern: {
     iconicDishes: [
@@ -221,7 +260,21 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "quzi",
       "harees"
     ],
-    pantryAnchors: ["chickpea", "lentil", "tahini", "yogurt", "rice", "bulgur", "eggplant", "parsley"]
+    pantryAnchors: [
+      "chickpea",
+      "lentil",
+      "tahini",
+      "yogurt",
+      "rice",
+      "bulgur",
+      "eggplant",
+      "parsley",
+      "ground meat",
+      "chicken",
+      "fish",
+      "shrimp",
+      "seafood"
+    ]
   },
   mediterranean: {
     iconicDishes: [
@@ -276,7 +329,20 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "avgolemono soup",
       "sardines with lemon"
     ],
-    pantryAnchors: ["olive oil", "tomato", "lemon", "chickpea", "lentil", "fish", "yogurt", "eggplant"]
+    pantryAnchors: [
+      "olive oil",
+      "tomato",
+      "lemon",
+      "chickpea",
+      "lentil",
+      "fish",
+      "yogurt",
+      "eggplant",
+      "ground meat",
+      "chicken",
+      "shrimp",
+      "seafood"
+    ]
   },
   indian: {
     iconicDishes: [
@@ -331,7 +397,20 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "kathi roll",
       "dosa"
     ],
-    pantryAnchors: ["lentil", "chickpea", "kidney bean", "rice", "onion", "tomato", "ginger", "garlic"]
+    pantryAnchors: [
+      "lentil",
+      "chickpea",
+      "kidney bean",
+      "rice",
+      "onion",
+      "tomato",
+      "ginger",
+      "garlic",
+      "ground meat",
+      "chicken",
+      "fish",
+      "shrimp"
+    ]
   },
   mexican: {
     iconicDishes: [
@@ -386,7 +465,20 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "frijoles charros",
       "esquites"
     ],
-    pantryAnchors: ["corn tortilla", "bean", "tomato", "onion", "chili", "cilantro", "lime", "rice"]
+    pantryAnchors: [
+      "corn tortilla",
+      "bean",
+      "tomato",
+      "onion",
+      "chili",
+      "cilantro",
+      "lime",
+      "rice",
+      "ground meat",
+      "chicken",
+      "fish",
+      "shrimp"
+    ]
   },
   american: {
     iconicDishes: [
@@ -441,7 +533,19 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "chocolate chip cookies",
       "s'mores"
     ],
-    pantryAnchors: ["egg", "potato", "bread", "cheddar", "ground beef", "chicken", "cornmeal", "barbecue sauce"]
+    pantryAnchors: [
+      "egg",
+      "potato",
+      "bread",
+      "cheddar",
+      "ground beef",
+      "ground meat",
+      "chicken",
+      "fish",
+      "shrimp",
+      "cornmeal",
+      "barbecue sauce"
+    ]
   },
   asian: {
     iconicDishes: [
@@ -496,7 +600,20 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "miso soup",
       "egg drop soup"
     ],
-    pantryAnchors: ["rice", "noodle", "soy sauce", "ginger", "garlic", "sesame", "tofu", "scallion"]
+    pantryAnchors: [
+      "rice",
+      "noodle",
+      "soy sauce",
+      "ginger",
+      "garlic",
+      "sesame",
+      "tofu",
+      "scallion",
+      "ground meat",
+      "chicken",
+      "fish",
+      "shrimp"
+    ]
   },
   thai: {
     iconicDishes: [
@@ -551,7 +668,20 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
       "yum nua",
       "mango sticky rice"
     ],
-    pantryAnchors: ["fish sauce", "rice", "rice noodle", "basil", "lime", "chili", "coconut milk", "garlic"]
+    pantryAnchors: [
+      "fish sauce",
+      "rice",
+      "rice noodle",
+      "basil",
+      "lime",
+      "chili",
+      "coconut milk",
+      "garlic",
+      "ground meat",
+      "chicken",
+      "fish",
+      "shrimp"
+    ]
   }
 };
 

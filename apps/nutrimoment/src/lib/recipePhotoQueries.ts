@@ -157,7 +157,7 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
   ]);
 
   return Array.from(
-    new Set([...dishIntentQueries, ...visualReferenceQueries, ...heuristicQueries, ...explicitQueries, ...derivedCandidates])
+    new Set([...explicitQueries, ...derivedCandidates, ...heuristicQueries, ...dishIntentQueries, ...visualReferenceQueries])
   ).slice(0, 5);
 }
 
@@ -166,9 +166,9 @@ function buildDishIntentQueries(dishIntent?: RecipeDishIntent) {
 
   const dishName = normalizePhrase(dishIntent.dish_name);
   const cuisine = normalizePhrase(dishIntent.cuisine);
-  const method = normalizePhrase(dishIntent.cooking_method ?? "");
-  const diet = normalizePhrase(dishIntent.diet_type ?? "");
-  const [leadVisual, secondVisual] = dishIntent.visual_keywords.map((value) => normalizePhrase(value));
+  const method = normalizePhrase(dishIntent.cooking_method);
+  const diet = normalizePhrase(dishIntent.diet_type);
+  const [leadVisual, secondVisual] = (dishIntent.visual_keywords ?? []).map((value) => normalizePhrase(value));
 
   return normalizeQueryList([
     joinRecipeQueryParts(dishName, cuisine, "food"),
@@ -359,10 +359,11 @@ function buildCuisineGroundMeatQueries({
   const isMiddleEasternLike = /\bmiddle eastern|mediterranean|levantine\b/.test(cuisine);
 
   return normalizeQueryList([
-    isEgyptianLike ? "egyptian kofta" : "",
-    isEgyptianLike ? "kofta kebab egyptian" : "",
-    isEgyptianLike ? "egyptian meatballs" : "",
-    isEgyptianLike && hasBread ? "hawawshi egyptian food" : "",
+    isEgyptianLike && hasBread ? "egyptian hawawshi stuffed bread" : "",
+    isEgyptianLike && hasBread ? "hawawshi meat stuffed baladi bread" : "",
+    isEgyptianLike && !hasBread ? "egyptian kofta" : "",
+    isEgyptianLike && !hasBread ? "kofta kebab egyptian" : "",
+    isEgyptianLike && !hasBread ? "egyptian meatballs" : "",
     isEgyptianLike && hasPasta ? "macarona bechamel egyptian pasta bake" : "",
     isEgyptianLike && hasEggplant ? "egyptian moussaka" : "",
     isEgyptianLike && hasBellPepper && hasRice ? "mahshi bell peppers egyptian" : "",
@@ -516,7 +517,9 @@ function normalizeQueryList(values: Array<string | undefined>) {
   );
 }
 
-function normalizePhrase(value: string) {
+function normalizePhrase(value: unknown) {
+  if (typeof value !== "string") return "";
+
   return value
     .toLowerCase()
     .replace(/[_]/g, " ")

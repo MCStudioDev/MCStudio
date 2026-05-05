@@ -54,9 +54,7 @@ export function NutriMomentApp() {
 
   return (
     <>
-      <div className="fixed inset-x-0 top-0 z-[150]">
-        <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
-      </div>
+      <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
 
       <div
         ref={shellRef}
@@ -68,22 +66,24 @@ export function NutriMomentApp() {
         <div className="blob animate-blob left-[-5rem] top-16 h-56 w-56 bg-emerald-300/16" data-parallax-layer="soft" />
         <div className="blob animate-blob right-[-2rem] top-44 h-72 w-72 bg-cyan-300/12 [animation-delay:-4s]" data-parallax-layer="soft" />
         <div className="blob animate-blob bottom-12 left-[22%] h-60 w-60 bg-lime-200/10 [animation-delay:-8s]" data-parallax-layer="soft" />
-        <AppLegalBanner />
-        <ErrorBanner />
-        <main id="main-content" className="shell-frame relative px-3 pb-10 pt-[8.5rem] sm:px-6 sm:pt-[9rem] md:pb-16 md:pt-[9.5rem]">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -16 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
-              className="section-band"
-            >
-              <ActiveComponent />
-            </motion.div>
-          </AnimatePresence>
-        </main>
+        <div className="relative pt-[3.65rem] sm:pt-[4.1rem]">
+          <AppLegalBanner />
+          <ErrorBanner />
+          <main id="main-content" className="shell-frame relative px-3 pb-10 pt-1 sm:px-6 sm:pt-2 md:pb-16">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -16 }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                className="section-band"
+              >
+                <ActiveComponent />
+              </motion.div>
+            </AnimatePresence>
+          </main>
+        </div>
       </div>
     </>
   );

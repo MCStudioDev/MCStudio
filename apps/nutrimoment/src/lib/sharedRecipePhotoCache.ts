@@ -54,6 +54,10 @@ export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
   return null;
 }
 
+export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
+  return getSharedRecipePhotoBySignatures(aliases);
+}
+
 export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
   if (!hasFirebaseAdminConfig()) return entry;
 
@@ -120,6 +124,10 @@ export async function persistSharedRecipePhotoAliases(entry: SharedRecipePhotoEn
 
   await Promise.all(writes);
   return persisted;
+}
+
+export async function persistSharedRecipePhotoExactAliases(entry: SharedRecipePhotoEntry, aliases: string[]) {
+  return persistSharedRecipePhotoAliases(entry, aliases);
 }
 
 async function uploadSharedRecipeImage(signature: string, imageUrl: string) {

@@ -26,7 +26,9 @@ type CacheRecipeLanguage = "English" | "Arabic";
 const USER_CACHE_COLLECTION = "offlineRecipeCache";
 const SHARED_CACHE_COLLECTION = "sharedOfflineRecipeCache";
 const MAX_USER_CACHE_DOCS = 120;
-const MAX_SHARED_CACHE_DOCS = 400;
+const MAX_SHARED_CACHE_DOCS = 250;
+const MAX_SHARED_CACHE_INGREDIENT_DOCS = 160;
+const MAX_SHARED_CACHE_INGREDIENT_QUERIES = 6;
 const CACHE_READ_TIMEOUT_MS = 6000;
 const SHARED_CACHE_STALE_TTL_MS = 30 * 60 * 1000;
 const USER_RECIPE_CACHE_DISABLED = process.env.DISABLE_USER_RECIPE_CACHE === "true";
@@ -89,7 +91,7 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
     const snapshot = await withTimeout(cacheQuery.get(), CACHE_READ_TIMEOUT_MS, "load shared cached recipes");
     const recipes = snapshot.docs
       .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
-      .filter((recipe) => recipe?.isActive);
+      .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe));
     sharedRecipeCacheSnapshot = recipes;
     sharedRecipeCacheUpdatedAt = Date.now();
 
@@ -116,7 +118,7 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
       );
       const reducedRecipes = reducedSnapshot.docs
         .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
-        .filter((recipe) => recipe?.isActive);
+        .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe));
       if (reducedRecipes.length) {
         sharedRecipeCacheSnapshot = reducedRecipes;
         sharedRecipeCacheUpdatedAt = Date.now();
@@ -133,6 +135,49 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
 
     return [];
   }
+}
+
+export async function listSharedCachedRecipesForIngredients(ingredients: string[]): Promise<RecipeCatalogDoc[]> {
+  if (SHARED_RECIPE_POOL_DISABLED) {
+    logger.info("Shared recipe pool reads are disabled by environment flag");
+    return [];
+  }
+
+  const canonicalIngredients = Array.from(
+    new Set(ingredients.map((ingredient) => ingredient.trim().toLowerCase()).filter(Boolean))
+  ).slice(0, MAX_SHARED_CACHE_INGREDIENT_QUERIES);
+  if (!canonicalIngredients.length) return [];
+
+  const db = getAdminDb();
+  const recipesById = new Map<string, RecipeCatalogDoc>();
+
+  await Promise.all(
+    canonicalIngredients.map(async (ingredient) => {
+      try {
+        const ingredientQuery = db
+          .collection(SHARED_CACHE_COLLECTION)
+          .where("ingredientCanonicals", "array-contains", ingredient)
+          .limit(MAX_SHARED_CACHE_INGREDIENT_DOCS);
+        const snapshot = await withTimeout(
+          ingredientQuery.get(),
+          Math.max(3000, Math.round(CACHE_READ_TIMEOUT_MS * 0.75)),
+          `load shared cached recipes for ${ingredient}`
+        );
+
+        snapshot.docs
+          .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+          .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe))
+          .forEach((recipe) => recipesById.set(recipe.id, recipe));
+      } catch (error) {
+        logger.warn("Loading ingredient-targeted shared cached recipes failed", {
+          ingredient,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+      }
+    })
+  );
+
+  return Array.from(recipesById.values());
 }
 
 export async function persistGeneratedRecipeCache(input: {
@@ -257,7 +302,7 @@ async function buildCacheDocFromRecipe(
   const requiredCanonicals = ingredientCanonicals.slice(0, Math.min(3, ingredientCanonicals.length));
   const optionalCanonicals = ingredientCanonicals.slice(requiredCanonicals.length);
   const timestamp = Date.now();
-  const englishTitle = buildSharedRecipeEnglishTitle({
+  const generatedEnglishTitle = buildSharedRecipeEnglishTitle({
     title: variants.English.name || recipe.name || fallbackId,
     englishName: variants.English.name,
     arabicName: variants.Arabic.name,
@@ -268,6 +313,10 @@ async function buildCacheDocFromRecipe(
     dishIntentName: variants.English.dish_intent?.dish_name ?? variants.Arabic.dish_intent?.dish_name,
     imageSearchIndex: variants.English.image_search_index ?? variants.Arabic.image_search_index
   });
+  const specificIdentity = pickSpecificCacheIdentity(recipe, variants);
+  const englishTitle = isWeakSharedCacheTitle(generatedEnglishTitle) && specificIdentity
+    ? toTitleCase(specificIdentity)
+    : generatedEnglishTitle;
   const arabicTitle = buildSharedRecipeArabicTitle({
     title: englishTitle,
     englishName: englishTitle,
@@ -572,6 +621,94 @@ function coerceText(value: unknown) {
   if (typeof value === "string") return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return "";
+}
+
+function isUsableSharedCachedRecipe(recipe: RecipeCatalogDoc) {
+  const englishName = recipe.localized?.English?.name ?? recipe.title;
+  const arabicName = recipe.localized?.Arabic?.name ?? "";
+  if (englishName.includes("مكون إضافي") || arabicName.includes("مكون إضافي")) {
+    return false;
+  }
+
+  return !isWeakSharedCacheTitle(englishName) || Boolean(pickSpecificCacheIdentityFromDoc(recipe));
+}
+
+function pickSpecificCacheIdentity(
+  recipe: Recipe,
+  variants: ReturnType<typeof createRecipeVariants>
+) {
+  return [
+    variants.English.dish_intent?.dish_name,
+    variants.Arabic.dish_intent?.dish_name,
+    variants.English.image_search_index,
+    ...(variants.English.image_search_indices ?? []),
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    variants.English.name,
+    recipe.name
+  ].find((value) => typeof value === "string" && isSpecificCacheIdentity(value));
+}
+
+function pickSpecificCacheIdentityFromDoc(recipe: RecipeCatalogDoc) {
+  return [
+    recipe.localized?.English?.dish_intent?.dish_name,
+    recipe.dishIntent?.dish_name,
+    recipe.localized?.English?.image_search_index,
+    ...(recipe.localized?.English?.image_search_indices ?? []),
+    recipe.image.sourceQuery,
+    recipe.title
+  ].find((value) => typeof value === "string" && isSpecificCacheIdentity(value));
+}
+
+function isWeakSharedCacheTitle(value: string) {
+  const normalized = value.toLowerCase();
+  return (
+    /\bany\b/.test(normalized) ||
+    /\bdinner plate\b/.test(normalized) ||
+    /\blunch bowl\b/.test(normalized) ||
+    /\bbreakfast bowl\b/.test(normalized) ||
+    /\bsnack plate\b/.test(normalized) ||
+    hasRepeatedContentToken(normalized) ||
+    value.includes("مكون إضافي")
+  );
+}
+
+function isSpecificCacheIdentity(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || !/[a-z]/i.test(normalized) || /[\u0600-\u06FF]/.test(normalized)) return false;
+  if (normalized.length < 4) return false;
+  if (/\b(any|unknown|global|generic|food|meal|recipe)\b/.test(normalized)) return false;
+  if (/\b(assembled|prepared|plated)\b/.test(normalized)) return false;
+  if (/\b(dinner plate|lunch bowl|breakfast bowl|snack plate)\b/.test(normalized)) return false;
+  if (hasRepeatedContentToken(normalized)) return false;
+  return true;
+}
+
+function hasRepeatedContentToken(value: string) {
+  const tokens = value
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]/g, ""))
+    .filter((token) => token.length >= 4 && !["with", "style"].includes(token));
+  const seen = new Set<string>();
+
+  for (const token of tokens) {
+    if (seen.has(token)) return true;
+    seen.add(token);
+  }
+
+  return false;
+}
+
+function toTitleCase(value: string) {
+  return value
+    .trim()
+    .replace(/[_-]/g, " ")
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function stripUndefinedDeep<T>(value: T): T {

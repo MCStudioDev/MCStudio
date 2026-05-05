@@ -16,13 +16,14 @@ import type { PantryItem } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
 export function PantryTab() {
-  const { t, settings, setError } = useApp();
+  const { t, settings, setError, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess } = useAuth();
   const { items, addItem, removeItem, clear, loading } = usePantry();
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [expiration, setExpiration] = useState("");
   const [saving, setSaving] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const [scanLoading, setScanLoading] = useState(false);
   const [scannedItems, setScannedItems] = useState<PantryItem[]>([]);
   const [confirmState, setConfirmState] = useState<{
@@ -34,16 +35,18 @@ export function PantryTab() {
 
   const handleAddItem = async () => {
     if (!name.trim()) return;
+    const savedName = name.trim();
     setSaving(true);
     try {
       await addItem({
-        name: name.trim(),
+        name: savedName,
         quantity: quantity.trim() || "1",
         expiration: expiration.trim() || undefined
       });
       setName("");
       setQuantity("");
       setExpiration("");
+      setSuccessMessage(rtl ? `تمت إضافة ${savedName} إلى المخزن.` : `${savedName} added to pantry.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to add pantry item";
       setError(message);
@@ -120,6 +123,11 @@ export function PantryTab() {
         await addItem(pantryItem);
       }
       setScannedItems([]);
+      setSuccessMessage(
+        rtl
+          ? `تم حفظ ${validItems.length} عناصر في المخزن.`
+          : `${validItems.length} scanned pantry ${validItems.length === 1 ? "item" : "items"} saved.`
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save scanned pantry items";
       setError(message);
@@ -152,6 +160,12 @@ export function PantryTab() {
           </div>
         }
       />
+
+      <div className="rounded-[1.35rem] border border-cyan-200/16 bg-cyan-400/10 px-4 py-3 text-sm leading-relaxed text-cyan-50/92">
+        {rtl
+          ? "المخزن يحتفظ بالأساسيات التي لديك دائمًا، والماسح يستخدمها لترتيب الوصفات بشكل أذكى."
+          : "Pantry remembers staples you usually have; Scanner uses them to rank recipes smarter."}
+      </div>
 
       <motion.div variants={itemVariants} className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <Card className="rounded-[2rem] space-y-4">
@@ -246,6 +260,14 @@ export function PantryTab() {
             {t("add")}
           </Button>
 
+          <div aria-live="polite" className="min-h-6">
+            {successMessage ? (
+              <p className="rounded-2xl border border-emerald-200/16 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-50">
+                {successMessage}
+              </p>
+            ) : null}
+          </div>
+
           <Card variant="plain" className="rounded-[1.5rem] p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-50/52">{t("items")}</p>
             <p className="mt-2 text-3xl font-display font-bold text-white tabular-nums">{items.length}</p>
@@ -317,7 +339,12 @@ export function PantryTab() {
               </Button>
             </Card>
           ) : loading ? (
-            <Card className="rounded-[2rem] text-sm text-emerald-50/58">{t("loadingPantry")}</Card>
+            <Card className="rounded-[2rem] space-y-4" aria-busy="true">
+              <p className="text-sm font-semibold text-emerald-50/72">{t("loadingPantry")}</p>
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="h-20 animate-pulse rounded-2xl border border-white/10 bg-white/[0.06]" />
+              ))}
+            </Card>
           ) : items.length ? (
             <div className="space-y-4">
               <div className="flex justify-end">
@@ -356,7 +383,7 @@ export function PantryTab() {
                         onClick={() =>
                           openConfirm({
                             title: t("removePantryItemTitle"),
-                            description: t("removePantryItemDescription"),
+                            description: t("removePantryItemDescription").replace("{name}", item.name),
                             confirmLabel: t("remove"),
                             action: async () => {
                               await removeItem(item.id!);

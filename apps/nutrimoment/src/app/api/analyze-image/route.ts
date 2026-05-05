@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     }
 
     ensureAiAvailable();
-    const text = await callOpenAIVision(buildIngredientVisionPrompt(), image, "gemini-2.5-flash");
+    const text = await callOpenAIVision(buildIngredientVisionPrompt(), image, "gemini-2.5-flash-lite");
     const json = extractJson(text);
     const parsedResult = JSON.parse(json) as { ingredients?: string[] } | string[];
     const ingredients = Array.isArray(parsedResult) ? parsedResult : parsedResult.ingredients ?? [];

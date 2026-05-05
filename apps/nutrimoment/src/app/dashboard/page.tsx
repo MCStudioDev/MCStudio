@@ -9,6 +9,7 @@ import { NutriMomentApp } from "@/components/dashboard/NutriMomentApp";
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
+  const { t, rtl, language } = useApp();
   const router = useRouter();
 
   useEffect(() => {
@@ -19,8 +20,8 @@ export default function DashboardPage() {
 
   if (loading || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader label="Loading your kitchen…" />
+      <div className="min-h-screen flex items-center justify-center" dir={rtl ? "rtl" : "ltr"} lang={language}>
+        <Loader label={rtl ? "جار تجهيز مطبخك..." : t("loadingKitchen")} />
       </div>
     );
   }

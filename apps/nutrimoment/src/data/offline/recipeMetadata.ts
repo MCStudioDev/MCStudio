@@ -7,7 +7,7 @@ import type {
 import { normalizeCuisineLabel } from "@/lib/cuisines";
 import { enrichRecipeWithDishIntent } from "@/lib/recipeDishIntelligence";
 import {
-  localizeRecipeForArabic,
+  ensureArabicRecipeLanguage,
   localizeRecipeForEnglish,
   translateIngredientToArabic,
   translateIngredientToEnglish
@@ -304,7 +304,7 @@ function buildStrictEnglishRecipeVariant(recipe: RecipeCatalogDoc): Recipe {
   ].filter((candidate): candidate is Recipe => Boolean(candidate));
 
   const selected = selectBestLocalizedCandidate(candidates, "English") ?? projected;
-  const merged: Recipe = {
+  let merged: Recipe = {
     ...projected,
     ...selected,
     id: recipe.id,
@@ -317,6 +317,7 @@ function buildStrictEnglishRecipeVariant(recipe: RecipeCatalogDoc): Recipe {
     preference_hits: normalizeStringArray(selected.preference_hits),
     dish_intent: selected.dish_intent ?? projected.dish_intent
   };
+  merged = repairWeakEnglishRecipeIdentity(recipe, merged);
 
   if (shouldRegenerateEnglishVariant(merged)) {
     return buildFallbackEnglishRecipeVariant(recipe, merged);
@@ -331,9 +332,10 @@ function buildStrictEnglishRecipeVariant(recipe: RecipeCatalogDoc): Recipe {
 }
 
 function buildFallbackEnglishRecipeVariant(recipe: RecipeCatalogDoc, candidate: Recipe): Recipe {
+  const specificIdentity = pickSpecificEnglishIdentity(recipe, candidate);
   const base: Recipe = {
     id: recipe.id,
-    name: buildFallbackEnglishTitle(recipe),
+    name: specificIdentity ? toTitleCase(specificIdentity) : buildFallbackEnglishTitle(recipe),
     cuisine: buildFallbackEnglishCuisine(recipe, candidate),
     ingredients: recipe.ingredients.map((ingredient) => translateIngredientToEnglish(ingredient.canonical || ingredient.name)),
     missing_ingredients: [],
@@ -366,47 +368,19 @@ function buildFallbackEnglishRecipeVariant(recipe: RecipeCatalogDoc, candidate: 
 }
 
 function buildStrictArabicRecipeVariant(recipe: RecipeCatalogDoc, english: Recipe) {
-  const candidate = stripUndefinedDeep({
-    ...ensureDetailedRecipeSteps(localizeRecipeForArabic(english), "Arabic"),
-    id: recipe.id
-  });
+  const candidates = [
+    recipe.localized?.Arabic
+      ? ensureDetailedRecipeSteps(ensureArabicRecipeLanguage({ ...english, ...recipe.localized.Arabic, id: recipe.id }), "Arabic")
+      : null,
+    ensureDetailedRecipeSteps(ensureArabicRecipeLanguage({ ...english, id: recipe.id }), "Arabic")
+  ].filter((candidate): candidate is Recipe => Boolean(candidate));
+  const candidate = stripUndefinedDeep(selectBestLocalizedCandidate(candidates, "Arabic") ?? ensureArabicRecipeLanguage(english));
 
   if (shouldRegenerateArabicVariant(candidate)) {
-    return buildFallbackArabicRecipeVariant(recipe, english);
+    return ensureDetailedRecipeSteps(ensureArabicRecipeLanguage({ ...english, id: recipe.id }), "Arabic");
   }
 
   return candidate;
-}
-
-function buildFallbackArabicRecipeVariant(recipe: RecipeCatalogDoc, english: Recipe): Recipe {
-  return ensureDetailedRecipeSteps(
-    {
-      id: recipe.id,
-      name: buildFallbackArabicTitle(recipe),
-      cuisine: buildFallbackArabicCuisine(english.cuisine),
-      ingredients: recipe.ingredients.map((ingredient) => translateIngredientToArabic(ingredient.canonical || ingredient.name)),
-      missing_ingredients: [],
-      steps: [],
-      calories: recipe.calories,
-      protein: english.protein,
-      carbs: english.carbs,
-      fat: english.fat,
-      fiber: english.fiber,
-      sugar: english.sugar,
-      sodium: english.sodium,
-      cook_time: localizeRecipeForArabic({ ...english, steps: [], ingredients: [], missing_ingredients: [] }).cook_time,
-      difficulty: localizeRecipeForArabic({ ...english, steps: [], ingredients: [], missing_ingredients: [] }).difficulty,
-      image_url: english.image_url,
-      image_source: english.image_source,
-      image_attribution_name: english.image_attribution_name,
-      image_attribution_url: english.image_attribution_url,
-      image_search_index: english.image_search_index,
-      image_search_indices: english.image_search_indices,
-      preference_hits: [],
-      dish_intent: english.dish_intent
-    },
-    "Arabic"
-  );
 }
 
 function buildEnglishRecipeVariant(recipe: RecipeCatalogDoc): Recipe {
@@ -449,7 +423,7 @@ function buildEnglishRecipeVariant(recipe: RecipeCatalogDoc): Recipe {
 }
 
 function buildArabicRecipeVariant(recipe: RecipeCatalogDoc, english: Recipe): Recipe {
-  const localizedEnglish = localizeRecipeForArabic(english);
+  const localizedEnglish = ensureArabicRecipeLanguage(english);
   const existing = recipe.localized?.Arabic;
   const base: Recipe = {
     ...localizedEnglish,
@@ -467,7 +441,7 @@ function buildArabicRecipeVariant(recipe: RecipeCatalogDoc, english: Recipe): Re
     dish_intent: english.dish_intent
   };
 
-  return ensureDetailedRecipeSteps(base, "Arabic");
+  return ensureDetailedRecipeSteps(ensureArabicRecipeLanguage(base), "Arabic");
 }
 
 function normalizeRecipeImageUrl(value?: string) {
@@ -488,7 +462,7 @@ export function ensureCompleteLocalizedRecipe(recipe: Recipe, language: "English
     recipe.localized?.English
   );
   const arabicSeed = mergeLocalizedRecipeVariant(
-    language === "Arabic" ? recipe : localizeRecipeForArabic(englishSeed),
+    language === "Arabic" ? recipe : ensureArabicRecipeLanguage(englishSeed),
     recipe.localized?.Arabic
   );
 
@@ -496,8 +470,8 @@ export function ensureCompleteLocalizedRecipe(recipe: Recipe, language: "English
     ? ensureDetailedRecipeSteps(localizeRecipeForEnglish(arabicSeed), "English")
     : ensureDetailedRecipeSteps(englishSeed, "English");
   const arabic = shouldRegenerateArabicVariant(arabicSeed)
-    ? ensureDetailedRecipeSteps(localizeRecipeForArabic(english), "Arabic")
-    : ensureDetailedRecipeSteps(arabicSeed, "Arabic");
+    ? ensureDetailedRecipeSteps(ensureArabicRecipeLanguage(english), "Arabic")
+    : ensureDetailedRecipeSteps(ensureArabicRecipeLanguage(arabicSeed), "Arabic");
 
   return stripUndefinedDeep({ English: english, Arabic: arabic }) as {
     English: Recipe;
@@ -631,6 +605,11 @@ function normalizeStringArray(value: unknown): string[] {
 }
 
 function buildFallbackEnglishTitle(recipe: RecipeCatalogDoc) {
+  const specificIdentity = pickSpecificEnglishIdentity(recipe);
+  if (specificIdentity) {
+    return toTitleCase(specificIdentity);
+  }
+
   const leadIngredients = recipe.ingredientCanonicals
     .slice(0, 2)
     .map((ingredient) => toTitleCase(translateIngredientToEnglish(ingredient)));
@@ -642,43 +621,85 @@ function buildFallbackEnglishTitle(recipe: RecipeCatalogDoc) {
     .trim();
 }
 
+function repairWeakEnglishRecipeIdentity(recipe: RecipeCatalogDoc, candidate: Recipe): Recipe {
+  if (!isWeakGeneratedTitle(candidate.name)) {
+    return candidate;
+  }
+
+  const specificIdentity = pickSpecificEnglishIdentity(recipe, candidate);
+  if (!specificIdentity) {
+    return candidate;
+  }
+
+  return {
+    ...candidate,
+    name: toTitleCase(specificIdentity),
+    image_search_index: candidate.image_search_index ?? specificIdentity,
+    image_search_indices: candidate.image_search_indices?.length
+      ? candidate.image_search_indices
+      : [specificIdentity]
+  };
+}
+
+function pickSpecificEnglishIdentity(recipe: RecipeCatalogDoc, candidate?: Pick<Recipe, "name" | "image_search_index" | "image_search_indices" | "dish_intent">) {
+  return [
+    candidate?.dish_intent?.dish_name,
+    recipe.localized?.English?.dish_intent?.dish_name,
+    recipe.dishIntent?.dish_name,
+    candidate?.image_search_index,
+    ...(candidate?.image_search_indices ?? []),
+    recipe.localized?.English?.image_search_index,
+    ...(recipe.localized?.English?.image_search_indices ?? []),
+    recipe.image.sourceQuery,
+    candidate?.name,
+    recipe.title
+  ].find((value) => typeof value === "string" && isSpecificEnglishIdentity(value));
+}
+
+function isWeakGeneratedTitle(value: string) {
+  const normalized = value.toLowerCase();
+  return (
+    /\bany\b/.test(normalized) ||
+    /\bdinner plate\b/.test(normalized) ||
+    /\blunch bowl\b/.test(normalized) ||
+    /\bbreakfast bowl\b/.test(normalized) ||
+    /\bsnack plate\b/.test(normalized) ||
+    hasRepeatedContentToken(normalized) ||
+    value.includes("مكون إضافي")
+  );
+}
+
+function isSpecificEnglishIdentity(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || !hasLatinText(normalized) || hasArabicText(normalized)) return false;
+  if (normalized.length < 4) return false;
+  if (/\b(any|unknown|global|generic|food|meal|recipe)\b/.test(normalized)) return false;
+  if (/\b(assembled|prepared|plated)\b/.test(normalized)) return false;
+  if (/\b(dinner plate|lunch bowl|breakfast bowl|snack plate)\b/.test(normalized)) return false;
+  if (hasRepeatedContentToken(normalized)) return false;
+  return true;
+}
+
+function hasRepeatedContentToken(value: string) {
+  const tokens = value
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]/g, ""))
+    .filter((token) => token.length >= 4 && !["with", "style"].includes(token));
+  const seen = new Set<string>();
+
+  for (const token of tokens) {
+    if (seen.has(token)) return true;
+    seen.add(token);
+  }
+
+  return false;
+}
+
 function buildFallbackEnglishCuisine(recipe: RecipeCatalogDoc, candidate?: Pick<Recipe, "cuisine">) {
   const options = [candidate?.cuisine, recipe.cuisine].map((value) => normalizeCuisineLabel(value ?? "").trim());
   const english = options.find((value) => value && !hasArabicText(value) && hasLatinText(value));
   return english || "Global";
-}
-
-function buildFallbackArabicTitle(recipe: RecipeCatalogDoc) {
-  const leadIngredients = recipe.ingredientCanonicals
-    .slice(0, 2)
-    .map((ingredient) => translateIngredientToArabic(ingredient))
-    .filter(Boolean);
-  return [fallbackDishShapeArabic(recipe.mealType), fallbackMealCourseArabic(recipe.mealType), ...leadIngredients]
-    .filter((value, index, values) => Boolean(value) && values.indexOf(value) === index)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function buildFallbackArabicCuisine(englishCuisine: string) {
-  if (!englishCuisine || englishCuisine === "Global" || englishCuisine === "Unknown") {
-    return "عالمي";
-  }
-
-  return localizeRecipeForArabic({
-    id: "temp",
-    name: englishCuisine,
-    cuisine: englishCuisine,
-    ingredients: [],
-    missing_ingredients: [],
-    steps: [],
-    calories: 0,
-    protein: "0g",
-    carbs: "0g",
-    fat: "0g",
-    cook_time: "0 mins",
-    difficulty: "Easy"
-  }).cuisine;
 }
 
 function fallbackMealTypeLabel(mealType: RecipeCatalogDoc["mealType"]) {
@@ -694,19 +715,6 @@ function hasArabicText(value: string) {
 
 function hasLatinText(value: string) {
   return /[A-Za-z]/.test(value);
-}
-
-function fallbackMealCourseArabic(mealType: RecipeCatalogDoc["mealType"]) {
-  if (mealType === "breakfast") return "فطور";
-  if (mealType === "lunch") return "غداء";
-  if (mealType === "snack") return "وجبة خفيفة";
-  return "عشاء";
-}
-
-function fallbackDishShapeArabic(mealType: RecipeCatalogDoc["mealType"]) {
-  if (mealType === "breakfast" || mealType === "lunch") return "وعاء";
-  if (mealType === "snack") return "وجبة";
-  return "طبق";
 }
 
 function toTitleCase(value: string) {

@@ -77,7 +77,15 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "kafta"
   },
   {
-    aliases: [/\bhawawshi\b/i],
+    aliases: [
+      /\bhawawshi\b/i,
+      /\bmeat stuffed (?:bread|pita|flatbread)\b/i,
+      /\bstuffed (?:baladi )?(?:bread|pita|flatbread)\b/i,
+      /\u062d\u0648\u0627\u0648\u0634\u064a/iu,
+      /\u062e\u0628\u0632\s+\u0645\u062d\u0634\u0648/iu,
+      /\u0639\u064a\u0634\s+\u0645\u062d\u0634\u0648/iu,
+      /\u0645\u062d\u0634\u0648\s+\u0628\u0627\u0644\u0644\u062d\u0645\s+\u0627\u0644\u0645\u0641\u0631\u0648\u0645/iu
+    ],
     canonicalName: "hawawshi",
     cuisineKey: "egyptian",
     key: "hawawshi"

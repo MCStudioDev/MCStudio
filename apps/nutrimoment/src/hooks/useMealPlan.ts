@@ -129,7 +129,7 @@ export function useMealPlan() {
     }
   };
 
-  const updateMealImage = async (
+  const updateMealImage = useCallback(async (
     dayIndex: number,
     mealType: "breakfast" | "lunch" | "dinner",
     imageUrl: string,
@@ -195,7 +195,7 @@ export function useMealPlan() {
       }
       throw error;
     }
-  };
+  }, [state.mealPlan, user]);
 
   return {
     mealPlan: state.mealPlan,

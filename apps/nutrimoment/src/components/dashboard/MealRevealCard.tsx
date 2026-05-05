@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from "react";
 import { ChefHat, ChevronDown, Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
@@ -39,6 +39,7 @@ interface MealRevealStat {
 }
 
 interface MealRevealCardProps {
+  disableAutoImageLookup?: boolean;
   deferImageLookup?: boolean;
   name: string;
   imageUrl?: string;
@@ -48,6 +49,9 @@ interface MealRevealCardProps {
   imageLoading?: boolean;
   imageError?: boolean;
   imageQuery?: string | string[];
+  imageExactNames?: string[];
+  imageCuisine?: string;
+  imagePromptIngredients?: string[];
   onImageResolved?: (payload: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
@@ -65,15 +69,16 @@ interface MealRevealCardProps {
 }
 
 export function MealRevealCard({
+  disableAutoImageLookup = false,
   deferImageLookup = false,
   name,
   imageUrl,
-  imageSource,
-  imageAttributionName,
-  imageAttributionUrl,
   imageLoading,
   imageError,
   imageQuery,
+  imageExactNames,
+  imageCuisine,
+  imagePromptIngredients,
   onImageResolved,
   eyebrow,
   visualMatchLabel,
@@ -85,10 +90,12 @@ export function MealRevealCard({
   className
 }: MealRevealCardProps) {
   const { t } = useApp();
-  const { getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
+  const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
+  const bypassClientCache = access.tier === "premium";
   const [lookupActivated, setLookupActivated] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
   const [lookupState, setLookupState] = useState<{
     failed: boolean;
     imageAttributionName?: string;
@@ -107,42 +114,46 @@ export function MealRevealCard({
 
   const queryCandidates = useMemo(() => normalizeRecipePhotoQueries(imageQuery), [imageQuery]);
   const primaryQuery = queryCandidates[0] ?? "";
-  const queryKey = queryCandidates.join(" || ");
-  const cachedImageEntry = queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
+  const exactNamesForLookup = useMemo(
+    () => (imageExactNames?.length ? imageExactNames : [name]).map((value) => value.trim()).filter(Boolean),
+    [imageExactNames, name]
+  );
+  const queryKey = [
+    queryCandidates.join(" || "),
+    exactNamesForLookup.join(" || "),
+    imageCuisine?.trim() ?? ""
+  ]
+    .filter(Boolean)
+    .join(" ## ");
+  const isFailedImageUrl = useCallback(
+    (candidate?: string) => Boolean(candidate && failedImageUrls.has(candidate)),
+    [failedImageUrls]
+  );
+  const cachedImageEntry = !bypassClientCache && queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
   const cachedImage =
     isInternetImageUrl(cachedImageEntry?.imageUrl) &&
+    !isFailedImageUrl(cachedImageEntry.imageUrl) &&
     !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
       ? cachedImageEntry.imageUrl
       : "";
-  const cachedFailure = queryKey ? isRecipePhotoFailureCached(queryKey) : false;
+  const cachedFailure = !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage =
-    lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) ? lookupState.image : "";
-  const lookedUpSource = lookupState.queryKey === queryKey ? lookupState.imageSource : undefined;
-  const lookedUpAttributionName = lookupState.queryKey === queryKey ? lookupState.imageAttributionName : undefined;
-  const lookedUpAttributionUrl = lookupState.queryKey === queryKey ? lookupState.imageAttributionUrl : undefined;
+    lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) && !isFailedImageUrl(lookupState.image)
+      ? lookupState.image
+      : "";
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
-  const internetProvidedImage = isInternetImageUrl(imageUrl) ? imageUrl : undefined;
+  const internetProvidedImage = isInternetImageUrl(imageUrl) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
   const shouldRefreshProvidedImage = internetProvidedImage
     ? Boolean(queryKey) && isRecipePhotoRecentlyAssignedToDifferentQuery(internetProvidedImage, queryKey)
     : false;
   const effectiveProvidedImage = shouldRefreshProvidedImage ? "" : internetProvidedImage;
-  const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
-  const resolvedSource =
-    (shouldRefreshProvidedImage ? undefined : imageSource) ||
-    lookedUpSource ||
-    cachedImageEntry?.imageSource ||
-    inferImageSource(effectiveProvidedImage);
-  const resolvedAttributionName =
-    (shouldRefreshProvidedImage ? undefined : imageAttributionName) ||
-    lookedUpAttributionName ||
-    cachedImageEntry?.imageAttributionName;
-  const resolvedAttributionUrl =
-    (shouldRefreshProvidedImage ? undefined : imageAttributionUrl) ||
-    lookedUpAttributionUrl ||
-    cachedImageEntry?.imageAttributionUrl;
+  const resolvedImage = imageLoading ? "" : effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const showNoExactPhoto = !resolvedImage && (imageError || lookupFailed || cachedFailure);
-  const excludedImageUrls = useMemo(() => getRecentlyAssignedRecipePhotoUrls(queryKey), [queryKey]);
+  const excludedImageUrls = useMemo(
+    () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
+    [failedImageUrls, queryKey]
+  );
   const visibleStats = useMemo(
     () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
     [stats]
@@ -159,6 +170,21 @@ export function MealRevealCard({
   const cardSummary = summary ?? derivedPreviewItems.slice(0, 2).join(" / ");
   const resolvedPreviewLabel = previewLabel ?? t("ingredientSnapshot");
   const detailId = useMemo(() => `meal-details-${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, [name]);
+  const handleImageLoadError = useCallback(
+    (failedUrl: string) => {
+      if (!failedUrl) return;
+      setFailedImageUrls((current) => {
+        if (current.has(failedUrl)) return current;
+        const next = new Set(current);
+        next.add(failedUrl);
+        return next;
+      });
+      if (!bypassClientCache && queryKey) {
+        recipePhotoSuccessCache.delete(queryKey);
+      }
+    },
+    [bypassClientCache, queryKey]
+  );
 
   useEffect(() => {
     if (!queryKey || !resolvedImage) return;
@@ -166,8 +192,10 @@ export function MealRevealCard({
   }, [queryKey, resolvedImage]);
 
   useEffect(() => {
+    if (disableAutoImageLookup) return;
     if (authLoading) return;
     if (!lookupEnabled) return;
+    if (imageLoading) return;
     if (effectiveProvidedImage || !queryKey || !primaryQuery || lookedUpImage || lookupFailed) return;
     if (!user) return;
 
@@ -175,11 +203,11 @@ export function MealRevealCard({
     const now = Date.now();
     const failedUntil = recipePhotoFailureCache.get(queryKey);
 
-    if (cachedImage) {
+    if (!bypassClientCache && cachedImage) {
       return;
     }
 
-    if (failedUntil && failedUntil > now) {
+    if (!bypassClientCache && failedUntil && failedUntil > now) {
       return;
     }
 
@@ -188,7 +216,10 @@ export function MealRevealCard({
       existingRequest ??
       getAuthHeaders()
         .then((headers) =>
-          fetch(buildRecipePhotoRequestUrl(queryCandidates, excludedImageUrls), {
+          fetch(buildRecipePhotoRequestUrl(queryCandidates, imagePromptIngredients ?? [], excludedImageUrls, {
+            cuisine: imageCuisine,
+            exactNames: exactNamesForLookup
+          }), {
             headers
           })
         )
@@ -225,13 +256,15 @@ export function MealRevealCard({
       .then((data) => {
         if (cancelled || !data.imageUrl) return;
 
-        recipePhotoSuccessCache.set(queryKey, {
-          imageAttributionName: data.imageAttributionName,
-          imageAttributionUrl: data.imageAttributionUrl,
-          imageSource: data.imageSource,
-          imageUrl: data.imageUrl
-        });
-        recipePhotoFailureCache.delete(queryKey);
+        if (!bypassClientCache) {
+          recipePhotoSuccessCache.set(queryKey, {
+            imageAttributionName: data.imageAttributionName,
+            imageAttributionUrl: data.imageAttributionUrl,
+            imageSource: data.imageSource,
+            imageUrl: data.imageUrl
+          });
+          recipePhotoFailureCache.delete(queryKey);
+        }
         rememberRecentRecipePhotoSelection(data.imageUrl, queryKey);
         setLookupState({
           failed: false,
@@ -254,7 +287,9 @@ export function MealRevealCard({
 
         const retryAfterSeconds = Number(error instanceof Error ? error.message : "0") || 0;
         const retryUntil = now + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS);
-        recipePhotoFailureCache.set(queryKey, retryUntil);
+        if (!bypassClientCache) {
+          recipePhotoFailureCache.set(queryKey, retryUntil);
+        }
         setLookupState({
           failed: true,
           imageAttributionName: undefined,
@@ -270,9 +305,15 @@ export function MealRevealCard({
     };
   }, [
     authLoading,
+    bypassClientCache,
     cachedImage,
+    disableAutoImageLookup,
     effectiveProvidedImage,
     getAuthHeaders,
+    imageLoading,
+    imageCuisine,
+    exactNamesForLookup,
+    imagePromptIngredients,
     lookupEnabled,
     lookupFailed,
     lookedUpImage,
@@ -289,11 +330,7 @@ export function MealRevealCard({
     const target = event.target as HTMLElement | null;
     if (target?.closest("button, a, input, textarea, select")) return;
     setLookupActivated(true);
-    setIsOpen((value) => {
-      const nextValue = !value;
-      setIsFlipped(nextValue);
-      return nextValue;
-    });
+    toggleRecipeDetails();
   };
 
   const handleSurfaceKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -302,11 +339,21 @@ export function MealRevealCard({
     if (target?.tagName === "BUTTON" || target?.tagName === "A") return;
     event.preventDefault();
     setLookupActivated(true);
+    toggleRecipeDetails();
+  };
+
+  const toggleRecipeDetails = () => {
     setIsOpen((value) => {
       const nextValue = !value;
       setIsFlipped(nextValue);
       return nextValue;
     });
+  };
+
+  const openRecipeDetails = () => {
+    setLookupActivated(true);
+    setIsOpen(true);
+    setIsFlipped(true);
   };
 
   return (
@@ -326,7 +373,7 @@ export function MealRevealCard({
     >
       <div className="relative">
         <div
-          className="relative h-[24rem] [perspective:1600px] sm:h-[25rem]"
+          className="relative h-[34rem] [perspective:1600px] sm:h-[27rem] lg:h-[25rem]"
           onClick={handleSurfaceClick}
         >
           <div
@@ -343,9 +390,10 @@ export function MealRevealCard({
                 summary={cardSummary}
                 headlineStats={headlineStats}
                 resolvedImage={resolvedImage}
-                resolvedSource={resolvedSource}
                 imageLoading={imageLoading}
                 showNoExactPhoto={showNoExactPhoto}
+                onImageLoadError={handleImageLoadError}
+                onOpenRecipe={openRecipeDetails}
               />
             </div>
 
@@ -356,40 +404,11 @@ export function MealRevealCard({
                 previewLabel={resolvedPreviewLabel}
                 previewItems={derivedPreviewItems}
                 isOpen={isOpen}
-                onToggleOpen={() =>
-                  setIsOpen((value) => {
-                    const nextValue = !value;
-                    setIsFlipped(nextValue);
-                    return nextValue;
-                  })
-                }
+                onToggleOpen={toggleRecipeDetails}
               />
             </div>
           </div>
         </div>
-
-        {resolvedSource === "unsplash" && resolvedAttributionName && resolvedAttributionUrl ? (
-          <div className="theme-recipe-attribution border-t border-white/8 bg-[#071714]/86 px-5 py-3 text-[11px] text-white/65">
-            Photo by{" "}
-            <a
-              href={resolvedAttributionUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="underline decoration-white/35 underline-offset-2 hover:text-white"
-            >
-              {resolvedAttributionName}
-            </a>{" "}
-            on{" "}
-            <a
-              href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
-              target="_blank"
-              rel="noreferrer"
-              className="underline decoration-white/35 underline-offset-2 hover:text-white"
-            >
-              Unsplash
-            </a>
-          </div>
-        ) : null}
 
         <div
           id={detailId}
@@ -415,10 +434,10 @@ export function MealRevealCard({
                       {section.items.map((item, index) => (
                         <div
                           key={`${section.title}-${index}-${item}`}
-                          className="theme-recipe-detail-copy rounded-[1.2rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-relaxed text-white/88"
+                          className="theme-recipe-detail-copy flex gap-2 rounded-[1.2rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-relaxed text-white/88"
                         >
-                          <span className="mr-2 text-cyan-200">{index + 1}.</span>
-                          {item}
+                          <span className="shrink-0 text-cyan-200">{index + 1}.</span>
+                          <span className="min-w-0 flex-1 break-words">{item}</span>
                         </div>
                       ))}
                     </div>
@@ -456,9 +475,10 @@ function RecipeFrontFace({
   summary,
   headlineStats,
   resolvedImage,
-  resolvedSource,
   imageLoading,
-  showNoExactPhoto
+  showNoExactPhoto,
+  onImageLoadError,
+  onOpenRecipe
 }: {
   eyebrow?: string;
   visualMatchLabel?: string;
@@ -466,11 +486,13 @@ function RecipeFrontFace({
   summary: string;
   headlineStats: MealRevealStat[];
   resolvedImage?: string;
-  resolvedSource?: RecipeImageSource;
   imageLoading?: boolean;
   showNoExactPhoto: boolean;
+  onImageLoadError: (failedUrl: string) => void;
+  onOpenRecipe: () => void;
 }) {
   const { t } = useApp();
+  const noImageState = !resolvedImage;
 
   return (
     <div className="relative h-full overflow-hidden">
@@ -482,6 +504,7 @@ function RecipeFrontFace({
           sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
           className="object-cover transition-[transform,filter] duration-500 group-hover:scale-105 group-hover:brightness-75 group-focus-within:scale-105 group-focus-within:brightness-75"
           unoptimized
+          onError={() => onImageLoadError(resolvedImage)}
         />
       ) : (
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(73,247,189,0.38),transparent_30%),radial-gradient(circle_at_78%_18%,rgba(97,196,255,0.24),transparent_24%),linear-gradient(135deg,#0b201c,#061311_58%,#05293a)]" />
@@ -490,20 +513,60 @@ function RecipeFrontFace({
       <div className="absolute inset-0 bg-gradient-to-t from-[#040c0a] via-[#040c0a]/36 to-transparent" />
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 to-transparent" />
 
-      {!resolvedImage ? (
-        <div className="absolute inset-x-0 top-[4.8rem] flex justify-center px-5">
-          <div className="w-full max-w-[15rem] rounded-[1.8rem] border border-white/12 bg-[#f5fffc]/8 p-5 text-center text-white/86 backdrop-blur-md">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-white/10 text-cyan-100 shadow-[0_18px_40px_rgba(3,18,16,0.28)]">
-              <ChefHat className="h-8 w-8" />
+      {noImageState ? (
+        <div className="absolute inset-0 z-10 flex flex-col justify-between gap-4 px-4 pb-4 pt-[4.5rem] sm:px-5 sm:pb-5 sm:pt-[4.8rem]">
+          <div className="flex justify-center">
+            <div className="w-full max-w-[14rem] rounded-[1.8rem] border border-white/12 bg-[#f5fffc]/8 p-4 text-center text-white/86 backdrop-blur-md sm:max-w-[15rem] sm:p-5">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-white/12 bg-white/10 text-cyan-100 shadow-[0_18px_40px_rgba(3,18,16,0.28)] sm:h-16 sm:w-16">
+                <ChefHat className="h-7 w-7 sm:h-8 sm:w-8" />
+              </div>
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-cyan-200/18 bg-cyan-300/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100 sm:mt-4">
+                <Sparkles className="h-3.5 w-3.5" />
+                {imageLoading ? t("findingPhoto") : t("curatedFallback")}
+              </div>
+              <p className="mt-3 text-sm font-semibold text-white">
+                {imageLoading ? t("generatingRecipeImage") : t("awaitingPlatedMatch")}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-white/62">
+                {imageLoading ? t("recipeImageLoadingHint") : t("hideWeakMatches")}
+              </p>
             </div>
-            <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-cyan-200/18 bg-cyan-300/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
-              <Sparkles className="h-3.5 w-3.5" />
-              {t("curatedFallback")}
+          </div>
+
+          <div className="rounded-[1.45rem] border border-white/10 bg-[rgba(4,12,10,0.74)] p-4 backdrop-blur-md">
+            <div className="space-y-2">
+              {eyebrow ? (
+                <p className="theme-recipe-front-eyebrow text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100/82">{eyebrow}</p>
+              ) : null}
+              <h3 className="theme-recipe-front-title line-clamp-3 break-words text-[1.35rem] font-display font-bold leading-tight drop-shadow-sm sm:text-[1.65rem]">{name}</h3>
+              {summary ? <p className="theme-recipe-front-summary line-clamp-2 max-w-xl text-xs leading-relaxed text-white/74 sm:text-sm">{summary}</p> : null}
             </div>
-            <p className="mt-3 text-sm font-semibold text-white">{t("awaitingPlatedMatch")}</p>
-            <p className="mt-1 text-xs leading-relaxed text-white/62">
-              {t("hideWeakMatches")}
-            </p>
+
+            {headlineStats.length ? (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {headlineStats.map((stat) => (
+                  <div
+                    key={`headline-${stat.label}-${stat.value}`}
+                    className="theme-recipe-front-stat inline-flex items-baseline gap-1 rounded-full border border-white/10 bg-white/12 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
+                  >
+                    <span className="theme-recipe-front-stat-value text-white">{stat.value}</span>
+                    <span className="theme-recipe-front-stat-label text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenRecipe();
+              }}
+              className="focus-ring theme-recipe-front-badge mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/88 backdrop-blur-md transition hover:bg-white/[0.18]"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("viewRecipe")}
+            </button>
           </div>
         </div>
       ) : null}
@@ -512,32 +575,6 @@ function RecipeFrontFace({
         <div className="absolute right-4 top-4 rounded-full border border-white/10 bg-[#f5fffc]/88 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#07201a]">
           {t("findingPhoto")}
         </div>
-      ) : null}
-
-      {resolvedSource ? (
-        resolvedSource === "search" ? (
-          <a
-            href="https://www.pexels.com"
-            target="_blank"
-            rel="noreferrer"
-            className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
-          >
-            {formatImageSourceLabel(resolvedSource)}
-          </a>
-        ) : resolvedSource === "unsplash" ? (
-          <a
-            href="https://unsplash.com/?utm_source=nutrimoment&utm_medium=referral"
-            target="_blank"
-            rel="noreferrer"
-            className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
-          >
-            {formatImageSourceLabel(resolvedSource)}
-          </a>
-        ) : (
-          <div className="theme-recipe-source-pill absolute left-4 top-4 rounded-full bg-stone-950/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-md">
-            {formatImageSourceLabel(resolvedSource)}
-          </div>
-        )
       ) : null}
 
       {visualMatchLabel ? (
@@ -555,33 +592,43 @@ function RecipeFrontFace({
         </div>
       ) : null}
 
-      <div className="theme-recipe-front absolute inset-x-0 bottom-0 space-y-4 p-5 text-white">
-        <div className="space-y-2">
-          {eyebrow ? (
-            <p className="theme-recipe-front-eyebrow text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100/82">{eyebrow}</p>
-          ) : null}
-          <h3 className="theme-recipe-front-title text-2xl font-display font-bold leading-tight drop-shadow-sm">{name}</h3>
-          {summary ? <p className="theme-recipe-front-summary max-w-xl text-sm leading-relaxed text-white/74">{summary}</p> : null}
-        </div>
-
-        {headlineStats.length ? (
-          <div className="flex flex-wrap items-center gap-2">
-            {headlineStats.map((stat) => (
-              <div
-                key={`headline-${stat.label}-${stat.value}`}
-                className="theme-recipe-front-stat inline-flex items-baseline gap-1 rounded-full border border-white/10 bg-white/12 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
-              >
-                <span className="theme-recipe-front-stat-value text-white">{stat.value}</span>
-                <span className="theme-recipe-front-stat-label text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
-              </div>
-            ))}
+      {!noImageState ? (
+        <div className="theme-recipe-front absolute inset-x-0 bottom-0 space-y-3 p-4 text-white sm:space-y-4 sm:p-5">
+          <div className="space-y-2">
+            {eyebrow ? (
+              <p className="theme-recipe-front-eyebrow text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100/82">{eyebrow}</p>
+            ) : null}
+            <h3 className="theme-recipe-front-title line-clamp-3 break-words text-[1.45rem] font-display font-bold leading-tight drop-shadow-sm sm:text-2xl">{name}</h3>
+            {summary ? <p className="theme-recipe-front-summary line-clamp-2 max-w-xl text-xs leading-relaxed text-white/74 sm:text-sm">{summary}</p> : null}
           </div>
-        ) : null}
 
-        <div className="theme-recipe-front-badge inline-flex items-center rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80 backdrop-blur-md">
-          {t("hoverPreview")}
+          {headlineStats.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {headlineStats.map((stat) => (
+                <div
+                  key={`headline-${stat.label}-${stat.value}`}
+                  className="theme-recipe-front-stat inline-flex items-baseline gap-1 rounded-full border border-white/10 bg-white/12 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur-md"
+                >
+                  <span className="theme-recipe-front-stat-value text-white">{stat.value}</span>
+                  <span className="theme-recipe-front-stat-label text-[10px] uppercase tracking-[0.14em] text-white/70">{stat.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenRecipe();
+            }}
+            className="focus-ring theme-recipe-front-badge inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/88 backdrop-blur-md transition hover:bg-white/[0.18]"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("viewRecipe")}
+          </button>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -612,7 +659,7 @@ function RecipeBackFace({
           {eyebrow ? (
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{eyebrow}</p>
           ) : null}
-          <h3 className="text-2xl font-display font-bold leading-tight">{name}</h3>
+          <h3 className="line-clamp-3 break-words text-[1.55rem] font-display font-bold leading-tight sm:text-2xl">{name}</h3>
           <p className="text-sm leading-relaxed text-white/70">{previewLabel}</p>
         </div>
 
@@ -666,7 +713,12 @@ function normalizeRecipePhotoQueries(query?: string | string[]) {
   ).slice(0, 5);
 }
 
-function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = []) {
+function buildRecipePhotoRequestUrl(
+  queries: string[],
+  ingredients: string[] = [],
+  excludeUrls: string[] = [],
+  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+) {
   const params = new URLSearchParams();
   queries.forEach((query, index) => {
     if (index === 0) {
@@ -675,6 +727,19 @@ function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = [
       params.append("alt", query);
     }
   });
+  ingredients
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .forEach((ingredient) => params.append("ingredient", ingredient));
+  exactContext.exactNames
+    ?.map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .forEach((name) => params.append("exact", name));
+  if (exactContext.cuisine?.trim()) {
+    params.set("cuisine", exactContext.cuisine.trim());
+  }
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
@@ -733,28 +798,3 @@ function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKe
   return existing.queryKey !== queryKey;
 }
 
-function formatImageSourceLabel(source: RecipeImageSource) {
-  switch (source) {
-    case "api":
-      return "Gemini";
-    case "cache":
-      return "Cache";
-    case "search":
-      return "Pexels";
-    case "unsplash":
-      return "Unsplash";
-    case "wikimedia":
-      return "Wikimedia";
-    default:
-      return "Photo";
-  }
-}
-
-function inferImageSource(imageUrl?: string): RecipeImageSource | undefined {
-  if (!imageUrl) return undefined;
-  if (/upload\.wikimedia\.org/i.test(imageUrl)) return "wikimedia";
-  if (/images\.unsplash\.com|unsplash\.com/i.test(imageUrl)) return "unsplash";
-  if (/images\.pexels\.com|pexels\.com/i.test(imageUrl)) return "search";
-  if (/firebasestorage\.googleapis\.com|firebasestorage\.app/i.test(imageUrl)) return "cache";
-  return undefined;
-}

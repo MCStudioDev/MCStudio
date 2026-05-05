@@ -222,7 +222,7 @@ Object.assign(arabicTranslations, {
   scannerCompactLead: "امسح المكونات أو أضفها وراجعها في مساحة واحدة أكثر تركيزاً قبل توليد الوصفات.",
   scannerCompactActions: "ارفع صورة أو التقطها أو اكتب المكونات",
   freePlanScanner: "الخطة المجانية: لديك {remaining} من {limit} طلبات ذكاء اصطناعي اليوم.",
-  premiumPlanScanner: "الخطة المميزة: مسح غير محدود للصور مع وصفات أكثر عمقاً.",
+  premiumPlanScanner: "الخطة المميزة: توليد الوصفات عبر API مفعّل مع رجوع احتياطي إلى التجمع المشترك. صور الوصفات تُنشأ عبر Replicate.",
   uploadFridgePhoto: "ارفع صورة للثلاجة أو الطبق",
   ingredientQuantity: "كمية المكون",
   quantityGuide: "دليل الكمية",
@@ -322,6 +322,8 @@ Object.assign(arabicTranslations, {
   awaitingPlatedMatch: "بانتظار تطابق بصري أقوى",
   hideWeakMatches: "نخفي الصور الضعيفة حتى تبقى الوصفة دقيقة.",
   findingPhoto: "جاري البحث عن صورة",
+  generatingRecipeImage: "جاري إنشاء صورة للوصفة",
+  recipeImageLoadingHint: "ننشئ الآن صورة مميزة جديدة لهذه الوصفة.",
   noExactPhoto: "لا توجد صورة مطابقة",
   hoverPreview: "مرر للمعاينة، واضغط لعرض الوصفة كاملة",
   fullRecipeDetails: "تفاصيل الوصفة كاملة متاحة بالداخل",
@@ -358,4 +360,14 @@ Object.assign(arabicTranslations, {
   legalSafety: "القانون والسلامة",
   useWithVerification: "استخدم مع التحقق",
   settingsLegalDesc: "NutriMoment مصمم لدعم الوجبات معلوماتياً. راجع إخلاء المسؤولية والشروط والخصوصية قبل الاعتماد على الوصفات أو خطط الوجبات."
+});
+
+Object.assign(arabicTranslations, {
+  confirm: "تأكيد",
+  loadingKitchen: "جار تجهيز مطبخك...",
+  searchHistory: "ابحث باسم الوصفة أو المكون أو التاريخ",
+  noHistoryMatches: "لا توجد جلسات مطابقة",
+  noHistoryMatchesDesc: "جرّب اسم وصفة أو مكونًا أو تاريخًا آخر.",
+  premiumPlanScanner: "الخطة المميزة: المسح الذكي وتوليد الوصفات وصور الطعام جاهزة تلقائيًا.",
+  premiumPantryNotice: "الخطة المميزة: امسح صور المخزن في أي وقت، مع بقاء الإدخال اليدوي متاحًا دائمًا."
 });

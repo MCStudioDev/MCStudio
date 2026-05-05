@@ -30,6 +30,7 @@ const ARABIC_CUISINE_LABELS: Record<string, string> = {
   "Middle Eastern": "شرق أوسطي",
   Spanish: "إسباني",
   Thai: "تايلندي",
+  Turkish: "تركي",
   Unknown: "عالمي"
 };
 
@@ -109,7 +110,13 @@ export function isWeakEnglishTitle(value?: string | null) {
 
 export function isWeakArabicTitle(value?: string | null) {
   if (!value?.trim()) return true;
-  return containsLatinText(value) || isGenericRecipeIdentity(value) || /(فطور|غداء|عشاء|سناك)/u.test(value);
+  return (
+    containsLatinText(value) ||
+    isGenericRecipeIdentity(value) ||
+    /مكون إضافي/u.test(value) ||
+    /^(طبق|وعاء|وجبة)\s+(عشاء|غداء|فطور|خفيفة)\b/u.test(value) ||
+    /\b(عشاء|غداء|فطور)\s+(صدر دجاج|دجاج|جمبري|لحم|سمك|أرز|زيت زيتون)\b/u.test(value)
+  );
 }
 
 export function normalizeEnglishCuisineLabel(value?: string | null) {
@@ -149,8 +156,8 @@ export function buildRecipeTitleSource(recipe: Pick<RecipeCatalogDoc, "title" | 
 
 function pickSpecificDishLabel(source: RecipeTitleSource) {
   const candidates = [
-    source.dishIntentName,
     source.imageSearchIndex,
+    source.dishIntentName,
     source.englishName,
     source.title
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
@@ -201,7 +208,7 @@ function isSpecificCuisine(value: string) {
 function isGenericRecipeIdentity(value: string) {
   const normalized = value.trim();
   if (!normalized) return true;
-  return GENERIC_IDENTITY_PATTERNS.some((pattern) => pattern.test(normalized));
+  return GENERIC_IDENTITY_PATTERNS.some((pattern) => pattern.test(normalized)) || hasRepeatedContentToken(normalized);
 }
 
 function normalizeIdentity(value: string) {
@@ -229,4 +236,20 @@ function containsArabicText(value: string) {
 
 function containsLatinText(value: string) {
   return /[A-Za-z]/.test(value);
+}
+
+function hasRepeatedContentToken(value: string) {
+  const tokens = value
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]/g, ""))
+    .filter((token) => token.length >= 4 && !["with", "style"].includes(token));
+  const seen = new Set<string>();
+
+  for (const token of tokens) {
+    if (seen.has(token)) return true;
+    seen.add(token);
+  }
+
+  return false;
 }

@@ -231,6 +231,155 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     searchPhrases: ["sayadeya egyptian fish rice", "egyptian fish rice", "spiced fish rice plate"]
   },
   {
+    dishName: "Farakh Meshwi",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["garlic", "lemon", "onion", "cumin", "coriander", "paprika", "rice", "bread"],
+    visualKeywords: ["egyptian grilled chicken", "charred butterflied chicken", "grilled chicken platter"],
+    excludeKeywords: ["dessert", "pasta", "beef", "shrimp"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["gluten-free", "high-protein", "low-carb"],
+    popularity: 92,
+    seasoningProfile: ["garlic", "lemon", "cumin", "coriander", "paprika"],
+    searchPhrases: ["egyptian grilled chicken", "farakh meshwi", "butterflied grilled chicken platter"]
+  },
+  {
+    dishName: "Chicken Molokhia",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["molokhia", "garlic", "coriander", "rice", "lemon", "onion"],
+    visualKeywords: ["green molokhia soup", "chicken molokhia with rice", "egyptian molokhia bowl"],
+    excludeKeywords: ["dessert", "pasta", "beef", "shrimp"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["gluten-free", "high-protein"],
+    popularity: 91,
+    seasoningProfile: ["garlic", "coriander", "lemon", "onion"],
+    searchPhrases: ["chicken molokhia egyptian", "molokhia with chicken and rice", "egyptian molokhia chicken"]
+  },
+  {
+    dishName: "Chicken Fattah",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "assembled",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["rice", "bread", "garlic", "vinegar", "tomato sauce", "cumin"],
+    visualKeywords: ["egyptian chicken fattah", "rice bread chicken platter", "garlic tomato fattah"],
+    excludeKeywords: ["dessert", "pasta", "beef", "shrimp"],
+    healthStyles: ["comfort", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 88,
+    seasoningProfile: ["garlic", "vinegar", "cumin", "tomato sauce"],
+    searchPhrases: ["egyptian chicken fattah", "chicken fattah rice bread", "fatta chicken egyptian"]
+  },
+  {
+    dishName: "Chicken Negresco",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["chicken", "pasta"],
+    supportAnchors: ["milk", "butter", "flour", "cheese", "mushroom", "black pepper"],
+    visualKeywords: ["egyptian chicken negresco pasta", "creamy baked chicken pasta", "golden white sauce pasta bake"],
+    excludeKeywords: ["dessert", "red sauce", "beef", "shrimp"],
+    healthStyles: ["comfort"],
+    popularity: 86,
+    seasoningProfile: ["black pepper", "nutmeg", "butter", "milk"],
+    searchPhrases: ["chicken negresco egyptian", "egyptian chicken white sauce pasta", "baked chicken negresco"]
+  },
+  {
+    dishName: "Taagen Kofta",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["tomato", "onion", "garlic", "potato", "cumin", "coriander", "rice"],
+    visualKeywords: ["kofta in tomato sauce", "egyptian kofta tagine", "baked kofta tray"],
+    excludeKeywords: ["dessert", "pasta", "burger"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 90,
+    seasoningProfile: ["cumin", "coriander", "garlic", "tomato", "parsley"],
+    searchPhrases: ["taagen kofta egyptian", "egyptian kofta tomato sauce", "kofta tagine egyptian"]
+  },
+  {
+    dishName: "Kebab Halla",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["beef"],
+    supportAnchors: ["onion", "garlic", "pepper", "tomato", "cumin", "rice", "bread"],
+    visualKeywords: ["egyptian beef stew", "kebab halla pot", "onion rich meat plate"],
+    excludeKeywords: ["dessert", "pasta", "chicken", "shrimp"],
+    healthStyles: ["comfort", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 89,
+    seasoningProfile: ["onion", "garlic", "cumin", "black pepper"],
+    searchPhrases: ["kebab halla egyptian", "egyptian beef stew", "egyptian meat tagine"]
+  },
+  {
+    dishName: "Samak Singari",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["tomato", "bell pepper", "onion", "garlic", "lemon", "cumin", "coriander"],
+    visualKeywords: ["egyptian baked fish", "stuffed butterflied fish", "samak singari platter"],
+    excludeKeywords: ["dessert", "pasta", "beef", "chicken"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["gluten-free", "high-protein", "low-carb"],
+    popularity: 88,
+    seasoningProfile: ["garlic", "cumin", "coriander", "lemon", "bell pepper"],
+    searchPhrases: ["samak singari egyptian", "egyptian baked fish", "butterflied baked fish egyptian"]
+  },
+  {
+    dishName: "Egyptian Fish Tagine",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["tomato", "onion", "garlic", "cumin", "coriander", "lemon", "rice"],
+    visualKeywords: ["egyptian fish tagine", "tomato fish stew", "spiced fish with sauce"],
+    excludeKeywords: ["dessert", "pasta", "beef", "chicken"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["gluten-free", "high-protein"],
+    popularity: 86,
+    seasoningProfile: ["cumin", "coriander", "garlic", "lemon", "tomato"],
+    searchPhrases: ["egyptian fish tagine", "egyptian fish stew", "fish tagine egyptian"]
+  },
+  {
+    dishName: "Alexandrian Shrimp",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "skillet",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["garlic", "cumin", "coriander", "lemon", "chili", "tomato", "rice"],
+    visualKeywords: ["alexandrian shrimp", "egyptian spiced shrimp", "garlic cumin shrimp skillet"],
+    excludeKeywords: ["dessert", "pasta", "beef", "chicken"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["gluten-free", "high-protein", "low-carb"],
+    popularity: 87,
+    seasoningProfile: ["garlic", "cumin", "coriander", "lemon", "chili"],
+    searchPhrases: ["alexandrian shrimp", "egyptian shrimp skillet", "garlic cumin shrimp egyptian"]
+  },
+  {
+    dishName: "Seafood Sayadeya",
+    cuisine: "Egyptian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["rice", "fish", "onion", "tomato", "garlic", "cumin", "coriander"],
+    visualKeywords: ["seafood sayadeya rice", "egyptian seafood rice", "spiced shrimp rice plate"],
+    excludeKeywords: ["dessert", "pasta", "beef", "chicken"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 84,
+    seasoningProfile: ["cumin", "coriander", "garlic", "onion", "lemon"],
+    searchPhrases: ["seafood sayadeya egyptian", "egyptian seafood rice", "shrimp sayadeya rice"]
+  },
+  {
     dishName: "Pasta al Pomodoro",
     cuisine: "Italian",
     mealType: "dinner",
@@ -779,6 +928,525 @@ const DISH_BLUEPRINTS: DishBlueprint[] = [
     popularity: 81,
     seasoningProfile: ["garlic", "white pepper", "fish sauce", "cilantro", "lime"],
     searchPhrases: ["thai garlic shrimp", "garlic shrimp with rice", "stir fried shrimp thai"]
+  },
+  {
+    dishName: "Tagliatelle al Ragu",
+    cuisine: "Italian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["ground meat", "pasta"],
+    supportAnchors: ["tomato", "onion", "carrot", "celery", "parmesan", "olive oil"],
+    visualKeywords: ["tagliatelle ragu", "meat sauce pasta", "italian ragu pasta"],
+    excludeKeywords: ["dessert", "cream sauce", "rice"],
+    healthStyles: ["comfort", "protein-forward"],
+    popularity: 89,
+    seasoningProfile: ["tomato", "onion", "celery", "carrot", "parmesan"],
+    searchPhrases: ["tagliatelle al ragu", "italian meat sauce pasta", "ragu bolognese pasta"]
+  },
+  {
+    dishName: "Pollo Cacciatore",
+    cuisine: "Italian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["tomato", "onion", "garlic", "olive oil", "herbs", "mushroom"],
+    visualKeywords: ["chicken cacciatore", "tomato braised chicken", "italian chicken stew"],
+    excludeKeywords: ["dessert", "cream pasta", "shrimp"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein", "gluten-free"],
+    popularity: 84,
+    seasoningProfile: ["tomato", "garlic", "oregano", "basil", "olive oil"],
+    searchPhrases: ["pollo cacciatore", "chicken cacciatore", "italian tomato braised chicken"]
+  },
+  {
+    dishName: "Pesce all'Acqua Pazza",
+    cuisine: "Italian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["tomato", "garlic", "olive oil", "parsley", "lemon"],
+    visualKeywords: ["italian fish in tomato broth", "acqua pazza fish", "white fish cherry tomatoes"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein", "gluten-free", "low-carb"],
+    popularity: 80,
+    seasoningProfile: ["garlic", "parsley", "olive oil", "tomato", "lemon"],
+    searchPhrases: ["pesce acqua pazza", "italian fish acqua pazza", "fish with cherry tomatoes italian"]
+  },
+  {
+    dishName: "Shrimp Scampi",
+    cuisine: "Italian",
+    mealType: "dinner",
+    cookingMethod: "pan-seared",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["garlic", "lemon", "butter", "parsley", "pasta"],
+    visualKeywords: ["shrimp scampi", "garlic lemon shrimp", "shrimp with linguine"],
+    excludeKeywords: ["dessert", "tomato stew", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 82,
+    seasoningProfile: ["garlic", "lemon", "parsley", "butter", "olive oil"],
+    searchPhrases: ["shrimp scampi", "garlic lemon shrimp scampi", "italian shrimp scampi"]
+  },
+  {
+    dishName: "Shish Tawook",
+    cuisine: "Middle Eastern",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["yogurt", "garlic", "lemon", "paprika", "pita", "rice"],
+    visualKeywords: ["shish tawook skewers", "middle eastern grilled chicken", "chicken kebab platter"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 89,
+    seasoningProfile: ["garlic", "lemon", "paprika", "yogurt", "allspice"],
+    searchPhrases: ["shish tawook", "middle eastern grilled chicken skewers", "chicken tawook plate"]
+  },
+  {
+    dishName: "Kibbeh",
+    cuisine: "Middle Eastern",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["bulgur", "onion", "allspice", "mint", "pine nut", "yogurt"],
+    visualKeywords: ["baked kibbeh", "bulgur meat pie", "middle eastern kibbeh tray"],
+    excludeKeywords: ["dessert", "burger", "pasta"],
+    healthStyles: ["comfort", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 88,
+    seasoningProfile: ["allspice", "mint", "onion", "cinnamon", "pine nut"],
+    searchPhrases: ["kibbeh", "baked kibbeh", "middle eastern bulgur meat pie"]
+  },
+  {
+    dishName: "Samak Harra",
+    cuisine: "Middle Eastern",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["tahini", "garlic", "chili", "lemon", "cilantro", "walnut"],
+    visualKeywords: ["spicy baked fish", "samak harra", "middle eastern fish tahini"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 82,
+    seasoningProfile: ["tahini", "garlic", "chili", "lemon", "cilantro"],
+    searchPhrases: ["samak harra", "middle eastern spicy fish", "lebanese baked fish tahini"]
+  },
+  {
+    dishName: "Shrimp Sayadieh",
+    cuisine: "Middle Eastern",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["rice", "onion", "cumin", "coriander", "tomato", "lemon"],
+    visualKeywords: ["shrimp sayadieh rice", "middle eastern seafood rice", "spiced shrimp rice"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 78,
+    seasoningProfile: ["cumin", "coriander", "onion", "lemon", "allspice"],
+    searchPhrases: ["shrimp sayadieh", "middle eastern seafood rice", "spiced shrimp rice"]
+  },
+  {
+    dishName: "Chicken Souvlaki",
+    cuisine: "Mediterranean",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["lemon", "oregano", "olive oil", "garlic", "yogurt", "pita"],
+    visualKeywords: ["chicken souvlaki skewers", "greek grilled chicken", "souvlaki platter"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 86,
+    seasoningProfile: ["lemon", "oregano", "garlic", "olive oil", "yogurt"],
+    searchPhrases: ["chicken souvlaki", "greek chicken skewers", "mediterranean chicken souvlaki"]
+  },
+  {
+    dishName: "Moussaka",
+    cuisine: "Mediterranean",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["ground meat", "eggplant"],
+    supportAnchors: ["tomato", "onion", "cinnamon", "bechamel", "potato"],
+    visualKeywords: ["greek moussaka", "eggplant meat casserole", "layered moussaka slice"],
+    excludeKeywords: ["dessert", "pasta", "burger"],
+    healthStyles: ["comfort"],
+    popularity: 84,
+    seasoningProfile: ["cinnamon", "tomato", "onion", "nutmeg", "olive oil"],
+    searchPhrases: ["greek moussaka", "mediterranean eggplant meat casserole", "moussaka slice"]
+  },
+  {
+    dishName: "Shrimp Saganaki",
+    cuisine: "Mediterranean",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["tomato", "feta", "olive oil", "garlic", "oregano"],
+    visualKeywords: ["shrimp saganaki", "greek shrimp tomato feta", "shrimp in tomato feta sauce"],
+    excludeKeywords: ["dessert", "cream pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein", "gluten-free"],
+    popularity: 83,
+    seasoningProfile: ["tomato", "feta", "oregano", "garlic", "olive oil"],
+    searchPhrases: ["shrimp saganaki", "greek shrimp tomato feta", "mediterranean shrimp saganaki"]
+  },
+  {
+    dishName: "Seafood Paella",
+    cuisine: "Mediterranean",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["shrimp", "rice"],
+    supportAnchors: ["fish", "saffron", "tomato", "pepper", "pea", "lemon"],
+    visualKeywords: ["seafood paella", "spanish shrimp rice", "paella pan seafood"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 85,
+    seasoningProfile: ["saffron", "paprika", "tomato", "lemon", "olive oil"],
+    searchPhrases: ["seafood paella", "spanish seafood rice", "shrimp paella"]
+  },
+  {
+    dishName: "Butter Chicken",
+    cuisine: "Indian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["tomato", "butter", "cream", "garam masala", "ginger", "garlic"],
+    visualKeywords: ["butter chicken curry", "creamy tomato chicken", "indian chicken makhani"],
+    excludeKeywords: ["dessert", "pasta", "fish"],
+    healthStyles: ["comfort", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 92,
+    seasoningProfile: ["garam masala", "ginger", "garlic", "tomato", "fenugreek"],
+    searchPhrases: ["butter chicken", "murgh makhani", "indian butter chicken"]
+  },
+  {
+    dishName: "Tandoori Chicken",
+    cuisine: "Indian",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["yogurt", "garam masala", "ginger", "garlic", "lemon", "chili"],
+    visualKeywords: ["tandoori chicken", "red grilled chicken", "indian grilled chicken"],
+    excludeKeywords: ["dessert", "pasta", "fish"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein", "low-carb"],
+    popularity: 90,
+    seasoningProfile: ["yogurt", "garam masala", "ginger", "garlic", "chili"],
+    searchPhrases: ["tandoori chicken", "indian grilled chicken", "tandoori chicken plate"]
+  },
+  {
+    dishName: "Prawn Masala",
+    cuisine: "Indian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["tomato", "onion", "ginger", "garlic", "cumin", "coriander"],
+    visualKeywords: ["prawn masala curry", "indian shrimp curry", "shrimp masala gravy"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 84,
+    seasoningProfile: ["cumin", "coriander", "turmeric", "ginger", "garlic"],
+    searchPhrases: ["prawn masala", "indian shrimp curry", "shrimp masala"]
+  },
+  {
+    dishName: "Tinga de Pollo",
+    cuisine: "Mexican",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["tomato", "onion", "chipotle", "tortilla", "cilantro"],
+    visualKeywords: ["tinga de pollo", "shredded chicken tostadas", "chipotle chicken tacos"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 86,
+    seasoningProfile: ["chipotle", "tomato", "onion", "garlic", "cilantro"],
+    searchPhrases: ["tinga de pollo", "mexican shredded chicken tinga", "chicken tinga tostadas"]
+  },
+  {
+    dishName: "Picadillo",
+    cuisine: "Mexican",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["tomato", "potato", "onion", "garlic", "cumin", "rice"],
+    visualKeywords: ["mexican picadillo", "ground beef potato stew", "picadillo rice plate"],
+    excludeKeywords: ["dessert", "burger", "pasta"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 84,
+    seasoningProfile: ["cumin", "tomato", "garlic", "onion", "cilantro"],
+    searchPhrases: ["mexican picadillo", "picadillo con papas", "ground beef picadillo"]
+  },
+  {
+    dishName: "Pescado a la Veracruzana",
+    cuisine: "Mexican",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["tomato", "olive", "caper", "onion", "pepper", "lime"],
+    visualKeywords: ["veracruz fish", "fish in tomato olive sauce", "mexican fish veracruz"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein", "gluten-free"],
+    popularity: 83,
+    seasoningProfile: ["tomato", "olive", "caper", "onion", "lime"],
+    searchPhrases: ["pescado a la veracruzana", "fish veracruz", "mexican fish tomato olive sauce"]
+  },
+  {
+    dishName: "Aguachile",
+    cuisine: "Mexican",
+    mealType: "lunch",
+    cookingMethod: "assembled",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["lime", "chili", "cucumber", "onion", "cilantro"],
+    visualKeywords: ["shrimp aguachile", "mexican lime shrimp", "green aguachile plate"],
+    excludeKeywords: ["dessert", "pasta", "beef stew"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein", "gluten-free", "low-carb"],
+    popularity: 82,
+    seasoningProfile: ["lime", "chili", "cilantro", "onion", "cucumber"],
+    searchPhrases: ["aguachile", "shrimp aguachile", "mexican lime shrimp aguachile"]
+  },
+  {
+    dishName: "Fried Chicken",
+    cuisine: "American",
+    mealType: "dinner",
+    cookingMethod: "fried",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["flour", "buttermilk", "paprika", "potato", "cornbread"],
+    visualKeywords: ["southern fried chicken", "crispy fried chicken plate", "fried chicken dinner"],
+    excludeKeywords: ["dessert", "pasta", "fish"],
+    healthStyles: ["comfort", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 89,
+    seasoningProfile: ["paprika", "black pepper", "garlic", "buttermilk"],
+    searchPhrases: ["southern fried chicken", "american fried chicken", "crispy fried chicken plate"]
+  },
+  {
+    dishName: "Chicken Pot Pie",
+    cuisine: "American",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["pie crust", "carrot", "pea", "celery", "cream", "butter"],
+    visualKeywords: ["chicken pot pie", "creamy chicken pie", "golden pot pie"],
+    excludeKeywords: ["dessert", "pasta", "shrimp"],
+    healthStyles: ["comfort"],
+    popularity: 84,
+    seasoningProfile: ["black pepper", "celery", "thyme", "butter"],
+    searchPhrases: ["chicken pot pie", "american chicken pot pie", "golden chicken pie"]
+  },
+  {
+    dishName: "Sloppy Joe",
+    cuisine: "American",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["tomato sauce", "bun", "onion", "mustard", "brown sugar"],
+    visualKeywords: ["sloppy joe sandwich", "saucy ground beef bun", "american sloppy joe"],
+    excludeKeywords: ["dessert", "pasta", "kebab"],
+    healthStyles: ["comfort", "protein-forward"],
+    popularity: 78,
+    seasoningProfile: ["tomato sauce", "mustard", "onion", "black pepper"],
+    searchPhrases: ["sloppy joe", "american sloppy joe sandwich", "saucy ground beef bun"]
+  },
+  {
+    dishName: "Shrimp and Grits",
+    cuisine: "American",
+    mealType: "dinner",
+    cookingMethod: "pan-seared",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["cornmeal", "butter", "cheese", "garlic", "scallion"],
+    visualKeywords: ["shrimp and grits", "southern shrimp grits", "shrimp over creamy grits"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["comfort", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 82,
+    seasoningProfile: ["butter", "garlic", "black pepper", "scallion"],
+    searchPhrases: ["shrimp and grits", "southern shrimp and grits", "shrimp over grits"]
+  },
+  {
+    dishName: "Blackened Fish",
+    cuisine: "American",
+    mealType: "dinner",
+    cookingMethod: "pan-seared",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["paprika", "garlic", "lemon", "butter", "cornmeal", "rice"],
+    visualKeywords: ["blackened fish fillet", "cajun fish plate", "spiced seared fish"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein", "gluten-free", "low-carb"],
+    popularity: 78,
+    seasoningProfile: ["paprika", "garlic", "black pepper", "lemon", "butter"],
+    searchPhrases: ["blackened fish", "cajun blackened fish", "american blackened fish plate"]
+  },
+  {
+    dishName: "Kung Pao Chicken",
+    cuisine: "Asian",
+    mealType: "dinner",
+    cookingMethod: "stir-fried",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["soy sauce", "chili", "peanut", "garlic", "ginger", "rice"],
+    visualKeywords: ["kung pao chicken", "chinese chicken stir fry", "chicken peanuts chili"],
+    excludeKeywords: ["dessert", "pasta", "fish"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 86,
+    seasoningProfile: ["soy sauce", "chili", "garlic", "ginger", "peanut"],
+    searchPhrases: ["kung pao chicken", "chinese chicken peanuts", "spicy chicken stir fry"]
+  },
+  {
+    dishName: "Mapo Tofu",
+    cuisine: "Asian",
+    mealType: "dinner",
+    cookingMethod: "simmered",
+    ingredientAnchors: ["ground meat", "tofu"],
+    supportAnchors: ["chili bean paste", "soy sauce", "scallion", "garlic", "rice"],
+    visualKeywords: ["mapo tofu", "spicy tofu pork", "sichuan tofu bowl"],
+    excludeKeywords: ["dessert", "pasta", "burger"],
+    healthStyles: ["balanced", "protein-forward"],
+    popularity: 84,
+    seasoningProfile: ["chili bean paste", "soy sauce", "garlic", "scallion"],
+    searchPhrases: ["mapo tofu", "sichuan mapo tofu", "spicy tofu with ground pork"]
+  },
+  {
+    dishName: "Miso Salmon",
+    cuisine: "Asian",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["miso", "soy sauce", "ginger", "rice", "scallion"],
+    visualKeywords: ["miso salmon", "japanese glazed fish", "salmon rice plate"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 82,
+    seasoningProfile: ["miso", "soy sauce", "ginger", "scallion"],
+    searchPhrases: ["miso salmon", "japanese miso fish", "miso glazed salmon"]
+  },
+  {
+    dishName: "Gai Yang",
+    cuisine: "Thai",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["fish sauce", "garlic", "lime", "cilantro", "rice", "chili"],
+    visualKeywords: ["gai yang grilled chicken", "thai grilled chicken", "charred chicken sticky rice"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 86,
+    seasoningProfile: ["fish sauce", "garlic", "cilantro", "lime", "chili"],
+    searchPhrases: ["gai yang", "thai grilled chicken", "grilled chicken sticky rice thai"]
+  },
+  {
+    dishName: "Larb Gai",
+    cuisine: "Thai",
+    mealType: "dinner",
+    cookingMethod: "skillet",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["lime", "fish sauce", "mint", "chili", "rice powder", "lettuce"],
+    visualKeywords: ["larb gai", "thai minced chicken salad", "spicy minced meat herbs"],
+    excludeKeywords: ["dessert", "pasta", "burger"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein", "low-carb"],
+    popularity: 84,
+    seasoningProfile: ["lime", "fish sauce", "mint", "chili", "toasted rice"],
+    searchPhrases: ["larb gai", "thai minced chicken salad", "thai larb"]
+  },
+  {
+    dishName: "Pla Rad Prik",
+    cuisine: "Thai",
+    mealType: "dinner",
+    cookingMethod: "fried",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["chili", "garlic", "tamarind", "fish sauce", "rice"],
+    visualKeywords: ["thai chili fish", "pla rad prik", "fried fish chili sauce"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 82,
+    seasoningProfile: ["chili", "garlic", "tamarind", "fish sauce", "lime"],
+    searchPhrases: ["pla rad prik", "thai fried fish chili sauce", "thai chili fish"]
+  },
+  {
+    dishName: "Goong Ob Woon Sen",
+    cuisine: "Thai",
+    mealType: "dinner",
+    cookingMethod: "steamed",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["glass noodle", "ginger", "garlic", "soy sauce", "cilantro"],
+    visualKeywords: ["thai shrimp glass noodles", "goong ob woon sen", "shrimp vermicelli pot"],
+    excludeKeywords: ["dessert", "cream pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 82,
+    seasoningProfile: ["ginger", "garlic", "soy sauce", "cilantro", "white pepper"],
+    searchPhrases: ["goong ob woon sen", "thai shrimp glass noodles", "shrimp vermicelli pot"]
+  },
+  {
+    dishName: "Tavuk Sis",
+    cuisine: "Turkish",
+    mealType: "dinner",
+    cookingMethod: "grilled",
+    ingredientAnchors: ["chicken"],
+    supportAnchors: ["yogurt", "garlic", "lemon", "paprika", "flatbread", "rice"],
+    visualKeywords: ["tavuk sis skewers", "turkish chicken kebab", "grilled chicken skewers"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 86,
+    seasoningProfile: ["yogurt", "garlic", "paprika", "lemon", "sumac"],
+    searchPhrases: ["tavuk sis", "turkish chicken skewers", "turkish chicken kebab"]
+  },
+  {
+    dishName: "Manti",
+    cuisine: "Turkish",
+    mealType: "dinner",
+    cookingMethod: "boiled",
+    ingredientAnchors: ["ground meat"],
+    supportAnchors: ["flour", "yogurt", "garlic", "butter", "paprika", "mint"],
+    visualKeywords: ["turkish manti", "meat dumplings yogurt", "manti with garlic yogurt"],
+    excludeKeywords: ["dessert", "burger", "rice"],
+    healthStyles: ["comfort", "protein-forward"],
+    popularity: 87,
+    seasoningProfile: ["garlic yogurt", "paprika butter", "mint", "black pepper"],
+    searchPhrases: ["manti turkish", "turkish meat dumplings", "manti garlic yogurt"]
+  },
+  {
+    dishName: "Levrek Bugulama",
+    cuisine: "Turkish",
+    mealType: "dinner",
+    cookingMethod: "steamed",
+    ingredientAnchors: ["fish"],
+    supportAnchors: ["tomato", "pepper", "onion", "lemon", "olive oil", "parsley"],
+    visualKeywords: ["turkish steamed fish", "levrek bugulama", "fish with tomatoes peppers"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["lighter", "protein-forward"],
+    dietTags: ["high-protein", "gluten-free", "low-carb"],
+    popularity: 79,
+    seasoningProfile: ["lemon", "parsley", "olive oil", "pepper", "tomato"],
+    searchPhrases: ["levrek bugulama", "turkish steamed fish", "turkish fish tomato pepper"]
+  },
+  {
+    dishName: "Karides Guvec",
+    cuisine: "Turkish",
+    mealType: "dinner",
+    cookingMethod: "baked",
+    ingredientAnchors: ["shrimp"],
+    supportAnchors: ["tomato", "pepper", "garlic", "cheese", "butter", "parsley"],
+    visualKeywords: ["turkish shrimp casserole", "karides guvec", "shrimp clay pot"],
+    excludeKeywords: ["dessert", "pasta", "beef"],
+    healthStyles: ["balanced", "protein-forward"],
+    dietTags: ["high-protein"],
+    popularity: 80,
+    seasoningProfile: ["garlic", "tomato", "pepper", "butter", "parsley"],
+    searchPhrases: ["karides guvec", "turkish shrimp casserole", "shrimp clay pot turkish"]
   }
 ];
 
@@ -792,7 +1460,7 @@ export function buildCuisineAwareDishCandidates(context: DishCandidateContext): 
 
   return candidatePool
     .map((dish) => scoreDishBlueprint(dish, normalizedIngredients, context))
-    .filter((candidate) => candidate.score > 0)
+    .filter((candidate) => candidate.score > 0 && hasCandidatePantrySignal(candidate, normalizedIngredients))
     .sort((left, right) => right.score - left.score || left.dishName.localeCompare(right.dishName))
     .slice(0, 10);
 }
@@ -936,6 +1604,12 @@ function scoreDishBlueprint(
     supportMatchCount: supportMatches,
     visualKeywords: dish.visualKeywords
   };
+}
+
+function hasCandidatePantrySignal(candidate: DishCandidate, normalizedIngredients: string[]) {
+  if (!normalizedIngredients.length) return true;
+  if (candidate.anchorMatchCount > 0 || candidate.supportMatchCount > 0) return true;
+  return candidate.hits.some((hit) => hit.startsWith("intent-") || hit.startsWith("sparse-"));
 }
 
 function shouldTrustCandidate(
@@ -1088,9 +1762,16 @@ function scoreIngredientIntent(dish: DishBlueprint, normalizedIngredients: strin
   let score = 0;
 
   if (includesIngredient(normalizedIngredients, "ground meat")) {
-    if (/\b(hawawshi|kofta|macarona bechamel|moussaka|keema|meatloaf|chili|pad krapow|kofte|adana kebab)\b/.test(lowerDish)) {
+    if (/\b(hawawshi|kofta|taagen kofta|macarona bechamel|moussaka|tagliatelle al ragu|ragu|kibbeh|keema|picadillo|meatloaf|sloppy joe|chili|mapo tofu|larb gai|pad krapow|kofte|adana kebab|manti|lahmacun)\b/.test(lowerDish)) {
       score += 18;
       hits.push("intent-ground-meat");
+    }
+  }
+
+  if (includesIngredient(normalizedIngredients, "chicken")) {
+    if (/\b(farakh meshwi|chicken molokhia|chicken fattah|chicken negresco|taagen chicken|shish tawook|chicken souvlaki|butter chicken|tandoori chicken|tinga de pollo|fried chicken|chicken pot pie|kung pao chicken|gai yang|tavuk sis|pollo cacciatore|chicken piccata|teriyaki chicken|basil chicken|arroz con pollo|shawarma plate)\b/.test(lowerDish)) {
+      score += 18;
+      hits.push("intent-chicken");
     }
   }
 
@@ -1109,16 +1790,23 @@ function scoreIngredientIntent(dish: DishBlueprint, normalizedIngredients: strin
   }
 
   if (includesIngredient(normalizedIngredients, "fish")) {
-    if (/\b(sayadeya|fish curry|baked white fish|balik ekmek)\b/.test(lowerDish)) {
+    if (/\b(sayadeya|samak singari|egyptian fish tagine|pesce all acqua pazza|samak harra|baked white fish|fish curry|pescado a la veracruzana|blackened fish|miso salmon|pla rad prik|levrek bugulama|balik ekmek)\b/.test(lowerDish)) {
       score += 14;
       hits.push("intent-fish");
     }
   }
 
   if (includesIngredient(normalizedIngredients, "shrimp")) {
-    if (/\b(shrimp linguine|garlic shrimp pasta|camarones al ajo|garlic honey shrimp|tom yum shrimp|thai garlic shrimp)\b/.test(lowerDish)) {
+    if (/\b(alexandrian shrimp|seafood sayadeya|shrimp scampi|shrimp sayadieh|shrimp saganaki|seafood paella|prawn masala|aguachile|shrimp and grits|garlic honey shrimp|tom yum shrimp|thai garlic shrimp|goong ob woon sen|karides guvec|shrimp linguine|garlic shrimp pasta|camarones al ajo)\b/.test(lowerDish)) {
       score += 15;
       hits.push("intent-shrimp");
+    }
+  }
+
+  if (includesIngredient(normalizedIngredients, "seafood")) {
+    if (/\b(seafood sayadeya|seafood paella|shrimp sayadieh|shrimp saganaki|tom yum shrimp|goong ob woon sen|karides guvec|prawn masala|aguachile)\b/.test(lowerDish)) {
+      score += 14;
+      hits.push("intent-seafood");
     }
   }
 
@@ -1147,6 +1835,27 @@ function scoreSparseCuisineIntent(
   if (preferredCuisine === "egyptian" && hasPastaSignal && /\bmacarona bechamel\b/.test(lowerDish)) {
     score += 18;
     hits.push("sparse-egyptian-pasta-bechamel");
+  }
+
+  if (preferredCuisine === "egyptian" && includesIngredient(normalizedIngredients, "chicken")) {
+    if (/\b(farakh meshwi|chicken molokhia|chicken fattah|chicken negresco)\b/.test(lowerDish)) {
+      score += 16;
+      hits.push("sparse-egyptian-chicken-plate");
+    }
+  }
+
+  if (preferredCuisine === "egyptian" && includesIngredient(normalizedIngredients, "fish")) {
+    if (/\b(sayadeya|samak singari|egyptian fish tagine)\b/.test(lowerDish)) {
+      score += 16;
+      hits.push("sparse-egyptian-fish-plate");
+    }
+  }
+
+  if (preferredCuisine === "egyptian" && includesIngredient(normalizedIngredients, "shrimp")) {
+    if (/\b(alexandrian shrimp|seafood sayadeya)\b/.test(lowerDish)) {
+      score += 16;
+      hits.push("sparse-egyptian-shrimp-plate");
+    }
   }
 
   return score;
@@ -1237,8 +1946,15 @@ function includesIngredient(availableIngredients: string[], anchor: string) {
     (ingredient) =>
       ingredient === normalizedAnchor ||
       ingredient.includes(normalizedAnchor) ||
-      normalizedAnchor.includes(ingredient)
+      isSafeReverseIngredientMatch(normalizedAnchor, ingredient)
   );
+}
+
+function isSafeReverseIngredientMatch(normalizedAnchor: string, ingredient: string) {
+  if (!ingredient || !normalizedAnchor.includes(ingredient)) return false;
+  if (ingredient === "fish" && /\bfish sauce\b/.test(normalizedAnchor)) return false;
+  if (ingredient === "chicken" && /\bchicken stock|chicken broth\b/.test(normalizedAnchor)) return false;
+  return ingredient.split(/\s+/).length > 1 || /^(bread|pita|flatbread|rice|pasta|noodle|pepper|bean|meat)$/.test(ingredient);
 }
 
 function normalizeIngredientList(ingredients: string[]) {

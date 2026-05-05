@@ -263,6 +263,12 @@
     -webkit-backdrop-filter: blur(24px);
   }
 
+  .nav-pill-track.theme-topbar-track {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+  }
+
   .theme-topbar-shell,
   .theme-topbar-track {
     position: relative;

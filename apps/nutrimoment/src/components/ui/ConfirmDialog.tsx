@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { useApp } from "@/contexts/AppContext";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -19,11 +20,15 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel
 }: ConfirmDialogProps) {
+  const { t, rtl } = useApp();
+  const resolvedConfirmLabel = confirmLabel ?? (rtl ? "تأكيد" : t("confirm"));
+  const resolvedCancelLabel = cancelLabel ?? (rtl ? "إلغاء" : t("cancel"));
+
   useEffect(() => {
     if (!open) return;
 
@@ -65,10 +70,10 @@ export function ConfirmDialog({
 
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button variant="ghost" className="theme-modal-button theme-modal-button-ghost" onClick={onCancel}>
-            {cancelLabel}
+            {resolvedCancelLabel}
           </Button>
           <Button variant="danger" className="theme-modal-button theme-modal-button-danger" onClick={() => void onConfirm()}>
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </Button>
         </div>
       </div>

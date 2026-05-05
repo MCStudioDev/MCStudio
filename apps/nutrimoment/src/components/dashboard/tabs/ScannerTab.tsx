@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ChefHat, ImagePlus, Plus, Sparkles, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +17,16 @@ import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+
+// Keep a small gap between premium image requests to avoid Replicate burst rate limits
+// without making the scanner page feel artificially slow.
+const PREMIUM_REPLICATE_LOOKUP_DELAY_MS = 1200;
+const PREMIUM_REPLICATE_MAX_RETRIES = 4;
+const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
+const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
+const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
 
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
@@ -54,7 +63,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 export function ScannerTab() {
-  const { t, settings, health, setError } = useApp();
+  const { t, settings, health, setError, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const { addEntry, replaceEntryRecipes, updateRecipeImage } = useHistory();
   const recipeRequestVersionRef = useRef(0);
@@ -65,6 +74,7 @@ export function ScannerTab() {
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -75,6 +85,7 @@ export function ScannerTab() {
   const hydrateRecipePhotos = useCallback(
     async (inputRecipes: Recipe[], historyEntryId: string | null, requestVersion: number) => {
       if (requestVersion !== recipeRequestVersionRef.current) return;
+      const isPremium = access.tier === "premium";
 
       const renderableImageCounts = new Map<string, number>();
       inputRecipes.forEach((recipe) => {
@@ -112,9 +123,82 @@ export function ScannerTab() {
           .map((recipe) => recipe.image_url)
           .filter((imageUrl): imageUrl is string => hasRenderableImage(imageUrl))
       );
-      const resolved: Recipe[] = [];
+      const resolved: Recipe[] = [...seeded];
+      const pendingPremiumIndexes = new Set<number>();
       let lookupCount = 0;
-      const maxLookups = Math.min(Math.max(inputRecipes.length, 4), 8);
+      const maxLookups = isPremium ? inputRecipes.length : Math.min(Math.max(inputRecipes.length, 4), 8);
+
+      const resolveRecipePhoto = async (recipe: Recipe) => {
+        let response: Response | null = null;
+        let data:
+          | {
+              imageAttributionName?: string;
+              imageAttributionUrl?: string;
+              imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+              imageUrl?: string;
+              fallbackNotice?: string;
+              source?: string;
+            }
+          | null = null;
+        let attempt = 0;
+
+        while (attempt <= (isPremium ? PREMIUM_REPLICATE_MAX_RETRIES : 0)) {
+          const authHeaders = await getAuthHeaders();
+          response = await fetch(
+            buildRecipePhotoRequestUrl(
+              buildRecipePhotoQuery(recipe),
+              buildRecipePhotoPromptIngredients(recipe),
+              Array.from(usedImageUrls),
+              {
+                cuisine: buildRecipePhotoCuisine(recipe),
+                exactNames: buildRecipePhotoExactNames(recipe)
+              }
+            ),
+            {
+              headers: authHeaders
+            }
+          );
+          data = (await response.json()) as {
+            imageAttributionName?: string;
+            imageAttributionUrl?: string;
+            imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+            imageUrl?: string;
+            fallbackNotice?: string;
+            source?: string;
+          };
+
+          if (!isPremium) {
+            await refreshAccess();
+          }
+
+          if (response.ok && data.imageUrl) {
+            return { data, ok: true as const, response };
+          }
+
+          const retryAfterSeconds = Number(response.headers.get("Retry-After") ?? "0") || 0;
+          const canRetry =
+            isPremium &&
+            attempt < PREMIUM_REPLICATE_MAX_RETRIES &&
+            (response.status === 429 || response.status === 503);
+
+          if (!canRetry) {
+            break;
+          }
+
+          attempt += 1;
+          await new Promise((resolve) =>
+            setTimeout(
+              resolve,
+              Math.min(
+                PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS,
+                Math.max(PREMIUM_REPLICATE_LOOKUP_DELAY_MS, retryAfterSeconds * 1000)
+              )
+            )
+          );
+        }
+
+        return { data, ok: false as const, response };
+      };
 
       for (const [index, recipe] of seeded.entries()) {
         if (requestVersion !== recipeRequestVersionRef.current) {
@@ -124,46 +208,50 @@ export function ScannerTab() {
         const needsLookup = duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url);
 
         if (!needsLookup) {
-          resolved.push({ ...recipe, image_loading: false, image_error: false });
+          resolved[index] = { ...recipe, image_loading: false, image_error: false };
           continue;
         }
 
         if (lookupCount >= maxLookups) {
-          resolved.push({ ...recipe, image_loading: false, image_error: false });
+          resolved[index] = { ...recipe, image_loading: false, image_error: false };
           continue;
         }
 
         lookupCount += 1;
 
         try {
-          const authHeaders = await getAuthHeaders();
-          const response = await fetch(
-            buildRecipePhotoRequestUrl(buildRecipePhotoQuery(recipe), Array.from(usedImageUrls)),
-            {
-              headers: authHeaders
-            }
-          );
-          const data = (await response.json()) as {
-            imageAttributionName?: string;
-            imageAttributionUrl?: string;
-            imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
-            imageUrl?: string;
-            fallbackNotice?: string;
-            source?: string;
-          };
-          await refreshAccess();
+          const { data, ok } = await resolveRecipePhoto(recipe);
 
-          if (!response.ok || !data.imageUrl) {
-            resolved.push({
+          if (!ok || !data?.imageUrl) {
+            resolved[index] = {
               ...recipe,
-              image_loading: false,
-              image_error: true
-            });
+              image_loading: isPremium,
+              image_error: !isPremium
+            };
+            if (isPremium) {
+              pendingPremiumIndexes.add(index);
+            }
+            if (requestVersion === recipeRequestVersionRef.current) {
+              setRecipes([...resolved]);
+            }
+            if (historyEntryId && !isPremium) {
+              await updateRecipeImage(
+                historyEntryId,
+                index,
+                recipe.image_url ?? "",
+                true,
+                recipe.image_source,
+                {
+                  name: recipe.image_attribution_name,
+                  url: recipe.image_attribution_url
+                }
+              );
+            }
             continue;
           }
 
           usedImageUrls.add(data.imageUrl);
-          resolved.push({
+          resolved[index] = {
             ...recipe,
             image_attribution_name: data.imageAttributionName,
             image_attribution_url: data.imageAttributionUrl,
@@ -171,9 +259,131 @@ export function ScannerTab() {
             image_url: data.imageUrl,
             image_loading: false,
             image_error: false
-          });
+          };
+          if (requestVersion === recipeRequestVersionRef.current) {
+            setRecipes([...resolved]);
+          }
+          if (historyEntryId) {
+            await updateRecipeImage(
+              historyEntryId,
+              index,
+              data.imageUrl,
+              false,
+              data.imageSource,
+              {
+                name: data.imageAttributionName,
+                url: data.imageAttributionUrl
+              }
+            );
+          }
         } catch {
-          resolved.push({ ...recipe, image_loading: false, image_error: true });
+          resolved[index] = { ...recipe, image_loading: false, image_error: true };
+          if (requestVersion === recipeRequestVersionRef.current) {
+            setRecipes([...resolved]);
+          }
+          if (historyEntryId) {
+            await updateRecipeImage(
+              historyEntryId,
+              index,
+              recipe.image_url ?? "",
+              true,
+              recipe.image_source,
+              {
+                name: recipe.image_attribution_name,
+                url: recipe.image_attribution_url
+              }
+            );
+          }
+        }
+
+        if (isPremium && lookupCount < maxLookups && index < seeded.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_LOOKUP_DELAY_MS));
+        }
+      }
+
+      if (isPremium) {
+        for (let round = 0; round < PREMIUM_REPLICATE_REQUEUE_ROUNDS && pendingPremiumIndexes.size > 0; round += 1) {
+          await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_REQUEUE_DELAY_MS));
+
+          for (const index of Array.from(pendingPremiumIndexes)) {
+            if (requestVersion !== recipeRequestVersionRef.current) {
+              return;
+            }
+
+            const recipe = resolved[index];
+            try {
+              const { data, ok } = await resolveRecipePhoto(recipe);
+              if (!ok || !data?.imageUrl) {
+                const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS - 1;
+                resolved[index] = {
+                  ...recipe,
+                  image_loading: !isLastRound,
+                  image_error: false
+                };
+
+                if (isLastRound) {
+                  pendingPremiumIndexes.delete(index);
+                  if (historyEntryId) {
+                    await updateRecipeImage(
+                      historyEntryId,
+                      index,
+                      recipe.image_url ?? "",
+                      false,
+                      recipe.image_source,
+                      {
+                        name: recipe.image_attribution_name,
+                        url: recipe.image_attribution_url
+                      }
+                    );
+                  }
+                }
+              } else {
+                usedImageUrls.add(data.imageUrl);
+                resolved[index] = {
+                  ...recipe,
+                  image_attribution_name: data.imageAttributionName,
+                  image_attribution_url: data.imageAttributionUrl,
+                  image_source: data.imageSource,
+                  image_url: data.imageUrl,
+                  image_loading: false,
+                  image_error: false
+                };
+                pendingPremiumIndexes.delete(index);
+
+                if (historyEntryId) {
+                  await updateRecipeImage(
+                    historyEntryId,
+                    index,
+                    data.imageUrl,
+                    false,
+                    data.imageSource,
+                    {
+                      name: data.imageAttributionName,
+                      url: data.imageAttributionUrl
+                    }
+                  );
+                }
+              }
+            } catch {
+              const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS - 1;
+              resolved[index] = {
+                ...recipe,
+                image_loading: !isLastRound,
+                image_error: false
+              };
+              if (isLastRound) {
+                pendingPremiumIndexes.delete(index);
+              }
+            }
+
+            if (requestVersion === recipeRequestVersionRef.current) {
+              setRecipes([...resolved]);
+            }
+
+            if (pendingPremiumIndexes.size > 0) {
+              await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_LOOKUP_DELAY_MS));
+            }
+          }
         }
       }
 
@@ -186,8 +396,17 @@ export function ScannerTab() {
       if (requestVersion !== recipeRequestVersionRef.current) return;
       setRecipes(resolved);
     },
-    [getAuthHeaders, refreshAccess, replaceEntryRecipes]
+    [access.tier, getAuthHeaders, refreshAccess, replaceEntryRecipes, updateRecipeImage]
   );
+
+  useEffect(() => {
+    setShowOnboarding(localStorage.getItem("nutrimoment.scannerOnboardingDismissed") !== "true");
+  }, []);
+
+  const dismissOnboarding = () => {
+    localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
+    setShowOnboarding(false);
+  };
 
   const addManualIngredient = () => {
     const next = manualEntry
@@ -332,6 +551,28 @@ export function ScannerTab() {
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">
+      {showOnboarding ? (
+        <motion.div variants={itemVariants}>
+          <Card className="rounded-[1.4rem] border-cyan-200/18 bg-cyan-400/10 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                  {rtl ? "ابدأ بسرعة" : "Quick start"}
+                </p>
+                <ol className="grid gap-2 text-sm font-medium leading-relaxed text-emerald-50/82 sm:grid-cols-3">
+                  <li>{rtl ? "1. أضف أو امسح المكونات" : "1. Add or scan ingredients"}</li>
+                  <li>{rtl ? "2. ولّد وصفات مناسبة" : "2. Generate matched recipes"}</li>
+                  <li>{rtl ? "3. افتح الوصفة واطبخ" : "3. Open the recipe and cook"}</li>
+                </ol>
+              </div>
+              <Button variant="secondary" onClick={dismissOnboarding}>
+                {rtl ? "فهمت" : "Got it"}
+              </Button>
+            </div>
+          </Card>
+        </motion.div>
+      ) : null}
+
       <motion.div variants={itemVariants}>
         <Card className="space-y-3.5 rounded-[1.4rem] p-3.5 sm:rounded-[1.7rem] sm:p-4.5">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -443,7 +684,7 @@ export function ScannerTab() {
                         onClick={() =>
                           setConfirmState({
                             title: t("removeIngredientTitle"),
-                            description: t("removeIngredientDescription"),
+                            description: t("removeIngredientDescription").replace("{name}", ingredient.name),
                             confirmLabel: t("remove"),
                             action: () => removeIngredient(ingredient.id)
                           })
@@ -495,10 +736,11 @@ export function ScannerTab() {
         {recipes.length ? (
           <div className="space-y-4">
             <ResultLegalNotice mode="recipes" />
-            <div className="grid gap-5 lg:grid-cols-3">
+            <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
               {recipes.map((recipe, index) => (
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
+                  disableAutoImageLookup
                   deferImageLookup={index >= 2}
                   eyebrow={getRecipeEyebrow(recipe, t)}
                   name={recipe.name}
@@ -513,14 +755,20 @@ export function ScannerTab() {
                   imageLoading={recipe.image_loading}
                   imageError={recipe.image_error}
                   imageQuery={buildRecipePhotoQuery(recipe)}
+                  imageExactNames={buildRecipePhotoExactNames(recipe)}
+                  imageCuisine={buildRecipePhotoCuisine(recipe)}
+                  imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                   onImageResolved={
                     user && historyEntryId
                       ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
-                          const persistedImageUrl = await persistRecipeImageForUser({
-                            uid: user.uid,
-                            imageUrl,
-                            query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
-                          });
+                          const persistedImageUrl =
+                            access.tier === "premium"
+                              ? null
+                              : await persistRecipeImageForUser({
+                                  uid: user.uid,
+                                  imageUrl,
+                                  query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
+                                });
                           await updateRecipeImage(
                             historyEntryId,
                             index,
@@ -569,18 +817,24 @@ function hasRenderableImage(imageUrl?: string): imageUrl is string {
 }
 
 function buildRecipePhotoQuery(recipe: Recipe) {
+  const photoContext = buildEnglishRecipePhotoContext(recipe);
   return buildRecipePhotoQueryCandidates({
-    cuisine: recipe.cuisine,
-    dishIntent: recipe.dish_intent,
-    imageSearchIndex: recipe.image_search_index,
-    imageSearchIndices: recipe.image_search_indices,
-    ingredients: recipe.ingredients,
-    missingIngredients: recipe.missing_ingredients,
-    name: recipe.name
+    cuisine: photoContext.cuisine,
+    dishIntent: photoContext.dishIntent,
+    imageSearchIndex: photoContext.imageSearchIndex,
+    imageSearchIndices: photoContext.imageSearchIndices,
+    ingredients: photoContext.ingredients,
+    missingIngredients: photoContext.missingIngredients,
+    name: photoContext.name
   });
 }
 
-function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = []) {
+function buildRecipePhotoRequestUrl(
+  queries: string[],
+  ingredients: string[] = [],
+  excludeUrls: string[] = [],
+  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+) {
   const params = new URLSearchParams();
   queries.slice(0, 5).forEach((query, index) => {
     if (index === 0) {
@@ -589,6 +843,19 @@ function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = [
       params.append("alt", query);
     }
   });
+  ingredients
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .forEach((ingredient) => params.append("ingredient", ingredient));
+  exactContext.exactNames
+    ?.map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .forEach((name) => params.append("exact", name));
+  if (exactContext.cuisine?.trim()) {
+    params.set("cuisine", exactContext.cuisine.trim());
+  }
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
@@ -596,6 +863,34 @@ function buildRecipePhotoRequestUrl(queries: string[], excludeUrls: string[] = [
 
 function serializeRecipePhotoQuery(queries: string[]) {
   return queries.join(" || ");
+}
+
+function buildRecipePhotoPromptIngredients(recipe: Recipe) {
+  return buildEnglishRecipePhotoIngredients(recipe);
+}
+
+function buildRecipePhotoExactNames(recipe: Recipe) {
+  return Array.from(
+    new Set(
+      [
+        recipe.localized?.English?.name,
+        recipe.localized?.Arabic?.name,
+        recipe.name,
+        recipe.dish_intent?.dish_name,
+        recipe.localized?.English?.dish_intent?.dish_name,
+        recipe.localized?.Arabic?.dish_intent?.dish_name,
+        recipe.image_search_index,
+        recipe.localized?.English?.image_search_index,
+        recipe.localized?.Arabic?.image_search_index
+      ]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ).slice(0, 8);
+}
+
+function buildRecipePhotoCuisine(recipe: Recipe) {
+  return recipe.localized?.English?.cuisine ?? recipe.cuisine;
 }
 
 function normalizeIngredientKey(value: string) {
@@ -612,13 +907,14 @@ function buildRecipeStats(recipe: Recipe) {
 }
 
 function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  const isArabicRecipe = containsArabicText(`${recipe.name} ${recipe.cuisine}`);
   const originLabel =
     recipe.recipe_origin === "exact_scan_match"
       ? t("exactScannedDish")
       : recipe.recipe_origin === "similar_ingredients"
         ? t("similarIngredients")
         : null;
-  const dishStyle = [recipe.dish_intent?.meal_type, recipe.dish_intent?.cooking_method].filter(Boolean).join(" ");
+  const dishStyle = formatRecipeDishStyle(recipe, isArabicRecipe);
   const preferenceHits = recipe.preference_hits?.length
     ? t("preferenceMatches").replace("{count}", String(recipe.preference_hits.length))
     : null;
@@ -627,8 +923,60 @@ function buildRecipeSummary(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
       ? recipe.scan_match_explanation
       : null;
 
-  return [originLabel, recipe.cuisine, dishStyle, recipe.match_quality, preferenceHits, scanExplanation].filter(Boolean).join(" / ");
+  return [
+    originLabel,
+    recipe.cuisine,
+    dishStyle,
+    formatRecipeMatchQuality(recipe.match_quality, isArabicRecipe),
+    preferenceHits,
+    scanExplanation
+  ].filter(Boolean).join(" / ");
 }
+
+function formatRecipeDishStyle(recipe: Recipe, isArabicRecipe: boolean) {
+  const mealType = recipe.dish_intent?.meal_type;
+  const cookingMethod = recipe.dish_intent?.cooking_method;
+  const genericCookingMethod = cookingMethod === "assembled";
+  const values = [mealType, genericCookingMethod ? undefined : cookingMethod].filter(Boolean) as string[];
+  if (!values.length) return null;
+  if (!isArabicRecipe) return values.join(" ");
+
+  const translated = values
+    .map((value) => ARABIC_DISH_STYLE_LABELS[value.toLowerCase()] ?? "")
+    .filter(Boolean);
+
+  return translated.length ? translated.join(" ") : null;
+}
+
+function formatRecipeMatchQuality(matchQuality: Recipe["match_quality"], isArabicRecipe: boolean) {
+  if (!matchQuality) return null;
+  if (!isArabicRecipe) return matchQuality;
+  return ARABIC_MATCH_QUALITY_LABELS[matchQuality] ?? null;
+}
+
+function containsArabicText(value: string) {
+  return /[\u0600-\u06FF]/.test(value);
+}
+
+const ARABIC_DISH_STYLE_LABELS: Record<string, string> = {
+  breakfast: "فطور",
+  lunch: "غداء",
+  dinner: "عشاء",
+  snack: "وجبة خفيفة",
+  grilled: "مشوي",
+  baked: "مخبوز",
+  fried: "مقلي",
+  "stir-fried": "سوتيه",
+  simmered: "مطهو بهدوء",
+  skillet: "في المقلاة"
+};
+
+const ARABIC_MATCH_QUALITY_LABELS: Record<NonNullable<Recipe["match_quality"]>, string> = {
+  great: "مطابقة ممتازة",
+  good: "مطابقة جيدة",
+  possible: "مطابقة ممكنة",
+  stretch: "مطابقة ضعيفة"
+};
 
 function buildRecipePreviewItems(recipe: Recipe) {
   return [...recipe.ingredients, ...recipe.missing_ingredients].map(getRecipeIngredientLabel).slice(0, 5);

@@ -2,12 +2,12 @@ import { GoogleGenAI } from "@google/genai";
 import { logger } from "@/lib/logger";
 
 const apiKey = process.env.GEMINI_API_KEY ?? "";
-const defaultTextModel = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
+const defaultTextModel = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash-lite";
 const fallbackTextModels = (process.env.GEMINI_TEXT_FALLBACK_MODELS ?? "gemini-2.5-flash-lite")
   .split(",")
   .map((model) => model.trim())
   .filter(Boolean);
-const defaultVisionModel = process.env.GEMINI_VISION_MODEL ?? "gemini-2.5-flash";
+const defaultVisionModel = process.env.GEMINI_VISION_MODEL ?? "gemini-2.5-flash-lite";
 const fallbackVisionModels = (process.env.GEMINI_VISION_FALLBACK_MODELS ?? fallbackTextModels.join(","))
   .split(",")
   .map((model) => model.trim())

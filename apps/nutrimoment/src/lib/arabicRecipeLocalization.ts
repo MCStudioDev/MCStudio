@@ -443,6 +443,11 @@ function isWeakArabicGeneratedTitle(value: string) {
 
 export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: string) {
   const normalized = normalizeTranslationKey(value);
+  const weakIngredientTitle = translateWeakArabicIngredientTitleToEnglish(normalized);
+  if (weakIngredientTitle) {
+    return weakIngredientTitle;
+  }
+
   if (/حواوشي|خبز\s+محشو|عيش\s+محشو|محشو\s+باللحم\s+المفروم/.test(normalized)) {
     return "Hawawshi";
   }
@@ -478,6 +483,48 @@ export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: str
   if (/كفتة\s+تركية|كفته\s+تركيه/.test(normalized)) return "Turkish Kofte";
 
   return REVERSE_RECIPE_TITLES[value] ?? toTitleCase(fallbackQuery ?? value);
+}
+
+function translateWeakArabicIngredientTitleToEnglish(normalized: string) {
+  if (!isWeakArabicGeneratedTitle(normalized) && !/جمبري/.test(normalized)) {
+    return null;
+  }
+
+  if (/جمبري/.test(normalized)) {
+    const hasHoney = /عسل/.test(normalized);
+    const hasGarlic = /ثوم|بالثوم/.test(normalized);
+    const hasLime = /ليمون\s+أخضر|ليمون\s+اخضر|لايم|عصير\s+ليمون/.test(normalized);
+    const hasLemon = /ليمون/.test(normalized);
+    const hasTomato = /طماطم|بالطماطم/.test(normalized);
+    const hasBellPepper = /فلفل\s+رومي/.test(normalized);
+    const hasRice = /أرز|ارز|رز/.test(normalized);
+    const hasOliveOil = /زيت\s+زيتون/.test(normalized);
+    const hasFried = /مقلي|مقلية|تحمير/.test(normalized);
+
+    if (hasHoney && hasGarlic) return "Garlic Honey Shrimp";
+    if (hasRice) return "Shrimp Rice Plate";
+    if (hasFried) return "Fried Shrimp Plate";
+    if (hasLime) return "Lime Shrimp Plate";
+    if (hasGarlic) return "Garlic Shrimp Plate";
+    if (hasTomato) return "Shrimp Tomato Plate";
+    if (hasBellPepper) return "Shrimp Bell Pepper Plate";
+    if (hasOliveOil) return "Shrimp Olive Oil Plate";
+    if (hasLemon) return "Lemon Shrimp Plate";
+    return "Shrimp Plate";
+  }
+
+  if (/دجاج|صدر\s+دجاج/.test(normalized)) {
+    const hasRice = /أرز|ارز|رز/.test(normalized);
+    const hasGarlic = /ثوم|بالثوم/.test(normalized);
+    const hasTomato = /طماطم|بالطماطم/.test(normalized);
+
+    if (hasRice && hasGarlic) return "Garlic Chicken Rice Plate";
+    if (hasRice) return "Chicken Rice Plate";
+    if (hasTomato) return "Tomato Chicken Plate";
+    return "Chicken Plate";
+  }
+
+  return null;
 }
 
 function translateCuisine(value: string) {

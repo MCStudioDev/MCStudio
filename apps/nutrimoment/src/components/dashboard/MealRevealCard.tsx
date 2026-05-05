@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from "react";
 import { ChefHat, ChevronDown, Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
@@ -95,6 +95,7 @@ export function MealRevealCard({
   const [lookupActivated, setLookupActivated] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
   const [lookupState, setLookupState] = useState<{
     failed: boolean;
     imageAttributionName?: string;
@@ -124,17 +125,24 @@ export function MealRevealCard({
   ]
     .filter(Boolean)
     .join(" ## ");
+  const isFailedImageUrl = useCallback(
+    (candidate?: string) => Boolean(candidate && failedImageUrls.has(candidate)),
+    [failedImageUrls]
+  );
   const cachedImageEntry = !bypassClientCache && queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
   const cachedImage =
     isInternetImageUrl(cachedImageEntry?.imageUrl) &&
+    !isFailedImageUrl(cachedImageEntry.imageUrl) &&
     !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
       ? cachedImageEntry.imageUrl
       : "";
   const cachedFailure = !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage =
-    lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) ? lookupState.image : "";
+    lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) && !isFailedImageUrl(lookupState.image)
+      ? lookupState.image
+      : "";
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
-  const internetProvidedImage = isInternetImageUrl(imageUrl) ? imageUrl : undefined;
+  const internetProvidedImage = isInternetImageUrl(imageUrl) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
   const shouldRefreshProvidedImage = internetProvidedImage
     ? Boolean(queryKey) && isRecipePhotoRecentlyAssignedToDifferentQuery(internetProvidedImage, queryKey)
     : false;
@@ -142,7 +150,10 @@ export function MealRevealCard({
   const resolvedImage = imageLoading ? "" : effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const showNoExactPhoto = !resolvedImage && (imageError || lookupFailed || cachedFailure);
-  const excludedImageUrls = useMemo(() => getRecentlyAssignedRecipePhotoUrls(queryKey), [queryKey]);
+  const excludedImageUrls = useMemo(
+    () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
+    [failedImageUrls, queryKey]
+  );
   const visibleStats = useMemo(
     () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
     [stats]
@@ -159,6 +170,21 @@ export function MealRevealCard({
   const cardSummary = summary ?? derivedPreviewItems.slice(0, 2).join(" / ");
   const resolvedPreviewLabel = previewLabel ?? t("ingredientSnapshot");
   const detailId = useMemo(() => `meal-details-${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, [name]);
+  const handleImageLoadError = useCallback(
+    (failedUrl: string) => {
+      if (!failedUrl) return;
+      setFailedImageUrls((current) => {
+        if (current.has(failedUrl)) return current;
+        const next = new Set(current);
+        next.add(failedUrl);
+        return next;
+      });
+      if (!bypassClientCache && queryKey) {
+        recipePhotoSuccessCache.delete(queryKey);
+      }
+    },
+    [bypassClientCache, queryKey]
+  );
 
   useEffect(() => {
     if (!queryKey || !resolvedImage) return;
@@ -366,6 +392,7 @@ export function MealRevealCard({
                 resolvedImage={resolvedImage}
                 imageLoading={imageLoading}
                 showNoExactPhoto={showNoExactPhoto}
+                onImageLoadError={handleImageLoadError}
                 onOpenRecipe={openRecipeDetails}
               />
             </div>
@@ -450,6 +477,7 @@ function RecipeFrontFace({
   resolvedImage,
   imageLoading,
   showNoExactPhoto,
+  onImageLoadError,
   onOpenRecipe
 }: {
   eyebrow?: string;
@@ -460,6 +488,7 @@ function RecipeFrontFace({
   resolvedImage?: string;
   imageLoading?: boolean;
   showNoExactPhoto: boolean;
+  onImageLoadError: (failedUrl: string) => void;
   onOpenRecipe: () => void;
 }) {
   const { t } = useApp();
@@ -475,6 +504,7 @@ function RecipeFrontFace({
           sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
           className="object-cover transition-[transform,filter] duration-500 group-hover:scale-105 group-hover:brightness-75 group-focus-within:scale-105 group-focus-within:brightness-75"
           unoptimized
+          onError={() => onImageLoadError(resolvedImage)}
         />
       ) : (
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(73,247,189,0.38),transparent_30%),radial-gradient(circle_at_78%_18%,rgba(97,196,255,0.24),transparent_24%),linear-gradient(135deg,#0b201c,#061311_58%,#05293a)]" />

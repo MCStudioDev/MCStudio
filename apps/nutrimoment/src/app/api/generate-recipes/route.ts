@@ -445,29 +445,25 @@ export async function POST(request: Request) {
         ).slice(0, recipeCount);
 
         const hasPantryBalancedRecipe = strictRecipes.some((recipe) => isPantryBalancedRecipe(recipe));
-        const currentFormCompatibleCount = enforceProteinFormRecipes(strictRecipes, scoringIngredients, recipeCount).length;
         const shouldRunRepairPass =
-          ingredients.length > 0 &&
-          (strictRecipes.length < recipeCount || currentFormCompatibleCount < recipeCount) &&
-          (!hasPantryBalancedRecipe || currentFormCompatibleCount < recipeCount);
+          ingredients.length >= 3 &&
+          strictRecipes.length < recipeCount &&
+          !hasPantryBalancedRecipe;
 
         if (shouldRunRepairPass) {
           aiTraceSummary.repairPassTriggered = true;
-          const repairRecipeCount = recipeCount;
-          logger.info("Retrying scanner recipe generation with strict count/form repair prompt", {
+          const repairRecipeCount = Math.min(
+            recipeCount,
+            Math.max(1, Math.min(5, normalizedIngredientNames.length || ingredients.length || 1))
+          );
+          logger.info("Retrying scanner recipe generation with strict pantry-balance repair prompt", {
             ingredientCount: ingredients.length,
             recipeCount,
-            repairRecipeCount,
-            currentRecipeCount: strictRecipes.length,
-            currentFormCompatibleCount
+            repairRecipeCount
           });
 
           const retryText = await generateRecipesWithTransientRetry(
-            buildRecipeCountAndFormRepairPrompt(prompt, {
-              acceptedRecipeCount: currentFormCompatibleCount,
-              availableIngredients: scoringIngredients,
-              recipeCount: repairRecipeCount
-            }),
+            buildScannerPantryBalanceRetryPrompt(prompt, repairRecipeCount),
             (attempt) => traceTextCall(attempt === 1 ? "repair_generation" : `repair_generation_retry_${attempt}`)
           );
           const retryRecipes = parseAiJsonPayload(retryText, "recipe_generation");
@@ -1273,36 +1269,19 @@ function stripPremiumDeliveredImages(recipes: Recipe[]) {
   }));
 }
 
-function buildRecipeCountAndFormRepairPrompt(
-  basePrompt: string,
-  input: {
-    acceptedRecipeCount: number;
-    availableIngredients: string[];
-    recipeCount: number;
-  }
-) {
-  const normalizedPantry = input.availableIngredients
-    .map((ingredient) => normalizeIngredientForStrictMatch(ingredient))
-    .filter(Boolean);
-  const needsLiver = normalizedPantry.some(isLiverLabel);
-  const needsGroundMeat = normalizedPantry.some(isGroundMeatLabel);
-
+function buildScannerPantryBalanceRetryPrompt(basePrompt: string, recipeCount: number) {
   return [
     basePrompt,
     "",
-    `Count/form repair pass: the previous answer only had ${input.acceptedRecipeCount} acceptable recipes after validation, but the user requested ${input.recipeCount}.`,
-    `Generate exactly ${input.recipeCount} fresh recipes that survive validation.`,
-    "Do not repeat the same dish family under slightly different names.",
-    "Every recipe must use at least one available pantry ingredient as a real main ingredient unless the pantry is empty.",
-    needsLiver
-      ? "Critical refill rule: liver/kebda is organ meat. Every meat/protein recipe in this refill must be a real liver dish or direct liver preparation. Never use beef cubes, steak, kofta, burger, meatballs, stew meat, braised beef, or generic beef as a substitute."
-      : "",
-    needsGroundMeat
-      ? "Critical refill rule: ground/minced meat must stay minced. Every meat/protein recipe in this refill must use a ground-meat form such as kofta, hawawshi, meatballs, burgers, keema, lahmacun, pide, or minced filling. Never use beef cubes, steak, strips, stew meat, or braised beef as a substitute."
-      : "",
-    "If there are not enough distinct meat dishes, fill later slots with non-conflicting recipes that use the other pantry ingredients, not with wrong meat-form recipes.",
+    "Scanner repair pass: your previous answer did not produce enough strong pantry-first recipe options.",
+    `Return up to ${recipeCount} recipes.`,
+    "Recommend recipes where available ingredients clearly carry the dish after strict pantry ownership is applied.",
+    "Start with the strongest pantry-friendly recipes first, centered on the scanned or typed ingredients.",
+    "If there are not enough pantry-strong options, fill the remaining recipe slots with the best pantry-first recipes you can find.",
+    "Keep missing_ingredients as low as possible and avoid weak pantry fits unless they are needed to fill later slots.",
+    "If the pantry is sparse, choose simpler dish families, smaller plates, egg dishes, toast dishes, bowls, salads, soups, or direct ingredient-led meals that still respect cuisine and health constraints.",
     "Return only valid JSON and follow the same schema as before."
-  ].filter(Boolean).join(" ");
+  ].join(" ");
 }
 
 function scoreStrictRecipe(
@@ -1662,10 +1641,6 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
 
   for (const recipe of recipes) {
     addRecipe(recipe, { allowStructureRepeat: true });
-  }
-
-  for (const recipe of recipes) {
-    addRecipe(recipe, { allowFamilyRepeat: true, allowStructureRepeat: true });
   }
 
   return selected.slice(0, recipeCount);

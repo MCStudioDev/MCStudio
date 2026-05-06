@@ -1309,7 +1309,6 @@ function buildRecipeCountAndFormRepairPrompt(
     .filter(Boolean);
   const needsLiver = normalizedPantry.some(isLiverLabel);
   const needsGroundMeat = normalizedPantry.some(isGroundMeatLabel);
-  const needsEgg = normalizedPantry.some(isEggLabel);
 
   return [
     basePrompt,
@@ -1324,9 +1323,6 @@ function buildRecipeCountAndFormRepairPrompt(
     needsGroundMeat
       ? "Critical refill rule: ground/minced meat must stay minced. Every recipe in this refill that uses meat must use the available ground-meat form such as kofta, hawawshi, meatballs, burgers, keema, lahmacun, pide, or minced filling. Never use chicken, shrimp, fish, beef cubes, steak, strips, stew meat, or braised beef as a substitute."
       : "",
-    needsEgg
-      ? "Critical refill rule: eggs must be the main available protein. Generate multiple distinct egg preparations if needed: boiled eggs, scrambled eggs, omelet, frittata, eggah, shakshuka-style eggs, menemen-style eggs, egg skillet, poached eggs, or egg salad only if the support ingredients are listed as missing. Never fill with chicken, fish, shrimp, beef, liver, or ground meat."
-      : "",
     "Do not fill later slots with another protein that was not explicitly in the available pantry ingredients.",
     "Return only valid JSON and follow the same schema as before."
   ].filter(Boolean).join(" ");
@@ -1337,10 +1333,7 @@ function buildProteinFormFallbackRecipes(input: {
   preferredCuisine?: string;
   recipeCount: number;
 }): Recipe[] {
-  const pantryIngredient =
-    input.availableIngredients.find(isLiverLabel) ??
-    input.availableIngredients.find(isGroundMeatLabel) ??
-    input.availableIngredients.find(isEggLabel);
+  const pantryIngredient = input.availableIngredients.find(isLiverLabel) ?? input.availableIngredients.find(isGroundMeatLabel);
   if (!pantryIngredient) return [];
 
   if (isLiverLabel(pantryIngredient)) {
@@ -1349,10 +1342,6 @@ function buildProteinFormFallbackRecipes(input: {
 
   if (isGroundMeatLabel(pantryIngredient)) {
     return buildGroundMeatFallbackRecipes(input.availableIngredients, input.preferredCuisine).slice(0, input.recipeCount);
-  }
-
-  if (isEggLabel(pantryIngredient)) {
-    return buildEggFallbackRecipes(input.availableIngredients, input.preferredCuisine).slice(0, input.recipeCount);
   }
 
   return [];
@@ -1370,10 +1359,7 @@ function completeProteinFormRecipeCount(
     return recipes.slice(0, input.recipeCount);
   }
 
-  const hasProteinForm =
-    input.availableIngredients.some(isLiverLabel) ||
-    input.availableIngredients.some(isGroundMeatLabel) ||
-    input.availableIngredients.some(isEggLabel);
+  const hasProteinForm = input.availableIngredients.some(isLiverLabel) || input.availableIngredients.some(isGroundMeatLabel);
   if (!hasProteinForm) {
     return recipes.slice(0, input.recipeCount);
   }
@@ -1508,44 +1494,6 @@ function buildGroundMeatFallbackRecipes(availableIngredients: string[], preferre
       "Keep the ground-meat form visible while adding any sauce or bread support.",
       "Rest for 2 minutes so the juices settle.",
       "Plate with the ground meat as the clear main ingredient."
-    ]
-  }));
-}
-
-function buildEggFallbackRecipes(availableIngredients: string[], preferredCuisine?: string): Recipe[] {
-  const cuisine = preferredCuisine && preferredCuisine !== "Any" ? preferredCuisine : "International";
-  const eggIngredient = availableIngredients.find(isEggLabel) ?? "egg";
-  const variants = [
-    { name: "Boiled Eggs", missing: ["salt", "black pepper"], images: ["boiled eggs", "soft boiled eggs", "eggs plate"], method: "boiled", visual: ["halved boiled eggs", "visible yolks", "simple egg plate"] },
-    { name: "Scrambled Eggs", missing: ["butter", "salt", "black pepper"], images: ["scrambled eggs", "soft scrambled eggs", "breakfast eggs"], method: "scrambled", visual: ["soft egg curds", "yellow scrambled eggs", "egg skillet"] },
-    { name: "Plain Omelet", missing: ["butter", "salt", "black pepper"], images: ["plain omelet", "folded omelet", "egg omelette"], method: "omelet", visual: ["folded omelet", "set yellow egg", "simple egg plate"] },
-    { name: "Egyptian Eggah", missing: ["parsley", "onion", "flour", "baking powder"], images: ["eggah", "egyptian frittata", "eggah egg skillet"], method: "baked skillet", visual: ["eggah slice", "herb egg frittata", "set egg skillet"] },
-    { name: "Shakshuka-Style Eggs", missing: ["tomato", "pepper", "onion", "cumin"], images: ["shakshuka eggs", "tomato egg skillet", "eggs tomato sauce"], method: "skillet", visual: ["eggs in tomato sauce", "visible egg yolks", "tomato egg pan"] },
-    { name: "Menemen-Style Eggs", missing: ["tomato", "green pepper", "butter", "paprika"], images: ["menemen", "turkish tomato eggs", "soft eggs tomato pepper"], method: "scrambled skillet", visual: ["soft eggs tomato pepper", "rustic egg pan", "yellow egg curds"] },
-    { name: "Poached Eggs", missing: ["vinegar", "salt", "black pepper"], images: ["poached eggs", "poached egg plate", "runny poached eggs"], method: "poached", visual: ["poached eggs", "soft white egg", "runny yolk"] },
-    { name: "Frittata", missing: ["milk", "onion", "parsley", "cheese"], images: ["frittata", "egg frittata", "baked egg skillet"], method: "baked", visual: ["set egg wedge", "baked egg skillet", "golden frittata"] },
-    { name: "Fried Eggs", missing: ["butter", "salt", "black pepper"], images: ["fried eggs", "sunny side eggs", "fried egg plate"], method: "fried", visual: ["fried eggs", "visible yolks", "crisp egg edges"] },
-    { name: "Egg Salad Bowl", missing: ["yogurt", "mustard", "parsley", "lemon"], images: ["egg salad", "boiled egg salad", "egg bowl"], method: "mixed", visual: ["chopped boiled eggs", "creamy egg salad", "visible egg pieces"] }
-  ];
-
-  return variants.map((variant, index) => buildProteinFallbackRecipe({
-    availableIngredient: eggIngredient,
-    calories: 180 + index * 25,
-    cuisine,
-    dishName: variant.name,
-    imageSearchIndices: variant.images,
-    missingIngredients: variant.missing,
-    protein: "14g",
-    visualKeywords: variant.visual,
-    excludeKeywords: ["chicken", "fish", "shrimp", "beef", "liver", "ground meat", "pasta unless listed", "rice unless listed"],
-    steps: [
-      `Use 2 to 3 ${eggIngredient} as the main ingredient and keep the egg visually dominant.`,
-      `Prepare the eggs using the ${variant.method} method for this recipe.`,
-      "Add only the support ingredients listed in missing_ingredients, measured for a single serving.",
-      "Cook over controlled heat until the whites and yolks or curds match the intended texture.",
-      "Avoid adding any other protein, starch, or garnish that is not listed.",
-      "Rest or finish the eggs for 1 minute so the texture sets.",
-      "Plate the eggs as the clear main subject with no unrelated sides."
     ]
   }));
 }
@@ -1794,24 +1742,21 @@ function enforceHardRequestRecipes(
 function enforceProteinFormRecipes(recipes: Recipe[], availableIngredients: string[], recipeCount: number) {
   const requiresGroundMeatForm = availableIngredients.some(isGroundMeatLabel);
   const requiresLiverForm = availableIngredients.some(isLiverLabel);
-  const requiresEggForm = availableIngredients.some(isEggLabel);
-  if (!requiresGroundMeatForm && !requiresLiverForm && !requiresEggForm) {
+  if (!requiresGroundMeatForm && !requiresLiverForm) {
     return recipes.slice(0, recipeCount);
   }
 
   const compatible = recipes.filter((recipe) =>
     isRecipeCompatibleWithProteinFormPantry(recipe, {
       requiresGroundMeatForm,
-      requiresLiverForm,
-      requiresEggForm
+      requiresLiverForm
     })
   );
   if (!compatible.length) {
     logger.warn("Protein form gate found no compatible recipes", {
       availableIngredients,
       requiresGroundMeatForm,
-      requiresLiverForm,
-      requiresEggForm
+      requiresLiverForm
     });
     return [];
   }
@@ -1821,8 +1766,7 @@ function enforceProteinFormRecipes(recipes: Recipe[], availableIngredients: stri
       removed: recipes.length - compatible.length,
       kept: compatible.length,
       requiresGroundMeatForm,
-      requiresLiverForm,
-      requiresEggForm
+      requiresLiverForm
     });
   }
 
@@ -1834,7 +1778,6 @@ function isRecipeCompatibleWithProteinFormPantry(
   profile: {
     requiresGroundMeatForm: boolean;
     requiresLiverForm: boolean;
-    requiresEggForm: boolean;
   }
 ) {
   const haystack = normalizeRecipeTextForFormGate([
@@ -1850,7 +1793,7 @@ function isRecipeCompatibleWithProteinFormPantry(
     ...recipe.steps
   ].filter(Boolean).join(" "));
 
-  if (!recipe.ingredients.length && (profile.requiresLiverForm || profile.requiresGroundMeatForm || profile.requiresEggForm)) {
+  if (!recipe.ingredients.length && (profile.requiresLiverForm || profile.requiresGroundMeatForm)) {
     return false;
   }
 
@@ -1859,10 +1802,6 @@ function isRecipeCompatibleWithProteinFormPantry(
   }
 
   if (profile.requiresGroundMeatForm && !isRecipeCompatibleWithGroundMeatPantry(haystack)) {
-    return false;
-  }
-
-  if (profile.requiresEggForm && !isRecipeCompatibleWithEggPantry(haystack)) {
     return false;
   }
 
@@ -1878,10 +1817,6 @@ function isRecipeCompatibleWithLiverPantry(haystack: string) {
   return hasLiverRecipeSignal(haystack) && !hasNonLiverProteinRecipeSignal(haystack);
 }
 
-function isRecipeCompatibleWithEggPantry(haystack: string) {
-  return hasEggRecipeSignal(haystack) && !hasNonEggProteinRecipeSignal(haystack);
-}
-
 function isGroundMeatLabel(value: string) {
   const normalized = normalizeIngredientForStrictMatch(value);
   return /\b(ground beef|ground meat|ground lamb|ground turkey|ground chicken|minced beef|minced meat|minced lamb|beef mince|lamb mince|mince(?:d)? meat)\b/.test(normalized);
@@ -1892,11 +1827,6 @@ function isLiverLabel(value: string) {
   return /\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri)\b/.test(normalized);
 }
 
-function isEggLabel(value: string) {
-  const normalized = normalizeIngredientForStrictMatch(value);
-  return /\b(egg|eggs)\b/.test(normalized) || /بيض/u.test(value);
-}
-
 function hasGroundMeatRecipeSignal(value: string) {
   return /\b(ground|minced|mince|kafta|kofta|kofte|kefta|kufta|meatball|meatballs|burger|meatloaf|hawawshi|lahmacun|pide|keema|macarona bechamel|moussaka|mahshi|rice kofta)\b/.test(value);
 }
@@ -1904,11 +1834,6 @@ function hasGroundMeatRecipeSignal(value: string) {
 function hasLiverRecipeSignal(value: string) {
   return /\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato|sawda djej|arnavut cigeri|edirne tava cigeri)\b/.test(value) ||
     /كبدة|كبده|كبد/u.test(value);
-}
-
-function hasEggRecipeSignal(value: string) {
-  return /\b(egg|eggs|omelet|omelette|frittata|eggah|eggeh|shakshuka|menemen|cilbir|poached|scrambled|boiled|fried eggs?)\b/.test(value) ||
-    /بيض|عجة/u.test(value);
 }
 
 function hasProteinRecipeSignal(value: string) {
@@ -1921,13 +1846,6 @@ function hasNonLiverProteinRecipeSignal(value: string) {
     .replace(/\b(beef liver|chicken liver|liver|kebda|kibda|cigeri?|kaleji|higado|fegato|sawda djej|arnavut cigeri|edirne tava cigeri)\b/g, " ")
     .replace(/كبدة|كبده|كبد/gu, " ");
   return hasProteinRecipeSignal(withoutLiverTerms);
-}
-
-function hasNonEggProteinRecipeSignal(value: string) {
-  const withoutEggTerms = value
-    .replace(/\b(egg|eggs|omelet|omelette|frittata|eggah|eggeh|shakshuka|menemen|cilbir|poached|scrambled|boiled|fried eggs?)\b/g, " ")
-    .replace(/بيض|عجة/gu, " ");
-  return hasProteinRecipeSignal(withoutEggTerms);
 }
 
 function normalizeRecipeTextForFormGate(value: string) {
@@ -2444,7 +2362,7 @@ async function ensureUniqueRecipePhotos(recipes: Recipe[], options?: { allowProv
 }
 
 function hasSpecificProteinFormInput(availableIngredients: string[]) {
-  return availableIngredients.some(isLiverLabel) || availableIngredients.some(isGroundMeatLabel) || availableIngredients.some(isEggLabel);
+  return availableIngredients.some(isLiverLabel) || availableIngredients.some(isGroundMeatLabel);
 }
 
 function stripRecipePhotoForSpecificProteinForm(recipe: Recipe): Recipe {

@@ -405,6 +405,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const imageGuidance = buildCuisineImageGuidance(options.preferredCuisine);
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
   const sparseIngredientGuidance = buildSparseIngredientGuidance(ingredients, options.preferredCuisine);
+  const ingredientFormGuidance = buildIngredientFormGuidance(ingredients);
   const realRecipeGuardrails = buildRealRecipeGuardrails(options.preferredCuisine);
   const namedPlatePolicy = buildNamedPlateGenerationPolicy({
     allergens: options.allergens ?? [],
@@ -452,6 +453,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
       : `At least ${cuisineTargetCount} of the ${recipeCount} recipes must clearly belong to ${options.preferredCuisine}. Only go outside ${options.preferredCuisine} when the user selected highly restrictive diets, allergies, or medical conditions that make a traditional option unsafe; explain that compromise in preference_hits.`,
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, vibrant, or loaded unless they are essential to distinguish the dish.",
     "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
+    ingredientFormGuidance,
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
     canonicalDishHint
@@ -675,6 +677,37 @@ function buildPromptPreferenceBrief(snapshot: {
     `Known allergens to avoid: ${allergens}.`,
     `Nutrition targets derived from the profile: ${nutritionTargets}.`
   ].join(" ");
+}
+
+function buildIngredientFormGuidance(ingredients: RecipePromptIngredient[]) {
+  const pantry = ingredients.map((item) => normalizeIngredientFormText(item.name)).filter(Boolean);
+  const hasGroundMeat = pantry.some((ingredient) =>
+    /\b(ground beef|ground meat|ground lamb|ground turkey|ground chicken|minced beef|minced meat|minced lamb|beef mince|lamb mince|mince(?:d)? meat)\b/.test(ingredient)
+  );
+  const hasGenericBeef = pantry.some((ingredient) => /\b(beef|steak|meat)\b/.test(ingredient));
+  const hasCutBeef = pantry.some((ingredient) =>
+    /\b(beef cubes?|beef chunks?|stew beef|cubed beef|diced beef|steak|sliced beef|beef strips?)\b/.test(ingredient)
+  );
+
+  if (!hasGroundMeat) return "";
+
+  return [
+    "Protein form hard rule: the pantry contains ground/minced meat, not whole beef cuts.",
+    "Do not generate beef steak, beef cubes, beef strips, slow-cooked beef chunks, kebab halla-style cubed meat, stir-fried beef strips, or generic beef plates unless the pantry explicitly contains beef cubes, steak, or sliced/cut beef.",
+    hasGenericBeef && !hasCutBeef
+      ? "If the available ingredient was normalized from Arabic or user text into ground beef, treat it as minced meat only even if the word beef appears."
+      : "",
+    "Valid ground-meat forms include kofta/kofte/kafta, hawawshi, meatballs, meatloaf, burgers, minced-meat filling, keema, lahmacun, pide, macarona bechamel, or rice kofta when other pantry/missing ingredients support them."
+  ].filter(Boolean).join(" ");
+}
+
+function normalizeIngredientFormText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[_-]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildNamedPlateGenerationPolicy({

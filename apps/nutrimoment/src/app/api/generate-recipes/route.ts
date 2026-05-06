@@ -275,7 +275,7 @@ export async function POST(request: Request) {
     const finalizeRecipes = (recipes: Recipe[]) =>
       prepareRecipes(
         enforceDistinctRecipeVariety(
-          prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceHardRequestRecipes(
+          prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceSpecificIngredientFormRecipes(enforceHardRequestRecipes(
               parsed.data.preferredCuisine === "Any"
                 ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
                 : enforcePreferredCuisineRecipes(
@@ -286,7 +286,7 @@ export async function POST(request: Request) {
                   ),
               requestRestriction,
               recipeCount
-            ), {
+            ), scoringIngredients, recipeCount), {
             availableIngredients: scoringIngredients,
             preferredCuisine: parsed.data.preferredCuisine,
             recipeLanguage,
@@ -1480,6 +1480,72 @@ function enforceHardRequestRecipes(
   }
 
   return merged;
+}
+
+function enforceSpecificIngredientFormRecipes(recipes: Recipe[], availableIngredients: string[], recipeCount: number) {
+  if (!availableIngredients.some(isGroundMeatLabel)) {
+    return recipes.slice(0, recipeCount);
+  }
+
+  const compatible = recipes.filter((recipe) => isRecipeCompatibleWithGroundMeatPantry(recipe));
+  if (!compatible.length) {
+    logger.warn("Ground-meat form gate found no compatible recipes; returning original recipes", {
+      availableIngredients
+    });
+    return recipes.slice(0, recipeCount);
+  }
+
+  if (compatible.length < Math.min(recipeCount, recipes.length)) {
+    logger.info("Ground-meat form gate removed generic beef recipes", {
+      removed: recipes.length - compatible.length,
+      kept: compatible.length
+    });
+  }
+
+  return compatible.slice(0, recipeCount);
+}
+
+function isRecipeCompatibleWithGroundMeatPantry(recipe: Recipe) {
+  const haystack = normalizeRecipeTextForFormGate([
+    recipe.name,
+    recipe.cuisine,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    recipe.dish_intent?.dish_name,
+    recipe.dish_intent?.visual_keywords?.join(" "),
+    recipe.dish_intent?.exclude_keywords?.join(" "),
+    ...recipe.ingredients,
+    ...recipe.missing_ingredients,
+    ...recipe.steps
+  ].filter(Boolean).join(" "));
+
+  if (!/\b(beef|meat|steak|lamb)\b/.test(haystack)) return true;
+
+  if (hasGroundMeatRecipeSignal(haystack)) return true;
+
+  return !hasWholeCutMeatRecipeSignal(haystack);
+}
+
+function isGroundMeatLabel(value: string) {
+  const normalized = normalizeIngredientForStrictMatch(value);
+  return /\b(ground beef|ground meat|ground lamb|ground turkey|ground chicken|minced beef|minced meat|minced lamb|beef mince|lamb mince|mince(?:d)? meat)\b/.test(normalized);
+}
+
+function hasGroundMeatRecipeSignal(value: string) {
+  return /\b(ground|minced|mince|kafta|kofta|kofte|kefta|kufta|meatball|meatballs|burger|meatloaf|hawawshi|lahmacun|pide|keema|macarona bechamel|moussaka|mahshi|rice kofta)\b/.test(value);
+}
+
+function hasWholeCutMeatRecipeSignal(value: string) {
+  return /\b(beef steak|steak|beef cubes?|beef chunks?|meat cubes?|meat chunks?|stew beef|beef stew|braised beef|slow cooked beef|diced beef|sliced beef|beef strips?|stir fried beef|beef stir fry|kebab halla|roast beef|pot roast)\b/.test(value) ||
+    (/\bbeef\b/.test(value) && !hasGroundMeatRecipeSignal(value));
+}
+
+function normalizeRecipeTextForFormGate(value: string) {
+  return value.toLowerCase()
+    .replace(/[_-]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {

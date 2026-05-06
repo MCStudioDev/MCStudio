@@ -463,6 +463,7 @@ const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
+  { key: "ground-meat", pattern: /\bground (?:beef|meat|lamb|turkey|chicken)|minced (?:beef|meat|lamb|turkey|chicken)|(?:beef|lamb|turkey|chicken) mince|mince(?:d)? meat\b/iu },
   { key: "chicken", pattern: /\bchicken\b/iu },
   { key: "mussels", pattern: /\bmussel|mussels\b/iu },
   { key: "seafood", pattern: /\bseafood|shellfish|mussels?|clams?|calamari|squid|crab|lobster|scallops?\b/iu },
@@ -1005,6 +1006,7 @@ export function isStrictRecipePhotoIdentity(identity: Pick<RecipePhotoIdentity, 
       isEggVisualIdentity(identity) ||
       isMolokhiaIdentity(identity) ||
       isSeafoodIdentity(identity) ||
+      isGroundMeatIdentity(identity) ||
       identity.familyKey === "alexandrian-liver" ||
       identity.mainIngredientKey === "liver" ||
       /\b(liver|kebda|kibda|ciger|cigeri)\b/i.test(identity.cleanQuery) ||
@@ -1043,6 +1045,10 @@ export function matchesStrictRecipePhotoIdentity(
     return false;
   }
 
+  if (isGroundMeatIdentity(identity) && hasGroundMeatVisualConfusable(haystack)) {
+    return false;
+  }
+
   const strictTokens = getStrictRecipePhotoIdentityTokens(identity);
   if (!strictTokens.length) return true;
   if (strictTokens.some((token) => includesStrictToken(haystack, token))) return true;
@@ -1076,6 +1082,11 @@ export function hasEggVisualConfusable(haystack: string) {
 export function hasChickenVisualConfusable(haystack: string) {
   return /\b(beef|steak|lamb|liver|kebda|fish|salmon|shrimp|prawn|tofu|meatballs?|burger|pasta only|plain pasta|rice only|plain rice|vegetarian)\b/iu.test(haystack) &&
     !/\b(chicken|poultry|hen|rooster|breast|thigh|drumstick|wing|wings|schnitzel)\b/iu.test(haystack);
+}
+
+export function hasGroundMeatVisualConfusable(haystack: string) {
+  return /\b(beef cubes?|stew beef|beef stew|meat cubes?|stew meat|braised beef|diced beef|steak|steak tips?|whole muscle|sliced beef|beef strips?|kebab halla|liver|kebda)\b/iu.test(haystack) &&
+    !/\b(ground|minced|mince|kafta|kofta|kofte|kefta|kufta|meatball|meatballs|burger|meatloaf|hawawshi|lahmacun|pide|keema)\b/iu.test(haystack);
 }
 
 export function hasMolokhiaVisualConfusable(haystack: string) {
@@ -1137,6 +1148,14 @@ function isSeafoodIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey
   );
 }
 
+function isGroundMeatIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  return (
+    identity.mainIngredientKey === "ground-meat" ||
+    /\b(ground beef|ground meat|ground lamb|minced beef|minced meat|beef mince|meatball|meatballs|kafta|kofta|kofte|kefta|kufta|burger|meatloaf|hawawshi|lahmacun|pide|keema)\b/u.test(key)
+  );
+}
+
 export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
   const dish = identity.canonicalDishKey ? getDishById(identity.canonicalDishKey) : null;
   const knownDish = identity.canonicalDishKey ? KNOWN_DISHES.find((entry) => entry.key === identity.canonicalDishKey) : null;
@@ -1167,6 +1186,10 @@ export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIde
 
   if (isSeafoodIdentity(identity)) {
     aliases.push("seafood", "fish", "shrimp", "prawn", "samak", "sayadeya", ARABIC.sayadeya, ARABIC.shrimp);
+  }
+
+  if (isGroundMeatIdentity(identity)) {
+    aliases.push("ground beef", "ground meat", "minced meat", "minced beef", "meatballs", "kofta", "kafta", "kofte", "burger", "meatloaf", "hawawshi");
   }
 
   return Array.from(

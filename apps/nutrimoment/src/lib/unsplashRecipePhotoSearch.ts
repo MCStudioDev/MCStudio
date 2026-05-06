@@ -5,6 +5,7 @@ import {
   hasEggVisualConfusable,
   hasFishVisualConfusable,
   hasFulVisualConfusable,
+  hasGroundMeatVisualConfusable,
   hasLiverVisualConfusable,
   hasMincedKebabVisualConfusable,
   hasMolokhiaVisualConfusable,
@@ -290,6 +291,8 @@ function scoreUnsplashCandidate(
   if (identity.mainIngredientKey === "fish" && /\b(chicken|beef|lamb|pork)\b/.test(haystack)) score -= 5;
   if (identity.mainIngredientKey === "chicken" && hasChickenVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "chicken" && !/\b(chicken|poultry|breast|thigh|drumstick|wing|wings|schnitzel)\b/.test(haystack)) score -= 6;
+  if (identity.mainIngredientKey === "ground-meat" && hasGroundMeatVisualConfusable(haystack)) return -100;
+  if (identity.mainIngredientKey === "ground-meat" && !/\b(ground|minced|mince|kafta|kofta|kofte|meatball|burger|meatloaf|hawawshi|lahmacun|pide|keema)\b/.test(haystack)) score -= 10;
   if (identity.mainIngredientKey === "seafood" && hasSeafoodVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "seafood" && !/\b(seafood|fish|shrimp|prawn|mussel|clam|calamari|squid|crab|lobster|scallop)\b/.test(haystack)) score -= 8;
   if (identity.mainIngredientKey === "shrimp" && hasShrimpVisualConfusable(haystack)) return -100;

@@ -1,5 +1,9 @@
 import { ensureArabicRecipeLanguage, isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 import { getCompleteCuisineCatalog, getDishById } from "@/lib/cuisineCatalogs/completeCatalogs";
+import {
+  canAvailableIngredientSatisfyRecipeIngredient,
+  normalizeSpecificIngredientName
+} from "@/lib/ingredientSpecificity";
 import type { CuisineDish } from "@/lib/cuisineCatalogs/types";
 import type { Recipe } from "@/lib/types";
 
@@ -35,9 +39,10 @@ const INGREDIENT_ALIASES: Record<string, string[]> = {
   bread: ["bread", "baladi bread", "pita", "flatbread", "dough", "aish", "عيش", "خبز"],
   bulgur: ["bulgur", "burghul", "borghol", "برغل"],
   fava: ["fava", "fava bean", "fava beans", "ful", "foul", "broad bean", "فول"],
-  beef: ["beef", "meat", "ground beef", "minced beef"],
-  "ground beef": ["ground beef", "ground meat", "minced meat", "meat", "beef"],
+  beef: ["beef", "meat"],
+  "ground beef": ["ground beef", "minced beef", "beef mince"],
   "ground meat": ["ground meat", "ground beef", "minced meat", "minced beef", "beef mince", "lamb mince", "لحم مفروم"],
+  liver: ["liver", "beef liver", "chicken liver", "kebda", "kibda", "كبدة", "كبده"],
   lentil: ["lentil", "lentils", "عدس"],
   parsley: ["parsley", "بقدونس"],
   pasta: ["pasta", "macaroni", "spaghetti", "penne", "مكرونة"],
@@ -89,6 +94,13 @@ const STRONG_AUTHENTICITY_RULES: Array<{
     scoreBoost: 125
   },
   {
+    cuisine: "egyptian",
+    dishId: "kebda-eskandarani",
+    groups: [INGREDIENT_ALIASES.liver],
+    label: "egyptian-liver",
+    scoreBoost: 135
+  },
+  {
     cuisine: "turkish",
     dishId: "cig-kofte",
     groups: [INGREDIENT_ALIASES["ground meat"], INGREDIENT_ALIASES.bulgur],
@@ -101,6 +113,13 @@ const STRONG_AUTHENTICITY_RULES: Array<{
     groups: [INGREDIENT_ALIASES.egg, INGREDIENT_ALIASES.tomato, INGREDIENT_ALIASES.pepper],
     label: "turkish-egg-tomato-pepper",
     scoreBoost: 135
+  },
+  {
+    cuisine: "turkish",
+    dishId: "arnavut-cigeri",
+    groups: [INGREDIENT_ALIASES.liver],
+    label: "turkish-liver",
+    scoreBoost: 130
   },
   {
     cuisine: "middleEastern",
@@ -129,6 +148,41 @@ const STRONG_AUTHENTICITY_RULES: Array<{
     groups: [INGREDIENT_ALIASES.lamb, INGREDIENT_ALIASES.jameed, INGREDIENT_ALIASES.rice],
     label: "jordanian-lamb-jameed-rice",
     scoreBoost: 140
+  },
+  {
+    cuisine: "middleEastern",
+    dishId: "sawda-djej",
+    groups: [INGREDIENT_ALIASES.liver],
+    label: "levantine-liver",
+    scoreBoost: 130
+  },
+  {
+    cuisine: "italian",
+    dishId: "fegato-alla-veneziana",
+    groups: [INGREDIENT_ALIASES.liver],
+    label: "italian-liver",
+    scoreBoost: 130
+  },
+  {
+    cuisine: "indian",
+    dishId: "kaleji-masala",
+    groups: [INGREDIENT_ALIASES.liver],
+    label: "indian-liver",
+    scoreBoost: 130
+  },
+  {
+    cuisine: "mexican",
+    dishId: "higado-encebollado",
+    groups: [INGREDIENT_ALIASES.liver],
+    label: "mexican-liver",
+    scoreBoost: 125
+  },
+  {
+    cuisine: "american",
+    dishId: "liver-and-onions",
+    groups: [INGREDIENT_ALIASES.liver],
+    label: "american-liver",
+    scoreBoost: 125
   }
 ];
 
@@ -565,7 +619,15 @@ function normalizeIngredientSet(values: string[]) {
   return Array.from(
     new Set(
       values
-        .flatMap((value) => [value, ...(INGREDIENT_ALIASES[normalizeText(value)] ?? [])])
+        .flatMap((value) => {
+          const specific = normalizeSpecificIngredientName(value);
+          return [
+            value,
+            specific,
+            ...(INGREDIENT_ALIASES[normalizeText(value)] ?? []),
+            ...(INGREDIENT_ALIASES[specific] ?? [])
+          ];
+        })
         .map(normalizeIngredient)
         .filter(Boolean)
     )
@@ -581,15 +643,13 @@ function ingredientListIncludes(ingredients: string[], anchor: string) {
   if (!normalizedAnchor) return false;
   return ingredients.some((ingredient) => {
     if (ingredient === normalizedAnchor) return true;
-    if (ingredient.includes(normalizedAnchor)) return true;
-    if (normalizedAnchor.includes(ingredient) && ingredient.split(/\s+/).length > 1) return true;
-    return false;
+    return canAvailableIngredientSatisfyRecipeIngredient(normalizedAnchor, ingredient);
   });
 }
 
 function normalizeIngredient(value: string) {
-  return normalizeText(value)
-    .replace(/\b(fresh|cooked|raw|whole|large|small|medium|chopped|diced|sliced|ground|minced)\b/g, " ")
+  return normalizeText(normalizeSpecificIngredientName(value))
+    .replace(/\b(fresh|cooked|raw|whole|large|small|medium|chopped|diced|sliced)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

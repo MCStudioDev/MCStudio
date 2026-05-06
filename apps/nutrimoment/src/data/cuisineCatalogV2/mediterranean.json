@@ -741,6 +741,42 @@
       },
       "region": "Mediterranean coast",
       "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "mediterranean",
+      "description": "Skewered liver grilled with lemon, oregano, and olive oil",
+      "id": "grilled-liver-souvlaki",
+      "ingredients": {
+        "optional": [
+          "olive oil",
+          "pita",
+          "onion"
+        ],
+        "required": [
+          "liver",
+          "lemon",
+          "oregano"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Grilled Liver Souvlaki"
+        ],
+        "native": [
+          "Grilled Liver Souvlaki"
+        ]
+      },
+      "region": "Eastern Mediterranean",
+      "score": 78
     }
   ],
   "generatedAt": "2026-05-05T00:00:00.000Z",

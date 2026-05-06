@@ -38,6 +38,7 @@ import {
 import {
   AMERICAN_DISHES,
   INDIAN_DISHES,
+  LIVER_SPECIALTY_DISHES,
   MEDITERRANEAN_DISHES,
   THAI_DISHES
 } from "./appCuisineSupplements";
@@ -63,15 +64,15 @@ export const COMPLETE_EGYPTIAN_CATALOG: readonly CuisineDish[] = [
 ];
 
 export const COMPLETE_AMERICAN_CATALOG: readonly CuisineDish[] = [
-  ...mergeV2AndLegacyCatalog("american", AMERICAN_DISHES)
+  ...mergeV2AndLegacyCatalog("american", [...AMERICAN_DISHES, ...getSupplementDishes("american")])
 ];
 
 export const COMPLETE_INDIAN_CATALOG: readonly CuisineDish[] = [
-  ...mergeV2AndLegacyCatalog("indian", INDIAN_DISHES)
+  ...mergeV2AndLegacyCatalog("indian", [...INDIAN_DISHES, ...getSupplementDishes("indian")])
 ];
 
 export const COMPLETE_MEDITERRANEAN_CATALOG: readonly CuisineDish[] = [
-  ...mergeV2AndLegacyCatalog("mediterranean", MEDITERRANEAN_DISHES)
+  ...mergeV2AndLegacyCatalog("mediterranean", [...MEDITERRANEAN_DISHES, ...getSupplementDishes("mediterranean")])
 ];
 
 export const COMPLETE_THAI_CATALOG: readonly CuisineDish[] = [
@@ -88,7 +89,8 @@ export const COMPLETE_THAI_CATALOG: readonly CuisineDish[] = [
 export const COMPLETE_MIDDLE_EASTERN_CATALOG: readonly CuisineDish[] = [
   ...mergeV2AndLegacyCatalog("middleEastern", [
     ...MIDDLE_EASTERN_DISHES,
-    ...MIDDLE_EASTERN_EXPANSION
+    ...MIDDLE_EASTERN_EXPANSION,
+    ...getSupplementDishes("middleEastern")
   ])
 ];
 
@@ -115,7 +117,8 @@ export const COMPLETE_ASIAN_CATALOG: readonly CuisineDish[] = [
 export const COMPLETE_MEXICAN_CATALOG: readonly CuisineDish[] = [
   ...mergeV2AndLegacyCatalog("mexican", [
     ...MEXICAN_DISHES,
-    ...MEXICAN_EXPANSION
+    ...MEXICAN_EXPANSION,
+    ...getSupplementDishes("mexican")
   ])
 ];
 
@@ -129,7 +132,8 @@ export const COMPLETE_MEXICAN_CATALOG: readonly CuisineDish[] = [
 export const COMPLETE_TURKISH_CATALOG: readonly CuisineDish[] = [
   ...mergeV2AndLegacyCatalog("turkish", [
     ...TURKISH_DISHES,
-    ...TURKISH_EXPANSION
+    ...TURKISH_EXPANSION,
+    ...getSupplementDishes("turkish")
   ])
 ];
 
@@ -144,7 +148,8 @@ export const COMPLETE_TURKISH_CATALOG: readonly CuisineDish[] = [
 export const COMPLETE_ITALIAN_CATALOG: readonly CuisineDish[] = [
   ...mergeV2AndLegacyCatalog("italian", [
     ...ITALIAN_DISHES,
-    ...ITALIAN_EXPANSION
+    ...ITALIAN_EXPANSION,
+    ...getSupplementDishes("italian")
   ])
 ];
 
@@ -318,6 +323,10 @@ function mergeV2AndLegacyCatalog(cuisineKey: string, legacyCatalog: readonly Cui
     ...getCuisineCatalogV2Dishes(cuisineKey),
     ...legacyCatalog
   ]);
+}
+
+function getSupplementDishes(cuisine: CuisineDish["cuisine"]) {
+  return LIVER_SPECIALTY_DISHES.filter((dish) => dish.cuisine === cuisine);
 }
 
 function mergeCatalogDishes(dishes: readonly CuisineDish[]) {

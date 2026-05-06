@@ -2,6 +2,7 @@ import { findIngredientAliases } from "@/repositories/aliasRepo";
 import { OFFLINE_INGREDIENT_ALIASES } from "@/data/offline/aliases";
 import { OFFLINE_INGREDIENTS } from "@/data/offline/ingredients";
 import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
+import { getIngredientSpecificityProfile, normalizeSpecificIngredientName } from "@/lib/ingredientSpecificity";
 import type { IngredientAliasDoc } from "@/lib/domain";
 
 export interface IngredientNormalizationResult {
@@ -31,6 +32,21 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
   const categories: Record<string, string> = {};
 
   for (const raw of cleaned) {
+    const specific = normalizeSpecificIngredientName(raw);
+    const specificProfile = getIngredientSpecificityProfile(specific);
+    if (specific && specific !== raw && specificProfile.form !== "generic") {
+      const specificAlias = aliasByKey.get(specific);
+      const normalizedSpecific = specificAlias?.canonical ?? specific;
+      normalized.push(normalizedSpecific);
+      resolved.push({
+        raw,
+        normalized: normalizedSpecific,
+        category: specificAlias?.category ?? "protein"
+      });
+      categories[normalizedSpecific] = specificAlias?.category ?? "protein";
+      continue;
+    }
+
     const alias = aliasByKey.get(raw);
     if (alias) {
       normalized.push(alias.canonical);

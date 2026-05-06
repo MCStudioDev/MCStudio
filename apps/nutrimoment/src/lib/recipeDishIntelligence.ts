@@ -2,6 +2,10 @@ import { normalizeCuisineLabel } from "@/lib/cuisines";
 import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import type { CuisineDish, MealType } from "@/lib/cuisineCatalogs/types";
 import { getCuisineDishCatalog } from "@/lib/cuisineDishCatalog";
+import {
+  canAvailableIngredientSatisfyRecipeIngredient,
+  normalizeSpecificIngredientName
+} from "@/lib/ingredientSpecificity";
 import type { Recipe, RecipeDishIntent, RecipeMealType } from "@/lib/types";
 
 type SupportedDiet =
@@ -2158,16 +2162,8 @@ function includesIngredient(availableIngredients: string[], anchor: string) {
   return availableIngredients.some(
     (ingredient) =>
       ingredient === normalizedAnchor ||
-      ingredient.includes(normalizedAnchor) ||
-      isSafeReverseIngredientMatch(normalizedAnchor, ingredient)
+      canAvailableIngredientSatisfyRecipeIngredient(normalizedAnchor, ingredient)
   );
-}
-
-function isSafeReverseIngredientMatch(normalizedAnchor: string, ingredient: string) {
-  if (!ingredient || !normalizedAnchor.includes(ingredient)) return false;
-  if (ingredient === "fish" && /\bfish sauce\b/.test(normalizedAnchor)) return false;
-  if (ingredient === "chicken" && /\bchicken stock|chicken broth\b/.test(normalizedAnchor)) return false;
-  return ingredient.split(/\s+/).length > 1 || /^(bread|pita|flatbread|rice|pasta|noodle|pepper|bean|meat)$/.test(ingredient);
 }
 
 function normalizeIngredientList(ingredients: string[]) {
@@ -2175,7 +2171,7 @@ function normalizeIngredientList(ingredients: string[]) {
 }
 
 function normalizeIngredient(value: string) {
-  return value
+  return normalizeSpecificIngredientName(value)
     .toLowerCase()
     .replace(/\s+-\s+.*$/, "")
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")

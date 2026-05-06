@@ -1122,6 +1122,45 @@
       "region": "Levant",
       "score": 58,
       "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Chicken liver sauteed with garlic, lemon, and pomegranate molasses",
+      "id": "sawda-djej",
+      "ingredients": {
+        "optional": [
+          "lemon",
+          "parsley",
+          "olive oil"
+        ],
+        "required": [
+          "chicken liver",
+          "garlic",
+          "pomegranate molasses"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Sawda Djej",
+          "Lebanese Chicken Liver"
+        ],
+        "native": [
+          "سودة دجاج"
+        ]
+      },
+      "region": "Lebanon",
+      "score": 84,
+      "subCuisine": "levantine"
     }
   ],
   "generatedAt": "2026-05-05T00:00:00.000Z",

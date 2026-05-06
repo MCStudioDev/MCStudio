@@ -314,6 +314,43 @@
       },
       "region": "Mexico",
       "score": 81
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Beef liver cooked with onions, garlic, lime, and chilies",
+      "id": "higado-encebollado",
+      "ingredients": {
+        "optional": [
+          "lime",
+          "chili",
+          "tortilla"
+        ],
+        "required": [
+          "beef liver",
+          "onion",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Higado Encebollado",
+          "Mexican Liver and Onions"
+        ],
+        "native": [
+          "Higado Encebollado"
+        ]
+      },
+      "region": "Mexico",
+      "score": 82
     }
   ],
   "generatedAt": "2026-05-05T00:00:00.000Z",

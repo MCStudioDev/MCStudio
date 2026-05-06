@@ -31,6 +31,10 @@ import {
   expandIngredientFamilies,
   isPastaLikeIngredient
 } from "@/lib/ingredientFamilies";
+import {
+  canAvailableIngredientSatisfyRecipeIngredient,
+  normalizeSpecificIngredientName
+} from "@/lib/ingredientSpecificity";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
@@ -899,7 +903,7 @@ function mergeRecipeResults(
 function buildAvailableIngredientSet(inputIngredients: string[], normalizedIngredients: string[]) {
   return new Set(
     [...inputIngredients, ...normalizedIngredients]
-      .map(normalizeIngredientForStrictMatch)
+      .map((ingredient) => normalizeIngredientForStrictMatch(normalizeSpecificIngredientName(ingredient)))
       .filter(Boolean)
   );
 }
@@ -1861,14 +1865,11 @@ function isIngredientAvailable(ingredient: string, availableIngredients: Set<str
 }
 
 function isSafeIngredientSubsetMatch(recipeIngredient: string, availableIngredient: string) {
-  return (
-    (recipeIngredient.length >= 4 && availableIngredient.includes(recipeIngredient)) ||
-    (availableIngredient.length >= 4 && recipeIngredient.includes(availableIngredient))
-  );
+  return canAvailableIngredientSatisfyRecipeIngredient(recipeIngredient, availableIngredient);
 }
 
 function normalizeIngredientForStrictMatch(value: string) {
-  return value
+  return normalizeSpecificIngredientName(value)
     .toLowerCase()
     .replace(/\s+-\s+.*$/, "")
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")

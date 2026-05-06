@@ -722,6 +722,41 @@
       },
       "region": "United States",
       "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Pan-seared beef liver served with browned onions and gravy",
+      "id": "liver-and-onions",
+      "ingredients": {
+        "optional": [
+          "milk",
+          "gravy",
+          "potato"
+        ],
+        "required": [
+          "beef liver",
+          "onion",
+          "flour"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Liver and Onions"
+        ],
+        "native": [
+          "Liver and Onions"
+        ]
+      },
+      "region": "United States",
+      "score": 82
     }
   ],
   "generatedAt": "2026-05-05T00:00:00.000Z",

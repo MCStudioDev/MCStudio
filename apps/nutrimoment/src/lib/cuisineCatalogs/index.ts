@@ -43,6 +43,7 @@ export {
 export {
   AMERICAN_DISHES,
   INDIAN_DISHES,
+  LIVER_SPECIALTY_DISHES,
   MEDITERRANEAN_DISHES,
   THAI_DISHES
 } from "./appCuisineSupplements";

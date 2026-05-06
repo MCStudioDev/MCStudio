@@ -1,5 +1,6 @@
 ﻿import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
+import { normalizeSpecificIngredientName } from "@/lib/ingredientSpecificity";
 
 const RECIPE_TITLES: Record<string, string> = {
   "Kofta": "كفتة",
@@ -604,6 +605,10 @@ export function translateIngredientToArabic(value: string) {
 
 export function translateIngredientToEnglish(value: string) {
   const trimmed = value.trim();
+  const specific = normalizeSpecificIngredientName(trimmed);
+  if (specific && specific !== normalizeTranslationKey(trimmed)) {
+    return specific;
+  }
   const normalized = normalizeTranslationKey(trimmed);
   const exact = ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[trimmed] ?? ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[normalized];
   if (exact) return exact;

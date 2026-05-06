@@ -924,6 +924,44 @@
       "region": "North India",
       "score": 90,
       "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Liver cooked with onion, tomato, ginger, garlic, and warm masala spices",
+      "id": "kaleji-masala",
+      "ingredients": {
+        "optional": [
+          "ginger",
+          "garlic",
+          "garam masala"
+        ],
+        "required": [
+          "liver",
+          "onion",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kaleji Masala",
+          "Indian Liver Masala"
+        ],
+        "native": [
+          "Kaleji Masala"
+        ]
+      },
+      "region": "North India",
+      "score": 84,
+      "subCuisine": "northIndian"
     }
   ],
   "generatedAt": "2026-05-05T00:00:00.000Z",

@@ -347,6 +347,81 @@
       },
       "region": "Turkey",
       "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Crisp fried liver cubes served with sumac onion and parsley",
+      "id": "arnavut-cigeri",
+      "ingredients": {
+        "optional": [
+          "sumac",
+          "parsley",
+          "potato"
+        ],
+        "required": [
+          "liver",
+          "flour",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Arnavut Cigeri",
+          "Albanian-Style Turkish Liver"
+        ],
+        "native": [
+          "Arnavut Cigeri"
+        ]
+      },
+      "region": "Turkey",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Thinly sliced calf liver fried crisp and served with dried peppers",
+      "id": "edirne-tava-cigeri",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "parsley",
+          "lemon"
+        ],
+        "required": [
+          "beef liver",
+          "flour",
+          "pepper"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Edirne Tava Cigeri",
+          "Edirne Fried Liver"
+        ],
+        "native": [
+          "Edirne Tava Cigeri"
+        ]
+      },
+      "region": "Edirne",
+      "score": 88
     }
   ],
   "generatedAt": "2026-05-05T00:00:00.000Z",

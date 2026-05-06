@@ -19,6 +19,7 @@ import {
 import {
   AMERICAN_DISHES,
   INDIAN_DISHES,
+  LIVER_SPECIALTY_DISHES,
   MEDITERRANEAN_DISHES,
   THAI_DISHES
 } from "../src/lib/cuisineCatalogs/appCuisineSupplements";
@@ -116,17 +117,21 @@ function egyptianDish(
 }
 
 const SOURCE_CATALOGS: Record<CuisineKey, readonly CuisineDish[]> = {
-  american: AMERICAN_DISHES,
+  american: [...AMERICAN_DISHES, ...getSupplementDishes("american")],
   asian: [...ASIAN_DISHES, ...ASIAN_EXPANSION],
   egyptian: [...EGYPTIAN_DISHES, ...EGYPTIAN_EXPANSION, ...EGYPTIAN_SUPPLEMENT],
-  indian: INDIAN_DISHES,
-  italian: [...ITALIAN_DISHES, ...ITALIAN_EXPANSION],
-  mediterranean: MEDITERRANEAN_DISHES,
-  mexican: [...MEXICAN_DISHES, ...MEXICAN_EXPANSION],
-  middleEastern: [...MIDDLE_EASTERN_DISHES, ...MIDDLE_EASTERN_EXPANSION],
+  indian: [...INDIAN_DISHES, ...getSupplementDishes("indian")],
+  italian: [...ITALIAN_DISHES, ...ITALIAN_EXPANSION, ...getSupplementDishes("italian")],
+  mediterranean: [...MEDITERRANEAN_DISHES, ...getSupplementDishes("mediterranean")],
+  mexican: [...MEXICAN_DISHES, ...MEXICAN_EXPANSION, ...getSupplementDishes("mexican")],
+  middleEastern: [...MIDDLE_EASTERN_DISHES, ...MIDDLE_EASTERN_EXPANSION, ...getSupplementDishes("middleEastern")],
   thai: THAI_DISHES,
-  turkish: [...TURKISH_DISHES, ...TURKISH_EXPANSION]
+  turkish: [...TURKISH_DISHES, ...TURKISH_EXPANSION, ...getSupplementDishes("turkish")]
 };
+
+function getSupplementDishes(cuisine: CuisineKey) {
+  return LIVER_SPECIALTY_DISHES.filter((dish) => dish.cuisine === cuisine);
+}
 
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });

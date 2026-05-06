@@ -314,6 +314,44 @@
       },
       "region": "Italy",
       "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Calf liver gently cooked with sweet onions, olive oil, and vinegar or wine",
+      "id": "fegato-alla-veneziana",
+      "ingredients": {
+        "optional": [
+          "white wine",
+          "parsley",
+          "polenta"
+        ],
+        "required": [
+          "beef liver",
+          "onion",
+          "olive oil"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Fegato alla Veneziana",
+          "Venetian Liver and Onions"
+        ],
+        "native": [
+          "Fegato alla Veneziana"
+        ]
+      },
+      "region": "Veneto",
+      "score": 88,
+      "subCuisine": "northernItalian"
     }
   ],
   "generatedAt": "2026-05-05T00:00:00.000Z",

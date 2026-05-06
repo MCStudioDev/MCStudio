@@ -519,6 +519,7 @@ function buildRecipeImagePrompt(
   const ingredientClause = ingredientList.length
     ? `Use only ingredients that fit this recipe: ${ingredientList.join(", ")}.`
     : "Use only ingredients clearly implied by this exact recipe name.";
+  const closedIngredientClause = buildClosedRecipeIngredientClause(dish || query, ingredientList);
   const anchorClause = buildDishAnchorClause(identity, dish || query, primarySubject);
   const subjectClause = primarySubject
     ? `The hero subject must clearly be ${primarySubject}, centered and visually dominant in the plate.`
@@ -542,6 +543,7 @@ function buildRecipeImagePrompt(
     servingClause,
     subjectClause,
     proteinVisualClause,
+    closedIngredientClause,
     ingredientClause,
     starchClause,
     forbiddenIngredientClause,
@@ -565,6 +567,13 @@ function buildCuratedDishImagePrompt(
   const ingredientClause = ingredients.length
     ? `Recipe ingredient guardrail: only show ingredients that fit this recipe list: ${ingredients.join(", ")}.`
     : "Recipe ingredient guardrail: only show ingredients clearly implied by this exact dish.";
+  const supportStarches = ingredients.filter((ingredient) =>
+    /\b(rice|pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|bulgur|bread|pita|bun|potato|potatoes)\b/i.test(
+      ingredient
+    )
+  );
+  const closedIngredientClause = buildClosedRecipeIngredientClause(query, ingredients);
+  const forbiddenIngredientClause = buildForbiddenIngredientClause(identity, ingredients, supportStarches);
   const cuisineStyle = visualPrompt.cuisineStyle ?? "authentic regional cooking";
   const exactNameClause =
     query && query.toLowerCase() !== visualPrompt.englishName.toLowerCase()
@@ -579,13 +588,43 @@ function buildCuratedDishImagePrompt(
     `Visual description: ${visualPrompt.visualDescription}.`,
     `Plating: ${visualPrompt.plating}.`,
     `Style: ${cuisineStyle}, realistic food photography, natural restaurant lighting, appetizing but not exaggerated.`,
+    closedIngredientClause,
     ingredientClause,
+    forbiddenIngredientClause,
     `Do not show or imply: ${visualPrompt.avoid}.`,
     strictVisualClause,
-    "Do not add extra side dishes, extra bowls, sauces, vegetables, herbs, garnishes, toppings, bread, drinks, utensils, or ingredients unless they are explicitly part of the visual description or the recipe ingredient guardrail.",
+    "If the visual description mentions a garnish, side, sauce, bread, starch, vegetable, or protein that is not in the recipe ingredient list and is not essential to the named canonical dish, omit it completely.",
+    "Do not add extra side dishes, extra bowls, sauces, vegetables, herbs, garnishes, toppings, bread, drinks, utensils, or ingredients unless they are explicitly part of the actual recipe ingredient guardrail.",
     "Show exactly one finished plated dish only. No people, hands, packages, logos, labels, captions, text, or unrelated dishes.",
     "Use a clean tabletop background and a tight square composition with the plated food clearly framed for a recipe card."
   ].join(" ");
+}
+
+function buildClosedRecipeIngredientClause(query: string, ingredients: string[]) {
+  const source = `${query} ${ingredients.join(" ")}`.toLowerCase();
+  const normalizedIngredients = ingredients.length ? ingredients.join(", ") : "the exact named dish only";
+  const forbiddenGroups = [
+    /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(source)
+      ? ""
+      : "no pasta, spaghetti, macaroni, noodles, or vermicelli",
+    /\b(rice|pilaf|couscous|bulgur)\b/.test(source) ? "" : "no rice, pilaf, couscous, or bulgur",
+    /\b(bread|pita|baladi|bun|roll|toast|flatbread)\b/.test(source) ? "" : "no bread, pita, buns, toast, or flatbread",
+    /\b(potato|potatoes)\b/.test(source) ? "" : "no potatoes or fries",
+    /\b(chicken|farakh|ferekh)\b/.test(source) ? "" : "no chicken",
+    /\b(beef|lamb|meat|steak|veal)\b/.test(source) ? "" : "no beef, lamb, steak, or meat chunks",
+    /\b(shrimp|prawn|fish|salmon|tuna)\b/.test(source) ? "" : "no fish, shrimp, tuna, or seafood",
+    /\b(egg|eggs|بيض)\b/u.test(source) ? "" : "no eggs",
+    /\b(cheese|feta|mozzarella|parmesan|جبن|جبنة)\b/u.test(source) ? "" : "no cheese",
+    /\b(tomato|pepper|onion|parsley|cilantro|coriander|mushroom|vegetable|vegetables)\b/.test(source)
+      ? ""
+      : "no extra vegetables or herbs as garnish"
+  ].filter(Boolean);
+
+  return [
+    `Closed recipe ingredient boundary: compose the image from the actual recipe ingredients only: ${normalizedIngredients}.`,
+    "The named dish identity may guide shape, texture, vessel, and cooking style, but it must not introduce visible ingredients that are absent from the recipe.",
+    forbiddenGroups.length ? `Hard negative for absent ingredients: ${forbiddenGroups.join("; ")}.` : ""
+  ].filter(Boolean).join(" ");
 }
 
 function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIdentity>, ingredients: string[]) {

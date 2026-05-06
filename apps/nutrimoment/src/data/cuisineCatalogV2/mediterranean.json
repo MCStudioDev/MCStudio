@@ -1,0 +1,749 @@
+{
+  "cuisine": "mediterranean",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Tomato, cucumber, onion, olives, and feta with olive oil",
+      "id": "greek-salad",
+      "ingredients": {
+        "optional": [
+          "olive",
+          "onion",
+          "oregano"
+        ],
+        "required": [
+          "tomato",
+          "cucumber",
+          "feta"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Greek Salad",
+          "Horiatiki"
+        ],
+        "native": [
+          "Horiatiki"
+        ]
+      },
+      "region": "Greece",
+      "score": 92,
+      "subCuisine": "greek"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Layered eggplant, spiced meat sauce, and bechamel",
+      "id": "moussaka",
+      "ingredients": {
+        "optional": [
+          "potato",
+          "tomato",
+          "cinnamon"
+        ],
+        "required": [
+          "eggplant",
+          "ground meat",
+          "bechamel"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Moussaka"
+        ],
+        "native": [
+          "Moussaka"
+        ]
+      },
+      "region": "Greece",
+      "score": 92,
+      "subCuisine": "greek"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Spinach and feta pie baked in phyllo",
+      "id": "spanakopita",
+      "ingredients": {
+        "optional": [
+          "dill",
+          "egg",
+          "onion"
+        ],
+        "required": [
+          "phyllo",
+          "spinach",
+          "feta"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Spanakopita"
+        ],
+        "native": [
+          "Spanakopita"
+        ]
+      },
+      "region": "Greece",
+      "score": 88,
+      "subCuisine": "greek"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Grilled marinated meat skewers often served with pita and tzatziki",
+      "id": "souvlaki",
+      "ingredients": {
+        "optional": [
+          "lemon",
+          "oregano",
+          "tomato"
+        ],
+        "required": [
+          "meat",
+          "pita",
+          "tzatziki"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Souvlaki"
+        ],
+        "native": [
+          "Souvlaki"
+        ]
+      },
+      "region": "Greece",
+      "score": 90,
+      "subCuisine": "greek"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Yogurt cucumber dip with garlic, dill, and olive oil",
+      "id": "tzatziki",
+      "ingredients": {
+        "optional": [
+          "dill",
+          "olive oil",
+          "lemon"
+        ],
+        "required": [
+          "yogurt",
+          "cucumber",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "side",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Tzatziki"
+        ],
+        "native": [
+          "Tzatziki"
+        ]
+      },
+      "region": "Greece",
+      "score": 84,
+      "subCuisine": "greek"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Grape leaves stuffed with rice, herbs, and sometimes meat",
+      "id": "dolmades",
+      "ingredients": {
+        "optional": [
+          "ground meat",
+          "lemon",
+          "olive oil"
+        ],
+        "required": [
+          "grape leaves",
+          "rice",
+          "herbs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Dolmades"
+        ],
+        "native": [
+          "Dolmades"
+        ]
+      },
+      "region": "Greece",
+      "score": 86,
+      "subCuisine": "greek"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Saffron rice cooked with chicken, rabbit, beans, and vegetables",
+      "id": "paella-valenciana",
+      "ingredients": {
+        "optional": [
+          "rabbit",
+          "green beans",
+          "tomato"
+        ],
+        "required": [
+          "rice",
+          "saffron",
+          "chicken"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Paella Valenciana"
+        ],
+        "native": [
+          "Paella Valenciana"
+        ]
+      },
+      "region": "Valencia",
+      "score": 94,
+      "subCuisine": "spanish"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Cold blended tomato soup with cucumber, pepper, and olive oil",
+      "id": "gazpacho",
+      "ingredients": {
+        "optional": [
+          "pepper",
+          "bread",
+          "garlic"
+        ],
+        "required": [
+          "tomato",
+          "cucumber",
+          "olive oil"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Gazpacho"
+        ],
+        "native": [
+          "Gazpacho"
+        ]
+      },
+      "region": "Andalusia",
+      "score": 86,
+      "subCuisine": "spanish"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Thick omelet with potatoes and onions",
+      "id": "tortilla-espanola",
+      "ingredients": {
+        "optional": [
+          "olive oil",
+          "salt"
+        ],
+        "required": [
+          "egg",
+          "potato",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Tortilla Espanola",
+          "Spanish Tortilla"
+        ],
+        "native": [
+          "Tortilla Espanola"
+        ]
+      },
+      "region": "Spain",
+      "score": 90,
+      "subCuisine": "spanish"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Toasted bread rubbed with tomato, garlic, and olive oil",
+      "id": "pan-con-tomate",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "salt"
+        ],
+        "required": [
+          "bread",
+          "tomato",
+          "olive oil"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Pan Con Tomate"
+        ],
+        "native": [
+          "Pan Con Tomate"
+        ]
+      },
+      "region": "Catalonia",
+      "score": 84,
+      "subCuisine": "spanish"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Fried potatoes served with spicy bravas sauce",
+      "id": "patatas-bravas",
+      "ingredients": {
+        "optional": [
+          "garlic aioli",
+          "olive oil"
+        ],
+        "required": [
+          "potato",
+          "tomato sauce",
+          "paprika"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "side",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Patatas Bravas"
+        ],
+        "native": [
+          "Patatas Bravas"
+        ]
+      },
+      "region": "Spain",
+      "score": 86,
+      "subCuisine": "spanish"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Chopped salad with toasted pita, sumac, and lemon dressing",
+      "id": "fattoush-mediterranean",
+      "ingredients": {
+        "optional": [
+          "sumac",
+          "lettuce",
+          "mint"
+        ],
+        "required": [
+          "pita",
+          "tomato",
+          "cucumber"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Fattoush"
+        ],
+        "native": [
+          "Fattoush"
+        ]
+      },
+      "region": "Levant",
+      "score": 86,
+      "subCuisine": "levantineMediterranean"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Chickpea tahini dip with lemon and olive oil",
+      "id": "hummus-mediterranean",
+      "ingredients": {
+        "optional": [
+          "olive oil",
+          "garlic",
+          "paprika"
+        ],
+        "required": [
+          "chickpeas",
+          "tahini",
+          "lemon"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Hummus"
+        ],
+        "native": [
+          "Hummus"
+        ]
+      },
+      "region": "Eastern Mediterranean",
+      "score": 92,
+      "subCuisine": "levantineMediterranean"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Eggs poached in tomato and pepper sauce",
+      "id": "shakshuka-mediterranean",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic",
+          "cumin"
+        ],
+        "required": [
+          "egg",
+          "tomato",
+          "pepper"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Shakshuka"
+        ],
+        "native": [
+          "Shakshuka"
+        ]
+      },
+      "region": "Mediterranean",
+      "score": 88,
+      "subCuisine": "levantineMediterranean"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Vegetable stew of eggplant, zucchini, pepper, and tomato",
+      "id": "ratatouille",
+      "ingredients": {
+        "optional": [
+          "pepper",
+          "olive oil",
+          "herbs"
+        ],
+        "required": [
+          "eggplant",
+          "zucchini",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Ratatouille"
+        ],
+        "native": [
+          "Ratatouille"
+        ]
+      },
+      "region": "Provence",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Tuna, egg, olives, green beans, tomato, and potatoes",
+      "id": "nicoise-salad",
+      "ingredients": {
+        "optional": [
+          "olive",
+          "potato",
+          "tomato"
+        ],
+        "required": [
+          "tuna",
+          "egg",
+          "green beans"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Nicoise Salad"
+        ],
+        "native": [
+          "Salade Nicoise"
+        ]
+      },
+      "region": "Nice",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Mediterranean fish stew with saffron, fennel, and rouille",
+      "id": "bouillabaisse",
+      "ingredients": {
+        "optional": [
+          "shellfish",
+          "tomato",
+          "bread"
+        ],
+        "required": [
+          "fish",
+          "saffron",
+          "fennel"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Bouillabaisse"
+        ],
+        "native": [
+          "Bouillabaisse"
+        ]
+      },
+      "region": "Marseille",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mediterranean",
+      "description": "Sweet-sour eggplant relish with celery, capers, and tomato",
+      "id": "caponata",
+      "ingredients": {
+        "optional": [
+          "celery",
+          "olive",
+          "vinegar"
+        ],
+        "required": [
+          "eggplant",
+          "tomato",
+          "capers"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "side",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Caponata"
+        ],
+        "native": [
+          "Caponata"
+        ]
+      },
+      "region": "Sicily",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "mediterranean",
+      "description": "Feta baked with tomatoes, olive oil, and herbs",
+      "id": "baked-feta",
+      "ingredients": {
+        "optional": [
+          "oregano",
+          "pepper",
+          "bread"
+        ],
+        "required": [
+          "feta",
+          "tomato",
+          "olive oil"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Baked Feta"
+        ],
+        "native": [
+          "Baked Feta"
+        ]
+      },
+      "region": "Eastern Mediterranean",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "mediterranean",
+      "description": "Orzo cooked with seafood, tomato, herbs, and olive oil",
+      "id": "seafood-orzo",
+      "ingredients": {
+        "optional": [
+          "olive oil",
+          "parsley",
+          "lemon"
+        ],
+        "required": [
+          "orzo",
+          "seafood",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Seafood Orzo"
+        ],
+        "native": [
+          "Seafood Orzo"
+        ]
+      },
+      "region": "Mediterranean coast",
+      "score": 80
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

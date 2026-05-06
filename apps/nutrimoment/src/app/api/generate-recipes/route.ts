@@ -33,8 +33,14 @@ import {
 } from "@/lib/ingredientFamilies";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
+import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
+import {
+  buildCanonicalDishPromptHint,
+  enforceAuthenticCuisineRecipeSet,
+  resolveAuthenticCuisineDishes
+} from "@/lib/cuisineAuthenticityResolver";
 import {
   buildCuisineAwareDishCandidates,
   buildDishCandidatePromptSummary,
@@ -63,6 +69,7 @@ const MIN_ACCEPTED_PROVIDER_SCORE = {
   unsplash_search: 11
 } as const;
 const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
+  ...getAllDishes().map((dish) => dish.id),
   "cilbir",
   "shakshuka",
   "mujadara",
@@ -248,7 +255,12 @@ export async function POST(request: Request) {
       diets: parsed.data.diets,
       preferredCuisine: parsed.data.preferredCuisine
     });
+    const authenticDishCandidates = resolveAuthenticCuisineDishes({
+      cuisine: parsed.data.preferredCuisine,
+      ingredients: scoringIngredients
+    });
     const candidateDishHints = buildDishCandidatePromptSummary(candidateDishes);
+    const canonicalDishHint = buildCanonicalDishPromptHint(authenticDishCandidates);
     const requestRestriction = buildHardRequestRestrictionContext(candidateDishes, parsed.data.preferredCuisine);
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
@@ -259,18 +271,23 @@ export async function POST(request: Request) {
     const finalizeRecipes = (recipes: Recipe[]) =>
       prepareRecipes(
         enforceDistinctRecipeVariety(
-          enforceHardRequestRecipes(
-            parsed.data.preferredCuisine === "Any"
-            ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
-            : enforcePreferredCuisineRecipes(
-                recipes,
-                parsed.data.preferredCuisine,
-                parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
-                recipeCount
-              ),
-            requestRestriction,
+          prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceHardRequestRecipes(
+              parsed.data.preferredCuisine === "Any"
+                ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
+                : enforcePreferredCuisineRecipes(
+                    recipes,
+                    parsed.data.preferredCuisine,
+                    parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
+                    recipeCount
+                  ),
+              requestRestriction,
+              recipeCount
+            ), {
+            availableIngredients: scoringIngredients,
+            preferredCuisine: parsed.data.preferredCuisine,
+            recipeLanguage,
             recipeCount
-          ),
+          }), scoringIngredients),
           recipeCount
         )
       );
@@ -402,7 +419,8 @@ export async function POST(request: Request) {
               diets: parsed.data.diets ?? [],
               conditions: parsed.data.conditions ?? [],
               allergens: parsed.data.allergens ?? [],
-              candidateDishHints
+              candidateDishHints,
+              canonicalDishHint
             }
           )
         : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
@@ -1073,19 +1091,34 @@ function rankStrictRecipes(
   const limit = clampRecipeCount(options.recipeCount);
 
   const ranked = recipes
-    .map((recipe, index) => ({
-      recipe,
-      index,
-      isPantryBalanced: isPantryBalancedRecipe(recipe),
-      score: scoreStrictRecipe(recipe, {
+    .map((recipe, index) => {
+      const pantryUsage = getRecipePantryUsageStats(recipe, options.ingredients ?? []);
+      return {
+        recipe,
+        index,
+        isMainlyPantry: pantryUsage.isMainlyPantry,
+        isPantryBalanced: isPantryBalancedRecipe(recipe, options.ingredients ?? []),
+        missingCount: pantryUsage.missingCount,
+        ownedCount: pantryUsage.ownedCount,
+        score: scoreStrictRecipe(recipe, {
         targetCaloriesPerMeal,
         preferredCuisine,
         maxMissingIngredients: options.maxMissingIngredients ?? 3,
         hasPreferences: Boolean(options.diets?.length || options.conditions?.length),
         availableIngredients: options.ingredients ?? []
       })
-    }))
+      };
+    })
     .sort((left, right) => {
+      if (left.isMainlyPantry !== right.isMainlyPantry) {
+        return Number(right.isMainlyPantry) - Number(left.isMainlyPantry);
+      }
+      if (left.ownedCount !== right.ownedCount) {
+        return right.ownedCount - left.ownedCount;
+      }
+      if (left.missingCount !== right.missingCount) {
+        return left.missingCount - right.missingCount;
+      }
       if (left.isPantryBalanced !== right.isPantryBalanced) {
         return Number(right.isPantryBalanced) - Number(left.isPantryBalanced);
       }
@@ -1257,8 +1290,9 @@ function scoreStrictRecipe(
     availableIngredients: string[];
   }
 ) {
-  const ownedCount = recipe.ingredients.length;
-  const missingCount = recipe.missing_ingredients.length;
+  const pantryUsage = getRecipePantryUsageStats(recipe, options.availableIngredients);
+  const ownedCount = pantryUsage.ownedCount;
+  const missingCount = pantryUsage.missingCount;
   const preferenceHitCount = recipe.preference_hits?.length ?? 0;
   const hasCuisinePreference = Boolean(options.preferredCuisine && options.preferredCuisine !== "Any");
   const cuisineMatch = hasCuisinePreference && cuisineMatchesPreference(recipe.cuisine, options.preferredCuisine) ? 1 : 0;
@@ -1287,6 +1321,7 @@ function scoreStrictRecipe(
   return (
     ownedCount * 20 -
     missingCount * 8 +
+    (pantryUsage.isMainlyPantry ? 20 : -60) +
     preferenceHitCount * (options.hasPreferences ? 7 : 3) +
     cuisineMatch * 18 +
     cuisineMismatchPenalty +
@@ -1490,10 +1525,6 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
     addRecipe(recipe, { allowStructureRepeat: true });
   }
 
-  for (const recipe of recipes) {
-    addRecipe(recipe, { allowFamilyRepeat: true, allowStructureRepeat: true });
-  }
-
   return selected.slice(0, recipeCount);
 }
 
@@ -1688,6 +1719,34 @@ function normalizeRecipeCuisineBucket(value: string) {
   return normalized;
 }
 
+function prioritizePantryUsageRecipes(recipes: Recipe[], availableIngredients: string[]) {
+  const scored = recipes.map((recipe, index) => {
+    const pantryUsage = getRecipePantryUsageStats(recipe, availableIngredients);
+    return {
+      index,
+      pantryUsage,
+      recipe
+    };
+  });
+  const mainlyPantryRecipes = scored.filter((entry) => entry.pantryUsage.isMainlyPantry);
+  const pool = mainlyPantryRecipes.length ? mainlyPantryRecipes : scored;
+
+  return pool
+    .sort((left, right) => {
+      if (left.pantryUsage.ownedCount !== right.pantryUsage.ownedCount) {
+        return right.pantryUsage.ownedCount - left.pantryUsage.ownedCount;
+      }
+      if (left.pantryUsage.missingCount !== right.pantryUsage.missingCount) {
+        return left.pantryUsage.missingCount - right.pantryUsage.missingCount;
+      }
+      if (left.pantryUsage.ownedRatio !== right.pantryUsage.ownedRatio) {
+        return right.pantryUsage.ownedRatio - left.pantryUsage.ownedRatio;
+      }
+      return left.index - right.index;
+    })
+    .map((entry) => entry.recipe);
+}
+
 function prioritizePantryBalancedRecipes(recipes: Recipe[]) {
   const balancedExact: Recipe[] = [];
   const balancedSimilar: Recipe[] = [];
@@ -1719,8 +1778,28 @@ function prioritizePantryBalancedRecipes(recipes: Recipe[]) {
   return [...balancedExact, ...balancedSimilar, ...unbalancedExact, ...unbalancedSimilar];
 }
 
-function isPantryBalancedRecipe(recipe: Recipe) {
+function isPantryBalancedRecipe(recipe: Recipe, availableIngredients: string[] = []) {
+  if (availableIngredients.length) {
+    const pantryUsage = getRecipePantryUsageStats(recipe, availableIngredients);
+    return pantryUsage.ownedCount >= pantryUsage.missingCount;
+  }
+
   return recipe.ingredients.length >= recipe.missing_ingredients.length;
+}
+
+function getRecipePantryUsageStats(recipe: Recipe, availableIngredients: string[]) {
+  const availableSet = buildAvailableIngredientSet(availableIngredients, expandIngredientFamilies(availableIngredients));
+  const ownedCount = recipe.ingredients.filter((ingredient) => isIngredientAvailable(ingredient, availableSet)).length;
+  const missingCount = recipe.missing_ingredients.filter((ingredient) => !isIngredientAvailable(ingredient, availableSet)).length;
+  const totalRelevant = ownedCount + missingCount;
+  const ownedRatio = totalRelevant > 0 ? ownedCount / totalRelevant : 0;
+
+  return {
+    isMainlyPantry: ownedCount > 0 && (ownedCount >= missingCount || ownedRatio >= 0.5),
+    missingCount,
+    ownedCount,
+    ownedRatio
+  };
 }
 
 function getMatchQualityScore(matchQuality: Recipe["match_quality"]) {

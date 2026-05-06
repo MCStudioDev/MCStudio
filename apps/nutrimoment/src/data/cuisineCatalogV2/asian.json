@@ -1,0 +1,977 @@
+{
+  "cuisine": "asian",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Rice stir-fried with vegetables, eggs, and meat",
+      "id": "fried-rice",
+      "ingredients": {
+        "optional": [
+          "soy sauce",
+          "garlic"
+        ],
+        "required": [
+          "rice",
+          "egg",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Fried Rice"
+        ],
+        "native": [
+          "炒饭"
+        ]
+      },
+      "region": "China",
+      "score": 92,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Spicy tofu in chili and bean sauce with minced meat",
+      "id": "mapo-tofu",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "ginger"
+        ],
+        "required": [
+          "tofu",
+          "ground meat",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mapo Tofu"
+        ],
+        "native": [
+          "麻婆豆腐"
+        ]
+      },
+      "region": "China",
+      "score": 89,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Chicken stir-fry with peanuts and dried chilies",
+      "id": "kung-pao-chicken",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "vinegar"
+        ],
+        "required": [
+          "chicken",
+          "peanuts",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kung Pao Chicken"
+        ],
+        "native": [
+          "宫保鸡丁"
+        ]
+      },
+      "region": "China",
+      "score": 88,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Stir-fried noodles with vegetables and protein",
+      "id": "chow-mein",
+      "ingredients": {
+        "optional": [
+          "soy sauce",
+          "garlic"
+        ],
+        "required": [
+          "noodles",
+          "vegetables",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chow Mein"
+        ],
+        "native": [
+          "炒面"
+        ]
+      },
+      "region": "China",
+      "score": 86,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Noodle soup with rich broth and toppings",
+      "id": "ramen",
+      "ingredients": {
+        "optional": [
+          "meat",
+          "vegetables"
+        ],
+        "required": [
+          "noodles",
+          "broth",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Ramen"
+        ],
+        "native": [
+          "ラーメン"
+        ]
+      },
+      "region": "Japan",
+      "score": 90,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Vinegared rice with fish and vegetables",
+      "id": "sushi",
+      "ingredients": {
+        "optional": [
+          "vegetables",
+          "wasabi"
+        ],
+        "required": [
+          "rice",
+          "fish",
+          "seaweed"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Sushi"
+        ],
+        "native": [
+          "寿司"
+        ]
+      },
+      "region": "Japan",
+      "score": 91,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Rice bowl with vegetables, egg, and meat",
+      "id": "bibimbap",
+      "ingredients": {
+        "optional": [
+          "meat",
+          "gochujang"
+        ],
+        "required": [
+          "rice",
+          "vegetables",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Bibimbap"
+        ],
+        "native": [
+          "비빔밥"
+        ]
+      },
+      "region": "Korea",
+      "score": 87,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Marinated beef grilled or stir-fried",
+      "id": "bulgogi",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "ginger"
+        ],
+        "required": [
+          "beef",
+          "soy sauce",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Bulgogi"
+        ],
+        "native": [
+          "불고기"
+        ]
+      },
+      "region": "Korea",
+      "score": 88,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Stir-fried rice noodles with shrimp, egg, and vegetables",
+      "id": "pad-thai",
+      "ingredients": {
+        "optional": [
+          "lime",
+          "peanuts"
+        ],
+        "required": [
+          "rice noodles",
+          "shrimp",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Pad Thai"
+        ],
+        "native": [
+          "ผัดไทย"
+        ]
+      },
+      "region": "Thailand",
+      "score": 92,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Curry with green chilies, coconut milk, and herbs",
+      "id": "green-curry",
+      "ingredients": {
+        "optional": [
+          "basil",
+          "garlic"
+        ],
+        "required": [
+          "coconut milk",
+          "green chili",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Green Curry"
+        ],
+        "native": [
+          "แกงเขียวหวาน"
+        ]
+      },
+      "region": "Thailand",
+      "score": 89,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Rice noodle soup with beef or chicken and aromatic broth",
+      "id": "pho",
+      "ingredients": {
+        "optional": [
+          "herbs",
+          "lime"
+        ],
+        "required": [
+          "rice noodles",
+          "beef",
+          "broth"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Pho"
+        ],
+        "native": [
+          "phở"
+        ]
+      },
+      "region": "Vietnam",
+      "score": 91,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Rice paper rolls with herbs, vegetables, and protein",
+      "id": "spring-rolls",
+      "ingredients": {
+        "optional": [
+          "shrimp",
+          "meat"
+        ],
+        "required": [
+          "rice paper",
+          "herbs",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Spring Rolls",
+          "Fresh Rolls"
+        ],
+        "native": [
+          "cuốn mềm"
+        ]
+      },
+      "region": "Vietnam",
+      "score": 85,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Indonesian fried rice with spices and vegetables",
+      "id": "nasi-goreng",
+      "ingredients": {
+        "optional": [
+          "meat",
+          "shrimp"
+        ],
+        "required": [
+          "rice",
+          "eggs",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Nasi Goreng"
+        ],
+        "native": [
+          "نسي جورنج"
+        ]
+      },
+      "region": "Indonesia",
+      "score": 88,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Grilled meat skewers with peanut sauce",
+      "id": "satay",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "spices"
+        ],
+        "required": [
+          "meat",
+          "peanut sauce"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Satay",
+          "Sate"
+        ],
+        "native": [
+          "سطايه"
+        ]
+      },
+      "region": "Indonesia",
+      "score": 87,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Meat braised in vinegar and soy sauce",
+      "id": "adobo",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "bay leaf"
+        ],
+        "required": [
+          "meat",
+          "vinegar",
+          "soy sauce"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Adobo"
+        ],
+        "native": [
+          "ადობო"
+        ]
+      },
+      "region": "Philippines",
+      "score": 86,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Chicken in creamy tomato and butter sauce",
+      "id": "butter-chicken",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "ginger"
+        ],
+        "required": [
+          "chicken",
+          "cream",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Butter Chicken"
+        ],
+        "native": [
+          "बटर चिकन"
+        ]
+      },
+      "region": "India",
+      "score": 90,
+      "subCuisine": "southAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Fragrant rice with meat and spices, layered",
+      "id": "biryani",
+      "ingredients": {
+        "optional": [
+          "yogurt",
+          "onion"
+        ],
+        "required": [
+          "rice",
+          "meat",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Biryani"
+        ],
+        "native": [
+          "बिरयानी"
+        ]
+      },
+      "region": "India",
+      "score": 89,
+      "subCuisine": "southAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Chickpeas in spiced tomato sauce",
+      "id": "chana-masala",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "chickpea",
+          "tomato",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chana Masala"
+        ],
+        "native": [
+          "छना मसाला"
+        ]
+      },
+      "region": "India",
+      "score": 85,
+      "subCuisine": "southAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Lentils tempered with spices and ghee",
+      "id": "dal-tadka",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "cumin"
+        ],
+        "required": [
+          "lentil",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Dal Tadka"
+        ],
+        "native": [
+          "दाल तड़का"
+        ]
+      },
+      "region": "India",
+      "score": 84,
+      "subCuisine": "southAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Pork in sweet and sour sauce",
+      "id": "sweet-sour-pork",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "peppers"
+        ],
+        "required": [
+          "pork",
+          "vinegar",
+          "sugar"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Sweet and Sour Pork"
+        ],
+        "native": [
+          "酸甜豬肉"
+        ]
+      },
+      "region": "China",
+      "score": 82,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "asian",
+      "description": "Beef stir-fry with peanuts",
+      "id": "kung-pao-beef",
+      "ingredients": {
+        "optional": [
+          "garlic"
+        ],
+        "required": [
+          "beef",
+          "peanuts",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kung Pao Beef"
+        ],
+        "native": [
+          "宫保牛肉"
+        ]
+      },
+      "region": "China",
+      "score": 80,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Japanese dumplings with filling",
+      "id": "gyoza",
+      "ingredients": {
+        "optional": [
+          "soy sauce"
+        ],
+        "required": [
+          "dough",
+          "meat",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Gyoza"
+        ],
+        "native": [
+          "餃子"
+        ]
+      },
+      "region": "Japan",
+      "score": 84,
+      "subCuisine": "eastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Hot and sour soup with shrimp",
+      "id": "tom-yum-soup",
+      "ingredients": {
+        "optional": [
+          "chili",
+          "garlic"
+        ],
+        "required": [
+          "shrimp",
+          "lemongrass",
+          "lime"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Tom Yum Soup"
+        ],
+        "native": [
+          "ต้มยำ"
+        ]
+      },
+      "region": "Thailand",
+      "score": 86,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Curry with red chilies",
+      "id": "red-curry",
+      "ingredients": {
+        "optional": [
+          "vegetables"
+        ],
+        "required": [
+          "red chili",
+          "coconut milk",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Red Curry"
+        ],
+        "native": [
+          "แกงแดง"
+        ]
+      },
+      "region": "Thailand",
+      "score": 85,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "asian",
+      "description": "Crispy Vietnamese pancake",
+      "id": "banh-xeo",
+      "ingredients": {
+        "optional": [
+          "bean sprouts"
+        ],
+        "required": [
+          "rice flour",
+          "turmeric",
+          "shrimp"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Banh Xeo"
+        ],
+        "native": [
+          "bánh xèo"
+        ]
+      },
+      "region": "Vietnam",
+      "score": 81,
+      "subCuisine": "southeastAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Spiced chicken roasted in tandoor",
+      "id": "tandoori-chicken",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "ginger"
+        ],
+        "required": [
+          "chicken",
+          "yogurt",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Tandoori Chicken"
+        ],
+        "native": [
+          "तंदूरी चिकन"
+        ]
+      },
+      "region": "India",
+      "score": 88,
+      "subCuisine": "southAsian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "asian",
+      "description": "Fried triangular pastry with filling",
+      "id": "samosa",
+      "ingredients": {
+        "optional": [
+          "meat",
+          "peas"
+        ],
+        "required": [
+          "dough",
+          "potato",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Samosa"
+        ],
+        "native": [
+          "समोसा"
+        ]
+      },
+      "region": "India",
+      "score": 87,
+      "subCuisine": "southAsian"
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

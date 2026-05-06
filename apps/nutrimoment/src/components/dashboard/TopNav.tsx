@@ -106,6 +106,19 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMenuOpen]);
 
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsNotificationsOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isNotificationsOpen]);
+
   return (
     <header className="theme-topbar pointer-events-none fixed inset-x-0 top-0 z-[160] px-1.5 sm:px-4" data-theme={settings.themeMode ?? "auroraDark"}>
       <div className="shell-frame pointer-events-none relative">
@@ -165,7 +178,14 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
           </div>
         </div>
         {isNotificationsOpen ? (
-          <div
+          <>
+            <button
+              type="button"
+              aria-label={t("closeNotifications")}
+              onClick={() => setIsNotificationsOpen(false)}
+              className="pointer-events-auto fixed inset-0 z-[174] cursor-default bg-transparent"
+            />
+            <div
             className={cn(
               "theme-topbar-notifications pointer-events-auto absolute top-[3.75rem] z-[175] w-[min(21rem,calc(100vw-1rem))] rounded-[1.2rem] border border-white/10 bg-[#06241d]/96 p-3 text-emerald-50 shadow-2xl backdrop-blur-xl sm:top-[4.25rem]",
               rtl ? "left-0" : "right-0"
@@ -210,6 +230,7 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
               )}
             </div>
           </div>
+          </>
         ) : null}
       </div>
 

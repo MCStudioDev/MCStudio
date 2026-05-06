@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
-import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
+import { getDishById } from "@/lib/cuisineCatalogs/completeCatalogs";
+import { buildRecipePhotoIdentity, getStrictRecipePhotoIdentityTokens, isStrictRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 
 export interface GeneratedRecipeImage {
   imageUrl: string;
@@ -102,9 +103,11 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   "alexandrian-liver": {
     englishName: "Egyptian Alexandrian liver",
     visualDescription:
-      "thin strips of sauteed beef liver with green peppers, garlic, chili, and spices, glossy and browned",
-    plating: "served as a street-food plate or sandwich-style filling only if bread is part of the recipe",
-    avoid: "steak, kebab, meatballs, pasta, rice bowl, soup, burger",
+      "thin irregular strips of sauteed beef liver, dark brown and glossy, mixed with green pepper strips, garlic, chili, cumin, coriander, and lemon, clearly recognizable as chopped liver strips rather than steak pieces",
+    plating:
+      "served as one tight street-food plate or sandwich-style filling only if bread is part of the recipe; no rice bed, no pasta bed, no noodles",
+    avoid:
+      "steak, kebab, meatballs, chicken, fish, pasta, spaghetti, noodles, rice, rice bowl, couscous, pilaf, soup, burger, plain grains, egg, yellow sauce",
     cuisineStyle: "authentic Alexandrian Egyptian street food"
   },
   mujadara: {
@@ -358,6 +361,7 @@ function buildRecipeImagePrompt(
   const cuisineClause = buildCuisineAuthenticityClause(identity.cuisineKey);
   const servingClause = buildServingFormClause(identity.mealTypeKey, identity.starchKey, identity.cookingMethodKey);
   const compositionClause = buildCompositionClause(identity.mealTypeKey);
+  const strictVisualClause = buildStrictVisualClause(identity, ingredientList);
 
   return [
     `Create a photorealistic editorial food photograph of ${dish || query}.`,
@@ -370,6 +374,7 @@ function buildRecipeImagePrompt(
     ingredientClause,
     starchClause,
     forbiddenIngredientClause,
+    strictVisualClause,
     "Do not add extra side dishes, extra bowls, sauces, vegetables, herbs, garnishes, toppings, bread, drinks, utensils, or ingredients that are not part of the recipe.",
     "Show exactly one finished plated dish only, appetizing and realistic, with natural restaurant lighting.",
     "Do not show people, hands, packages, logos, labels, captions, text, or unrelated dishes.",
@@ -394,6 +399,7 @@ function buildCuratedDishImagePrompt(
     query && query.toLowerCase() !== visualPrompt.englishName.toLowerCase()
       ? `The requested recipe name is "${query}"; keep the image faithful to that exact recipe while using the visual identity of ${visualPrompt.englishName}.`
       : `The requested recipe is ${visualPrompt.englishName}.`;
+  const strictVisualClause = buildStrictVisualClause(identity, ingredients);
 
   return [
     `Create a photorealistic editorial food photograph of ${visualPrompt.englishName}.`,
@@ -404,10 +410,46 @@ function buildCuratedDishImagePrompt(
     `Style: ${cuisineStyle}, realistic food photography, natural restaurant lighting, appetizing but not exaggerated.`,
     ingredientClause,
     `Do not show or imply: ${visualPrompt.avoid}.`,
+    strictVisualClause,
     "Do not add extra side dishes, extra bowls, sauces, vegetables, herbs, garnishes, toppings, bread, drinks, utensils, or ingredients unless they are explicitly part of the visual description or the recipe ingredient guardrail.",
     "Show exactly one finished plated dish only. No people, hands, packages, logos, labels, captions, text, or unrelated dishes.",
     "Use a clean tabletop background and a tight square composition with the plated food clearly framed for a recipe card."
   ].join(" ");
+}
+
+function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIdentity>, ingredients: string[]) {
+  if (!isStrictRecipePhotoIdentity(identity)) return "";
+
+  const source = `${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const allowsRice = /\b(rice|pilaf|couscous|bulgur)\b/.test(source);
+  const allowsPasta = /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(source);
+  const forbiddenStarches = [
+    allowsRice ? "" : "rice, rice grains, pilaf, couscous, bulgur",
+    allowsPasta ? "" : "pasta, spaghetti, noodles, macaroni, vermicelli"
+  ].filter(Boolean);
+  const strictTokens = getStrictRecipePhotoIdentityTokens(identity).slice(0, 6);
+  const canonicalName = identity.canonicalDishKey?.replace(/-/g, " ") ?? identity.cleanQuery;
+
+  if (identity.mainIngredientKey === "liver") {
+    return [
+      "Strict visual identity: the food must be visibly liver/kebda/cigeri as dark brown sauteed or fried liver strips/pieces.",
+      "The liver must be the largest and clearest subject in the frame, not a steak, meatball, chicken piece, fish, egg, or generic brown protein.",
+      forbiddenStarches.length
+        ? `Hard negative: do not include ${forbiddenStarches.join("; ")} anywhere in the image.`
+        : "Any starch present must be minor and must not dominate or hide the liver."
+    ].join(" ");
+  }
+
+  return [
+    `Strict visual identity: the image must read immediately as ${canonicalName}, not as a generic ${identity.cuisineKey ?? "regional"} plate.`,
+    strictTokens.length
+      ? `Required recognition cues include at least one of these canonical names or forms: ${strictTokens.join(", ")}.`
+      : "",
+    forbiddenStarches.length
+      ? `Hard negative: do not include ${forbiddenStarches.join("; ")} anywhere in the image.`
+      : "",
+    "Avoid neighboring dish families, vague mixed plates, unrelated sides, and generic restaurant food."
+  ].filter(Boolean).join(" ");
 }
 
 function findDishVisualPrompt(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
@@ -420,6 +462,20 @@ function findDishVisualPrompt(identity: ReturnType<typeof buildRecipePhotoIdenti
   for (const key of keys) {
     const visualPrompt = DISH_VISUAL_PROMPTS[key];
     if (visualPrompt) return visualPrompt;
+  }
+
+  if (identity.canonicalDishKey) {
+    const dish = getDishById(identity.canonicalDishKey);
+    if (dish) {
+      const englishName = dish.names.english[0] ?? identity.canonicalDishKey.replace(/-/g, " ");
+      return {
+        englishName,
+        visualDescription: `${dish.description}. The finished food should show the recognizable real-world form of ${englishName}, centered on ${dish.primaryIngredients.slice(0, 4).join(", ") || "its key ingredients"}`,
+        plating: `served as an authentic ${dish.region} ${englishName} plate with the main dish clearly visible and no unrelated side dishes`,
+        avoid: "generic bowl, vague mixed plate, fusion food, unrelated cuisine, extra side dishes, random garnish, wrong protein, wrong starch",
+        cuisineStyle: `authentic ${dish.region} food photography`
+      } satisfies DishVisualPrompt;
+    }
   }
 
   return null;

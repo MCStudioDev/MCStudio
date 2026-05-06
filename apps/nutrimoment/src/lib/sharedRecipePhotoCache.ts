@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminDb, getAdminStorageBucket, hasFirebaseAdminConfig } from "@/lib/firebaseAdmin";
+import { logger } from "@/lib/logger";
 
 export interface SharedRecipePhotoEntry {
   imageAttributionName?: string;
@@ -61,7 +62,16 @@ export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
 export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
   if (!hasFirebaseAdminConfig()) return entry;
 
-  const persistedImageUrl = await persistSharedRecipeImageUrl(entry);
+  let persistedImageUrl = entry.imageUrl;
+  try {
+    persistedImageUrl = await persistSharedRecipeImageUrl(entry);
+  } catch (error) {
+    logger.warn("Shared recipe photo image persistence failed; caching original URL instead.", {
+      signature: entry.signature,
+      source: entry.source,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   const nextEntry = {
     ...entry,

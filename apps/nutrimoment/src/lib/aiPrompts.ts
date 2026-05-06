@@ -18,6 +18,7 @@ export interface RecipePromptOptions {
   conditions: string[];
   allergens?: string[];
   candidateDishHints?: string;
+  canonicalDishHint?: string;
 }
 
 export interface MealPlanPromptOptions {
@@ -428,6 +429,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
   const cuisineTargetCount = recipeCount <= 2 ? recipeCount : recipeCount - 1;
   const candidateDishHints = options.candidateDishHints?.trim();
+  const canonicalDishHint = options.canonicalDishHint?.trim();
 
   return [
     "You are NutriMoment's recipe generation assistant.",
@@ -452,6 +454,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
+    canonicalDishHint
+      ? `Deterministic catalog resolver result: ${canonicalDishHint}`
+      : "",
     "When the pantry strongly matches a known cuisine-specific dish, prefer that exact dish family over a generic fallback. Example: Egyptian plus ground meat should bias toward kofta, hawawshi, or macarona bechamel when the supporting starches and aromatics fit.",
     "Variety hard rule: do not return the same named plate, same dish_intent.dish_name, or same visual structure twice with only a different sauce, garnish, photo, or wording. Each recipe should represent a meaningfully different meal family, cooking form, starch/sauce structure, or serving format while staying accurate to the pantry and cuisine.",
     "Accuracy plus creativity rule: be creative inside real cuisine boundaries. Prefer a spread of different authentic forms such as grilled plate, stuffed bread, stew, baked casserole, rice dish, pasta dish, soup, salad, skillet, or sandwich only when that form is genuinely correct for the cuisine and ingredients.",
@@ -1047,10 +1052,18 @@ function buildSparseIngredientGuidance(
   ingredients: Array<{ name: string; quantity?: string }>,
   preferredCuisine: string
 ) {
-  if (ingredients.length > 2) return "";
-
   const normalizedCuisine = normalizeCuisinePromptKey(preferredCuisine);
   const pantry = buildNormalizedPantrySet(ingredients);
+  const egyptianMeatBreadRiceGuidance =
+    normalizedCuisine === "egyptian" &&
+    hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "lamb mince", "mince", "beef"]) &&
+    hasAny(pantry, ["bread", "baladi bread", "pita", "flatbread"]) &&
+    hasAny(pantry, ["rice"])
+      ? "Egyptian pantry trio logic: ground meat plus bread plus rice should produce a varied set, not repeats. Prefer Hawawshi first, then distinct options such as Egyptian Fattah with meat, Koftet Roz, Kofta Kebab, Taagen Kofta, or Mahshi-style stuffed vegetables with rice and meat. Do not choose Ful Medames, bean stew, or Koshary unless fava beans, lentils, pasta, or chickpeas are actually provided or clearly listed as missing for a later stretch recipe."
+      : "";
+
+  if (ingredients.length > 2) return egyptianMeatBreadRiceGuidance;
+
   const pantryAnchors = getCuisinePantryAnchors(preferredCuisine);
   const ingredientList = ingredients.map((item) => item.name).filter(Boolean).join(", ") || "the provided ingredients";
   const baseGuidance = [
@@ -1073,6 +1086,14 @@ function buildSparseIngredientGuidance(
       baseGuidance.push(
         "Sparse Egyptian logic: ground meat alone can still justify kofta, hawawshi, or macarona bechamel if the missing aromatics, bread, pasta, or bechamel staples are listed in missing_ingredients."
       );
+    }
+
+    if (
+      hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "lamb mince", "mince", "beef"]) &&
+      hasAny(pantry, ["bread", "baladi bread", "pita", "flatbread"]) &&
+      hasAny(pantry, ["rice"])
+    ) {
+      baseGuidance.push(egyptianMeatBreadRiceGuidance);
     }
 
     if (hasAny(pantry, ["egg", "eggs"])) {

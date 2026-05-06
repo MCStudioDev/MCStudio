@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type KeyboardEvent } from "react";
-import { ChefHat, ChevronDown, Plus, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent } from "react";
+import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
 import type { RecipeImageSource } from "@/lib/types";
@@ -95,7 +95,7 @@ export function MealRevealCard({
 }: MealRevealCardProps) {
   const { t } = useApp();
   const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
-  const bypassClientCache = access.tier === "premium";
+  const bypassClientCache = false;
   const cardRef = useRef<HTMLElement | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const premiumRetryCountsRef = useRef<Map<string, number>>(new Map());
@@ -187,6 +187,10 @@ export function MealRevealCard({
     () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
     [failedImageUrls, queryKey]
   );
+  const placeholderStyle = useMemo(
+    () => buildRecipePlaceholderStyle(primaryQuery || name),
+    [name, primaryQuery]
+  );
   const visibleStats = useMemo(
     () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
     [stats]
@@ -218,6 +222,32 @@ export function MealRevealCard({
     },
     [bypassClientCache, queryKey]
   );
+
+  const handleRetryImageLookup = useCallback(() => {
+    if (retryTimeoutRef.current) {
+      globalThis.clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+
+    if (queryKey) {
+      recipePhotoFailureCache.delete(queryKey);
+      recipePhotoSuccessCache.delete(queryKey);
+      premiumRetryCountsRef.current.delete(queryKey);
+    }
+
+    setFailedImageUrls(new Set());
+    setLookupState({
+      failed: false,
+      imageAttributionName: undefined,
+      imageAttributionUrl: undefined,
+      image: "",
+      imageSource: undefined,
+      queryKey,
+      retrying: false
+    });
+    setLookupActivated(true);
+    setLookupRetryToken((value) => value + 1);
+  }, [queryKey]);
 
   useEffect(() => {
     if (!queryKey || !resolvedImage) return;
@@ -354,7 +384,7 @@ export function MealRevealCard({
         const retryAfterSeconds = Number(error instanceof Error ? error.message : "0") || 0;
         const retryUntil = now + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS);
         const premiumRetryCount = premiumRetryCountsRef.current.get(queryKey) ?? 0;
-        if (bypassClientCache && retryAfterSeconds > 0 && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
+        if (access.tier === "premium" && retryAfterSeconds > 0 && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
           premiumRetryCountsRef.current.set(queryKey, premiumRetryCount + 1);
           setLookupState({
             failed: false,
@@ -392,6 +422,7 @@ export function MealRevealCard({
       cancelled = true;
     };
   }, [
+    access.tier,
     authLoading,
     bypassClientCache,
     cachedImage,
@@ -482,8 +513,10 @@ export function MealRevealCard({
                 resolvedImage={resolvedImage}
                 imageLoading={imageLoading || lookupRetrying}
                 showNoExactPhoto={showNoExactPhoto}
+                placeholderStyle={placeholderStyle}
                 onImageLoadError={handleImageLoadError}
                 onOpenRecipe={openRecipeDetails}
+                onRetryImageLookup={handleRetryImageLookup}
               />
             </div>
 
@@ -567,8 +600,10 @@ function RecipeFrontFace({
   resolvedImage,
   imageLoading,
   showNoExactPhoto,
+  placeholderStyle,
   onImageLoadError,
-  onOpenRecipe
+  onOpenRecipe,
+  onRetryImageLookup
 }: {
   eyebrow?: string;
   visualMatchLabel?: string;
@@ -578,8 +613,10 @@ function RecipeFrontFace({
   resolvedImage?: string;
   imageLoading?: boolean;
   showNoExactPhoto: boolean;
+  placeholderStyle: CSSProperties;
   onImageLoadError: (failedUrl: string) => void;
   onOpenRecipe: () => void;
+  onRetryImageLookup: () => void;
 }) {
   const { t } = useApp();
   const noImageState = !resolvedImage;
@@ -597,7 +634,10 @@ function RecipeFrontFace({
           onError={() => onImageLoadError(resolvedImage)}
         />
       ) : (
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(73,247,189,0.38),transparent_30%),radial-gradient(circle_at_78%_18%,rgba(97,196,255,0.24),transparent_24%),linear-gradient(135deg,#0b201c,#061311_58%,#05293a)]" />
+        <div
+          className={cn("absolute inset-0", imageLoading && "motion-safe:animate-pulse")}
+          style={placeholderStyle}
+        />
       )}
 
       <div className="absolute inset-0 bg-gradient-to-t from-[#040c0a] via-[#040c0a]/36 to-transparent" />
@@ -620,6 +660,19 @@ function RecipeFrontFace({
               <p className="mt-1 text-xs leading-relaxed text-white/62">
                 {imageLoading ? t("recipeImageLoadingHint") : t("hideWeakMatches")}
               </p>
+              {showNoExactPhoto && !imageLoading ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRetryImageLookup();
+                  }}
+                  className="focus-ring mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-white/14 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/[0.18]"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t("retryPhoto")}
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -833,6 +886,29 @@ function buildRecipePhotoRequestUrl(
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
+}
+
+function buildRecipePlaceholderStyle(seed: string): CSSProperties {
+  const hash = hashRecipeSeed(seed || "recipe");
+  const hueA = hash % 360;
+  const hueB = (hueA + 62) % 360;
+  const hueC = (hueA + 190) % 360;
+
+  return {
+    background: [
+      `radial-gradient(circle at 24% 18%, hsla(${hueB}, 78%, 68%, 0.42), transparent 30%)`,
+      `radial-gradient(circle at 82% 20%, hsla(${hueC}, 74%, 64%, 0.28), transparent 26%)`,
+      `linear-gradient(135deg, hsl(${hueA}, 48%, 16%), hsl(${hueB}, 46%, 10%) 58%, hsl(${hueC}, 46%, 15%))`
+    ].join(", ")
+  };
+}
+
+function hashRecipeSeed(seed: string) {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+  return hash;
 }
 
 function isInternetImageUrl(imageUrl?: string): imageUrl is string {

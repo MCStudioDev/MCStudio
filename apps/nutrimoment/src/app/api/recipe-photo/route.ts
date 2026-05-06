@@ -2,8 +2,9 @@ import { z } from "zod";
 import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
 import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { generateRecipeImageWithReplicate, getReplicateImageModel, isReplicateConfigured } from "@/lib/replicateRecipeImage";
-import { buildRecipePhotoIdentity, normalizeRecipePhotoQuery } from "@/lib/recipePhotoIdentity";
+import { buildRecipePhotoIdentity, isStrictRecipePhotoIdentity, normalizeRecipePhotoQuery } from "@/lib/recipePhotoIdentity";
 import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
+import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
 import {
   getSharedRecipePhotoByExactAliases,
   getSharedRecipePhotoBySignatures,
@@ -88,12 +89,14 @@ const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const PREMIUM_REPLICATE_RETRY_TTL_MS = 3 * 1000;
 const PREMIUM_REPLICATE_RETRY_AFTER_SECONDS = 2;
 const WIKIMEDIA_ENABLED = true;
+const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v2";
 const MIN_ACCEPTED_PROVIDER_SCORE = {
   wikimedia: 12,
   pexels_search: 11,
   unsplash_search: 11
 } as const;
 const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
+  ...getAllDishes().map((dish) => dish.id),
   "cilbir",
   "shakshuka",
   "mujadara",
@@ -128,7 +131,10 @@ export async function GET(request: Request) {
   });
 
   if (!parsed.success) {
-    return Response.json({ error: "A recipe photo query is required." }, { status: 400 });
+    return Response.json(
+      { error: "A recipe photo query is required." },
+      { headers: buildRecipePhotoResponseHeaders("failure"), status: 400 }
+    );
   }
 
   const rawQueryCandidates = [
@@ -154,20 +160,21 @@ export async function GET(request: Request) {
   const query = queryCandidates[0] ?? parsed.data.query.trim();
   const identities = queryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate));
   const identity = identities[0] ?? buildRecipePhotoIdentity(query);
+  const strictVisualRequest = identities.some(isStrictRecipePhotoIdentity) || isStrictRecipePhotoIdentity(identity);
   const useReplicateGeneration = accessCheck.access.isPremium;
-  const allowGeneratedCacheForPremium = false;
+  const allowGeneratedCacheForPremium = true;
   const selectedReplicateQuery = useReplicateGeneration
     ? selectReplicateRecipePhotoQuery(queryCandidates, identities, ingredientHints)
     : null;
   const selectedReplicateSignature = selectedReplicateQuery ? buildGeneratedRecipePhotoSignature(selectedReplicateQuery) : null;
   const allowProviderPhotoSearch = accessCheck.allowed || !useReplicateGeneration;
+  const generatedAliasCandidates = buildGeneratedRecipePhotoCacheAliasCandidates(identities);
   const signatureCandidates = useReplicateGeneration
-    ? selectedReplicateSignature
-      ? [selectedReplicateSignature]
-      : []
+    ? Array.from(new Set([...(selectedReplicateSignature ? [selectedReplicateSignature] : []), ...generatedAliasCandidates]))
     : Array.from(new Set(identities.map((entry) => entry.signature)));
   const exactCacheLookupCandidates = Array.from(
     new Set([
+      ...generatedAliasCandidates,
       ...exactAliasCandidates,
       ...buildLegacyExactRecipePhotoCacheCandidates(queryCandidates, identities)
     ])
@@ -192,6 +199,7 @@ export async function GET(request: Request) {
   if (
     exactCached &&
     !explicitlyExcludedImageUrls.has(exactCached.imageUrl) &&
+    canUseCachedRecipePhotoForVisualRequest(exactCached, strictVisualRequest) &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(exactCached.imageUrl, exactCacheLookupCandidates))
   ) {
     await persistExactAliasesForLegacyPhoto(exactCached, exactAliasCandidates);
@@ -205,17 +213,21 @@ export async function GET(request: Request) {
       signature: exactCached.signature
     });
 
-    return Response.json({
-      ...exactCached,
-      imageSource: "cache",
-      access: accessPayload(accessCheck.access)
-    });
+    return Response.json(
+      {
+        ...exactCached,
+        imageSource: "cache",
+        access: accessPayload(accessCheck.access)
+      },
+      { headers: buildRecipePhotoResponseHeaders("success") }
+    );
   }
 
   const sharedExactCached = await getSharedRecipePhotoByExactAliases(exactCacheLookupCandidates);
   if (
     sharedExactCached &&
     !explicitlyExcludedImageUrls.has(sharedExactCached.imageUrl) &&
+    canUseSharedRecipePhotoForVisualRequest(sharedExactCached, strictVisualRequest) &&
     (WIKIMEDIA_ENABLED || sharedExactCached.source !== "wikimedia") &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates))
   ) {
@@ -241,10 +253,13 @@ export async function GET(request: Request) {
       signature: sharedPhoto.signature
     });
 
-    return Response.json({
-      ...sharedPhoto,
-      access: accessPayload(accessCheck.access)
-    });
+    return Response.json(
+      {
+        ...sharedPhoto,
+        access: accessPayload(accessCheck.access)
+      },
+      { headers: buildRecipePhotoResponseHeaders("success") }
+    );
   }
 
   const cached =
@@ -254,6 +269,7 @@ export async function GET(request: Request) {
   if (
     cached &&
     !explicitlyExcludedImageUrls.has(cached.imageUrl) &&
+    canUseCachedRecipePhotoForVisualRequest(cached, strictVisualRequest) &&
     (!useReplicateGeneration || cached.source === "generated") &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates))
   ) {
@@ -267,11 +283,14 @@ export async function GET(request: Request) {
       signature: identity.signature
     });
 
-    return Response.json({
-      ...cached,
-      imageSource: "cache",
-      access: accessPayload(accessCheck.access)
-    });
+    return Response.json(
+      {
+        ...cached,
+        imageSource: "cache",
+        access: accessPayload(accessCheck.access)
+      },
+      { headers: buildRecipePhotoResponseHeaders("success") }
+    );
   }
 
   const sharedCached =
@@ -281,6 +300,7 @@ export async function GET(request: Request) {
   if (
     sharedCached &&
     !explicitlyExcludedImageUrls.has(sharedCached.imageUrl) &&
+    canUseSharedRecipePhotoForVisualRequest(sharedCached, strictVisualRequest) &&
     (!useReplicateGeneration || sharedCached.source === "generated") &&
     (WIKIMEDIA_ENABLED || sharedCached.source !== "wikimedia") &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates))
@@ -307,10 +327,13 @@ export async function GET(request: Request) {
       signature: identity.signature
     });
 
-    return Response.json({
-      ...sharedPhoto,
-      access: accessPayload(accessCheck.access)
-    });
+    return Response.json(
+      {
+        ...sharedPhoto,
+        access: accessPayload(accessCheck.access)
+      },
+      { headers: buildRecipePhotoResponseHeaders("success") }
+    );
   }
 
   const cachedFailure = getRecipePhotoFailure(failureCacheKey);
@@ -348,6 +371,7 @@ export async function GET(request: Request) {
       ingredientHints,
       arabicDishNameHints,
       exactAliasCandidates,
+      generatedAliasCandidates,
       explicitlyExcludedImageUrls,
       query,
       queryCandidates,
@@ -369,7 +393,10 @@ export async function GET(request: Request) {
       signature: identity.signature
     });
 
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json(
+      { error: message },
+      { headers: buildRecipePhotoResponseHeaders("failure"), status: 500 }
+    );
   }
 }
 
@@ -379,6 +406,18 @@ function getRecipePhotoSuccessCacheKey(signature: string) {
 
 function getRecipePhotoFailureCacheKey(signature: string, imageMode: "generated" | "search" | "disabled") {
   return `${imageMode}:${signature}`;
+}
+
+function canUseCachedRecipePhotoForVisualRequest(entry: CachedRecipePhoto, strictVisualRequest: boolean) {
+  if (!strictVisualRequest) return true;
+  if (entry.source === "wikimedia") return true;
+  return entry.source === "generated" && entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION);
+}
+
+function canUseSharedRecipePhotoForVisualRequest(entry: SharedRecipePhotoEntry, strictVisualRequest: boolean) {
+  if (!strictVisualRequest) return true;
+  if (entry.source === "wikimedia") return true;
+  return entry.source === "generated" && entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION);
 }
 
 function normalizeRecipePhotoQueries(queries: string[]) {
@@ -499,6 +538,7 @@ async function performRecipePhotoLookup({
   ingredientHints,
   arabicDishNameHints,
   exactAliasCandidates,
+  generatedAliasCandidates,
   explicitlyExcludedImageUrls,
   query,
   queryCandidates,
@@ -513,6 +553,7 @@ async function performRecipePhotoLookup({
   ingredientHints: string[];
   arabicDishNameHints: string[];
   exactAliasCandidates: string[];
+  generatedAliasCandidates: string[];
   explicitlyExcludedImageUrls: Set<string>;
   query: string;
   queryCandidates: string[];
@@ -521,11 +562,12 @@ async function performRecipePhotoLookup({
   reason?: string | null;
 }): Promise<RecipePhotoLookupResult> {
   const excludedUrls = new Set([
-    ...getRecentlyUsedRecipeImageUrls([...exactAliasCandidates, ...signatureCandidates]),
+    ...getRecentlyUsedRecipeImageUrls([...generatedAliasCandidates, ...exactAliasCandidates, ...signatureCandidates]),
     ...explicitlyExcludedImageUrls
   ]);
   const baseIdentity = identities[0] ?? buildRecipePhotoIdentity(query);
   let bestMatch: ProviderRecipePhotoCandidate | null = null;
+  const preferWikimediaFirst = Boolean(baseIdentity.canonicalDishKey);
 
   if (useReplicateGeneration) {
     if (!isReplicateConfigured()) {
@@ -542,6 +584,7 @@ async function performRecipePhotoLookup({
         });
       } else {
         const replicateCacheSignature = buildGeneratedRecipePhotoSignature(replicateQuery);
+        const generatedCacheAliases = Array.from(new Set([...generatedAliasCandidates, ...exactAliasCandidates]));
 
         try {
           const generatedImage = await generateRecipeImageWithReplicate(replicateQuery, ingredientHints, {
@@ -566,19 +609,19 @@ async function performRecipePhotoLookup({
                   signature: replicateCacheSignature,
                   source: selectedPhoto.source
                 },
-                exactAliasCandidates
+                generatedCacheAliases
               );
               selectedPhoto.imageUrl = persistedGeneratedPhoto.imageUrl;
             } catch (error) {
               logger.warn("Replicate recipe photo exact cache persistence failed; returning generated result", {
                 query,
                 replicateQuery,
-                exactAliasCount: exactAliasCandidates.length,
+                exactAliasCount: generatedCacheAliases.length,
                 errorMessage: error instanceof Error ? error.message : String(error)
               });
             }
 
-            setRecipePhotoCacheAliases([replicateCacheSignature, ...exactAliasCandidates], selectedPhoto);
+            setRecipePhotoCacheAliases([replicateCacheSignature, ...generatedCacheAliases], selectedPhoto);
             rememberRecipePhotoSelection(selectedPhoto.imageUrl, selectedPhoto.signature);
             logger.info("Recipe photo served", {
               source: selectedPhoto.source,
@@ -587,7 +630,7 @@ async function performRecipePhotoLookup({
               replicateQuery,
               imageMode,
               reason,
-              exactAliasCount: exactAliasCandidates.length,
+              exactAliasCount: generatedCacheAliases.length,
               signature: replicateCacheSignature
             });
 
@@ -609,11 +652,13 @@ async function performRecipePhotoLookup({
             PREMIUM_REPLICATE_RETRY_TTL_MS,
             PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
           );
-          setRecipePhotoFailureCache(failureCacheKey, unavailableFailure);
-          return {
-            failure: unavailableFailure,
-            ok: false
-          };
+          if (!baseIdentity.canonicalDishKey) {
+            setRecipePhotoFailureCache(failureCacheKey, unavailableFailure);
+            return {
+              failure: unavailableFailure,
+              ok: false
+            };
+          }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           const status = /\b429\b|rate.?limit/i.test(errorMessage) ? 429 : 503;
@@ -631,23 +676,48 @@ async function performRecipePhotoLookup({
             PREMIUM_REPLICATE_RETRY_TTL_MS,
             PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
           );
-          setRecipePhotoFailureCache(failureCacheKey, retryFailure);
-          return {
-            failure: retryFailure,
-            ok: false
-          };
+          if (!baseIdentity.canonicalDishKey) {
+            setRecipePhotoFailureCache(failureCacheKey, retryFailure);
+            return {
+              failure: retryFailure,
+              ok: false
+            };
+          }
         }
       }
     }
   }
 
-  if (accessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
+  if (preferWikimediaFirst && WIKIMEDIA_ENABLED) {
     for (const [index, candidateQuery] of queryCandidates.entries()) {
+      const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
+      if (!shouldTryWikimediaRecipePhoto(candidateIdentity, index)) continue;
+      const knownDishPhoto = await findFreeRecipePhoto(candidateQuery);
+      if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl)) {
+        bestMatch = chooseBetterRecipePhoto(bestMatch, {
+          attributionName: undefined,
+          attributionUrl: undefined,
+          imageSource: "wikimedia",
+          imageUrl: knownDishPhoto.imageUrl,
+          matchedQuery: candidateQuery,
+          model: "wikimedia_lookup",
+          score: 18,
+          signature: candidateIdentity.signature,
+          source: knownDishPhoto.source,
+          weightedScore: 18 + 0.6 + queryPriorityAdjustment
+        });
+      }
+    }
+  }
+
+  if (accessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
+    const unsplashResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto) {
-        bestMatch = chooseBetterRecipePhoto(bestMatch, {
+        return {
           attributionName: searchedPhoto.attributionName,
           attributionUrl: searchedPhoto.attributionUrl,
           imageSource: "unsplash",
@@ -658,18 +728,24 @@ async function performRecipePhotoLookup({
           signature: candidateIdentity.signature,
           source: searchedPhoto.source,
           weightedScore: searchedPhoto.score + 0.2 + queryPriorityAdjustment
-        });
+        } satisfies ProviderRecipePhotoCandidate;
+      }
+      return null;
+    }));
+    for (const result of unsplashResults) {
+      if (result.status === "fulfilled" && result.value) {
+        bestMatch = chooseBetterRecipePhoto(bestMatch, result.value);
       }
     }
   }
 
   if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && accessAllowed && isPexelsRecipePhotoSearchConfigured()) {
-    for (const [index, candidateQuery] of queryCandidates.entries()) {
+    const pexelsResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findPexelsRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto) {
-        bestMatch = chooseBetterRecipePhoto(bestMatch, {
+        return {
           imageSource: "search",
           imageUrl: searchedPhoto.imageUrl,
           matchedQuery: searchedPhoto.matchedQuery || candidateQuery,
@@ -678,12 +754,18 @@ async function performRecipePhotoLookup({
           signature: candidateIdentity.signature,
           source: searchedPhoto.source,
           weightedScore: searchedPhoto.score + queryPriorityAdjustment
-        });
+        } satisfies ProviderRecipePhotoCandidate;
+      }
+      return null;
+    }));
+    for (const result of pexelsResults) {
+      if (result.status === "fulfilled" && result.value) {
+        bestMatch = chooseBetterRecipePhoto(bestMatch, result.value);
       }
     }
   }
 
-  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && WIKIMEDIA_ENABLED) {
+  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && !preferWikimediaFirst && WIKIMEDIA_ENABLED) {
     for (const [index, candidateQuery] of queryCandidates.entries()) {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
@@ -800,17 +882,20 @@ async function buildRecipePhotoLookupResponse(
     signature: result.photo.signature
   });
 
-  return Response.json({
-    ...result.photo,
-    access: accessPayload(nextAccess)
-  });
+  return Response.json(
+    {
+      ...result.photo,
+      access: accessPayload(nextAccess)
+    },
+    { headers: buildRecipePhotoResponseHeaders("success") }
+  );
 }
 
 function buildRecipePhotoFailureResponse(
   failure: Omit<CachedRecipePhotoFailure, "expiresAt">,
   access: Awaited<ReturnType<typeof canUseApiFeature>>["access"]
 ) {
-  const headers = new Headers();
+  const headers = new Headers(buildRecipePhotoResponseHeaders("failure"));
   if (failure.retryAfterSeconds) {
     headers.set("Retry-After", String(failure.retryAfterSeconds));
   }
@@ -836,6 +921,14 @@ function createRecipePhotoFailure(error: string, status: number, cacheTtlMs: num
   };
 }
 
+function buildRecipePhotoResponseHeaders(result: "success" | "failure") {
+  return {
+    "Cache-Control": result === "success"
+      ? "private, max-age=300, stale-while-revalidate=86400"
+      : "private, max-age=60"
+  };
+}
+
 function chooseBetterRecipePhoto(
   current: ProviderRecipePhotoCandidate | null,
   candidate: ProviderRecipePhotoCandidate
@@ -851,8 +944,10 @@ function buildGeneratedRecipePhotoSignature(query: string) {
     .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .replace(/\s+/g, "-")
     .slice(0, 96);
+  const identity = buildRecipePhotoIdentity(query);
+  const strictPrefix = isStrictRecipePhotoIdentity(identity) ? `${STRICT_RECIPE_PHOTO_CACHE_VERSION}:` : "";
 
-  return `generated:${normalized || "food"}`;
+  return `generated:${strictPrefix}${normalized || "food"}`;
 }
 
 function buildLegacyExactRecipePhotoCacheCandidates(
@@ -879,6 +974,27 @@ function buildLegacyExactRecipePhotoCacheCandidates(
   }
 
   return Array.from(new Set(candidates)).slice(0, 12);
+}
+
+function buildGeneratedRecipePhotoCacheAliasCandidates(
+  identities: Array<ReturnType<typeof buildRecipePhotoIdentity>>
+) {
+  const candidates: string[] = [];
+
+  for (const identity of identities) {
+    if (identity.canonicalDishKey) {
+      candidates.push(`generated:${STRICT_RECIPE_PHOTO_CACHE_VERSION}:${identity.canonicalDishKey}`);
+      candidates.push(
+        `generated:${STRICT_RECIPE_PHOTO_CACHE_VERSION}:${identity.canonicalDishKey}|${identity.cuisineKey ?? "general"}`
+      );
+    }
+
+    if (identity.familyKey) {
+      candidates.push(`generated:${STRICT_RECIPE_PHOTO_CACHE_VERSION}:family:${identity.familyKey}`);
+    }
+  }
+
+  return Array.from(new Set(candidates)).slice(0, 16);
 }
 
 function isStrongLegacyExactRecipePhotoIdentity(identity: ReturnType<typeof buildRecipePhotoIdentity>) {

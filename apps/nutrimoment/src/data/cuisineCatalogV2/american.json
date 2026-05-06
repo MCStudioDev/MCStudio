@@ -1,0 +1,730 @@
+{
+  "cuisine": "american",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Ground beef patty served in a bun with classic toppings",
+      "id": "hamburger",
+      "ingredients": {
+        "optional": [
+          "cheese",
+          "tomato",
+          "pickle"
+        ],
+        "required": [
+          "ground beef",
+          "bun",
+          "lettuce"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Hamburger"
+        ],
+        "native": [
+          "Hamburger"
+        ]
+      },
+      "region": "United States",
+      "score": 94
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Burger with melted cheese and classic condiments",
+      "id": "cheeseburger",
+      "ingredients": {
+        "optional": [
+          "pickle",
+          "onion",
+          "ketchup"
+        ],
+        "required": [
+          "ground beef",
+          "bun",
+          "cheese"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Cheeseburger"
+        ],
+        "native": [
+          "Cheeseburger"
+        ]
+      },
+      "region": "United States",
+      "score": 94
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Seasoned chicken pieces dredged and fried crisp",
+      "id": "fried-chicken",
+      "ingredients": {
+        "optional": [
+          "paprika",
+          "hot sauce",
+          "oil"
+        ],
+        "required": [
+          "chicken",
+          "flour",
+          "buttermilk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Fried Chicken"
+        ],
+        "native": [
+          "Fried Chicken"
+        ]
+      },
+      "region": "American South",
+      "score": 94,
+      "subCuisine": "southernAmerican"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Buttermilk biscuits topped with sausage gravy",
+      "id": "biscuits-and-gravy",
+      "ingredients": {
+        "optional": [
+          "flour",
+          "black pepper"
+        ],
+        "required": [
+          "biscuits",
+          "sausage",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast"
+      ],
+      "names": {
+        "english": [
+          "Biscuits and Gravy"
+        ],
+        "native": [
+          "Biscuits and Gravy"
+        ]
+      },
+      "region": "American South",
+      "score": 88,
+      "subCuisine": "southernAmerican"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Shrimp served over creamy corn grits",
+      "id": "shrimp-and-grits",
+      "ingredients": {
+        "optional": [
+          "bacon",
+          "scallion",
+          "cheese"
+        ],
+        "required": [
+          "shrimp",
+          "grits",
+          "butter"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Shrimp and Grits"
+        ],
+        "native": [
+          "Shrimp and Grits"
+        ]
+      },
+      "region": "Lowcountry",
+      "score": 88,
+      "subCuisine": "southernAmerican"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Okra or roux-thickened stew with seafood, chicken, or sausage",
+      "id": "gumbo",
+      "ingredients": {
+        "optional": [
+          "shrimp",
+          "chicken",
+          "rice"
+        ],
+        "required": [
+          "roux",
+          "okra",
+          "sausage"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Gumbo"
+        ],
+        "native": [
+          "Gumbo"
+        ]
+      },
+      "region": "Louisiana",
+      "score": 92,
+      "subCuisine": "cajunCreole"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "One-pot rice dish with sausage, chicken, seafood, and Cajun seasoning",
+      "id": "jambalaya",
+      "ingredients": {
+        "optional": [
+          "shrimp",
+          "pepper",
+          "tomato"
+        ],
+        "required": [
+          "rice",
+          "sausage",
+          "chicken"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Jambalaya"
+        ],
+        "native": [
+          "Jambalaya"
+        ]
+      },
+      "region": "Louisiana",
+      "score": 90,
+      "subCuisine": "cajunCreole"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Creamy clam soup with potatoes and onions",
+      "id": "clam-chowder",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "celery",
+          "bacon"
+        ],
+        "required": [
+          "clams",
+          "potato",
+          "cream"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "New England Clam Chowder"
+        ],
+        "native": [
+          "Clam Chowder"
+        ]
+      },
+      "region": "New England",
+      "score": 90,
+      "subCuisine": "newEngland"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Lobster meat served in a split-top roll",
+      "id": "lobster-roll",
+      "ingredients": {
+        "optional": [
+          "mayonnaise",
+          "celery",
+          "lemon"
+        ],
+        "required": [
+          "lobster",
+          "roll",
+          "butter"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Lobster Roll"
+        ],
+        "native": [
+          "Lobster Roll"
+        ]
+      },
+      "region": "New England",
+      "score": 88,
+      "subCuisine": "newEngland"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Macaroni baked or stirred with cheese sauce",
+      "id": "macaroni-and-cheese",
+      "ingredients": {
+        "optional": [
+          "butter",
+          "breadcrumbs",
+          "mustard"
+        ],
+        "required": [
+          "macaroni",
+          "cheese",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Macaroni and Cheese"
+        ],
+        "native": [
+          "Mac and Cheese"
+        ]
+      },
+      "region": "United States",
+      "score": 90
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Baked seasoned ground meat loaf with glaze",
+      "id": "meatloaf",
+      "ingredients": {
+        "optional": [
+          "ketchup",
+          "onion",
+          "milk"
+        ],
+        "required": [
+          "ground beef",
+          "breadcrumbs",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Meatloaf"
+        ],
+        "native": [
+          "Meatloaf"
+        ]
+      },
+      "region": "United States",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Creamy chicken and vegetables baked under pastry",
+      "id": "chicken-pot-pie",
+      "ingredients": {
+        "optional": [
+          "cream",
+          "peas",
+          "carrot"
+        ],
+        "required": [
+          "chicken",
+          "pie crust",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Pot Pie"
+        ],
+        "native": [
+          "Chicken Pot Pie"
+        ]
+      },
+      "region": "United States",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Slow-cooked pork ribs glazed with barbecue sauce",
+      "id": "bbq-ribs",
+      "ingredients": {
+        "optional": [
+          "smoke",
+          "coleslaw"
+        ],
+        "required": [
+          "pork ribs",
+          "barbecue sauce",
+          "spice rub"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Barbecue Ribs"
+        ],
+        "native": [
+          "BBQ Ribs"
+        ]
+      },
+      "region": "United States",
+      "score": 90
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Beef chili with dried chilies, spices, and often beans",
+      "id": "chili-con-carne",
+      "ingredients": {
+        "optional": [
+          "beans",
+          "onion",
+          "cheese"
+        ],
+        "required": [
+          "beef",
+          "chili",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chili Con Carne"
+        ],
+        "native": [
+          "Chili"
+        ]
+      },
+      "region": "Texas",
+      "score": 88,
+      "subCuisine": "texMexAmerican"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Chicken wings tossed in hot sauce and butter",
+      "id": "buffalo-wings",
+      "ingredients": {
+        "optional": [
+          "celery",
+          "blue cheese"
+        ],
+        "required": [
+          "chicken wings",
+          "hot sauce",
+          "butter"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Buffalo Wings"
+        ],
+        "native": [
+          "Buffalo Wings"
+        ]
+      },
+      "region": "Buffalo, New York",
+      "score": 90
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Fluffy griddle cakes served with butter and syrup",
+      "id": "pancakes",
+      "ingredients": {
+        "optional": [
+          "maple syrup",
+          "butter",
+          "blueberries"
+        ],
+        "required": [
+          "flour",
+          "egg",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast"
+      ],
+      "names": {
+        "english": [
+          "American Pancakes"
+        ],
+        "native": [
+          "Pancakes"
+        ]
+      },
+      "region": "United States",
+      "score": 90
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Bread soaked in egg custard and griddled",
+      "id": "french-toast",
+      "ingredients": {
+        "optional": [
+          "cinnamon",
+          "syrup",
+          "butter"
+        ],
+        "required": [
+          "bread",
+          "egg",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast"
+      ],
+      "names": {
+        "english": [
+          "French Toast"
+        ],
+        "native": [
+          "French Toast"
+        ]
+      },
+      "region": "United States",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Chopped salad with chicken, bacon, egg, avocado, tomato, and blue cheese",
+      "id": "cobb-salad",
+      "ingredients": {
+        "optional": [
+          "avocado",
+          "tomato",
+          "blue cheese"
+        ],
+        "required": [
+          "chicken",
+          "bacon",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Cobb Salad"
+        ],
+        "native": [
+          "Cobb Salad"
+        ]
+      },
+      "region": "California",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Double-crust pie filled with spiced apples",
+      "id": "apple-pie",
+      "ingredients": {
+        "optional": [
+          "cinnamon",
+          "butter"
+        ],
+        "required": [
+          "apple",
+          "pie crust",
+          "sugar"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Apple Pie"
+        ],
+        "native": [
+          "Apple Pie"
+        ]
+      },
+      "region": "United States",
+      "score": 94
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "american",
+      "description": "Dense chocolate squares baked with cocoa or melted chocolate",
+      "id": "brownies",
+      "ingredients": {
+        "optional": [
+          "butter",
+          "walnuts",
+          "sugar"
+        ],
+        "required": [
+          "chocolate",
+          "flour",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Brownies"
+        ],
+        "native": [
+          "Brownies"
+        ]
+      },
+      "region": "United States",
+      "score": 88
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

@@ -1423,7 +1423,9 @@ const ARABIC_MATCH_QUALITY_LABELS: Record<NonNullable<Recipe["match_quality"]>, 
 };
 
 function buildRecipePreviewItems(recipe: Recipe) {
-  return [...recipe.ingredients, ...recipe.missing_ingredients].map(getRecipeIngredientLabel).slice(0, 5);
+  const pantryItems = recipe.ingredients.map(getRecipeIngredientLabel).filter(Boolean);
+  if (pantryItems.length) return pantryItems.slice(0, 5);
+  return recipe.missing_ingredients.map(getRecipeIngredientLabel).slice(0, 5);
 }
 
 function buildRecipeSections(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {

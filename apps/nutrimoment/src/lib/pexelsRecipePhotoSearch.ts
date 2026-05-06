@@ -3,10 +3,13 @@ import {
   isStrictRecipePhotoIdentity,
   hasChickenVisualConfusable,
   hasEggVisualConfusable,
+  hasFishVisualConfusable,
   hasFulVisualConfusable,
   hasLiverVisualConfusable,
   hasMincedKebabVisualConfusable,
   hasMolokhiaVisualConfusable,
+  hasSeafoodVisualConfusable,
+  hasShrimpVisualConfusable,
   matchesStrictRecipePhotoIdentity,
   normalizeRecipePhotoQuery
 } from "@/lib/recipePhotoIdentity";
@@ -238,9 +241,13 @@ function scorePexelsCandidate(
   score += Math.min(semanticTokenHits, 5);
   score += Math.min(requestTokenHits, 4);
 
+  if (identity.mainIngredientKey === "fish" && hasFishVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "fish" && /\b(chicken|beef|lamb)\b/.test(haystack)) score -= 5;
   if (identity.mainIngredientKey === "chicken" && hasChickenVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "chicken" && !/\b(chicken|poultry|breast|thigh|drumstick|wing|wings|schnitzel)\b/.test(haystack)) score -= 6;
+  if (identity.mainIngredientKey === "seafood" && hasSeafoodVisualConfusable(haystack)) return -100;
+  if (identity.mainIngredientKey === "seafood" && !/\b(seafood|fish|shrimp|prawn|mussel|clam|calamari|squid|crab|lobster|scallop)\b/.test(haystack)) score -= 8;
+  if (identity.mainIngredientKey === "shrimp" && hasShrimpVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "shrimp" && !/\bshrimp|prawn\b/.test(haystack)) score -= 5;
   if (identity.mainIngredientKey === "liver" && hasLiverVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "liver" && !/\b(liver|kebda|kibda|ciger|cigeri)\b/.test(haystack)) score -= 12;
@@ -249,6 +256,9 @@ function scorePexelsCandidate(
   if ((identity.mainIngredientKey === "egg" || /\b(egg|eggs|omelet|omelette|frittata|cilbir|menemen|shakshuka|yumurta)\b/.test(identity.cleanQuery)) && hasEggVisualConfusable(haystack)) return -100;
   if (/\b(molokhia|molokia|mulukhiyah|mulookhiyah|jute mallow|jute leaves)\b/.test(identity.cleanQuery) && hasMolokhiaVisualConfusable(haystack)) return -100;
   if (/\b(molokhia|molokia|mulukhiyah|mulookhiyah)\b/.test(identity.cleanQuery) && !/\b(molokhia|molokia|mulukhiyah|mulookhiyah|jute mallow|jute leaves|green soup|green stew)\b/.test(haystack)) score -= 10;
+  if (/\b(seafood|fish|salmon|cod|tilapia|sea bass|snapper|shrimp|prawn|sayadeya|samak)\b/.test(identity.cleanQuery) && hasSeafoodVisualConfusable(haystack)) return -100;
+  if (!/\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(identity.cleanQuery) && /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(haystack)) score -= 10;
+  if (!/\b(rice|pilaf|sayadeya|sayadiya)\b/.test(identity.cleanQuery) && /\b(plain rice|rice bowl|rice pilaf)\b/.test(haystack)) score -= 8;
   if (identity.mainIngredientKey === "tuna" && !/\btuna\b/.test(haystack)) score -= 4;
   if (identity.mainIngredientKey === "bean" && BLOCKED_TERMS.some((term) => haystack.includes(term))) score -= 8;
 

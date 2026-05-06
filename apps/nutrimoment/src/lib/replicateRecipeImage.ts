@@ -132,6 +132,86 @@ const MUSHROOM_MOLOKHIA_VISUAL_PROMPT: DishVisualPrompt = {
   plating: "served as one bowl or shallow dish of green molokhia with mushrooms visible on top or partly submerged"
 };
 
+const BAKED_FISH_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "baked fish",
+  visualDescription:
+    "a clearly recognizable fish dish: either a whole fish, fish fillet, or thick fish pieces with flaky white fish texture, lightly browned or baked with the recipe's seasonings. Lemon, herbs, tomato, rice, or vegetables may appear only when they are part of the recipe",
+  plating:
+    "served as one fish-centered plate or baking dish with the fish as the dominant subject; rice or lemon may be small supporting elements only when included in the recipe",
+  avoid:
+    "chicken, beef, liver, shrimp-only dish, crab-only dish, pasta unless listed, rice unless listed, salad-only plate, fish hidden under sauce, unrecognizable seafood mix, sushi unless requested",
+  cuisineStyle: "realistic seafood food photography"
+};
+
+const GRILLED_FISH_VISUAL_PROMPT: DishVisualPrompt = {
+  ...BAKED_FISH_VISUAL_PROMPT,
+  englishName: "grilled fish",
+  visualDescription:
+    "a clearly recognizable grilled fish dish, either whole fish or fillets with char marks, browned skin or edges, and flaky fish texture. Lemon, herbs, tomato, rice, or vegetables may appear only when they are part of the recipe",
+  plating:
+    "served as one grilled fish-centered plate with the fish clearly visible and dominant"
+};
+
+const SHRIMP_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "shrimp dish",
+  visualDescription:
+    "a shrimp-centered dish with whole curled shrimp or prawns clearly visible, pink-orange and glossy, cooked in the recipe's sauce or seasoning. The shrimp must be recognizable and dominant, not minced or hidden",
+  plating:
+    "served as one shrimp-centered plate, skillet, bowl, or bake matching the recipe form; pasta, rice, bread, and lemon appear only when included in the recipe",
+  avoid:
+    "fish fillets, chicken, beef, liver, meatballs, tofu, pasta unless listed, rice unless listed, salad-only plate, unrecognizable seafood mix without visible shrimp",
+  cuisineStyle: "realistic seafood food photography"
+};
+
+const MIXED_SEAFOOD_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "mixed seafood dish",
+  visualDescription:
+    "a mixed seafood dish with recognizable seafood pieces such as shrimp, fish, mussels, clams, squid, crab, or scallops according to the recipe. The seafood must be visibly identifiable and not replaced by chicken, beef, or anonymous protein",
+  plating:
+    "served as one seafood-centered plate, bake, soup, stew, rice dish, or pasta dish matching the recipe form; pasta, rice, lemon, or vegetables appear only when included in the recipe",
+  avoid:
+    "chicken, beef, liver, meatballs, tofu, vegetarian plate, pasta unless listed, rice unless listed, seafood hidden completely under sauce, unrelated side dishes",
+  cuisineStyle: "realistic seafood food photography"
+};
+
+const SAYADEYA_VISUAL_PROMPT: DishVisualPrompt = {
+  ...BAKED_FISH_VISUAL_PROMPT,
+  englishName: "Egyptian sayadeya",
+  visualDescription:
+    "Egyptian sayadeya with fish as the clear main subject, caramelized onion-spiced brown rice or coastal rice only when included, and tahini or tomato-onion sauce only when included. The fish should be visible as a whole fish, fillet, or fish pieces, not hidden by rice",
+  plating:
+    "served as one Egyptian coastal fish plate with fish visible and rice/lemon as supporting elements only when part of the recipe",
+  cuisineStyle: "authentic Egyptian coastal seafood"
+};
+
+const EGYPTIAN_FISH_TAGINE_VISUAL_PROMPT: DishVisualPrompt = {
+  ...BAKED_FISH_VISUAL_PROMPT,
+  englishName: "Egyptian fish tagine",
+  visualDescription:
+    "Egyptian fish tagine with visible fish pieces or fillets baked in tomato, peppers, garlic, onion, herbs, and sauce when those ingredients are in the recipe. The fish remains visible above or within the sauce",
+  plating: "served as one shallow clay tagine, baking dish, or plate with the fish clearly visible",
+  cuisineStyle: "authentic Egyptian seafood tagine"
+};
+
+const SAMAK_SINGARI_VISUAL_PROMPT: DishVisualPrompt = {
+  ...GRILLED_FISH_VISUAL_PROMPT,
+  englishName: "Egyptian samak singari",
+  visualDescription:
+    "Egyptian samak singari, a whole fish split open butterfly-style and grilled or baked with herbs, garlic, lemon, chili, tomato, or peppers when included. The open whole fish shape must be clear",
+  plating:
+    "served as one split-open whole fish on a plate or tray, with lemon or rice only as small supporting elements when listed",
+  cuisineStyle: "authentic Egyptian grilled fish"
+};
+
+const ALEXANDRIAN_SHRIMP_VISUAL_PROMPT: DishVisualPrompt = {
+  ...SHRIMP_VISUAL_PROMPT,
+  englishName: "Alexandrian shrimp",
+  visualDescription:
+    "Alexandrian shrimp with whole curled shrimp clearly visible in garlic, tomato, chili, pepper, lemon, cumin, coriander, or herbs when those ingredients are in the recipe. The shrimp should be the dominant visible protein",
+  plating: "served as one Egyptian coastal shrimp plate, skillet, or shallow bowl with the shrimp clearly visible",
+  cuisineStyle: "authentic Alexandrian Egyptian seafood"
+};
+
 const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   hawawshi: {
     englishName: "Egyptian hawawshi",
@@ -221,6 +301,45 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   "shrimp-molokhia": SHRIMP_MOLOKHIA_VISUAL_PROMPT,
   "molokhia-mushroom": MUSHROOM_MOLOKHIA_VISUAL_PROMPT,
   "mushroom-molokhia": MUSHROOM_MOLOKHIA_VISUAL_PROMPT,
+  "baked-fish": BAKED_FISH_VISUAL_PROMPT,
+  "grilled-fish": GRILLED_FISH_VISUAL_PROMPT,
+  "fish-rice-pilaf": {
+    ...BAKED_FISH_VISUAL_PROMPT,
+    englishName: "fish and rice",
+    visualDescription:
+      "a fish and rice dish with visible fish as the main protein and rice as a supporting base or side. The fish must remain clearly visible, not buried under rice"
+  },
+  "salmon-salad": {
+    ...BAKED_FISH_VISUAL_PROMPT,
+    englishName: "salmon salad",
+    visualDescription:
+      "a salad with a clearly visible salmon fillet or salmon pieces as the main protein, with salad vegetables only if included in the recipe",
+    plating: "served as one composed salmon salad with the salmon clearly visible and dominant"
+  },
+  shrimp: SHRIMP_VISUAL_PROMPT,
+  "shrimp-dish": SHRIMP_VISUAL_PROMPT,
+  seafood: MIXED_SEAFOOD_VISUAL_PROMPT,
+  "mixed-seafood": MIXED_SEAFOOD_VISUAL_PROMPT,
+  sayadeya: SAYADEYA_VISUAL_PROMPT,
+  "seafood-sayadeya": {
+    ...MIXED_SEAFOOD_VISUAL_PROMPT,
+    englishName: "Egyptian seafood sayadeya",
+    visualDescription:
+      "Egyptian seafood sayadeya with visible mixed seafood such as shrimp and fish over or beside onion-spiced rice only when rice is in the recipe. The seafood remains clearly visible and dominant",
+    cuisineStyle: "authentic Egyptian coastal seafood"
+  },
+  "egyptian-fish-tagine": EGYPTIAN_FISH_TAGINE_VISUAL_PROMPT,
+  "fish-tagine": EGYPTIAN_FISH_TAGINE_VISUAL_PROMPT,
+  "samak-singari": SAMAK_SINGARI_VISUAL_PROMPT,
+  "fish-singari": SAMAK_SINGARI_VISUAL_PROMPT,
+  "alexandrian-shrimp": ALEXANDRIAN_SHRIMP_VISUAL_PROMPT,
+  "seafood-soup": {
+    ...MIXED_SEAFOOD_VISUAL_PROMPT,
+    englishName: "seafood soup",
+    visualDescription:
+      "a seafood soup with recognizable seafood pieces such as shrimp, fish, mussels, clams, squid, or crab in broth according to the recipe. The seafood should be visible above the broth, not hidden",
+    plating: "served as one soup bowl with seafood clearly visible"
+  },
   "kebab-halla": {
     englishName: "Egyptian kebab halla",
     visualDescription:
@@ -886,6 +1005,28 @@ function buildProteinVisualClause(
     ].join(" ");
   }
 
+  if (identity.mainIngredientKey === "shrimp" || /\bshrimp|prawn\b/.test(source)) {
+    return [
+      "Shrimp visual identity: show whole curled shrimp or prawns clearly visible as the dominant seafood, pink-orange and cooked in the recipe's sauce or seasoning.",
+      "Do not substitute fish fillets, chicken, beef, tofu, or anonymous mixed protein. Pasta, rice, bread, and lemon may appear only if included in the recipe."
+    ].join(" ");
+  }
+
+  if (identity.mainIngredientKey === "fish" || /\bfish|salmon|cod|tilapia|sea bass|snapper\b/.test(source)) {
+    const form = inferFishVisualForm(source, identity.cookingMethodKey, identity.mealTypeKey);
+    return [
+      `Fish visual identity: ${form}`,
+      "Do not substitute chicken, beef, shrimp-only seafood, tofu, or anonymous mixed protein. Pasta, rice, bread, and lemon may appear only if included in the recipe."
+    ].join(" ");
+  }
+
+  if (identity.mainIngredientKey === "seafood" || /\bseafood|shellfish|mussels?|clams?|calamari|squid|crab|lobster|scallops?\b/.test(source)) {
+    return [
+      "Seafood visual identity: show the specific seafood from the recipe as recognizable pieces, such as shrimp, fish, mussels, clams, squid, crab, or scallops.",
+      "Do not substitute chicken, beef, tofu, or a generic sauce with hidden protein. Pasta, rice, bread, and lemon may appear only if included in the recipe."
+    ].join(" ");
+  }
+
   return "";
 }
 
@@ -927,6 +1068,34 @@ function inferChickenVisualForm(source: string, cookingMethodKey?: string, mealT
   }
 
   return "show chicken breast, thigh, roast pieces, or sliced cooked chicken as the dominant visible protein.";
+}
+
+function inferFishVisualForm(source: string, cookingMethodKey?: string, mealTypeKey?: string) {
+  if (/\bwhole fish|samak|singari|masala fish\b/.test(source)) {
+    return "show a recognizable whole fish or split-open whole fish with skin, head or tail shape where appropriate, and flaky fish texture visible.";
+  }
+
+  if (/\bfillet|filet|feta|lemon\b/.test(source)) {
+    return "show fish fillets with flaky white fish texture, sauce or topping from the recipe, and the fish clearly visible.";
+  }
+
+  if (mealTypeKey === "stew" || mealTypeKey === "soup" || /\bstew|soup|curry|tagine|broth\b/.test(source)) {
+    return "show visible fish pieces or fillets in the soup, curry, tagine, or stew, with fish texture visible above the sauce or broth.";
+  }
+
+  if (cookingMethodKey === "grilled" || /\bgrilled|charred\b/.test(source)) {
+    return "show grilled fish with char marks, browned skin or edges, and recognizable fish shape.";
+  }
+
+  if (cookingMethodKey === "fried" || /\bfried|crispy\b/.test(source)) {
+    return "show fried fish pieces or fillets with crisp browned exterior and visible fish shape.";
+  }
+
+  if (cookingMethodKey === "baked" || /\bbaked|roasted\b/.test(source)) {
+    return "show baked fish as fillets, pieces, or whole fish with flaky texture and lightly browned surface.";
+  }
+
+  return "show fish as a visible fillet, whole fish, or fish pieces with flaky seafood texture as the dominant protein.";
 }
 
 function buildCuisineAuthenticityClause(cuisineKey?: string) {

@@ -43,6 +43,8 @@ const ARABIC = {
   liver: "\u0643\u0628\u062f\u0629",
   liverAlt: "\u0643\u0628\u062f\u0647",
   rice: "\u0631\u0632",
+  sayadeya: "\u0635\u064a\u0627\u062f\u064a\u0629",
+  shrimp: "\u062c\u0645\u0628\u0631\u064a",
   shakshuka: "\u0634\u0643\u0634\u0648\u0643\u0629",
   yogurt: "\u0632\u0628\u0627\u062f\u064a"
 } as const;
@@ -221,6 +223,50 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "macarona bechamel",
     cuisineKey: "egyptian",
     key: "macarona-bechamel"
+  },
+  {
+    aliases: [/\bseafood sayadeya\b/i, /\bmixed seafood sayadeya\b/i],
+    canonicalName: "seafood sayadeya",
+    cuisineKey: "egyptian",
+    key: "seafood-sayadeya"
+  },
+  {
+    aliases: [
+      /\bsayadeya\b/i,
+      /\bsayadiya\b/i,
+      /\bfish with rice and onions?\b/i,
+      new RegExp(ARABIC.sayadeya, "iu")
+    ],
+    canonicalName: "sayadeya",
+    cuisineKey: "egyptian",
+    key: "sayadeya"
+  },
+  {
+    aliases: [/\b(samak singari|fish singari)\b/i, /\bsingari fish\b/i],
+    canonicalName: "samak singari",
+    cuisineKey: "egyptian",
+    key: "samak-singari"
+  },
+  {
+    aliases: [/\b(egyptian fish tagine|fish tagine|fish tajine)\b/i],
+    canonicalName: "egyptian fish tagine",
+    cuisineKey: "egyptian",
+    key: "egyptian-fish-tagine"
+  },
+  {
+    aliases: [
+      /\b(alexandrian shrimp|egyptian shrimp|shrimp alexandrian)\b/i,
+      new RegExp(`(?:${ARABIC.shrimp}|\\u0631\\u0648\\u0628\\u064a\\u0627\\u0646)\\s+(?:\\u0625\\u0633\\u0643\\u0646\\u062f\\u0631\\u0627\\u0646\\u064a|\\u0627\\u0633\\u0643\\u0646\\u062f\\u0631\\u0627\\u0646\\u064a)`, "iu")
+    ],
+    canonicalName: "alexandrian shrimp",
+    cuisineKey: "egyptian",
+    key: "alexandrian-shrimp"
+  },
+  {
+    aliases: [/\bseafood soup\b/i, /\bmixed seafood soup\b/i],
+    canonicalName: "seafood soup",
+    cuisineKey: "egyptian",
+    key: "seafood-soup"
   },
   {
     aliases: [
@@ -419,6 +465,7 @@ const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "chicken", pattern: /\bchicken\b/iu },
   { key: "mussels", pattern: /\bmussel|mussels\b/iu },
+  { key: "seafood", pattern: /\bseafood|shellfish|mussels?|clams?|calamari|squid|crab|lobster|scallops?\b/iu },
   { key: "shrimp", pattern: /\bshrimp|prawn\b/iu },
   { key: "liver", pattern: new RegExp(`\\bliver|kebda|kibda|ciger|cigeri\\b|${ARABIC.liver}|${ARABIC.liverAlt}`, "iu") },
   { key: "lamb", pattern: /\blamb\b/iu },
@@ -750,6 +797,8 @@ function detectRecipePhotoFamily(
   if (details.mainIngredientKey === "chicken" && details.mealTypeKey === "grill") return "grilled-chicken";
   if (details.mainIngredientKey === "fish" && details.mealTypeKey === "salad") return "salmon-salad";
   if (details.mainIngredientKey === "fish") return "baked-fish";
+  if (details.mainIngredientKey === "shrimp") return "shrimp-dish";
+  if (details.mainIngredientKey === "seafood") return "mixed-seafood";
   if (details.mealTypeKey === "pilaf" && details.mainIngredientKey === "chicken") return "chicken-rice-pilaf";
   if (details.mealTypeKey === "pilaf" && (details.mainIngredientKey === "fish" || details.mainIngredientKey === "tuna")) {
     return "fish-rice-pilaf";
@@ -882,6 +931,10 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("salmon salad"), withCuisine("fish salad"), withCuisine("grilled salmon salad")];
     case "baked-fish":
       return [withCuisine("baked fish plate"), withCuisine("white fish vegetables"), withCuisine("roasted fish")];
+    case "shrimp-dish":
+      return [withCuisine("shrimp dish"), withCuisine("shrimp recipe"), withCuisine("garlic shrimp")];
+    case "mixed-seafood":
+      return [withCuisine("mixed seafood"), withCuisine("seafood plate"), withCuisine("seafood bake")];
     case "rice-pilaf":
       return [withCuisine("rice pilaf"), withCuisine("pilaf"), withCuisine("plov")];
     case "chicken-rice-pilaf":
@@ -912,6 +965,18 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("mushroom molokhia"), withCuisine("molokhia with mushrooms"), withCuisine("egyptian molokhia mushrooms")];
     case "molokhia":
       return [withCuisine("molokhia"), withCuisine("egyptian molokhia"), withCuisine("jute mallow soup")];
+    case "sayadeya":
+      return [withCuisine("sayadeya"), withCuisine("egyptian fish rice"), withCuisine("fish with rice onions")];
+    case "seafood-sayadeya":
+      return [withCuisine("seafood sayadeya"), withCuisine("egyptian seafood rice"), withCuisine("mixed seafood rice")];
+    case "samak-singari":
+      return [withCuisine("samak singari"), withCuisine("egyptian grilled whole fish"), withCuisine("butterflied grilled fish")];
+    case "egyptian-fish-tagine":
+      return [withCuisine("egyptian fish tagine"), withCuisine("fish tomato tagine"), withCuisine("baked fish tomato peppers")];
+    case "alexandrian-shrimp":
+      return [withCuisine("alexandrian shrimp"), withCuisine("egyptian shrimp garlic tomato"), withCuisine("shrimp tomato garlic")];
+    case "seafood-soup":
+      return [withCuisine("seafood soup"), withCuisine("mixed seafood soup"), withCuisine("fish shrimp soup")];
     case "mujadara":
       return [withCuisine("mujadara"), withCuisine("lentils and rice"), withCuisine("roz bel ads")];
     case "koshary":
@@ -939,6 +1004,7 @@ export function isStrictRecipePhotoIdentity(identity: Pick<RecipePhotoIdentity, 
       isFulIdentity(identity) ||
       isEggVisualIdentity(identity) ||
       isMolokhiaIdentity(identity) ||
+      isSeafoodIdentity(identity) ||
       identity.familyKey === "alexandrian-liver" ||
       identity.mainIngredientKey === "liver" ||
       /\b(liver|kebda|kibda|ciger|cigeri)\b/i.test(identity.cleanQuery) ||
@@ -970,6 +1036,10 @@ export function matchesStrictRecipePhotoIdentity(
   }
 
   if (isMolokhiaIdentity(identity) && hasMolokhiaVisualConfusable(haystack)) {
+    return false;
+  }
+
+  if (isSeafoodIdentity(identity) && hasSeafoodVisualConfusable(haystack)) {
     return false;
   }
 
@@ -1014,6 +1084,21 @@ export function hasMolokhiaVisualConfusable(haystack: string) {
     !/\u0645\u0644\u0648\u062e/u.test(haystack);
 }
 
+export function hasSeafoodVisualConfusable(haystack: string) {
+  return /\b(chicken|beef|steak|lamb|liver|kebda|tofu|meatballs?|burger|vegetarian|vegan|plain pasta|plain rice)\b/iu.test(haystack) &&
+    !/\b(seafood|fish|salmon|cod|tilapia|sea bass|snapper|shrimp|prawn|mussel|clam|calamari|squid|crab|lobster|scallop|samak|sayadeya)\b/iu.test(haystack);
+}
+
+export function hasFishVisualConfusable(haystack: string) {
+  return /\b(chicken|beef|steak|lamb|liver|kebda|tofu|meatballs?|burger|shrimp-only|prawn-only|vegetarian|vegan)\b/iu.test(haystack) &&
+    !/\b(fish|salmon|cod|tilapia|sea bass|snapper|samak|sayadeya)\b/iu.test(haystack);
+}
+
+export function hasShrimpVisualConfusable(haystack: string) {
+  return /\b(chicken|beef|steak|lamb|liver|kebda|tofu|meatballs?|burger|fish fillet|salmon fillet|vegetarian|vegan)\b/iu.test(haystack) &&
+    !/\b(shrimp|prawn)\b/iu.test(haystack);
+}
+
 function isMincedKebabIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey">) {
   const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
   if (/\b(kebab halla|testi kebab|testi kebabi|pottery kebab|cig kofte|çig kofte|çiğ köfte|patlican kebab)\b/u.test(key)) {
@@ -1042,6 +1127,16 @@ function isMolokhiaIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKe
   return /\b(molokhia|molokia|mulukhiyah|mulookhiyah|jute leaves?|jute mallow)\b/u.test(key) || /\u0645\u0644\u0648\u062e/u.test(key);
 }
 
+function isSeafoodIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  return (
+    identity.mainIngredientKey === "fish" ||
+    identity.mainIngredientKey === "shrimp" ||
+    identity.mainIngredientKey === "seafood" ||
+    /\b(seafood|fish|salmon|cod|tilapia|sea bass|snapper|shrimp|prawn|mussel|clam|calamari|squid|crab|lobster|scallop|sayadeya|samak)\b/u.test(key)
+  );
+}
+
 export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
   const dish = identity.canonicalDishKey ? getDishById(identity.canonicalDishKey) : null;
   const knownDish = identity.canonicalDishKey ? KNOWN_DISHES.find((entry) => entry.key === identity.canonicalDishKey) : null;
@@ -1068,6 +1163,10 @@ export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIde
 
   if (isMolokhiaIdentity(identity)) {
     aliases.push("molokhia", "molokia", "mulukhiyah", "mulookhiyah", "jute mallow", "jute leaves", ARABIC.molokhia);
+  }
+
+  if (isSeafoodIdentity(identity)) {
+    aliases.push("seafood", "fish", "shrimp", "prawn", "samak", "sayadeya", ARABIC.sayadeya, ARABIC.shrimp);
   }
 
   return Array.from(

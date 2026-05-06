@@ -97,6 +97,38 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     imageQueries: ["koshary egyptian", "egyptian koshary bowl", "lentils rice pasta koshary"]
   },
   {
+    key: "sayadeya",
+    canonicalName: "sayadeya",
+    cuisine: "Egyptian",
+    pantrySignals: ["fish", "rice", "onion", "tahini", "lemon"],
+    visualForms: ["fish with onion-spiced rice", "visible fish over sayadeya rice", "Egyptian coastal fish plate"],
+    imageQueries: ["egyptian sayadeya fish rice", "sayadeya fish", "egyptian fish with rice onions"]
+  },
+  {
+    key: "samak-singari",
+    canonicalName: "samak singari",
+    cuisine: "Egyptian",
+    pantrySignals: ["fish", "lemon", "garlic", "herbs", "pepper"],
+    visualForms: ["split-open grilled whole fish", "butterflied fish with herbs", "Egyptian grilled fish tray"],
+    imageQueries: ["samak singari", "egyptian grilled whole fish", "butterflied grilled fish"]
+  },
+  {
+    key: "alexandrian-shrimp",
+    canonicalName: "alexandrian shrimp",
+    cuisine: "Egyptian",
+    pantrySignals: ["shrimp", "garlic", "tomato", "chili", "lemon"],
+    visualForms: ["shrimp in garlic tomato sauce", "coastal shrimp skillet", "visible pink shrimp plate"],
+    imageQueries: ["alexandrian shrimp", "egyptian shrimp garlic tomato", "shrimp tomato garlic egyptian"]
+  },
+  {
+    key: "seafood",
+    canonicalName: "mixed seafood",
+    cuisine: "Egyptian",
+    pantrySignals: ["seafood", "fish", "shrimp", "mussels", "clams", "calamari", "rice", "lemon"],
+    visualForms: ["recognizable mixed seafood plate", "seafood bake with visible shellfish", "fish and shrimp dish"],
+    imageQueries: ["mixed seafood recipe", "seafood bake shrimp fish", "fish shrimp seafood plate"]
+  },
+  {
     key: "kofta",
     canonicalName: "kofta",
     cuisine: "Egyptian",

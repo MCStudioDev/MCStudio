@@ -272,10 +272,9 @@ export async function POST(request: Request) {
       (wantsArabic ? recipes.map(ensureArabicRecipeLanguage) : recipes).map((recipe) =>
         ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
       );
-    const finalizeRecipes = (recipes: Recipe[]) =>
-      prepareRecipes(
-        enforceDistinctRecipeVariety(
-          prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceProteinFormRecipes(enforceHardRequestRecipes(
+    const finalizeRecipes = (recipes: Recipe[]) => {
+      const finalized = enforceDistinctRecipeVariety(
+        prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceProteinFormRecipes(enforceHardRequestRecipes(
               parsed.data.preferredCuisine === "Any"
                 ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
                 : enforcePreferredCuisineRecipes(
@@ -293,8 +292,13 @@ export async function POST(request: Request) {
             recipeCount
           }), scoringIngredients),
           recipeCount
-        )
       );
+      return prepareRecipes(completeProteinFormRecipeCount(finalized, {
+        availableIngredients: scoringIngredients,
+        preferredCuisine: parsed.data.preferredCuisine,
+        recipeCount
+      }));
+    };
     const deliverRecipes = (recipes: Recipe[]) =>
       requestAccess.isPremium ? stripPremiumDeliveredImages(recipes) : recipes;
 
@@ -313,7 +317,8 @@ export async function POST(request: Request) {
         { ...parsed.data, ingredients: scoringIngredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-        allowProviderLookup: !requestAccess.isPremium
+        allowProviderLookup: !requestAccess.isPremium,
+        availableIngredients: scoringIngredients
       });
       const finalRecipes = deliverRecipes(finalizeRecipes(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -373,7 +378,8 @@ export async function POST(request: Request) {
         { ...parsed.data, ingredients: scoringIngredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-        allowProviderLookup: !requestAccess.isPremium
+        allowProviderLookup: !requestAccess.isPremium,
+        availableIngredients: scoringIngredients
       });
       const finalRecipes = deliverRecipes(finalizeRecipes(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -502,7 +508,8 @@ export async function POST(request: Request) {
           );
         }
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-          allowProviderLookup: !requestAccess.isPremium
+          allowProviderLookup: !requestAccess.isPremium,
+          availableIngredients: scoringIngredients
         });
         const finalRecipes = deliverRecipes(finalizeRecipes(
           mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -558,7 +565,8 @@ export async function POST(request: Request) {
       { ...parsed.data, ingredients: scoringIngredients, recipeCount }
     );
     const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-      allowProviderLookup: !requestAccess.isPremium
+      allowProviderLookup: !requestAccess.isPremium,
+      availableIngredients: scoringIngredients
     });
     const finalRecipes = deliverRecipes(finalizeRecipes(
       mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -1339,6 +1347,31 @@ function buildProteinFormFallbackRecipes(input: {
   return [];
 }
 
+function completeProteinFormRecipeCount(
+  recipes: Recipe[],
+  input: {
+    availableIngredients: string[];
+    preferredCuisine?: string;
+    recipeCount: number;
+  }
+) {
+  if (recipes.length >= input.recipeCount) {
+    return recipes.slice(0, input.recipeCount);
+  }
+
+  const hasProteinForm = input.availableIngredients.some(isLiverLabel) || input.availableIngredients.some(isGroundMeatLabel);
+  if (!hasProteinForm) {
+    return recipes.slice(0, input.recipeCount);
+  }
+
+  const completed = mergeRecipeResults(null, [
+    ...recipes,
+    ...buildProteinFormFallbackRecipes(input)
+  ], false, input.recipeCount);
+
+  return enforceProteinFormRecipes(completed, input.availableIngredients, input.recipeCount).slice(0, input.recipeCount);
+}
+
 function buildLiverFallbackRecipes(availableIngredients: string[], preferredCuisine?: string): Recipe[] {
   const cuisine = preferredCuisine && preferredCuisine !== "Any" ? preferredCuisine : "Egyptian";
   const liverIngredient = availableIngredients.find(isLiverLabel) ?? "liver";
@@ -1435,7 +1468,12 @@ function buildGroundMeatFallbackRecipes(availableIngredients: string[], preferre
     { name: "Hawawshi", missing: ["baladi bread", "onion", "pepper", "cumin"], images: ["hawawshi", "egyptian meat bread", "minced meat flatbread"] },
     { name: "Meatballs", missing: ["onion", "garlic", "tomato sauce", "parsley"], images: ["meatballs", "ground meat meatballs", "kofta meatballs"] },
     { name: "Keema Skillet", missing: ["onion", "tomato", "ginger", "garlic"], images: ["keema", "minced meat skillet", "ground meat keema"] },
-    { name: "Lahmacun", missing: ["flatbread", "tomato", "pepper paste", "parsley"], images: ["lahmacun", "minced meat flatbread", "turkish lahmacun"] }
+    { name: "Lahmacun", missing: ["flatbread", "tomato", "pepper paste", "parsley"], images: ["lahmacun", "minced meat flatbread", "turkish lahmacun"] },
+    { name: "Rice Kofta", missing: ["rice", "parsley", "dill", "tomato sauce"], images: ["rice kofta", "egyptian rice kofta", "koftet roz"] },
+    { name: "Kofta in Tomato Sauce", missing: ["tomato sauce", "onion", "garlic", "cumin"], images: ["kofta tomato sauce", "meat kofta tomato", "kafta tomato sauce"] },
+    { name: "Stuffed Peppers with Ground Meat", missing: ["bell pepper", "rice", "tomato", "onion"], images: ["stuffed peppers ground meat", "meat stuffed peppers", "mahshi peppers meat"] },
+    { name: "Ground Meat Pide", missing: ["dough", "onion", "tomato", "pepper paste"], images: ["ground meat pide", "kiymali pide", "turkish minced meat pide"] },
+    { name: "Minced Meat Patties", missing: ["onion", "parsley", "breadcrumbs", "egg"], images: ["minced meat patties", "ground meat patties", "kofte patties"] }
   ];
 
   return variants.map((variant, index) => buildProteinFallbackRecipe({
@@ -2228,12 +2266,15 @@ async function applyImageFirstRecipeRanking(
   availableIngredientCount = 0,
   options?: {
     allowProviderLookup?: boolean;
+    availableIngredients?: string[];
   }
 ) {
   const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
-  const allowProviderLookup = options?.allowProviderLookup !== false;
+  const requiresSpecificProteinForm = hasSpecificProteinFormInput(options?.availableIngredients ?? []);
+  const allowProviderLookup = options?.allowProviderLookup !== false && !requiresSpecificProteinForm;
+  const rankingRecipes = requiresSpecificProteinForm ? recipes.map(stripRecipePhotoForSpecificProteinForm) : recipes;
   const resolvedRecipes = await Promise.all(
-    recipes.map(async (recipe, index) => {
+    rankingRecipes.map(async (recipe, index) => {
       try {
         const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, new Set(), { allowProviderLookup });
         return {
@@ -2272,10 +2313,10 @@ async function applyImageFirstRecipeRanking(
       rawPhotoFitScore
     }));
 
-  return ensureUniqueRecipePhotos(sortedRecipes.map(({ recipe }) => recipe));
+  return ensureUniqueRecipePhotos(sortedRecipes.map(({ recipe }) => recipe), { allowProviderLookup });
 }
 
-async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
+async function ensureUniqueRecipePhotos(recipes: Recipe[], options?: { allowProviderLookup?: boolean }) {
   const usedImageUrls = new Set<string>();
   const uniqueRecipes: Recipe[] = [];
 
@@ -2288,7 +2329,9 @@ async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
     }
 
     try {
-      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls, { allowProviderLookup: true });
+      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls, {
+        allowProviderLookup: options?.allowProviderLookup !== false
+      });
       const candidateImageUrl = resolvedPhoto.recipePatch?.image_url;
 
       if (candidateImageUrl && !usedImageUrls.has(candidateImageUrl)) {
@@ -2316,6 +2359,21 @@ async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
   }
 
   return uniqueRecipes;
+}
+
+function hasSpecificProteinFormInput(availableIngredients: string[]) {
+  return availableIngredients.some(isLiverLabel) || availableIngredients.some(isGroundMeatLabel);
+}
+
+function stripRecipePhotoForSpecificProteinForm(recipe: Recipe): Recipe {
+  return {
+    ...recipe,
+    image_attribution_name: undefined,
+    image_attribution_url: undefined,
+    image_source: undefined,
+    image_url: undefined,
+    visual_match_label: undefined
+  };
 }
 
 function dedupeResolvedRecipeImages(

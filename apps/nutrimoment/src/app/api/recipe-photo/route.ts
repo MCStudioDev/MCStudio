@@ -89,7 +89,7 @@ const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const PREMIUM_REPLICATE_RETRY_TTL_MS = 3 * 1000;
 const PREMIUM_REPLICATE_RETRY_AFTER_SECONDS = 2;
 const WIKIMEDIA_ENABLED = true;
-const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v12";
+const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v13";
 const MIN_ACCEPTED_PROVIDER_SCORE = {
   wikimedia: 12,
   pexels_search: 11,
@@ -166,7 +166,7 @@ export async function GET(request: Request) {
   const selectedReplicateQuery = useReplicateGeneration
     ? selectReplicateRecipePhotoQuery(queryCandidates, identities, ingredientHints)
     : null;
-  const selectedReplicateSignature = selectedReplicateQuery ? buildGeneratedRecipePhotoSignature(selectedReplicateQuery) : null;
+  const selectedReplicateSignature = selectedReplicateQuery ? buildGeneratedRecipePhotoSignature(selectedReplicateQuery, ingredientHints) : null;
   const allowProviderPhotoSearch = accessCheck.allowed || !useReplicateGeneration;
   const generatedAliasCandidates = buildGeneratedRecipePhotoCacheAliasCandidates(identities);
   const signatureCandidates = useReplicateGeneration
@@ -200,6 +200,7 @@ export async function GET(request: Request) {
     exactCached &&
     !explicitlyExcludedImageUrls.has(exactCached.imageUrl) &&
     canUseCachedRecipePhotoForVisualRequest(exactCached, strictVisualRequest) &&
+    (!useReplicateGeneration || exactCached.source === "generated") &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(exactCached.imageUrl, exactCacheLookupCandidates))
   ) {
     await persistExactAliasesForLegacyPhoto(exactCached, exactAliasCandidates);
@@ -228,6 +229,7 @@ export async function GET(request: Request) {
     sharedExactCached &&
     !explicitlyExcludedImageUrls.has(sharedExactCached.imageUrl) &&
     canUseSharedRecipePhotoForVisualRequest(sharedExactCached, strictVisualRequest) &&
+    (!useReplicateGeneration || sharedExactCached.source === "generated") &&
     (WIKIMEDIA_ENABLED || sharedExactCached.source !== "wikimedia") &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates))
   ) {
@@ -583,8 +585,10 @@ async function performRecipePhotoLookup({
           signature: baseIdentity.signature
         });
       } else {
-        const replicateCacheSignature = buildGeneratedRecipePhotoSignature(replicateQuery);
-        const generatedCacheAliases = Array.from(new Set([...generatedAliasCandidates, ...exactAliasCandidates]));
+        const replicateCacheSignature = buildGeneratedRecipePhotoSignature(replicateQuery, ingredientHints);
+        const generatedCacheAliases = ingredientHints.length
+          ? [replicateCacheSignature]
+          : Array.from(new Set([...generatedAliasCandidates, ...exactAliasCandidates]));
 
         try {
           const generatedImage = await generateRecipeImageWithReplicate(replicateQuery, ingredientHints, {
@@ -939,15 +943,24 @@ function chooseBetterRecipePhoto(
   return current;
 }
 
-function buildGeneratedRecipePhotoSignature(query: string) {
+function buildGeneratedRecipePhotoSignature(query: string, ingredientHints: string[] = []) {
   const normalized = normalizeRecipePhotoQuery(query)
     .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .replace(/\s+/g, "-")
     .slice(0, 96);
+  const ingredientScope = ingredientHints.length
+    ? `:ingredients:${ingredientHints
+        .map((ingredient) => normalizeRecipePhotoQuery(ingredient))
+        .filter(Boolean)
+        .sort()
+        .join("-")
+        .replace(/[^\p{L}\p{N}-]/gu, "")
+        .slice(0, 96)}`
+    : "";
   const identity = buildRecipePhotoIdentity(query);
   const strictPrefix = isStrictRecipePhotoIdentity(identity) ? `${STRICT_RECIPE_PHOTO_CACHE_VERSION}:` : "";
 
-  return `generated:${strictPrefix}${normalized || "food"}`;
+  return `generated:${strictPrefix}${normalized || "food"}${ingredientScope}`;
 }
 
 function buildLegacyExactRecipePhotoCacheCandidates(

@@ -2,6 +2,7 @@ import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
 import { getCuisineDishReferenceText, getCuisinePantryAnchors } from "@/lib/cuisineDishCatalog";
 import { getCuisineVisualReferenceText } from "@/lib/cuisineVisualReferences";
 import { isPastaLikeIngredient } from "@/lib/ingredientFamilies";
+import { normalizeSpecificIngredientName } from "@/lib/ingredientSpecificity";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -680,25 +681,43 @@ function buildPromptPreferenceBrief(snapshot: {
 }
 
 function buildIngredientFormGuidance(ingredients: RecipePromptIngredient[]) {
-  const pantry = ingredients.map((item) => normalizeIngredientFormText(item.name)).filter(Boolean);
+  const pantry = ingredients.map((item) => normalizeIngredientFormText(normalizeSpecificIngredientName(item.name))).filter(Boolean);
   const hasGroundMeat = pantry.some((ingredient) =>
     /\b(ground beef|ground meat|ground lamb|ground turkey|ground chicken|minced beef|minced meat|minced lamb|beef mince|lamb mince|mince(?:d)? meat)\b/.test(ingredient)
+  );
+  const hasLiver = pantry.some((ingredient) =>
+    /\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri)\b/.test(ingredient)
   );
   const hasGenericBeef = pantry.some((ingredient) => /\b(beef|steak|meat)\b/.test(ingredient));
   const hasCutBeef = pantry.some((ingredient) =>
     /\b(beef cubes?|beef chunks?|stew beef|cubed beef|diced beef|steak|sliced beef|beef strips?)\b/.test(ingredient)
   );
 
-  if (!hasGroundMeat) return "";
+  if (!hasGroundMeat && !hasLiver) return "";
 
-  return [
+  const guidance = [];
+
+  if (hasGroundMeat) {
+    guidance.push(
     "Protein form hard rule: the pantry contains ground/minced meat, not whole beef cuts.",
     "Do not generate beef steak, beef cubes, beef strips, slow-cooked beef chunks, kebab halla-style cubed meat, stir-fried beef strips, or generic beef plates unless the pantry explicitly contains beef cubes, steak, or sliced/cut beef.",
     hasGenericBeef && !hasCutBeef
       ? "If the available ingredient was normalized from Arabic or user text into ground beef, treat it as minced meat only even if the word beef appears."
       : "",
     "Valid ground-meat forms include kofta/kofte/kafta, hawawshi, meatballs, meatloaf, burgers, minced-meat filling, keema, lahmacun, pide, macarona bechamel, or rice kofta when other pantry/missing ingredients support them."
-  ].filter(Boolean).join(" ");
+    );
+  }
+
+  if (hasLiver) {
+    guidance.push(
+      "Organ-meat hard rule: the pantry contains liver/kebda, not generic beef meat.",
+      "Do not generate beef cubes, steak, beef strips, braised beef, beef stew, kebab halla, roast beef, meatballs, kofta, burgers, or generic beef plates from liver.",
+      "Valid liver forms include kebda eskandarani, fried liver slices, liver sandwiches, liver with onions, sawda djej, arnavut cigeri, edirne tava cigeri, kaleji masala, higado encebollado, fegato alla veneziana, or direct liver saute plates when the cuisine supports them.",
+      "If the requested count is high and liver is the only protein, create distinct liver-compatible recipe families or simple non-meat pantry dishes; never fill slots with generic beef recipes."
+    );
+  }
+
+  return guidance.filter(Boolean).join(" ");
 }
 
 function normalizeIngredientFormText(value: string) {

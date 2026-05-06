@@ -65,6 +65,14 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     imageQueries: ["egyptian grilled chicken", "butterflied chicken platter", "farouj meshwi"]
   },
   {
+    key: "molokhia",
+    canonicalName: "molokhia",
+    cuisine: "Egyptian",
+    pantrySignals: ["molokhia", "jute leaves", "chicken", "beef", "shrimp", "mushroom", "garlic", "rice"],
+    visualForms: ["deep green jute-leaf soup", "molokhia with garlic tasha", "green molokhia bowl with protein"],
+    imageQueries: ["egyptian molokhia", "molokhia with chicken and rice", "green molokhia soup garlic"]
+  },
+  {
     key: "shawarma-burger",
     canonicalName: "shawarma-style beef sandwich",
     cuisine: "Egyptian",

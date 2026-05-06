@@ -37,6 +37,7 @@ const ARABIC = {
   loubia: "\u0644\u0648\u0628\u064a\u0627",
   middleEast: "\u0634\u0631\u0642 \u0623\u0648\u0633\u0637\u064a\u0629",
   middleEastAlt: "\u0634\u0631\u0642 \u0627\u0648\u0633\u0637\u064a\u0629",
+  molokhia: "\u0645\u0644\u0648\u062e\u064a\u0629",
   chickpea: "\u062d\u0645\u0635",
   lentil: "\u0639\u062f\u0633",
   liver: "\u0643\u0628\u062f\u0629",
@@ -220,6 +221,46 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "macarona bechamel",
     cuisineKey: "egyptian",
     key: "macarona-bechamel"
+  },
+  {
+    aliases: [
+      /\b(beef|lamb|meat)\s+(molokhia|molokia|mulukhiyah|mulookhiyah)\b/i,
+      /\b(molokhia|molokia|mulukhiyah|mulookhiyah)\s+(?:with\s+)?(?:beef|lamb|meat)\b/i,
+      new RegExp(`${ARABIC.molokhia}\\s+(?:باللحمة|باللحم|بلحمة|لحم|لحمة)`, "iu")
+    ],
+    canonicalName: "beef molokhia",
+    cuisineKey: "egyptian",
+    key: "molokhia-beef"
+  },
+  {
+    aliases: [
+      /\b(shrimp|prawn)\s+(molokhia|molokia|mulukhiyah|mulookhiyah)\b/i,
+      /\b(molokhia|molokia|mulukhiyah|mulookhiyah)\s+(?:with\s+)?(?:shrimp|prawn)\b/i,
+      new RegExp(`${ARABIC.molokhia}\\s+(?:بالجمبري|بالروبيان)`, "iu")
+    ],
+    canonicalName: "shrimp molokhia",
+    cuisineKey: "egyptian",
+    key: "molokhia-shrimp"
+  },
+  {
+    aliases: [
+      /\b(mushroom|mushrooms)\s+(molokhia|molokia|mulukhiyah|mulookhiyah)\b/i,
+      /\b(molokhia|molokia|mulukhiyah|mulookhiyah)\s+(?:with\s+)?mushrooms?\b/i,
+      new RegExp(`${ARABIC.molokhia}\\s+(?:بالمشروم|بالفطر)`, "iu")
+    ],
+    canonicalName: "mushroom molokhia",
+    cuisineKey: "egyptian",
+    key: "molokhia-mushroom"
+  },
+  {
+    aliases: [
+      /\b(chicken\s+)?(molokhia|molokia|mulukhiyah|mulookhiyah)(?:\s+with\s+chicken)?\b/i,
+      /\b(jute leaves?|jute mallow)\s+(?:soup|stew)\b/i,
+      new RegExp(`${ARABIC.molokhia}(?:\\s+(?:بالدجاج|بالفراخ|فراخ|دجاج))?`, "iu")
+    ],
+    canonicalName: "chicken molokhia",
+    cuisineKey: "egyptian",
+    key: "molokhia-chicken"
   },
   {
     aliases: [/\bkebab halla\b/i, /\begyptian meat stew\b/i],
@@ -861,6 +902,16 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("ful with tahini"), withCuisine("ful bel tahina"), withCuisine("fava beans tahini")];
     case "foul-iskandarani":
       return [withCuisine("alexandrian ful"), withCuisine("foul iskandarani"), withCuisine("egyptian ful tomato pepper")];
+    case "molokhia-chicken":
+      return [withCuisine("chicken molokhia"), withCuisine("molokhia with chicken"), withCuisine("egyptian green molokhia soup")];
+    case "molokhia-beef":
+      return [withCuisine("beef molokhia"), withCuisine("molokhia with beef"), withCuisine("egyptian molokhia meat")];
+    case "molokhia-shrimp":
+      return [withCuisine("shrimp molokhia"), withCuisine("molokhia with shrimp"), withCuisine("egyptian seafood molokhia")];
+    case "molokhia-mushroom":
+      return [withCuisine("mushroom molokhia"), withCuisine("molokhia with mushrooms"), withCuisine("egyptian molokhia mushrooms")];
+    case "molokhia":
+      return [withCuisine("molokhia"), withCuisine("egyptian molokhia"), withCuisine("jute mallow soup")];
     case "mujadara":
       return [withCuisine("mujadara"), withCuisine("lentils and rice"), withCuisine("roz bel ads")];
     case "koshary":
@@ -887,6 +938,7 @@ export function isStrictRecipePhotoIdentity(identity: Pick<RecipePhotoIdentity, 
     identity.canonicalDishKey ||
       isFulIdentity(identity) ||
       isEggVisualIdentity(identity) ||
+      isMolokhiaIdentity(identity) ||
       identity.familyKey === "alexandrian-liver" ||
       identity.mainIngredientKey === "liver" ||
       /\b(liver|kebda|kibda|ciger|cigeri)\b/i.test(identity.cleanQuery) ||
@@ -914,6 +966,10 @@ export function matchesStrictRecipePhotoIdentity(
   }
 
   if (isEggVisualIdentity(identity) && hasEggVisualConfusable(haystack)) {
+    return false;
+  }
+
+  if (isMolokhiaIdentity(identity) && hasMolokhiaVisualConfusable(haystack)) {
     return false;
   }
 
@@ -952,6 +1008,12 @@ export function hasChickenVisualConfusable(haystack: string) {
     !/\b(chicken|poultry|hen|rooster|breast|thigh|drumstick|wing|wings|schnitzel)\b/iu.test(haystack);
 }
 
+export function hasMolokhiaVisualConfusable(haystack: string) {
+  return /\b(spinach cream soup|cream of spinach|pesto pasta|green curry|pea soup|broccoli soup|green smoothie|green salad|herb dip|guacamole|plain rice|rice bowl|chicken plate|beef plate|shrimp plate)\b/iu.test(haystack) &&
+    !/\b(molokhia|molokia|mulukhiyah|mulookhiyah|jute mallow|jute leaves?)\b/iu.test(haystack) &&
+    !/\u0645\u0644\u0648\u062e/u.test(haystack);
+}
+
 function isMincedKebabIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey">) {
   const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
   if (/\b(kebab halla|testi kebab|testi kebabi|pottery kebab|cig kofte|çig kofte|çiğ köfte|patlican kebab)\b/u.test(key)) {
@@ -973,6 +1035,11 @@ function isEggVisualIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishK
     /\b(egg|eggs|omelet|omelette|frittata|eggah|eggeh|shakshuka|menemen|cilbir|yumurta)\b/u.test(key) ||
     /\u0628\u064a\u0636/u.test(key)
   );
+}
+
+function isMolokhiaIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey">) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  return /\b(molokhia|molokia|mulukhiyah|mulookhiyah|jute leaves?|jute mallow)\b/u.test(key) || /\u0645\u0644\u0648\u062e/u.test(key);
 }
 
 export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
@@ -997,6 +1064,10 @@ export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIde
 
   if (isEggVisualIdentity(identity)) {
     aliases.push("egg", "eggs", "omelet", "omelette", "poached eggs", "scrambled eggs", "cilbir", "menemen", "eggah", ARABIC.egg);
+  }
+
+  if (isMolokhiaIdentity(identity)) {
+    aliases.push("molokhia", "molokia", "mulukhiyah", "mulookhiyah", "jute mallow", "jute leaves", ARABIC.molokhia);
   }
 
   return Array.from(

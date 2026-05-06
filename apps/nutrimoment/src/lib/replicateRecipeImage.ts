@@ -87,6 +87,51 @@ const FUL_WITH_EGGS_VISUAL_PROMPT: DishVisualPrompt = {
     "served as one Egyptian breakfast bowl, shallow plate, or small tagine with the ful and eggs together as one finished dish"
 };
 
+const MOLOKHIA_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "Egyptian molokhia",
+  visualDescription:
+    "Egyptian molokhia, a deep green jute-leaf soup or stew with a glossy slightly viscous texture, finely chopped leafy greens suspended in broth, and a visible garlic-coriander tasha or toasted garlic flecks on top. It should look like authentic molokhia: vibrant dark green, smooth but leafy, not a pale cream soup or spinach puree",
+  plating:
+    "served as one bowl or shallow soup dish of green molokhia, with white rice and the named protein only as supporting elements when the recipe includes them",
+  avoid:
+    "spinach cream soup, pesto pasta, green curry, pea soup, broccoli soup, salad, green smoothie, plain rice bowl, tomato stew, lentil soup, beef cubes without green soup, chicken plate without green soup",
+  cuisineStyle: "authentic Egyptian home cooking"
+};
+
+const CHICKEN_MOLOKHIA_VISUAL_PROMPT: DishVisualPrompt = {
+  ...MOLOKHIA_VISUAL_PROMPT,
+  englishName: "Egyptian chicken molokhia",
+  visualDescription:
+    "Egyptian molokhia, a deep green jute-leaf soup or stew with glossy slightly viscous chopped greens, garlic-coriander tasha or toasted garlic flecks, served with clearly visible chicken pieces such as breast, thigh, or leg. The green molokhia remains the main identity and the chicken is a visible protein companion",
+  plating:
+    "served as one bowl or shallow dish of green molokhia with chicken visible in or beside the bowl; white rice may appear as a small supporting side when the recipe includes it"
+};
+
+const BEEF_MOLOKHIA_VISUAL_PROMPT: DishVisualPrompt = {
+  ...MOLOKHIA_VISUAL_PROMPT,
+  englishName: "Egyptian beef molokhia",
+  visualDescription:
+    "Egyptian molokhia, a deep green jute-leaf soup or stew with glossy slightly viscous chopped greens, garlic-coriander tasha or toasted garlic flecks, served with visible beef or lamb pieces as the protein. The meat supports the dish, but the green molokhia soup remains dominant",
+  plating:
+    "served as one bowl or shallow dish of green molokhia with beef or lamb pieces visible in or beside the bowl; white rice may appear as a small supporting side when the recipe includes it"
+};
+
+const SHRIMP_MOLOKHIA_VISUAL_PROMPT: DishVisualPrompt = {
+  ...MOLOKHIA_VISUAL_PROMPT,
+  englishName: "Egyptian shrimp molokhia",
+  visualDescription:
+    "Egyptian molokhia, a deep green jute-leaf soup or stew with glossy slightly viscous chopped greens, garlic-coriander tasha or toasted garlic flecks, served with visible shrimp as the protein. The shrimp should be recognizable and the green molokhia remains the dominant dish identity",
+  plating: "served as one bowl or shallow dish of green molokhia with shrimp visible on top or partly submerged"
+};
+
+const MUSHROOM_MOLOKHIA_VISUAL_PROMPT: DishVisualPrompt = {
+  ...MOLOKHIA_VISUAL_PROMPT,
+  englishName: "Egyptian mushroom molokhia",
+  visualDescription:
+    "Egyptian molokhia, a deep green jute-leaf soup or stew with glossy slightly viscous chopped greens, garlic-coriander tasha or toasted garlic flecks, served with visible sauteed mushroom pieces. The mushrooms support the dish while the green molokhia remains dominant",
+  plating: "served as one bowl or shallow dish of green molokhia with mushrooms visible on top or partly submerged"
+};
+
 const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   hawawshi: {
     englishName: "Egyptian hawawshi",
@@ -166,6 +211,16 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     plating:
       "served as Egyptian baladi bread or pita filled with ful medames, with the mashed fava bean filling visibly spilling at the cut edge; the ful filling remains the main subject"
   },
+  molokhia: MOLOKHIA_VISUAL_PROMPT,
+  mulookhiyah: MOLOKHIA_VISUAL_PROMPT,
+  "chicken-molokhia": CHICKEN_MOLOKHIA_VISUAL_PROMPT,
+  "molokhia-chicken": CHICKEN_MOLOKHIA_VISUAL_PROMPT,
+  "molokhia-beef": BEEF_MOLOKHIA_VISUAL_PROMPT,
+  "beef-molokhia": BEEF_MOLOKHIA_VISUAL_PROMPT,
+  "molokhia-shrimp": SHRIMP_MOLOKHIA_VISUAL_PROMPT,
+  "shrimp-molokhia": SHRIMP_MOLOKHIA_VISUAL_PROMPT,
+  "molokhia-mushroom": MUSHROOM_MOLOKHIA_VISUAL_PROMPT,
+  "mushroom-molokhia": MUSHROOM_MOLOKHIA_VISUAL_PROMPT,
   "kebab-halla": {
     englishName: "Egyptian kebab halla",
     visualDescription:
@@ -579,6 +634,18 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
     ].join(" ");
   }
 
+  if (isMolokhiaVisualRequest(identity)) {
+    const proteinClause = inferMolokhiaProteinClause(source);
+    return [
+      "Strict visual identity: the food must be Egyptian molokhia, a deep green glossy jute-leaf soup or stew with finely chopped leafy texture and garlic-coriander tasha or toasted garlic flecks.",
+      "The green molokhia must be the dominant visual identity, not a pale spinach cream soup, pesto pasta, green curry, pea soup, broccoli soup, salad, smoothie, or plain protein plate.",
+      proteinClause,
+      forbiddenStarches.length
+        ? `Hard negative: do not include ${forbiddenStarches.join("; ")} anywhere in the image.`
+        : "Rice may appear only as a supporting side and must not hide the green molokhia."
+    ].join(" ");
+  }
+
   return [
     `Strict visual identity: the image must read immediately as ${canonicalName}, not as a generic ${identity.cuisineKey ?? "regional"} plate.`,
     strictTokens.length
@@ -602,6 +669,31 @@ function isMincedKebabVisualRequest(identity: ReturnType<typeof buildRecipePhoto
 function isFulVisualRequest(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
   const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
   return /\b(ful|fool|foul|medames|fava bean|fava beans|ful-bel|foul-bil|foul-iskandarani)\b/u.test(key) || /فول/u.test(key);
+}
+
+function isMolokhiaVisualRequest(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  return /\b(molokhia|molokia|mulukhiyah|mulookhiyah|jute leaves?|jute mallow)\b/u.test(key) || /ملوخ/u.test(key);
+}
+
+function inferMolokhiaProteinClause(source: string) {
+  if (/\b(shrimp|prawn)\b/.test(source)) {
+    return "Because shrimp is part of this recipe, show recognizable shrimp with the green molokhia.";
+  }
+
+  if (/\b(mushroom|mushrooms)\b/.test(source)) {
+    return "Because mushrooms are part of this recipe, show visible mushroom pieces with the green molokhia.";
+  }
+
+  if (/\b(beef|lamb|meat|veal)\b/.test(source) || /لحمة|لحم/u.test(source)) {
+    return "Because beef or meat is part of this recipe, show visible beef or lamb pieces with the green molokhia.";
+  }
+
+  if (/\b(chicken|farakh|ferekh)\b/.test(source) || /دجاج|فراخ/u.test(source)) {
+    return "Because chicken is part of this recipe, show recognizable chicken pieces with the green molokhia.";
+  }
+
+  return "If a protein is present, it must be a small supporting element and the green molokhia must remain dominant.";
 }
 
 function findDishVisualPrompt(identity: ReturnType<typeof buildRecipePhotoIdentity>) {

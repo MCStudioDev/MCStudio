@@ -719,8 +719,9 @@ function buildCuratedDishImagePrompt(
   ].join(" ");
 }
 
-function buildClosedRecipeIngredientClause(query: string, ingredients: string[]) {
-  const source = `${query} ${ingredients.join(" ")}`.toLowerCase();
+function buildClosedRecipeIngredientClause(_query: string, ingredients: string[]) {
+  const ingredientContract = buildVisibleIngredientContract(ingredients);
+  const source = ingredients.join(" ").toLowerCase();
   const normalizedIngredients = ingredients.length ? ingredients.join(", ") : "the exact named dish only";
   const forbiddenGroups = [
     /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(source)
@@ -738,22 +739,72 @@ function buildClosedRecipeIngredientClause(query: string, ingredients: string[])
       ? ""
       : "no extra vegetables or herbs as garnish"
   ].filter(Boolean);
+  const closedSetForbidden = Array.from(new Set([...forbiddenGroups, ...ingredientContract.forbidden]));
   const hasGroundMeat = /\b(ground beef|ground meat|ground lamb|minced beef|minced meat|beef mince|lamb mince|mince(?:d)? meat)\b/.test(source);
 
   return [
     `Closed recipe ingredient boundary: compose the image from the actual recipe ingredients only: ${normalizedIngredients}.`,
-    "The named dish identity may guide shape, texture, vessel, and cooking style, but it must not introduce visible ingredients that are absent from the recipe.",
+    "Closed-set rule: the recipe ingredient list is the only source of visible food items. The named dish identity may guide shape, texture, vessel, and cooking style, but it must not introduce any visible protein, starch, sauce, garnish, side dish, or topping absent from the recipe ingredient list.",
     hasGroundMeat
       ? "Protein form boundary: ground/minced meat must be shown only as loose minced meat, patties, meatballs, kofta/kofte logs, meatloaf, or minced filling. Never show steak, beef cubes, stew chunks, sliced beef, or braised meat pieces for ground meat."
       : "",
-    forbiddenGroups.length ? `Hard negative for absent ingredients: ${forbiddenGroups.join("; ")}.` : ""
+    closedSetForbidden.length ? `Hard negative for absent recipe ingredients: ${closedSetForbidden.join("; ")}.` : "",
+    "If an item is normally served with this dish but is absent from the recipe list, omit it completely."
   ].filter(Boolean).join(" ");
+}
+
+function buildVisibleIngredientContract(ingredients: string[]) {
+  const source = ` ${ingredients.join(" ").toLowerCase()} `;
+  const has = (pattern: RegExp) => pattern.test(source);
+  const allowed = {
+    bread: has(/\b(bread|pita|baladi|bun|roll|toast|flatbread|lavash|tortilla)\b/),
+    cheese: has(/\b(cheese|feta|mozzarella|parmesan|ricotta|cheddar)\b/),
+    creamySauce: has(/\b(cream|creamy|white sauce|alfredo|bechamel|béchamel)\b/),
+    currySauce: has(/\b(curry|masala|coconut milk)\b/),
+    fish: has(/\b(fish|salmon|cod|tilapia|sea bass|snapper|tuna|samak)\b/),
+    herbs: has(/\b(parsley|cilantro|coriander|dill|mint|basil|oregano|herbs?)\b/),
+    lemon: has(/\b(lemon|lime|citrus)\b/),
+    liver: has(/\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato)\b/),
+    mushrooms: has(/\b(mushroom|mushrooms)\b/),
+    pestoSauce: has(/\b(pesto)\b/),
+    rice: has(/\b(rice|pilaf|couscous|bulgur|burghul|freekeh)\b/),
+    saladVegetables: has(/\b(lettuce|cucumber|salad|cabbage|arugula|rocket)\b/),
+    seafood: has(/\b(seafood|shellfish|mussel|mussels|clam|clams|calamari|squid|crab|lobster|scallop|scallops)\b/),
+    shrimp: has(/\b(shrimp|prawn|prawns)\b/),
+    soySauce: has(/\b(soy sauce|teriyaki|hoisin)\b/),
+    tahiniSauce: has(/\b(tahini|sesame sauce)\b/),
+    tofu: has(/\b(tofu)\b/),
+    tomatoSauce: has(/\b(tomato sauce|tomatoes|tomato|marinara|red sauce|pomodoro)\b/),
+    vegetables: has(/\b(tomato|tomatoes|pepper|peppers|onion|onions|garlic|carrot|carrots|zucchini|eggplant|aubergine|vegetable|vegetables)\b/),
+    yogurtSauce: has(/\b(yogurt|yoghurt|labneh|tzatziki)\b/)
+  };
+
+  const forbidden = [
+    allowed.liver ? "" : "no liver, kebda, cigeri, kaleji, or organ meat",
+    allowed.fish ? "" : "no fish fillets, salmon, tuna, cod, tilapia, sea bass, or whole fish",
+    allowed.shrimp ? "" : "no shrimp or prawns",
+    allowed.seafood || allowed.shrimp || allowed.fish ? "" : "no seafood mix, mussels, clams, squid, crab, lobster, or scallops",
+    allowed.tofu ? "" : "no tofu",
+    allowed.tomatoSauce ? "" : "no tomato sauce, marinara, red sauce, or tomato-heavy sauce",
+    allowed.creamySauce ? "" : "no cream sauce, white sauce, alfredo, or bechamel",
+    allowed.pestoSauce ? "" : "no pesto or green herb sauce",
+    allowed.currySauce ? "" : "no curry sauce, masala gravy, or yellow curry",
+    allowed.soySauce ? "" : "no soy glaze, teriyaki sauce, or Asian dark sauce",
+    allowed.tahiniSauce ? "" : "no tahini or sesame sauce",
+    allowed.yogurtSauce ? "" : "no yogurt sauce, labneh, or tzatziki",
+    allowed.saladVegetables ? "" : "no lettuce, cucumber, cabbage, arugula, or salad side",
+    allowed.herbs ? "" : "no parsley, cilantro, dill, mint, basil, herb garnish, or green garnish",
+    allowed.mushrooms ? "" : "no mushrooms",
+    allowed.lemon ? "" : "no lemon wedges, lime wedges, or citrus garnish"
+  ].filter(Boolean);
+
+  return { allowed, forbidden };
 }
 
 function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIdentity>, ingredients: string[]) {
   if (!isStrictRecipePhotoIdentity(identity)) return "";
 
-  const source = `${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const source = ingredients.join(" ").toLowerCase();
   const allowsRice = /\b(rice|pilaf|couscous|bulgur)\b/.test(source);
   const allowsPasta = /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(source);
   const forbiddenStarches = [
@@ -963,18 +1014,18 @@ function buildForbiddenIngredientClause(
   ingredients: string[],
   supportStarches: string[]
 ) {
-  const source = `${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const source = ingredients.join(" ").toLowerCase();
   const forbiddenGroups: string[] = [];
 
   if (!supportStarches.some((value) => /\b(pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|noodle|noodles)\b/i.test(value))) {
     forbiddenGroups.push("spaghetti, pasta, noodles, vermicelli");
   }
 
-  if (!supportStarches.some((value) => /\b(rice|pilaf|bulgur|couscous)\b/i.test(value)) && identity.starchKey !== "rice") {
+  if (!supportStarches.some((value) => /\b(rice|pilaf|bulgur|couscous)\b/i.test(value))) {
     forbiddenGroups.push("plain rice, pilaf, couscous, bulgur");
   }
 
-  if (!supportStarches.some((value) => /\b(bread|pita|bun|roll|toast)\b/i.test(value)) && identity.starchKey !== "bread") {
+  if (!supportStarches.some((value) => /\b(bread|pita|bun|roll|toast)\b/i.test(value))) {
     forbiddenGroups.push("bread, toast, buns, pita");
   }
 
@@ -998,9 +1049,11 @@ function buildProteinVisualClause(
   query: string,
   ingredients: string[]
 ) {
-  const source = `${query} ${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const ingredientSource = ingredients.join(" ").toLowerCase();
+  const hasRecipeIngredients = ingredientSource.trim().length > 0;
+  const source = hasRecipeIngredients ? ingredientSource : `${query} ${identity.cleanQuery}`.toLowerCase();
 
-  if (identity.mainIngredientKey === "chicken" || /\bchicken|poultry|farakh|ferekh\b/.test(source)) {
+  if ((!hasRecipeIngredients && identity.mainIngredientKey === "chicken") || /\bchicken|poultry|farakh|ferekh\b/.test(source)) {
     const form = inferChickenVisualForm(source, identity.cookingMethodKey, identity.mealTypeKey);
     return [
       `Chicken visual identity: ${form}`,
@@ -1009,21 +1062,21 @@ function buildProteinVisualClause(
     ].join(" ");
   }
 
-  if (identity.mainIngredientKey === "ground-meat" || /\b(ground beef|ground meat|ground lamb|minced beef|minced meat|beef mince|lamb mince|mince(?:d)? meat)\b/.test(source)) {
+  if ((!hasRecipeIngredients && identity.mainIngredientKey === "ground-meat") || /\b(ground beef|ground meat|ground lamb|minced beef|minced meat|beef mince|lamb mince|mince(?:d)? meat)\b/.test(source)) {
     return [
       "Ground meat visual identity: show the protein as visibly minced or ground meat, such as kofta/kofte logs, meatballs, burger-style patties, meatloaf slices, loose minced meat, or minced filling depending on the recipe.",
       "Hard negative: no beef cubes, no steak, no diced beef, no stew chunks, no sliced beef strips, no braised whole-meat pieces, and no kebab halla-style cubed meat."
     ].join(" ");
   }
 
-  if (identity.mainIngredientKey === "shrimp" || /\bshrimp|prawn\b/.test(source)) {
+  if ((!hasRecipeIngredients && identity.mainIngredientKey === "shrimp") || /\bshrimp|prawn\b/.test(source)) {
     return [
       "Shrimp visual identity: show whole curled shrimp or prawns clearly visible as the dominant seafood, pink-orange and cooked in the recipe's sauce or seasoning.",
       "Do not substitute fish fillets, chicken, beef, tofu, or anonymous mixed protein. Pasta, rice, bread, and lemon may appear only if included in the recipe."
     ].join(" ");
   }
 
-  if (identity.mainIngredientKey === "fish" || /\bfish|salmon|cod|tilapia|sea bass|snapper\b/.test(source)) {
+  if ((!hasRecipeIngredients && identity.mainIngredientKey === "fish") || /\bfish|salmon|cod|tilapia|sea bass|snapper\b/.test(source)) {
     const form = inferFishVisualForm(source, identity.cookingMethodKey, identity.mealTypeKey);
     return [
       `Fish visual identity: ${form}`,
@@ -1031,7 +1084,7 @@ function buildProteinVisualClause(
     ].join(" ");
   }
 
-  if (identity.mainIngredientKey === "seafood" || /\bseafood|shellfish|mussels?|clams?|calamari|squid|crab|lobster|scallops?\b/.test(source)) {
+  if ((!hasRecipeIngredients && identity.mainIngredientKey === "seafood") || /\bseafood|shellfish|mussels?|clams?|calamari|squid|crab|lobster|scallops?\b/.test(source)) {
     return [
       "Seafood visual identity: show the specific seafood from the recipe as recognizable pieces, such as shrimp, fish, mussels, clams, squid, crab, or scallops.",
       "Do not substitute chicken, beef, tofu, or a generic sauce with hidden protein. Pasta, rice, bread, and lemon may appear only if included in the recipe."

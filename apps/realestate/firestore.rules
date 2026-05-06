@@ -1,35 +1,47 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Check if user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Check if the user is accessing their own data
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // =====================================
-    // USER PROFILES
-    // =====================================
+    function hasOnlyUserWritableProfileFields() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        "role",
+        "tier",
+        "status",
+        "permissions",
+        "entitlement"
+      ]);
+    }
+
+    function hasNoAccessProfileFields() {
+      return !request.resource.data.keys().hasAny([
+        "role",
+        "tier",
+        "status",
+        "permissions",
+        "entitlement"
+      ]);
+    }
+
     match /users/{userId} {
-      // Users can only read and write their own profile
-      allow read, write: if isOwner(userId);
-      
-      // =====================================
-      // SUBCOLLECTIONS (Inventory, Recipes)
-      // =====================================
-      // Enforce isolation so one user cannot see another's scanned fridge items
-      match /inventory/{item} {
-        allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && hasNoAccessProfileFields();
+      allow update: if isOwner(userId) && hasOnlyUserWritableProfileFields();
+      allow delete: if false;
+
+      match /inventory/{itemId} {
+        allow read, create, update, delete: if isOwner(userId);
       }
-      
-      match /recipes/{recipe} {
-        allow read, write: if isOwner(userId);
-      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -1,6 +1,11 @@
 import {
   buildRecipePhotoIdentity,
   isStrictRecipePhotoIdentity,
+  hasChickenVisualConfusable,
+  hasEggVisualConfusable,
+  hasFulVisualConfusable,
+  hasLiverVisualConfusable,
+  hasMincedKebabVisualConfusable,
   matchesStrictRecipePhotoIdentity,
   normalizeRecipePhotoQuery
 } from "@/lib/recipePhotoIdentity";
@@ -278,8 +283,14 @@ function scoreUnsplashCandidate(
   score += Math.min(requestTokenHits, 4);
 
   if (identity.mainIngredientKey === "fish" && /\b(chicken|beef|lamb|pork)\b/.test(haystack)) score -= 5;
+  if (identity.mainIngredientKey === "chicken" && hasChickenVisualConfusable(haystack)) return -100;
+  if (identity.mainIngredientKey === "chicken" && !/\b(chicken|poultry|breast|thigh|drumstick|wing|wings|schnitzel)\b/.test(haystack)) score -= 6;
   if (identity.mainIngredientKey === "shrimp" && !/\bshrimp|prawn\b/.test(haystack)) score -= 5;
+  if (identity.mainIngredientKey === "liver" && hasLiverVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "liver" && !/\b(liver|kebda|kibda|ciger|cigeri)\b/.test(haystack)) score -= 12;
+  if (/\b(adana kebab|kafta|kofta|kofte)\b/.test(identity.cleanQuery) && hasMincedKebabVisualConfusable(haystack)) return -100;
+  if (/\b(ful|fool|foul|medames|fava bean|fava beans)\b/.test(identity.cleanQuery) && hasFulVisualConfusable(haystack)) return -100;
+  if ((identity.mainIngredientKey === "egg" || /\b(egg|eggs|omelet|omelette|frittata|cilbir|menemen|shakshuka|yumurta)\b/.test(identity.cleanQuery)) && hasEggVisualConfusable(haystack)) return -100;
   if (identity.mainIngredientKey === "tuna" && !/\btuna\b/.test(haystack)) score -= 4;
   if (identity.mainIngredientKey === "bean" && BLOCKED_TERMS.some((term) => haystack.includes(term))) score -= 8;
 

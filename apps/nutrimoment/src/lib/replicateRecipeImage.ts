@@ -33,6 +33,60 @@ interface DishVisualPrompt {
   cuisineStyle?: string;
 }
 
+const KEBDA_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "Egyptian kebda eskandarani",
+  visualDescription:
+    "Egyptian kebda made from thin sliced liver strips or small irregular liver pieces, dark mahogany-brown with slightly firm flat cut surfaces and a glossy spicy garlic-chili-lemon sauce. It may include green pepper strips, parsley, cumin, coriander, and lemon. The liver pieces should look like sauteed or fried liver slices, not stew meat: some pieces are flat strips, some are uneven bite-size liver cuts with sharp edges and dense liver texture",
+  plating:
+    "served as one tight Egyptian street-food plate, skillet, foil tray, or sandwich filling only when bread is part of the recipe; the liver is the clear main subject with minimal garnish",
+  avoid:
+    "beef cubes, stew beef, kebab halla, diced steak, steak tips, lamb cubes, braised meat chunks, generic brown meat, meatballs, burger, kofta, shawarma, chicken, fish, pasta, spaghetti, noodles, rice, rice bowl, couscous, pilaf, soup, egg, yellow curry sauce",
+  cuisineStyle: "authentic Egyptian kebda street food"
+};
+
+const MINCED_SKEWER_KEBAB_AVOID =
+  "beef cubes, stew beef, diced steak, steak tips, lamb cubes, braised meat chunks, kebab halla, testi kebab clay pot stew, doner shawarma slices, meatballs, round kofta balls, burger patties, sausage links, loose ground meat hash, pasta, rice bowl, soup";
+
+const KOFTA_KEBAB_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "grilled kofta kebab",
+  visualDescription:
+    "hand-minced beef or lamb kofta formed into long narrow kebab fingers or ridged logs around skewers, with uneven minced-meat texture, charred grill marks, browned edges, and juicy interior. The meat is molded from ground meat, not cut into cubes, and each kebab is elongated rather than round",
+  plating:
+    "served as parallel grilled kofta kebabs on a simple platter with minimal parsley, onion, lemon, grilled pepper, or flatbread only if they fit the recipe",
+  avoid: MINCED_SKEWER_KEBAB_AVOID,
+  cuisineStyle: "authentic grilled kofta kebab"
+};
+
+const ADANA_KEBAB_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "Turkish Adana kebab",
+  visualDescription:
+    "long spicy minced lamb or beef kebab hand-molded onto flat metal skewers, wide and slightly flattened with ridged uneven minced-meat texture, red-orange pepper seasoning, smoky char marks, and juicy browned surface. It is a continuous minced-meat skewer like real Adana kebab, not cubes of meat",
+  plating:
+    "served on or beside lavash with sumac onion, grilled tomato or pepper, and herbs only as small authentic sides; the long flat minced kebab skewer remains the main subject",
+  avoid: MINCED_SKEWER_KEBAB_AVOID,
+  cuisineStyle: "authentic Turkish charcoal-grilled Adana kebab"
+};
+
+const FUL_MEDAMES_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "Egyptian ful medames",
+  visualDescription:
+    "Egyptian ful medames made from mashed and partly whole fava beans, thick tan-brown and rustic, with glossy olive oil or hot chili oil pooled and drizzled on top, cumin, lemon, chopped parsley, tomato, onion, or green chili only as small authentic toppings. The texture should read as stewed fava beans in a shallow bowl, clay tagine, or small metal serving dish, not a smooth dip",
+  plating:
+    "served as one Egyptian breakfast bowl or shallow tagine with the ful as the clear main subject; baladi bread or lemon wedges may appear only as small supporting items when they fit the recipe",
+  avoid:
+    "smooth hummus swirl, chickpea hummus, beige tahini dip, lentil soup, bean soup, white bean stew, kidney bean chili, green beans, fasolia, loubia, salad bowl, rice, pasta, meat stew, beef, chicken, fish",
+  cuisineStyle: "authentic Egyptian breakfast"
+};
+
+const FUL_WITH_EGGS_VISUAL_PROMPT: DishVisualPrompt = {
+  ...FUL_MEDAMES_VISUAL_PROMPT,
+  englishName: "Egyptian ful with eggs",
+  visualDescription:
+    "Egyptian ful medames made from mashed and partly whole fava beans, thick tan-brown and rustic, topped or mixed with visible cooked egg pieces, fried egg, boiled egg wedges, or soft scrambled egg. Glossy olive oil or hot chili oil, cumin, lemon, parsley, tomato, onion, or green chili may appear as small authentic toppings, but the fava beans remain the main subject",
+  plating:
+    "served as one Egyptian breakfast bowl, shallow plate, or small tagine with the ful and eggs together as one finished dish"
+};
+
 const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   hawawshi: {
     englishName: "Egyptian hawawshi",
@@ -61,12 +115,14 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     cuisineStyle: "authentic Egyptian street food"
   },
   kafta: {
+    ...KOFTA_KEBAB_VISUAL_PROMPT,
     englishName: "Egyptian kofta kebab",
-    visualDescription:
-      "charred minced meat kofta shaped as long kebab fingers or skewers, browned and juicy with visible grill marks",
-    plating: "served on a simple platter with minimal parsley and optional flatbread only if it fits the recipe",
-    avoid: "meatballs in tomato sauce, burger patty, steak, pasta, spaghetti, soup, rice as the main subject",
-    cuisineStyle: "authentic Egyptian or Middle Eastern grilled food"
+    cuisineStyle: "authentic Egyptian or Middle Eastern grilled kofta"
+  },
+  "kofta-kebab": {
+    ...KOFTA_KEBAB_VISUAL_PROMPT,
+    englishName: "Egyptian kofta kebab",
+    cuisineStyle: "authentic Egyptian or Middle Eastern grilled kofta"
   },
   mahshi: {
     englishName: "Egyptian mahshi",
@@ -84,13 +140,31 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     avoid: "plain omelette, boiled eggs, pasta, rice, pizza, soup, burger",
     cuisineStyle: "authentic Egyptian breakfast"
   },
-  "ful-medames": {
-    englishName: "Egyptian ful medames",
+  "ful-medames": FUL_MEDAMES_VISUAL_PROMPT,
+  "ful-bel-bayd": FUL_WITH_EGGS_VISUAL_PROMPT,
+  "ful-bel-tahina": {
+    ...FUL_MEDAMES_VISUAL_PROMPT,
+    englishName: "Egyptian ful with tahini",
     visualDescription:
-      "slow-cooked fava beans mashed lightly with olive oil, lemon, cumin, and small vegetable garnish, thick and hearty",
-    plating: "served in one small bowl or deep plate with the fava beans as the clear main subject",
-    avoid: "chickpea hummus, lentil soup, rice, pasta, meat stew, salad bowl",
-    cuisineStyle: "authentic Egyptian breakfast"
+      "Egyptian ful medames made from mashed and partly whole fava beans, thick tan-brown and rustic, mixed or topped with a visible tahini-lemon drizzle, olive oil, cumin, and small authentic toppings like parsley, tomato, onion, lemon, or green chili. The fava bean texture remains visible and should not become smooth hummus"
+  },
+  "foul-bil-tahina": {
+    ...FUL_MEDAMES_VISUAL_PROMPT,
+    englishName: "Egyptian ful with tahini",
+    visualDescription:
+      "Egyptian ful medames made from mashed and partly whole fava beans, thick tan-brown and rustic, mixed or topped with a visible tahini-lemon drizzle, olive oil, cumin, and small authentic toppings like parsley, tomato, onion, lemon, or green chili. The fava bean texture remains visible and should not become smooth hummus"
+  },
+  "foul-iskandarani": {
+    ...FUL_MEDAMES_VISUAL_PROMPT,
+    englishName: "Alexandrian ful",
+    visualDescription:
+      "Alexandrian-style ful medames made from mashed and partly whole fava beans, thick tan-brown and rustic, with tomato, onion, green pepper or chili, lemon, cumin, garlic, and glossy olive oil or hot chili oil. It should look like an Egyptian fava bean bowl with visible bean texture and bright Alexandrian toppings"
+  },
+  "fava-bean-sandwich": {
+    ...FUL_MEDAMES_VISUAL_PROMPT,
+    englishName: "Egyptian ful sandwich",
+    plating:
+      "served as Egyptian baladi bread or pita filled with ful medames, with the mashed fava bean filling visibly spilling at the cut edge; the ful filling remains the main subject"
   },
   "kebab-halla": {
     englishName: "Egyptian kebab halla",
@@ -101,14 +175,27 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     cuisineStyle: "authentic Egyptian home cooking"
   },
   "alexandrian-liver": {
-    englishName: "Egyptian Alexandrian liver",
-    visualDescription:
-      "thin irregular strips of sauteed beef liver, dark brown and glossy, mixed with green pepper strips, garlic, chili, cumin, coriander, and lemon, clearly recognizable as chopped liver strips rather than steak pieces",
+    ...KEBDA_VISUAL_PROMPT,
+    englishName: "Egyptian Alexandrian liver"
+  },
+  "kebda-eskandarani": KEBDA_VISUAL_PROMPT,
+  "egyptian-liver-sandwiches": {
+    ...KEBDA_VISUAL_PROMPT,
+    englishName: "Egyptian liver sandwiches",
     plating:
-      "served as one tight street-food plate or sandwich-style filling only if bread is part of the recipe; no rice bed, no pasta bed, no noodles",
-    avoid:
-      "steak, kebab, meatballs, chicken, fish, pasta, spaghetti, noodles, rice, rice bowl, couscous, pilaf, soup, burger, plain grains, egg, yellow sauce",
-    cuisineStyle: "authentic Alexandrian Egyptian street food"
+      "served as Egyptian liver sandwich filling inside baladi bread or a tight street-food plate beside bread, with the liver strips clearly visible"
+  },
+  "liver-sandwich": {
+    ...KEBDA_VISUAL_PROMPT,
+    englishName: "Egyptian liver sandwich",
+    plating:
+      "served as Egyptian liver sandwich filling inside baladi bread or a tight street-food plate beside bread, with the liver strips clearly visible"
+  },
+  "fried-liver": {
+    ...KEBDA_VISUAL_PROMPT,
+    englishName: "fried kebda liver slices",
+    visualDescription:
+      "deep-fried beef liver slices or strips, dark brown with crisp bran or flour coating, irregular flat liver pieces served with parsley and lemon. The pieces are thin liver slices, not beef cubes or stew chunks"
   },
   mujadara: {
     englishName: "mujadara lentils and rice",
@@ -121,9 +208,17 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   menemen: {
     englishName: "Turkish menemen",
     visualDescription:
-      "soft scrambled eggs cooked with tomatoes, green peppers, and spices, rustic and slightly saucy",
-    plating: "served in a small pan or shallow dish with egg and tomato clearly visible",
+      "soft scrambled eggs cooked with tomatoes, green peppers, and spices, rustic and slightly saucy, with visible yellow egg curds integrated into the red tomato-pepper mixture",
+    plating: "served in a small pan or shallow dish with egg and tomato clearly visible as one breakfast dish",
     avoid: "plain omelette, shakshuka with whole poached eggs, pasta, rice, burger, soup",
+    cuisineStyle: "authentic Turkish breakfast"
+  },
+  "sucuklu-yumurta": {
+    englishName: "Turkish sucuklu yumurta",
+    visualDescription:
+      "eggs cooked in a small pan with slices of Turkish sucuk sausage, glossy butter, set whites and visible yolks or softly cooked eggs, with the red-brown sucuk slices clearly visible around the eggs",
+    plating: "served as one Turkish breakfast pan or shallow plate with eggs and sucuk as the clear main subject",
+    avoid: "plain boiled eggs, omelette without sausage, hot dog, burger, pasta, rice, soup, unrelated breakfast buffet",
     cuisineStyle: "authentic Turkish breakfast"
   },
   "mercimek-corbasi": {
@@ -143,12 +238,7 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     cuisineStyle: "authentic Turkish bakery food"
   },
   "adana-kebab": {
-    englishName: "Turkish Adana kebab",
-    visualDescription:
-      "long spicy minced lamb kebab grilled on flat skewers with char marks and a juicy texture",
-    plating: "served on a simple kebab plate with minimal flatbread or grilled pepper only if they fit the recipe",
-    avoid: "meatballs, burger, steak, pasta, soup, rice as the main subject",
-    cuisineStyle: "authentic Turkish grilled food"
+    ...ADANA_KEBAB_VISUAL_PROMPT
   },
   manti: {
     englishName: "Turkish manti",
@@ -161,10 +251,34 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   cilbir: {
     englishName: "Turkish cilbir",
     visualDescription:
-      "poached eggs over thick garlicky yogurt with red pepper butter drizzled on top",
-    plating: "served in a shallow bowl with the eggs and yogurt clearly visible",
-    avoid: "plain boiled eggs, omelette, tomato shakshuka, pasta, rice, soup",
+      "Turkish poached eggs set over thick garlicky yogurt with red pepper butter or chili oil drizzled across the eggs and yogurt, white yogurt base visible, runny or soft yolks visible, no tomato sauce",
+    plating: "served in one shallow bowl or plate with the poached eggs, yogurt, and red pepper butter clearly visible",
+    avoid: "plain boiled eggs, omelette, tomato shakshuka, menemen, pasta, rice, soup, salad, hummus",
     cuisineStyle: "authentic Turkish breakfast"
+  },
+  eggah: {
+    englishName: "Egyptian eggah",
+    visualDescription:
+      "thick Egyptian baked eggah, a golden egg-and-herb frittata-like dish with parsley, onion, and vegetables set into the eggs, cut into a wedge or square so the firm egg interior is visible",
+    plating: "served as one thick baked egg slice or compact round eggah portion on a simple plate",
+    avoid: "plain omelette, scrambled eggs, shakshuka tomato sauce, boiled eggs, pasta, rice, soup, cake",
+    cuisineStyle: "authentic Egyptian breakfast or lunch"
+  },
+  "vegetable-omelet": {
+    englishName: "vegetable omelet",
+    visualDescription:
+      "folded or open omelet with set yellow eggs and visible vegetables such as peppers, onions, spinach, herbs, or tomato, with egg clearly dominant",
+    plating: "served as one omelet on a simple plate with no unrelated side dishes unless listed in the recipe",
+    avoid: "pancake, flatbread, pasta, rice, soup, salad-only plate, meat stew, dessert",
+    cuisineStyle: "realistic breakfast food photography"
+  },
+  "egg-scramble": {
+    englishName: "scrambled eggs",
+    visualDescription:
+      "soft scrambled eggs with visible yellow curds, lightly glossy and cooked with the recipe vegetables or herbs, with the eggs clearly dominant",
+    plating: "served as one compact egg plate or shallow bowl, not a full breakfast buffet",
+    avoid: "omelet, boiled eggs, shakshuka, pasta, rice, soup, salad-only plate, dessert",
+    cuisineStyle: "realistic breakfast food photography"
   },
   "sarma-dolma": {
     englishName: "Turkish sarma and dolma",
@@ -362,6 +476,7 @@ function buildRecipeImagePrompt(
   const servingClause = buildServingFormClause(identity.mealTypeKey, identity.starchKey, identity.cookingMethodKey);
   const compositionClause = buildCompositionClause(identity.mealTypeKey);
   const strictVisualClause = buildStrictVisualClause(identity, ingredientList);
+  const proteinVisualClause = buildProteinVisualClause(identity, dish || query, ingredientList);
 
   return [
     `Create a photorealistic editorial food photograph of ${dish || query}.`,
@@ -371,6 +486,7 @@ function buildRecipeImagePrompt(
     cuisineClause,
     servingClause,
     subjectClause,
+    proteinVisualClause,
     ingredientClause,
     starchClause,
     forbiddenIngredientClause,
@@ -432,11 +548,34 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
 
   if (identity.mainIngredientKey === "liver") {
     return [
-      "Strict visual identity: the food must be visibly liver/kebda/cigeri as dark brown sauteed or fried liver strips/pieces.",
-      "The liver must be the largest and clearest subject in the frame, not a steak, meatball, chicken piece, fish, egg, or generic brown protein.",
+      "Strict visual identity: the food must be visibly liver/kebda/cigeri as dark brown sauteed or fried liver strips, thin slices, or irregular liver pieces with dense liver texture.",
+      "The liver must be the largest and clearest subject in the frame, not a beef cube stew, kebab halla, steak tip, diced meat chunk, meatball, kofta, chicken piece, fish, egg, or generic brown protein.",
+      "Hard negative: no cubed beef, no stew meat chunks, no braised beef cubes, no smooth generic meat cubes.",
       forbiddenStarches.length
         ? `Hard negative: do not include ${forbiddenStarches.join("; ")} anywhere in the image.`
         : "Any starch present must be minor and must not dominate or hide the liver."
+    ].join(" ");
+  }
+
+  if (isMincedKebabVisualRequest(identity)) {
+    return [
+      "Strict visual identity: the food must be visibly made from minced or ground meat formed into long grilled kebab logs, fingers, or flat skewers with char marks and ridged minced texture.",
+      "Hard negative: no beef cubes, no diced steak, no stew meat chunks, no meatballs, no burger patties, no sausage links, no doner or shawarma slices.",
+      "The kebab must look molded from ground meat, not cut from whole muscle meat."
+    ].join(" ");
+  }
+
+  if (isFulVisualRequest(identity)) {
+    const hasEgg = /\b(egg|eggs)\b/.test(source) || /بيض/u.test(source);
+    return [
+      "Strict visual identity: the food must be Egyptian ful/fool medames, a thick rustic fava bean bowl with mashed and partly whole tan-brown fava beans, glossy oil, cumin, and simple Egyptian toppings.",
+      "The fava beans must be the largest and clearest subject in the frame; the dish must not become a smooth hummus dip, lentil soup, white bean stew, chili, bean salad, fasolia, or generic mixed beans.",
+      hasEgg
+        ? "Because eggs are part of this recipe, show visible cooked egg pieces or egg topping integrated with the ful while keeping the fava beans dominant."
+        : "Do not add eggs unless they are explicitly in the recipe name or ingredient list.",
+      forbiddenStarches.length
+        ? `Hard negative: do not include ${forbiddenStarches.join("; ")} anywhere in the image.`
+        : "Any starch present must be minor and must not dominate or hide the ful."
     ].join(" ");
   }
 
@@ -450,6 +589,19 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
       : "",
     "Avoid neighboring dish families, vague mixed plates, unrelated sides, and generic restaurant food."
   ].filter(Boolean).join(" ");
+}
+
+function isMincedKebabVisualRequest(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  if (/\b(kebab halla|testi kebab|testi kebabi|pottery kebab|cig kofte|çig kofte|çiğ köfte|patlican kebab)\b/.test(key)) {
+    return false;
+  }
+  return /\b(adana kebab|kafta|kofta|kofte|kefta|kufta|kofta kebab|kofte kebab)\b/.test(key);
+}
+
+function isFulVisualRequest(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  return /\b(ful|fool|foul|medames|fava bean|fava beans|ful-bel|foul-bil|foul-iskandarani)\b/u.test(key) || /فول/u.test(key);
 }
 
 function findDishVisualPrompt(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
@@ -585,6 +737,65 @@ function buildForbiddenIngredientClause(
   }
 
   return `Do not show ${Array.from(new Set(forbiddenGroups)).join(", ")} unless they are explicitly part of this recipe.`;
+}
+
+function buildProteinVisualClause(
+  identity: ReturnType<typeof buildRecipePhotoIdentity>,
+  query: string,
+  ingredients: string[]
+) {
+  const source = `${query} ${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+
+  if (identity.mainIngredientKey === "chicken" || /\bchicken|poultry|farakh|ferekh\b/.test(source)) {
+    const form = inferChickenVisualForm(source, identity.cookingMethodKey, identity.mealTypeKey);
+    return [
+      `Chicken visual identity: ${form}`,
+      "The chicken must be visibly chicken through its shape, fibers, skin, bone, cutlet edge, or white-meat interior, not anonymous brown protein hidden under sauce.",
+      "Do not substitute beef, lamb, liver, fish, shrimp, tofu, meatballs, burger patties, or pasta-only plating."
+    ].join(" ");
+  }
+
+  return "";
+}
+
+function inferChickenVisualForm(source: string, cookingMethodKey?: string, mealTypeKey?: string) {
+  if (/\bschnitzel|cutlet|breaded|crispy\b/.test(source)) {
+    return "show a flattened breaded chicken cutlet with crisp golden crumb coating and a visible chicken edge or sliced interior.";
+  }
+
+  if (/\bwing|wings\b/.test(source)) {
+    return "show recognizable chicken wings or wing pieces with skin, joints, and sauce or seasoning that matches the recipe.";
+  }
+
+  if (/\bthigh|drumstick|leg\b/.test(source)) {
+    return "show bone-in or boneless chicken thigh, drumstick, or leg pieces with browned skin or seared edges matching the recipe.";
+  }
+
+  if (/\bwhole chicken|roast chicken|roasted chicken|spatchcock|butterflied\b/.test(source)) {
+    return "show a whole, half, or butterflied roasted chicken with browned skin and recognizable poultry form.";
+  }
+
+  if (/\bskewer|shish|sis|kebab\b/.test(source)) {
+    return "show grilled chicken pieces threaded on skewers, clearly poultry pieces rather than minced meat or beef cubes.";
+  }
+
+  if (mealTypeKey === "stew" || /\bstew|curry|tagine|braise|one-pot|one pot\b/.test(source)) {
+    return "show distinct chicken pieces in the sauce or stew, with white meat or browned chicken skin visible above the sauce.";
+  }
+
+  if (cookingMethodKey === "fried" || /\bfried|crispy\b/.test(source)) {
+    return "show crisp fried chicken pieces with golden crust and recognizable poultry shape.";
+  }
+
+  if (cookingMethodKey === "grilled" || cookingMethodKey === "pan-seared" || /\bgrilled|seared|charred\b/.test(source)) {
+    return "show seared or grilled chicken breast, thigh, or pieces with browned surface and visible chicken texture.";
+  }
+
+  if (/\bcream|creamy|sauce|honey garlic|marry me|caprese|tomato\b/.test(source)) {
+    return "show chicken breast, thigh, or sliced chicken pieces as the main subject with sauce coating the chicken while leaving the poultry shape visible.";
+  }
+
+  return "show chicken breast, thigh, roast pieces, or sliced cooked chicken as the dominant visible protein.";
 }
 
 function buildCuisineAuthenticityClause(cuisineKey?: string) {

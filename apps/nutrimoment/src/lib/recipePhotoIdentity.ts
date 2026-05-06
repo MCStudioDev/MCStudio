@@ -120,6 +120,12 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "cilbir"
   },
   {
+    aliases: [/\beggah\b/i, /\beggeh\b/i, /\begyptian frittata\b/i, /\u0639\u062c\u0629/iu],
+    canonicalName: "eggah",
+    cuisineKey: "egyptian",
+    key: "eggah"
+  },
+  {
     aliases: [/\bmenemen\b/i],
     canonicalName: "menemen",
     cuisineKey: "turkish",
@@ -260,6 +266,36 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     imageUrl:
       "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
     key: "koshary"
+  },
+  {
+    aliases: [
+      /\b(ful|fool|foul)\s+(?:bel|bil|with)\s+(?:bayd|beid|eggs?)\b/i,
+      /\bfava beans?\s+with\s+eggs?\b/i,
+      /\u0641\u0648\u0644\s+\u0628(?:\u0627\u0644)?\u0628\u064a\u0636/iu
+    ],
+    canonicalName: "ful with eggs",
+    cuisineKey: "egyptian",
+    key: "ful-bel-bayd"
+  },
+  {
+    aliases: [
+      /\b(ful|fool|foul)\s+(?:bel|bil|with)\s+tahini\b/i,
+      /\bfava beans?\s+with\s+tahini\b/i,
+      /\u0641\u0648\u0644\s+\u0628(?:\u0627\u0644)?\u0637\u062d\u064a\u0646(?:\u0629|\u0647)/iu
+    ],
+    canonicalName: "ful with tahini",
+    cuisineKey: "egyptian",
+    key: "ful-bel-tahina"
+  },
+  {
+    aliases: [
+      /\b(ful|fool|foul)\s+(?:iskandarani|eskandarani|alexandrian)\b/i,
+      /\balexandrian\s+(?:ful|fool|foul|fava beans?)\b/i,
+      /\u0641\u0648\u0644\s+(?:\u0625\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a|\u0627\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a)/iu
+    ],
+    canonicalName: "alexandrian ful",
+    cuisineKey: "egyptian",
+    key: "foul-iskandarani"
   },
   {
     aliases: [/\b(ful|medames)\b/i, /\bfava bean/i, new RegExp(ARABIC.fava, "iu")],
@@ -643,6 +679,23 @@ function detectRecipePhotoFamily(
   ) {
     return "cilbir";
   }
+  if (
+    details.cuisineKey === "egyptian" &&
+    details.beanTypeKey === "fava-bean" &&
+    (details.mainIngredientKey === "egg" || /\begg|eggs\b/iu.test(cleanQuery) || cleanQuery.includes(ARABIC.egg))
+  ) {
+    return "ful-bel-bayd";
+  }
+  if (
+    details.cuisineKey === "egyptian" &&
+    details.beanTypeKey === "fava-bean" &&
+    /\btahini\b/iu.test(cleanQuery)
+  ) {
+    return "ful-bel-tahina";
+  }
+  if (details.cuisineKey === "egyptian" && details.mainIngredientKey === "bean" && details.beanTypeKey === "fava-bean") {
+    return "ful-medames";
+  }
   if (/\blabneh\b/iu.test(cleanQuery)) return "labneh-bowl";
   if (/\bgreek yogurt\b/iu.test(cleanQuery) || (details.mainIngredientKey === "yogurt" && /\bberries|walnuts|chia\b/iu.test(cleanQuery))) {
     return "yogurt-bowl";
@@ -800,6 +853,14 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("chicken rice salad"), withCuisine("salad with rice"), withCuisine("chicken salad")];
     case "shakshuka":
       return [withCuisine("shakshuka")];
+    case "ful-medames":
+      return [withCuisine("ful medames"), withCuisine("egyptian fava beans"), withCuisine("ful with hot oil")];
+    case "ful-bel-bayd":
+      return [withCuisine("ful with eggs"), withCuisine("ful bel bayd"), withCuisine("fava beans eggs")];
+    case "ful-bel-tahina":
+      return [withCuisine("ful with tahini"), withCuisine("ful bel tahina"), withCuisine("fava beans tahini")];
+    case "foul-iskandarani":
+      return [withCuisine("alexandrian ful"), withCuisine("foul iskandarani"), withCuisine("egyptian ful tomato pepper")];
     case "mujadara":
       return [withCuisine("mujadara"), withCuisine("lentils and rice"), withCuisine("roz bel ads")];
     case "koshary":
@@ -824,6 +885,8 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
 export function isStrictRecipePhotoIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
   return Boolean(
     identity.canonicalDishKey ||
+      isFulIdentity(identity) ||
+      isEggVisualIdentity(identity) ||
       identity.familyKey === "alexandrian-liver" ||
       identity.mainIngredientKey === "liver" ||
       /\b(liver|kebda|kibda|ciger|cigeri)\b/i.test(identity.cleanQuery) ||
@@ -838,6 +901,22 @@ export function matchesStrictRecipePhotoIdentity(
 ) {
   if (!isStrictRecipePhotoIdentity(identity)) return true;
 
+  if (identity.mainIngredientKey === "liver" && hasLiverVisualConfusable(haystack)) {
+    return false;
+  }
+
+  if (isMincedKebabIdentity(identity) && hasMincedKebabVisualConfusable(haystack)) {
+    return false;
+  }
+
+  if (isFulIdentity(identity) && hasFulVisualConfusable(haystack)) {
+    return false;
+  }
+
+  if (isEggVisualIdentity(identity) && hasEggVisualConfusable(haystack)) {
+    return false;
+  }
+
   const strictTokens = getStrictRecipePhotoIdentityTokens(identity);
   if (!strictTokens.length) return true;
   if (strictTokens.some((token) => includesStrictToken(haystack, token))) return true;
@@ -845,6 +924,55 @@ export function matchesStrictRecipePhotoIdentity(
   if (identity.canonicalDishKey) return false;
   const requestTokens = getStrictTextTokens(normalizedRequestQuery);
   return requestTokens.length > 0 && requestTokens.some((token) => includesStrictToken(haystack, token));
+}
+
+export function hasLiverVisualConfusable(haystack: string) {
+  return /\b(beef cubes?|stew beef|beef stew|meat cubes?|stew meat|braised beef|diced beef|steak tips?|kebab halla|meatballs?|kofta|burger)\b/iu.test(haystack) &&
+    !/\b(liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato)\b/iu.test(haystack);
+}
+
+export function hasMincedKebabVisualConfusable(haystack: string) {
+  return /\b(beef cubes?|stew beef|beef stew|meat cubes?|stew meat|braised beef|diced beef|steak tips?|kebab halla|testi kebab|pottery kebab|meatballs?|burger patt(?:y|ies)|sausage links?|doner|shawarma slices?)\b/iu.test(haystack);
+}
+
+export function hasFulVisualConfusable(haystack: string) {
+  return /\b(hummus|houmous|chickpea dip|chickpea puree|lentil soup|bean soup|white bean stew|kidney beans?|black beans?|green beans?|fasolia|loubia|chili con carne|bean chili|bean salad|rice bowl|pasta|meat stew|beef stew)\b/iu.test(haystack) &&
+    !/\b(ful|fool|foul|medames|fava|broad beans?)\b/iu.test(haystack) &&
+    !/\u0641\u0648\u0644/u.test(haystack);
+}
+
+export function hasEggVisualConfusable(haystack: string) {
+  return /\b(eggplant|aubergine|pasta|rice bowl|burger|sandwich|meat stew|beef stew|chicken plate|fish plate|soup|salad|cake|dessert)\b/iu.test(haystack) &&
+    !/\b(egg|eggs|omelet|omelette|frittata|shakshuka|menemen|cilbir|yumurta|poached|scrambled|boiled)\b/iu.test(haystack) &&
+    !/\u0628\u064a\u0636/u.test(haystack);
+}
+
+export function hasChickenVisualConfusable(haystack: string) {
+  return /\b(beef|steak|lamb|liver|kebda|fish|salmon|shrimp|prawn|tofu|meatballs?|burger|pasta only|plain pasta|rice only|plain rice|vegetarian)\b/iu.test(haystack) &&
+    !/\b(chicken|poultry|hen|rooster|breast|thigh|drumstick|wing|wings|schnitzel)\b/iu.test(haystack);
+}
+
+function isMincedKebabIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey">) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  if (/\b(kebab halla|testi kebab|testi kebabi|pottery kebab|cig kofte|çig kofte|çiğ köfte|patlican kebab)\b/u.test(key)) {
+    return false;
+  }
+  return /\b(adana kebab|kafta|kofta|kofte|kefta|kufta|kofta kebab|kofte kebab)\b/u.test(key);
+}
+
+function isFulIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey">) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  return /\b(ful|fool|foul|medames|fava bean|fava beans|ful-bel|foul-bil|foul-iskandarani)\b/u.test(key) || /\u0641\u0648\u0644/u.test(key);
+}
+
+function isEggVisualIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
+  const key = `${identity.canonicalDishKey ?? ""} ${identity.familyKey ?? ""} ${identity.cleanQuery}`.toLowerCase();
+  if (/\b(eggplant|aubergine)\b/u.test(key)) return false;
+  return (
+    identity.mainIngredientKey === "egg" ||
+    /\b(egg|eggs|omelet|omelette|frittata|eggah|eggeh|shakshuka|menemen|cilbir|yumurta)\b/u.test(key) ||
+    /\u0628\u064a\u0636/u.test(key)
+  );
 }
 
 export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
@@ -861,6 +989,14 @@ export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIde
 
   if (identity.mainIngredientKey === "liver" || /\b(liver|kebda|kibda|ciger|cigeri)\b/i.test(identity.cleanQuery)) {
     aliases.push("liver", "kebda", "kibda", "ciger", "cigeri", ARABIC.liver, ARABIC.liverAlt);
+  }
+
+  if (isFulIdentity(identity)) {
+    aliases.push("ful", "fool", "foul", "ful medames", "fava beans", ARABIC.fava);
+  }
+
+  if (isEggVisualIdentity(identity)) {
+    aliases.push("egg", "eggs", "omelet", "omelette", "poached eggs", "scrambled eggs", "cilbir", "menemen", "eggah", ARABIC.egg);
   }
 
   return Array.from(

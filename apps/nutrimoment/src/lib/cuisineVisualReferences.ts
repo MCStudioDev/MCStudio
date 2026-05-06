@@ -21,8 +21,8 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "alexandrian liver",
     cuisine: "Egyptian",
     pantrySignals: ["liver", "beef", "garlic", "pepper", "chili"],
-    visualForms: ["foil liver tray", "sliced liver with peppers", "street-style liver filling"],
-    imageQueries: ["alexandrian liver", "egyptian liver sandwich filling", "kibda iskandarani"]
+    visualForms: ["dark liver strips with peppers", "glossy kebda pieces in garlic chili sauce", "street-style liver filling"],
+    imageQueries: ["kebda eskandarani", "alexandrian liver strips", "egyptian kebda liver"]
   },
   {
     key: "mahshi-mixed",
@@ -31,6 +31,14 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     pantrySignals: ["zucchini", "bell pepper", "cabbage", "vine leaves", "rice"],
     visualForms: ["mixed stuffed vegetables platter", "rice-stuffed vegetables", "mahshi assortment"],
     imageQueries: ["mixed mahshi egyptian", "egyptian stuffed vegetables", "mahshi platter"]
+  },
+  {
+    key: "ful-medames",
+    canonicalName: "ful medames",
+    cuisine: "Egyptian",
+    pantrySignals: ["fava bean", "broad bean", "ful", "egg", "cumin", "lemon", "olive oil"],
+    visualForms: ["rustic fava bean bowl with oil", "ful with hot chili oil", "ful with eggs in a shallow bowl"],
+    imageQueries: ["ful medames hot oil", "foul medames eggs", "egyptian ful bowl"]
   },
   {
     key: "besara",
@@ -69,8 +77,8 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "fried liver strips",
     cuisine: "Egyptian",
     pantrySignals: ["liver", "cornmeal", "flour", "lemon"],
-    visualForms: ["breaded liver strips", "fried liver platter", "crispy liver plate"],
-    imageQueries: ["fried liver egyptian", "crispy liver strips", "breaded liver plate"]
+    visualForms: ["deep-fried liver slices", "bran-coated kebda strips", "crispy liver plate"],
+    imageQueries: ["kebda bel rada", "egyptian fried liver slices", "deep fried kebda liver"]
   },
   {
     key: "koshary",
@@ -85,8 +93,24 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "kofta",
     cuisine: "Egyptian",
     pantrySignals: ["ground meat", "parsley", "onion", "garlic", "cumin"],
-    visualForms: ["kofta logs", "grilled minced meat kebabs", "kofta platter"],
-    imageQueries: ["egyptian kofta", "kofta kebab egyptian", "grilled kofta platter"]
+    visualForms: ["long minced meat kebab logs", "charred ground-meat skewers", "ridged kofta fingers"],
+    imageQueries: ["egyptian kofta kebab skewers", "grilled kofta kebab", "minced meat kofta kebab"]
+  },
+  {
+    key: "eggah",
+    canonicalName: "eggah",
+    cuisine: "Egyptian",
+    pantrySignals: ["egg", "parsley", "onion", "flour", "vegetable"],
+    visualForms: ["thick baked egg slice", "Egyptian herb frittata", "golden egg casserole square"],
+    imageQueries: ["eggah egyptian", "egyptian eggah frittata", "egyptian baked egg dish"]
+  },
+  {
+    key: "egyptian-chicken",
+    canonicalName: "Egyptian chicken plate",
+    cuisine: "Egyptian",
+    pantrySignals: ["chicken", "garlic", "lemon", "rice", "tomato", "cumin"],
+    visualForms: ["visible roasted chicken pieces", "sauced chicken with poultry shape", "grilled chicken plate"],
+    imageQueries: ["egyptian chicken recipe", "egyptian roasted chicken", "middle eastern chicken plate"]
   },
   {
     key: "macarona-bechamel",
@@ -125,8 +149,8 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "liver sandwiches",
     cuisine: "Egyptian",
     pantrySignals: ["liver", "baladi bread", "onion", "pepper", "garlic"],
-    visualForms: ["stuffed pita liver sandwiches", "street-style liver pockets", "liver bread wraps"],
-    imageQueries: ["egyptian liver sandwiches", "liver pita egyptian", "kibda sandwich"]
+    visualForms: ["baladi bread stuffed with kebda strips", "street-style liver pockets", "liver bread wraps"],
+    imageQueries: ["egyptian kebda sandwich", "liver pita egyptian", "kibda sandwich"]
   }
 ];
 
@@ -168,8 +192,8 @@ const TURKISH_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "cilbir",
     cuisine: "Turkish",
     pantrySignals: ["egg", "yogurt", "garlic", "butter"],
-    visualForms: ["poached eggs over yogurt", "savory yogurt egg bowl", "Turkish breakfast yogurt eggs"],
-    imageQueries: ["cilbir", "turkish poached eggs yogurt", "eggs with garlic yogurt turkish"]
+    visualForms: ["poached eggs over garlic yogurt", "red pepper butter over eggs", "Turkish yogurt egg bowl"],
+    imageQueries: ["cilbir", "turkish poached eggs garlic yogurt", "cilbir red pepper butter"]
   },
   {
     key: "gozleme",
@@ -216,8 +240,8 @@ const TURKISH_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "adana kebab",
     cuisine: "Turkish",
     pantrySignals: ["ground meat", "lamb", "beef", "pepper paste", "skewer", "sumac"],
-    visualForms: ["long minced meat kebab", "skewer kebab on lavash", "spicy grilled kebab"],
-    imageQueries: ["adana kebab", "turkish adana kebab", "spicy turkish kebab"]
+    visualForms: ["long flat minced-meat skewer", "ridged Adana kebab on lavash", "charred spicy ground-meat kebab"],
+    imageQueries: ["adana kebab flat skewer", "turkish adana minced kebab", "spicy ground lamb adana kebab"]
   },
   {
     key: "testi-kebabi",

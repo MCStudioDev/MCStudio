@@ -777,8 +777,8 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
   if (isMincedKebabVisualRequest(identity)) {
     return [
       "Strict visual identity: the food must be visibly made from minced or ground meat formed into long grilled kebab logs, fingers, or flat skewers with char marks and ridged minced texture.",
-      "Hard negative: no beef cubes, no meat cubes, no lamb cubes, no diced steak, no sliced beef strips, no shish kebab chunks, no stew meat chunks, no meatballs, no burger patties, no sausage links, no doner or shawarma slices.",
-      "The kebab must look molded from ground/minced meat, not cut from whole muscle meat. Use a ridged minced texture across the full skewer or log."
+      "Hard negative: no beef cubes, no diced steak, no stew meat chunks, no meatballs, no burger patties, no sausage links, no doner or shawarma slices.",
+      "The kebab must look molded from ground meat, not cut from whole muscle meat."
     ].join(" ");
   }
 

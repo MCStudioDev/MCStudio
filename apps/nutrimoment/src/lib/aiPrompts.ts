@@ -495,8 +495,6 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
-    "Hard ownership rule: every returned recipe must include at least one Available pantry ingredient in its ingredients array after exact ownership. Do not return recipes whose ingredients array would be empty.",
-    "Protein ownership rule: never introduce chicken, fish, shrimp, seafood, beef, lamb, liver, ground meat, tofu, or eggs as a main protein unless that exact protein or form appears in Available pantry ingredients.",
     "Ownership guardrail: for each recipe, the count of ingredients must be greater than or equal to the count of missing_ingredients whenever possible.",
     "Scanner API hard rule: for the strongest recipes, the available pantry ingredients must clearly outnumber or at least match the missing support items.",
     "Start from pantry-first recipes that visibly center the scanned or typed ingredients, then degrade only later if the pantry is too sparse.",
@@ -713,9 +711,9 @@ function buildIngredientFormGuidance(ingredients: RecipePromptIngredient[]) {
   if (hasLiver) {
     guidance.push(
       "Organ-meat hard rule: the pantry contains liver/kebda, not generic beef meat.",
-      "Every meat/protein recipe must visibly use liver/kebda. Do not swap in chicken, fish, shrimp, ground meat, beef cubes, steak, beef strips, braised beef, beef stew, kebab halla, roast beef, meatballs, kofta, burgers, or generic beef plates from liver.",
+      "Do not generate beef cubes, steak, beef strips, braised beef, beef stew, kebab halla, roast beef, meatballs, kofta, burgers, or generic beef plates from liver.",
       "Valid liver forms include kebda eskandarani, fried liver slices, liver sandwiches, liver with onions, sawda djej, arnavut cigeri, edirne tava cigeri, kaleji masala, higado encebollado, fegato alla veneziana, or direct liver saute plates when the cuisine supports them.",
-      "If the requested count is high and liver is the only protein, create distinct liver-compatible recipe families and serving formats; never fill slots with another protein that was not listed in the pantry."
+      "If the requested count is high and liver is the only protein, create distinct liver-compatible recipe families or simple non-meat pantry dishes; never fill slots with generic beef recipes."
     );
   }
 

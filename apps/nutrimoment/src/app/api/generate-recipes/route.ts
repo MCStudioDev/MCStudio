@@ -486,21 +486,6 @@ export async function POST(request: Request) {
             strictRecipes = mergeRecipeResults(null, [...repairRecipes, ...strictRecipes], false, recipeCount);
           }
         }
-        strictRecipes = enforceProteinFormRecipes(strictRecipes, scoringIngredients, recipeCount);
-        if (strictRecipes.length < recipeCount) {
-          strictRecipes = enforceProteinFormRecipes(
-            mergeRecipeResults(null, [
-              ...strictRecipes,
-              ...buildProteinFormFallbackRecipes({
-                availableIngredients: scoringIngredients,
-                preferredCuisine: parsed.data.preferredCuisine,
-                recipeCount
-              })
-            ], false, recipeCount),
-            scoringIngredients,
-            recipeCount
-          );
-        }
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
           allowProviderLookup: !requestAccess.isPremium
         });
@@ -1310,197 +1295,14 @@ function buildRecipeCountAndFormRepairPrompt(
     "Do not repeat the same dish family under slightly different names.",
     "Every recipe must use at least one available pantry ingredient as a real main ingredient unless the pantry is empty.",
     needsLiver
-      ? "Critical refill rule: liver/kebda is organ meat. Every recipe in this refill must visibly use liver/kebda as an available ingredient. Generate multiple distinct liver preparations if needed: kebda eskandarani, fried liver slices, liver sandwiches, liver with onions, liver rice plate, liver skillet, liver with peppers, or cuisine-specific liver dishes. Never use chicken, ground meat, shrimp, fish, beef cubes, steak, kofta, burger, meatballs, stew meat, braised beef, or generic beef as a substitute."
+      ? "Critical refill rule: liver/kebda is organ meat. Every meat/protein recipe in this refill must be a real liver dish or direct liver preparation. Never use beef cubes, steak, kofta, burger, meatballs, stew meat, braised beef, or generic beef as a substitute."
       : "",
     needsGroundMeat
-      ? "Critical refill rule: ground/minced meat must stay minced. Every recipe in this refill that uses meat must use the available ground-meat form such as kofta, hawawshi, meatballs, burgers, keema, lahmacun, pide, or minced filling. Never use chicken, shrimp, fish, beef cubes, steak, strips, stew meat, or braised beef as a substitute."
+      ? "Critical refill rule: ground/minced meat must stay minced. Every meat/protein recipe in this refill must use a ground-meat form such as kofta, hawawshi, meatballs, burgers, keema, lahmacun, pide, or minced filling. Never use beef cubes, steak, strips, stew meat, or braised beef as a substitute."
       : "",
-    "Do not fill later slots with another protein that was not explicitly in the available pantry ingredients.",
+    "If there are not enough distinct meat dishes, fill later slots with non-conflicting recipes that use the other pantry ingredients, not with wrong meat-form recipes.",
     "Return only valid JSON and follow the same schema as before."
   ].filter(Boolean).join(" ");
-}
-
-function buildProteinFormFallbackRecipes(input: {
-  availableIngredients: string[];
-  preferredCuisine?: string;
-  recipeCount: number;
-}): Recipe[] {
-  const pantryIngredient = input.availableIngredients.find(isLiverLabel) ?? input.availableIngredients.find(isGroundMeatLabel);
-  if (!pantryIngredient) return [];
-
-  if (isLiverLabel(pantryIngredient)) {
-    return buildLiverFallbackRecipes(input.availableIngredients, input.preferredCuisine).slice(0, input.recipeCount);
-  }
-
-  if (isGroundMeatLabel(pantryIngredient)) {
-    return buildGroundMeatFallbackRecipes(input.availableIngredients, input.preferredCuisine).slice(0, input.recipeCount);
-  }
-
-  return [];
-}
-
-function buildLiverFallbackRecipes(availableIngredients: string[], preferredCuisine?: string): Recipe[] {
-  const cuisine = preferredCuisine && preferredCuisine !== "Any" ? preferredCuisine : "Egyptian";
-  const liverIngredient = availableIngredients.find(isLiverLabel) ?? "liver";
-  const variants = [
-    {
-      name: "Kebda Eskandarani",
-      missing: ["garlic", "green pepper", "lemon", "cumin", "chili"],
-      method: "saute",
-      image: ["kebda eskandarani", "alexandrian liver", "egyptian liver strips"]
-    },
-    {
-      name: "Fried Liver Slices",
-      missing: ["flour", "cumin", "lemon", "parsley"],
-      method: "fried",
-      image: ["fried liver slices", "kebda bel rada", "egyptian fried liver"]
-    },
-    {
-      name: "Liver Sandwiches",
-      missing: ["baladi bread", "garlic", "green pepper", "tahini"],
-      method: "sandwich",
-      image: ["egyptian liver sandwich", "kebda sandwich", "liver pita"]
-    },
-    {
-      name: "Liver with Onions",
-      missing: ["onion", "garlic", "lemon", "black pepper"],
-      method: "skillet",
-      image: ["liver and onions", "sauteed liver onions", "kebda onions"]
-    },
-    {
-      name: "Spiced Liver Skillet",
-      missing: ["garlic", "coriander", "cumin", "tomato", "pepper"],
-      method: "skillet",
-      image: ["spiced liver skillet", "kebda peppers", "liver pepper skillet"]
-    },
-    {
-      name: "Liver Rice Plate",
-      missing: ["rice", "onion", "garlic", "cumin", "lemon"],
-      method: "rice plate",
-      image: ["liver rice plate", "egyptian liver rice", "kebda rice"]
-    },
-    {
-      name: "Garlic Lemon Liver",
-      missing: ["garlic", "lemon", "parsley", "olive oil"],
-      method: "saute",
-      image: ["garlic lemon liver", "kebda lemon garlic", "sauteed liver strips"]
-    },
-    {
-      name: "Chili Pepper Kebda",
-      missing: ["green chili", "bell pepper", "garlic", "vinegar", "cumin"],
-      method: "saute",
-      image: ["chili pepper kebda", "spicy egyptian liver", "kebda peppers"]
-    },
-    {
-      name: "Liver with Tomato Sauce",
-      missing: ["tomato", "garlic", "onion", "cumin", "lemon"],
-      method: "simmered",
-      image: ["liver tomato sauce", "kebda tomato", "liver in spiced sauce"]
-    },
-    {
-      name: "Charred Liver Plate",
-      missing: ["onion", "parsley", "lemon", "cumin", "flatbread"],
-      method: "grilled",
-      image: ["grilled liver plate", "charred liver kebda", "liver flatbread plate"]
-    }
-  ];
-
-  return variants.map((variant, index) => buildProteinFallbackRecipe({
-    availableIngredient: liverIngredient,
-    calories: 420 + index * 20,
-    cuisine,
-    dishName: variant.name,
-    imageSearchIndices: variant.image,
-    missingIngredients: variant.missing,
-    protein: "35g",
-    visualKeywords: ["dark brown liver strips", "garlic lemon sauce", "visible liver pieces"],
-    excludeKeywords: ["beef cubes", "steak", "chicken", "fish", "shrimp", "kofta"],
-    steps: [
-      `Trim 180 g ${liverIngredient} into thin strips and pat dry so the liver browns instead of steaming.`,
-      "Mix the support aromatics and spices from missing_ingredients in a small bowl before cooking.",
-      "Heat a wide skillet over medium-high heat for 2 minutes, then add the liver in one layer.",
-      "Sear for 2 to 3 minutes until the edges turn deep brown and the pieces stay tender inside.",
-      "Add the aromatics and cook for 2 minutes until fragrant without hiding the liver texture.",
-      "Finish with the acid or herbs from missing_ingredients and rest for 1 minute.",
-      "Plate the liver as the clear main ingredient with only the listed support items."
-    ]
-  }));
-}
-
-function buildGroundMeatFallbackRecipes(availableIngredients: string[], preferredCuisine?: string): Recipe[] {
-  const cuisine = preferredCuisine && preferredCuisine !== "Any" ? preferredCuisine : "Middle Eastern";
-  const groundIngredient = availableIngredients.find(isGroundMeatLabel) ?? "ground meat";
-  const variants = [
-    { name: "Kofta Kebab", missing: ["onion", "parsley", "cumin", "flatbread"], images: ["kofta kebab", "grilled kofta", "kafta kebab"] },
-    { name: "Hawawshi", missing: ["baladi bread", "onion", "pepper", "cumin"], images: ["hawawshi", "egyptian meat bread", "minced meat flatbread"] },
-    { name: "Meatballs", missing: ["onion", "garlic", "tomato sauce", "parsley"], images: ["meatballs", "ground meat meatballs", "kofta meatballs"] },
-    { name: "Keema Skillet", missing: ["onion", "tomato", "ginger", "garlic"], images: ["keema", "minced meat skillet", "ground meat keema"] },
-    { name: "Lahmacun", missing: ["flatbread", "tomato", "pepper paste", "parsley"], images: ["lahmacun", "minced meat flatbread", "turkish lahmacun"] }
-  ];
-
-  return variants.map((variant, index) => buildProteinFallbackRecipe({
-    availableIngredient: groundIngredient,
-    calories: 470 + index * 25,
-    cuisine,
-    dishName: variant.name,
-    imageSearchIndices: variant.images,
-    missingIngredients: variant.missing,
-    protein: "38g",
-    visualKeywords: ["ground meat texture", "minced meat", "formed minced meat"],
-    excludeKeywords: ["beef cubes", "steak", "stew meat", "sliced beef", "liver"],
-    steps: [
-      `Crumble 180 g ${groundIngredient} so the texture stays visibly minced.`,
-      "Mix with the support aromatics and spices from missing_ingredients.",
-      "Shape or cook the mixture according to the dish form without turning it into cubes or strips.",
-      "Cook over medium-high heat until browned and fully cooked, about 8 to 12 minutes.",
-      "Keep the ground-meat form visible while adding any sauce or bread support.",
-      "Rest for 2 minutes so the juices settle.",
-      "Plate with the ground meat as the clear main ingredient."
-    ]
-  }));
-}
-
-function buildProteinFallbackRecipe(input: {
-  availableIngredient: string;
-  calories: number;
-  cuisine: string;
-  dishName: string;
-  excludeKeywords: string[];
-  imageSearchIndices: string[];
-  missingIngredients: string[];
-  protein: string;
-  steps: string[];
-  visualKeywords: string[];
-}): Recipe {
-  return {
-    name: input.dishName,
-    cuisine: input.cuisine,
-    dish_intent: {
-      dish_name: input.dishName,
-      cuisine: input.cuisine,
-      meal_type: "dinner",
-      diet_type: "standard",
-      cooking_method: "skillet",
-      visual_keywords: input.visualKeywords,
-      exclude_keywords: input.excludeKeywords
-    },
-    image_search_index: input.imageSearchIndices[0],
-    image_search_indices: input.imageSearchIndices,
-    ingredients: [input.availableIngredient],
-    missing_ingredients: input.missingIngredients,
-    steps: input.steps,
-    calories: input.calories,
-    protein: input.protein,
-    carbs: "30g",
-    fat: "18g",
-    fiber: "4g",
-    sugar: "4g",
-    sodium: "520mg",
-    cook_time: "25 mins",
-    difficulty: "Medium",
-    preference_hits: ["uses the available protein form", "keeps the protein visually accurate"],
-    match_quality: "possible"
-  };
 }
 
 function scoreStrictRecipe(
@@ -1715,12 +1517,12 @@ function enforceProteinFormRecipes(recipes: Recipe[], availableIngredients: stri
     })
   );
   if (!compatible.length) {
-    logger.warn("Protein form gate found no compatible recipes", {
+    logger.warn("Protein form gate found no compatible recipes; returning original recipes", {
       availableIngredients,
       requiresGroundMeatForm,
       requiresLiverForm
     });
-    return [];
+    return recipes.slice(0, recipeCount);
   }
 
   if (compatible.length < Math.min(recipeCount, recipes.length)) {
@@ -1755,10 +1557,6 @@ function isRecipeCompatibleWithProteinFormPantry(
     ...recipe.steps
   ].filter(Boolean).join(" "));
 
-  if (!recipe.ingredients.length && (profile.requiresLiverForm || profile.requiresGroundMeatForm)) {
-    return false;
-  }
-
   if (profile.requiresLiverForm && !isRecipeCompatibleWithLiverPantry(haystack)) {
     return false;
   }
@@ -1771,12 +1569,17 @@ function isRecipeCompatibleWithProteinFormPantry(
 }
 
 function isRecipeCompatibleWithGroundMeatPantry(haystack: string) {
+  if (!/\b(beef|meat|steak|lamb)\b/.test(haystack)) return true;
+
   if (hasGroundMeatRecipeSignal(haystack)) return true;
-  return !hasProteinRecipeSignal(haystack);
+
+  return !hasWholeCutMeatRecipeSignal(haystack);
 }
 
 function isRecipeCompatibleWithLiverPantry(haystack: string) {
-  return hasLiverRecipeSignal(haystack) && !hasNonLiverProteinRecipeSignal(haystack);
+  if (hasLiverRecipeSignal(haystack)) return true;
+  if (!hasMeatRecipeSignal(haystack)) return true;
+  return false;
 }
 
 function isGroundMeatLabel(value: string) {
@@ -1794,20 +1597,16 @@ function hasGroundMeatRecipeSignal(value: string) {
 }
 
 function hasLiverRecipeSignal(value: string) {
-  return /\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato|sawda djej|arnavut cigeri|edirne tava cigeri)\b/.test(value) ||
-    /كبدة|كبده|كبد/u.test(value);
+  return /\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato|sawda djej|arnavut cigeri|edirne tava cigeri)\b/.test(value);
 }
 
-function hasProteinRecipeSignal(value: string) {
-  return /\b(beef|meat|steak|lamb|veal|chicken|turkey|duck|fish|salmon|tuna|cod|tilapia|sea bass|shrimp|prawn|seafood|mussels?|clams?|crab|lobster|scallops?|kofta|kofte|kafta|meatball|burger|kebab|shawarma|roast|braised|stew|cubes?|chunks?|strips?)\b/.test(value) ||
-    /لحم|لحمة|لحمه|بقري|عجل|دجاج|فراخ|فراخ|سمك|جمبري|روبيان|سي\s*فود|مأكولات\s*بحرية|كفتة|كفته|كباب/u.test(value);
+function hasMeatRecipeSignal(value: string) {
+  return /\b(beef|meat|steak|lamb|kofta|kofte|kafta|meatball|burger|kebab|shawarma|veal|roast|braised|stew|cubes?|chunks?|strips?)\b/.test(value);
 }
 
-function hasNonLiverProteinRecipeSignal(value: string) {
-  const withoutLiverTerms = value
-    .replace(/\b(beef liver|chicken liver|liver|kebda|kibda|cigeri?|kaleji|higado|fegato|sawda djej|arnavut cigeri|edirne tava cigeri)\b/g, " ")
-    .replace(/كبدة|كبده|كبد/gu, " ");
-  return hasProteinRecipeSignal(withoutLiverTerms);
+function hasWholeCutMeatRecipeSignal(value: string) {
+  return /\b(beef steak|steak|beef cubes?|beef chunks?|meat cubes?|meat chunks?|stew beef|beef stew|braised beef|slow cooked beef|diced beef|sliced beef|beef strips?|stir fried beef|beef stir fry|kebab halla|roast beef|pot roast)\b/.test(value) ||
+    (/\bbeef\b/.test(value) && !hasGroundMeatRecipeSignal(value));
 }
 
 function normalizeRecipeTextForFormGate(value: string) {

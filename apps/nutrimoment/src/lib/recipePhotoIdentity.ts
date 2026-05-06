@@ -1049,10 +1049,6 @@ export function matchesStrictRecipePhotoIdentity(
     return false;
   }
 
-  if (isMincedKebabIdentity(identity) && hasMincedKebabVisualConfusable(haystack)) {
-    return false;
-  }
-
   const strictTokens = getStrictRecipePhotoIdentityTokens(identity);
   if (!strictTokens.length) return true;
   if (strictTokens.some((token) => includesStrictToken(haystack, token))) return true;
@@ -1068,7 +1064,7 @@ export function hasLiverVisualConfusable(haystack: string) {
 }
 
 export function hasMincedKebabVisualConfusable(haystack: string) {
-  return /\b(beef cubes?|beef chunks?|lamb cubes?|lamb chunks?|stew beef|beef stew|meat cubes?|meat chunks?|stew meat|braised beef|diced beef|sliced beef|beef strips?|steak|steak tips?|whole muscle|shish kebab|shish kabob|kebab halla|testi kebab|pottery kebab|meatballs?|burger patt(?:y|ies)|sausage links?|doner|shawarma slices?)\b/iu.test(haystack);
+  return /\b(beef cubes?|stew beef|beef stew|meat cubes?|stew meat|braised beef|diced beef|steak tips?|kebab halla|testi kebab|pottery kebab|meatballs?|burger patt(?:y|ies)|sausage links?|doner|shawarma slices?)\b/iu.test(haystack);
 }
 
 export function hasFulVisualConfusable(haystack: string) {

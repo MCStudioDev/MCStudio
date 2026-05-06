@@ -275,7 +275,7 @@ export async function POST(request: Request) {
     const finalizeRecipes = (recipes: Recipe[]) =>
       prepareRecipes(
         enforceDistinctRecipeVariety(
-          prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceProteinFormRecipes(enforceHardRequestRecipes(
+          prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceSpecificIngredientFormRecipes(enforceHardRequestRecipes(
               parsed.data.preferredCuisine === "Any"
                 ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
                 : enforcePreferredCuisineRecipes(
@@ -1482,47 +1482,30 @@ function enforceHardRequestRecipes(
   return merged;
 }
 
-function enforceProteinFormRecipes(recipes: Recipe[], availableIngredients: string[], recipeCount: number) {
-  const requiresGroundMeatForm = availableIngredients.some(isGroundMeatLabel);
-  const requiresLiverForm = availableIngredients.some(isLiverLabel);
-  if (!requiresGroundMeatForm && !requiresLiverForm) {
+function enforceSpecificIngredientFormRecipes(recipes: Recipe[], availableIngredients: string[], recipeCount: number) {
+  if (!availableIngredients.some(isGroundMeatLabel)) {
     return recipes.slice(0, recipeCount);
   }
 
-  const compatible = recipes.filter((recipe) =>
-    isRecipeCompatibleWithProteinFormPantry(recipe, {
-      requiresGroundMeatForm,
-      requiresLiverForm
-    })
-  );
+  const compatible = recipes.filter((recipe) => isRecipeCompatibleWithGroundMeatPantry(recipe));
   if (!compatible.length) {
-    logger.warn("Protein form gate found no compatible recipes; returning original recipes", {
-      availableIngredients,
-      requiresGroundMeatForm,
-      requiresLiverForm
+    logger.warn("Ground-meat form gate found no compatible recipes; returning original recipes", {
+      availableIngredients
     });
     return recipes.slice(0, recipeCount);
   }
 
   if (compatible.length < Math.min(recipeCount, recipes.length)) {
-    logger.info("Protein form gate removed incompatible meat-form recipes", {
+    logger.info("Ground-meat form gate removed generic beef recipes", {
       removed: recipes.length - compatible.length,
-      kept: compatible.length,
-      requiresGroundMeatForm,
-      requiresLiverForm
+      kept: compatible.length
     });
   }
 
   return compatible.slice(0, recipeCount);
 }
 
-function isRecipeCompatibleWithProteinFormPantry(
-  recipe: Recipe,
-  profile: {
-    requiresGroundMeatForm: boolean;
-    requiresLiverForm: boolean;
-  }
-) {
+function isRecipeCompatibleWithGroundMeatPantry(recipe: Recipe) {
   const haystack = normalizeRecipeTextForFormGate([
     recipe.name,
     recipe.cuisine,
@@ -1536,18 +1519,6 @@ function isRecipeCompatibleWithProteinFormPantry(
     ...recipe.steps
   ].filter(Boolean).join(" "));
 
-  if (profile.requiresLiverForm && !isRecipeCompatibleWithLiverPantry(haystack)) {
-    return false;
-  }
-
-  if (profile.requiresGroundMeatForm && !isRecipeCompatibleWithGroundMeatPantry(haystack)) {
-    return false;
-  }
-
-  return true;
-}
-
-function isRecipeCompatibleWithGroundMeatPantry(haystack: string) {
   if (!/\b(beef|meat|steak|lamb)\b/.test(haystack)) return true;
 
   if (hasGroundMeatRecipeSignal(haystack)) return true;
@@ -1555,32 +1526,13 @@ function isRecipeCompatibleWithGroundMeatPantry(haystack: string) {
   return !hasWholeCutMeatRecipeSignal(haystack);
 }
 
-function isRecipeCompatibleWithLiverPantry(haystack: string) {
-  if (hasLiverRecipeSignal(haystack)) return true;
-  if (!hasMeatRecipeSignal(haystack)) return true;
-  return false;
-}
-
 function isGroundMeatLabel(value: string) {
   const normalized = normalizeIngredientForStrictMatch(value);
   return /\b(ground beef|ground meat|ground lamb|ground turkey|ground chicken|minced beef|minced meat|minced lamb|beef mince|lamb mince|mince(?:d)? meat)\b/.test(normalized);
 }
 
-function isLiverLabel(value: string) {
-  const normalized = normalizeIngredientForStrictMatch(value);
-  return /\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri)\b/.test(normalized);
-}
-
 function hasGroundMeatRecipeSignal(value: string) {
   return /\b(ground|minced|mince|kafta|kofta|kofte|kefta|kufta|meatball|meatballs|burger|meatloaf|hawawshi|lahmacun|pide|keema|macarona bechamel|moussaka|mahshi|rice kofta)\b/.test(value);
-}
-
-function hasLiverRecipeSignal(value: string) {
-  return /\b(liver|beef liver|chicken liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato|sawda djej|arnavut cigeri|edirne tava cigeri)\b/.test(value);
-}
-
-function hasMeatRecipeSignal(value: string) {
-  return /\b(beef|meat|steak|lamb|kofta|kofte|kafta|meatball|burger|kebab|shawarma|veal|roast|braised|stew|cubes?|chunks?|strips?)\b/.test(value);
 }
 
 function hasWholeCutMeatRecipeSignal(value: string) {

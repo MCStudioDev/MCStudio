@@ -738,14 +738,10 @@ function buildClosedRecipeIngredientClause(query: string, ingredients: string[])
       ? ""
       : "no extra vegetables or herbs as garnish"
   ].filter(Boolean);
-  const hasGroundMeat = /\b(ground beef|ground meat|ground lamb|minced beef|minced meat|beef mince|lamb mince|mince(?:d)? meat)\b/.test(source);
 
   return [
     `Closed recipe ingredient boundary: compose the image from the actual recipe ingredients only: ${normalizedIngredients}.`,
     "The named dish identity may guide shape, texture, vessel, and cooking style, but it must not introduce visible ingredients that are absent from the recipe.",
-    hasGroundMeat
-      ? "Protein form boundary: ground/minced meat must be shown only as loose minced meat, patties, meatballs, kofta/kofte logs, meatloaf, or minced filling. Never show steak, beef cubes, stew chunks, sliced beef, or braised meat pieces for ground meat."
-      : "",
     forbiddenGroups.length ? `Hard negative for absent ingredients: ${forbiddenGroups.join("; ")}.` : ""
   ].filter(Boolean).join(" ");
 }
@@ -1006,13 +1002,6 @@ function buildProteinVisualClause(
       `Chicken visual identity: ${form}`,
       "The chicken must be visibly chicken through its shape, fibers, skin, bone, cutlet edge, or white-meat interior, not anonymous brown protein hidden under sauce.",
       "Do not substitute beef, lamb, liver, fish, shrimp, tofu, meatballs, burger patties, or pasta-only plating."
-    ].join(" ");
-  }
-
-  if (identity.mainIngredientKey === "ground-meat" || /\b(ground beef|ground meat|ground lamb|minced beef|minced meat|beef mince|lamb mince|mince(?:d)? meat)\b/.test(source)) {
-    return [
-      "Ground meat visual identity: show the protein as visibly minced or ground meat, such as kofta/kofte logs, meatballs, burger-style patties, meatloaf slices, loose minced meat, or minced filling depending on the recipe.",
-      "Hard negative: no beef cubes, no steak, no diced beef, no stew chunks, no sliced beef strips, no braised whole-meat pieces, and no kebab halla-style cubed meat."
     ].join(" ");
   }
 

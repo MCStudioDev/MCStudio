@@ -1,4 +1,6 @@
 import { normalizeCuisineLabel } from "@/lib/cuisines";
+import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
+import type { CuisineDish, MealType } from "@/lib/cuisineCatalogs/types";
 import { getCuisineDishCatalog } from "@/lib/cuisineDishCatalog";
 import type { Recipe, RecipeDishIntent, RecipeMealType } from "@/lib/types";
 
@@ -1663,6 +1665,11 @@ function buildCatalogDishCandidates(
 ): DishCandidate[] {
   if (cuisineKey === "any" || !normalizedIngredients.length) return [];
 
+  const detailedCatalog = getCompleteCuisineCatalog(context.preferredCuisine ?? "");
+  if (detailedCatalog?.length) {
+    return buildDetailedCatalogDishCandidates(detailedCatalog, normalizedIngredients, context.preferredCuisine ?? "");
+  }
+
   const catalog = getCuisineDishCatalog(context.preferredCuisine ?? "");
   if (!catalog?.iconicDishes.length) return [];
 
@@ -1699,6 +1706,89 @@ function buildCatalogDishCandidates(
     .filter((candidate): candidate is DishCandidate => Boolean(candidate));
 
   return candidates;
+}
+
+function buildDetailedCatalogDishCandidates(
+  catalog: readonly CuisineDish[],
+  normalizedIngredients: string[],
+  preferredCuisine: string
+): DishCandidate[] {
+  const cuisine = normalizeCuisineLabel(preferredCuisine);
+
+  return catalog
+    .map<DishCandidate | undefined>((dish) => {
+      const dishName = normalizeCatalogDishDisplayName(dish);
+      const dishKey = normalizeDishKey(dishName);
+      const primaryAnchors = normalizeCatalogAnchors(dish.primaryIngredients);
+      const optionalAnchors = normalizeCatalogAnchors(dish.optionalIngredients);
+      const anchorMatches = primaryAnchors.filter((anchor) => includesIngredient(normalizedIngredients, anchor));
+      const supportMatches = optionalAnchors.filter((anchor) => includesIngredient(normalizedIngredients, anchor));
+      const structuralAnchorMisses = countStructuralAnchorMisses(primaryAnchors, normalizedIngredients);
+
+      if (!anchorMatches.length && !supportMatches.length) return undefined;
+
+      const mealType = mapCatalogMealType(dish.mealTypes[0]) ?? inferCatalogMealType(dishKey);
+      const cookingMethod = inferCatalogCookingMethod(dishKey);
+      const score =
+        72 +
+        dish.iconicScore +
+        anchorMatches.length * 24 +
+        supportMatches.length * 7 -
+        structuralAnchorMisses * 12;
+
+      return {
+        anchorMatchCount: anchorMatches.length,
+        cookingMethod,
+        cuisine,
+        dishName,
+        excludeKeywords: inferCatalogExcludeKeywords(dishKey),
+        hits: uniqueKeywords([
+          "catalog-dish-match",
+          "catalog-ingredient-match",
+          `anchor-match:${anchorMatches.length}`,
+          ...(supportMatches.length ? [`support-match:${supportMatches.length}`] : [])
+        ]),
+        ingredientAnchors: anchorMatches.length ? anchorMatches : supportMatches,
+        mealType,
+        searchPhrases: uniqueKeywords([
+          `${dishName} ${cuisine} food`,
+          `${cuisine} traditional ${dishName}`,
+          `${dishName} plate`,
+          ...dish.names.english.map((name) => `${name} ${cuisine}`)
+        ]),
+        score,
+        supportMatchCount: supportMatches.length,
+        visualKeywords: uniqueKeywords([
+          dishName,
+          `${cuisine} ${dishName}`,
+          `${dishName} plate`,
+          ...dish.names.english
+        ])
+      };
+    })
+    .filter((candidate): candidate is DishCandidate => Boolean(candidate));
+}
+
+function normalizeCatalogDishDisplayName(dish: CuisineDish) {
+  return dish.names.english[0]?.trim() || dish.id.replace(/-/g, " ");
+}
+
+function normalizeCatalogAnchors(anchors: string[]) {
+  return uniqueKeywords(
+    anchors
+      .map(normalizeIngredient)
+      .filter((anchor) => anchor && (!isWeakCatalogIngredient(anchor) || isStructuralAnchor(anchor)))
+  );
+}
+
+function mapCatalogMealType(mealType?: MealType): RecipeMealType | undefined {
+  if (mealType === "breakfast" || mealType === "lunch" || mealType === "dinner" || mealType === "snack") {
+    return mealType;
+  }
+  if (mealType === "soup" || mealType === "side") return "lunch";
+  if (mealType === "street_food") return "dinner";
+  if (mealType === "dessert" || mealType === "drink") return "snack";
+  return undefined;
 }
 
 function dedupeDishCandidates(candidates: DishCandidate[]) {

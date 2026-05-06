@@ -1,7 +1,13 @@
-import { buildRecipePhotoIdentity, normalizeRecipePhotoQuery } from "@/lib/recipePhotoIdentity";
+import {
+  buildRecipePhotoIdentity,
+  isStrictRecipePhotoIdentity,
+  matchesStrictRecipePhotoIdentity,
+  normalizeRecipePhotoQuery
+} from "@/lib/recipePhotoIdentity";
 
 const UNSPLASH_APP_NAME = "nutrimoment";
 const unsplashAccessKey = process.env.UNSPLASH_ACCESS_KEY ?? process.env.UNSPLASH_API_KEY ?? "";
+const PROVIDER_REQUEST_TIMEOUT_MS = 8000;
 const BLOCKED_TERMS = ["dessert", "cake", "cookie", "pancake"];
 const NON_FOOD_TERMS = [
   "ancient",
@@ -91,14 +97,12 @@ export async function findUnsplashRecipePhoto(
   const identity = buildRecipePhotoIdentity(query);
   const candidates = Array.from(new Set([query, ...identity.searchQueries])).slice(0, 5);
 
-  let bestCandidate: { attributionName: string; attributionUrl: string; matchedQuery: string; score: number; url: string } | null = null;
-
-  for (const candidateQuery of candidates) {
-    const result = await searchUnsplashPhotos(candidateQuery, identity, options?.excludeUrls);
-    if (result && (!bestCandidate || result.score > bestCandidate.score)) {
-      bestCandidate = result;
-    }
-  }
+  const results = await Promise.allSettled(
+    candidates.map((candidateQuery) => searchUnsplashPhotos(candidateQuery, identity, options?.excludeUrls))
+  );
+  const bestCandidate = results
+    .flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []))
+    .sort((left, right) => right.score - left.score)[0] ?? null;
 
   if (!bestCandidate) return null;
 
@@ -118,9 +122,7 @@ async function searchUnsplashPhotos(
   excludeUrls?: Set<string>
 ) {
   const requestQueries = buildUnsplashRequestQueries(query, identity);
-  let bestCandidate: { attributionName: string; attributionUrl: string; matchedQuery: string; score: number; url: string } | null = null;
-
-  for (const requestQuery of requestQueries) {
+  const results = await Promise.allSettled(requestQueries.map(async (requestQuery) => {
     const url = new URL("https://api.unsplash.com/search/photos");
     url.searchParams.set("query", requestQuery);
     url.searchParams.set("orientation", "landscape");
@@ -134,10 +136,11 @@ async function searchUnsplashPhotos(
         "Accept-Version": "v1",
         "user-agent": "NutriMoment/1.0 (+https://localhost:3000)"
       },
-      next: { revalidate: 60 * 60 * 24 * 7 }
+      next: { revalidate: 60 * 60 * 24 * 7 },
+      signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS)
     });
 
-    if (!response.ok) continue;
+    if (!response.ok) return null;
 
     const data = (await response.json()) as UnsplashSearchResponse;
     const bestForRequest = (data.results ?? [])
@@ -170,12 +173,12 @@ async function searchUnsplashPhotos(
       )
       .sort((left, right) => right.score - left.score)[0];
 
-    if (bestForRequest && (!bestCandidate || bestForRequest.score > bestCandidate.score)) {
-      bestCandidate = bestForRequest;
-    }
-  }
+    return bestForRequest ?? null;
+  }));
 
-  return bestCandidate ?? null;
+  return results
+    .flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []))
+    .sort((left, right) => right.score - left.score)[0] ?? null;
 }
 
 function buildUnsplashImageUrl(photo: NonNullable<UnsplashSearchResponse["results"]>[number]) {
@@ -228,6 +231,7 @@ function scoreUnsplashCandidate(
   if (!/images\.unsplash\.com/i.test(lowerUrl)) return -100;
   if (NON_FOOD_TERMS.some((term) => haystack.includes(term) || attributionHaystack.includes(term))) return -100;
   if (!looksLikeFoodPhoto(haystack, identity, normalizedRequestQuery)) return -100;
+  if (isStrictRecipePhotoIdentity(identity) && !matchesStrictRecipePhotoIdentity(identity, haystack, normalizedRequestQuery)) return -100;
 
   if (identity.canonicalDishKey && haystack.includes(identity.canonicalDishKey.replace(/-/g, " "))) {
     score += 8;
@@ -275,6 +279,7 @@ function scoreUnsplashCandidate(
 
   if (identity.mainIngredientKey === "fish" && /\b(chicken|beef|lamb|pork)\b/.test(haystack)) score -= 5;
   if (identity.mainIngredientKey === "shrimp" && !/\bshrimp|prawn\b/.test(haystack)) score -= 5;
+  if (identity.mainIngredientKey === "liver" && !/\b(liver|kebda|kibda|ciger|cigeri)\b/.test(haystack)) score -= 12;
   if (identity.mainIngredientKey === "tuna" && !/\btuna\b/.test(haystack)) score -= 4;
   if (identity.mainIngredientKey === "bean" && BLOCKED_TERMS.some((term) => haystack.includes(term))) score -= 8;
 

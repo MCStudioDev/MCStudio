@@ -1,4 +1,9 @@
-import { buildRecipePhotoIdentity, normalizeRecipePhotoQuery } from "@/lib/recipePhotoIdentity";
+import {
+  buildRecipePhotoIdentity,
+  isStrictRecipePhotoIdentity,
+  matchesStrictRecipePhotoIdentity,
+  normalizeRecipePhotoQuery
+} from "@/lib/recipePhotoIdentity";
 
 export interface PexelsRecipePhotoLookupResult {
   imageUrl: string;
@@ -27,6 +32,7 @@ interface PexelsSearchResponse {
 }
 
 const pexelsApiKey = process.env.PEXELS_API_KEY ?? "";
+const PROVIDER_REQUEST_TIMEOUT_MS = 8000;
 
 const BLOCKED_TERMS = ["dessert", "cake", "cookie", "pancake"];
 const NON_FOOD_TERMS = [
@@ -81,14 +87,12 @@ export async function findPexelsRecipePhoto(
   const identity = buildRecipePhotoIdentity(query);
   const candidates = Array.from(new Set([query, ...identity.searchQueries])).slice(0, 5);
 
-  let bestCandidate: { matchedQuery: string; score: number; url: string } | null = null;
-
-  for (const candidateQuery of candidates) {
-    const result = await searchPexelsPhotos(candidateQuery, identity, options?.excludeUrls);
-    if (result && (!bestCandidate || result.score > bestCandidate.score)) {
-      bestCandidate = result;
-    }
-  }
+  const results = await Promise.allSettled(
+    candidates.map((candidateQuery) => searchPexelsPhotos(candidateQuery, identity, options?.excludeUrls))
+  );
+  const bestCandidate = results
+    .flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []))
+    .sort((left, right) => right.score - left.score)[0] ?? null;
 
   if (!bestCandidate) return null;
 
@@ -106,9 +110,7 @@ async function searchPexelsPhotos(
   excludeUrls?: Set<string>
 ) {
   const requestQueries = buildPexelsRequestQueries(query, identity);
-  let bestCandidate: { matchedQuery: string; score: number; url: string } | null = null;
-
-  for (const requestQuery of requestQueries) {
+  const results = await Promise.allSettled(requestQueries.map(async (requestQuery) => {
     const url = new URL("https://api.pexels.com/v1/search");
     url.searchParams.set("query", requestQuery);
     url.searchParams.set("orientation", "landscape");
@@ -119,12 +121,11 @@ async function searchPexelsPhotos(
         Authorization: pexelsApiKey,
         "user-agent": "NutriMoment/1.0 (+https://localhost:3000)"
       },
-      next: { revalidate: 60 * 60 * 24 * 7 }
+      next: { revalidate: 60 * 60 * 24 * 7 },
+      signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS)
     });
 
-    if (!response.ok) {
-      continue;
-    }
+    if (!response.ok) return null;
 
     const data = (await response.json()) as PexelsSearchResponse;
     const bestForRequest = (data.photos ?? [])
@@ -148,12 +149,12 @@ async function searchPexelsPhotos(
       .filter((candidate) => candidate.url && !excludeUrls?.has(candidate.url) && candidate.score >= getRequiredPexelsScore(identity))
       .sort((left, right) => right.score - left.score)[0];
 
-    if (bestForRequest && (!bestCandidate || bestForRequest.score > bestCandidate.score)) {
-      bestCandidate = bestForRequest;
-    }
-  }
+    return bestForRequest ?? null;
+  }));
 
-  return bestCandidate ?? null;
+  return results
+    .flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []))
+    .sort((left, right) => right.score - left.score)[0] ?? null;
 }
 
 function getRequiredPexelsScore(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
@@ -185,6 +186,7 @@ function scorePexelsCandidate(
   if (!/pexels\.com|images\.pexels\.com/i.test(lowerUrl)) return -100;
   if (NON_FOOD_TERMS.some((term) => haystack.includes(term) || attributionHaystack.includes(term))) return -100;
   if (!looksLikeFoodPhoto(haystack, identity, normalizedRequestQuery)) return -100;
+  if (isStrictRecipePhotoIdentity(identity) && !matchesStrictRecipePhotoIdentity(identity, haystack, normalizedRequestQuery)) return -100;
 
   if (identity.canonicalDishKey && haystack.includes(identity.canonicalDishKey.replace(/-/g, " "))) {
     score += 8;
@@ -232,6 +234,7 @@ function scorePexelsCandidate(
 
   if (identity.mainIngredientKey === "fish" && /\b(chicken|beef|lamb)\b/.test(haystack)) score -= 5;
   if (identity.mainIngredientKey === "shrimp" && !/\bshrimp|prawn\b/.test(haystack)) score -= 5;
+  if (identity.mainIngredientKey === "liver" && !/\b(liver|kebda|kibda|ciger|cigeri)\b/.test(haystack)) score -= 12;
   if (identity.mainIngredientKey === "tuna" && !/\btuna\b/.test(haystack)) score -= 4;
   if (identity.mainIngredientKey === "bean" && BLOCKED_TERMS.some((term) => haystack.includes(term))) score -= 8;
 

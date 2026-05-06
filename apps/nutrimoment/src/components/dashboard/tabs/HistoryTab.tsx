@@ -23,7 +23,7 @@ import { EmptyState, SectionHero } from "./shared";
 const HISTORY_INITIAL_ENTRY_COUNT = 6;
 const HISTORY_LOAD_MORE_COUNT = 6;
 const HISTORY_EAGER_IMAGE_COUNT = 3;
-const HISTORY_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
+const HISTORY_PREMIUM_IMAGE_REPAIR_DELAYS_MS = [18 * 1000, 60 * 1000, 5 * 60 * 1000] as const;
 
 export function HistoryTab() {
   const { t, setError, settings } = useApp();
@@ -32,6 +32,7 @@ export function HistoryTab() {
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
   const [imageRepairVersion, setImageRepairVersion] = useState(0);
+  const [imageRepairAttempt, setImageRepairAttempt] = useState(0);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -89,12 +90,20 @@ export function HistoryTab() {
   }, [access.tier, visibleItems]);
 
   useEffect(() => {
-    if (!visibleMissingPremiumImages) return;
-    const interval = globalThis.setInterval(() => {
-      setImageRepairVersion((value) => value + 1);
-    }, HISTORY_PREMIUM_IMAGE_REPAIR_INTERVAL_MS);
-    return () => globalThis.clearInterval(interval);
+    setImageRepairAttempt(0);
   }, [visibleMissingPremiumImages]);
+
+  useEffect(() => {
+    if (!visibleMissingPremiumImages) return;
+    const delay = HISTORY_PREMIUM_IMAGE_REPAIR_DELAYS_MS[imageRepairAttempt];
+    if (delay == null) return;
+
+    const timeout = globalThis.setTimeout(() => {
+      setImageRepairVersion((value) => value + 1);
+      setImageRepairAttempt((value) => value + 1);
+    }, delay);
+    return () => globalThis.clearTimeout(timeout);
+  }, [imageRepairAttempt, visibleMissingPremiumImages]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">

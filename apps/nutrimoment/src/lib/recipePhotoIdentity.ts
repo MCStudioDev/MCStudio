@@ -1,3 +1,6 @@
+import { getAllDishes, getDishById } from "@/lib/cuisineCatalogs/completeCatalogs";
+import type { CuisineDish } from "@/lib/cuisineCatalogs/types";
+
 export interface RecipePhotoIdentity {
   alternateSignatures: string[];
   beanTypeKey?: string;
@@ -36,6 +39,8 @@ const ARABIC = {
   middleEastAlt: "\u0634\u0631\u0642 \u0627\u0648\u0633\u0637\u064a\u0629",
   chickpea: "\u062d\u0645\u0635",
   lentil: "\u0639\u062f\u0633",
+  liver: "\u0643\u0628\u062f\u0629",
+  liverAlt: "\u0643\u0628\u062f\u0647",
   rice: "\u0631\u0632",
   shakshuka: "\u0634\u0643\u0634\u0648\u0643\u0629",
   yogurt: "\u0632\u0628\u0627\u062f\u064a"
@@ -217,7 +222,11 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "kebab-halla"
   },
   {
-    aliases: [/\b(alexandrian liver|kibda iskandarani|iskandarani liver)\b/i],
+    aliases: [
+      /\b(alexandrian liver|kibda iskandarani|kibda eskandarani|kebda iskandarani|kebda eskandarani|iskandarani liver)\b/i,
+      /\begyptian liver sandwiches?\b/i,
+      /\u0643\u0628\u062f[ةه]\s+(?:\u0625\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a|\u0627\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a)/iu
+    ],
     canonicalName: "alexandrian liver",
     cuisineKey: "egyptian",
     key: "alexandrian-liver"
@@ -322,6 +331,7 @@ const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "mediterranean", pattern: /\bmediterranean\b/iu },
   { key: "indian", pattern: /\bindian\b/iu },
   { key: "italian", pattern: /\bitalian\b/iu },
+  { key: "thai", pattern: /\bthai\b/iu },
   { key: "asian", pattern: /\basian\b/iu },
   { key: "mexican", pattern: /\bmexican\b|tex[- ]?mex|southwestern/iu },
   { key: "american", pattern: /\bamerican\b/iu },
@@ -333,6 +343,7 @@ const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "chicken", pattern: /\bchicken\b/iu },
   { key: "mussels", pattern: /\bmussel|mussels\b/iu },
   { key: "shrimp", pattern: /\bshrimp|prawn\b/iu },
+  { key: "liver", pattern: new RegExp(`\\bliver|kebda|kibda|ciger|cigeri\\b|${ARABIC.liver}|${ARABIC.liverAlt}`, "iu") },
   { key: "lamb", pattern: /\blamb\b/iu },
   { key: "beef", pattern: /\bbeef|steak|meat\b/iu },
   { key: "veal", pattern: /\bveal\b/iu },
@@ -502,7 +513,7 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
 
 export function findKnownDish(query: string) {
   const normalized = normalizeRecipePhotoQuery(query);
-  return KNOWN_DISHES.find((dish) => dish.aliases.some((alias) => alias.test(normalized))) ?? null;
+  return KNOWN_DISHES.find((dish) => dish.aliases.some((alias) => alias.test(normalized))) ?? findCatalogKnownDish(normalized);
 }
 
 export function normalizeRecipePhotoQuery(query: string) {
@@ -513,6 +524,63 @@ export function normalizeRecipePhotoQuery(query: string) {
     .toLowerCase();
 
   return clean || "food";
+}
+
+function findCatalogKnownDish(normalizedQuery: string): KnownDishDefinition | null {
+  if (!normalizedQuery || normalizedQuery === "food") return null;
+
+  const matches = getAllDishes()
+    .map((dish) => ({ dish, score: scoreCatalogDishNameMatch(dish, normalizedQuery) }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || right.dish.iconicScore - left.dish.iconicScore);
+
+  const best = matches[0]?.dish;
+  if (!best) return null;
+
+  return {
+    aliases: [],
+    canonicalName: normalizeRecipePhotoQuery(best.names.english[0]),
+    cuisineKey: toRecipePhotoCuisineKey(best.cuisine),
+    key: best.id
+  };
+}
+
+function scoreCatalogDishNameMatch(dish: CuisineDish, normalizedQuery: string) {
+  const names = [...dish.names.english, ...dish.names.native, ...(dish.names.other ?? [])]
+    .map(normalizeRecipePhotoQuery)
+    .filter((name) => name.length >= 4);
+  let bestScore = 0;
+
+  for (const name of names) {
+    if (normalizedQuery === name) {
+      bestScore = Math.max(bestScore, 100 + dish.iconicScore);
+      continue;
+    }
+
+    if (includesWholePhrase(normalizedQuery, name)) {
+      bestScore = Math.max(bestScore, 80 + dish.iconicScore);
+      continue;
+    }
+
+    if (name.includes(normalizedQuery) && normalizedQuery.split(/\s+/).length >= 2) {
+      bestScore = Math.max(bestScore, 45 + dish.iconicScore);
+    }
+  }
+
+  return bestScore;
+}
+
+function includesWholePhrase(haystack: string, phrase: string) {
+  return new RegExp(`(^|\\s)${escapeRegExp(phrase)}($|\\s)`, "iu").test(haystack);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function toRecipePhotoCuisineKey(cuisine: CuisineDish["cuisine"]) {
+  if (cuisine === "middleEastern") return "middle-eastern";
+  return cuisine;
 }
 
 function detectCuisine(query: string) {
@@ -610,6 +678,7 @@ function detectRecipePhotoFamily(
   if (details.mainIngredientKey === "chicken" && details.mealTypeKey === "salad") {
     return "chicken-rice-salad";
   }
+  if (details.mainIngredientKey === "liver" && details.cuisineKey === "egyptian") return "alexandrian-liver";
 
   if (details.beanTypeKey === "white-bean" && details.mealTypeKey === "salad") return "white-bean-salad";
   if (details.beanTypeKey === "white-bean" && ["soup", "stew", "skillet", "stir-fry"].includes(details.mealTypeKey ?? "")) {
@@ -745,9 +814,89 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("loubia bzeit"), withCuisine("green bean stew")];
     case "kafta":
       return [withCuisine("kafta kebab")];
+    case "alexandrian-liver":
+      return [withCuisine("alexandrian liver"), withCuisine("kebda eskandarani"), withCuisine("egyptian liver sandwiches")];
     default:
       return [];
   }
+}
+
+export function isStrictRecipePhotoIdentity(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
+  return Boolean(
+    identity.canonicalDishKey ||
+      identity.familyKey === "alexandrian-liver" ||
+      identity.mainIngredientKey === "liver" ||
+      /\b(liver|kebda|kibda|ciger|cigeri)\b/i.test(identity.cleanQuery) ||
+      new RegExp(`${ARABIC.liver}|${ARABIC.liverAlt}`, "iu").test(identity.cleanQuery)
+  );
+}
+
+export function matchesStrictRecipePhotoIdentity(
+  identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">,
+  haystack: string,
+  normalizedRequestQuery = identity.cleanQuery
+) {
+  if (!isStrictRecipePhotoIdentity(identity)) return true;
+
+  const strictTokens = getStrictRecipePhotoIdentityTokens(identity);
+  if (!strictTokens.length) return true;
+  if (strictTokens.some((token) => includesStrictToken(haystack, token))) return true;
+
+  if (identity.canonicalDishKey) return false;
+  const requestTokens = getStrictTextTokens(normalizedRequestQuery);
+  return requestTokens.length > 0 && requestTokens.some((token) => includesStrictToken(haystack, token));
+}
+
+export function getStrictRecipePhotoIdentityTokens(identity: Pick<RecipePhotoIdentity, "canonicalDishKey" | "cleanQuery" | "familyKey" | "mainIngredientKey">) {
+  const dish = identity.canonicalDishKey ? getDishById(identity.canonicalDishKey) : null;
+  const knownDish = identity.canonicalDishKey ? KNOWN_DISHES.find((entry) => entry.key === identity.canonicalDishKey) : null;
+  const aliases = [
+    identity.canonicalDishKey?.replace(/-/g, " "),
+    identity.familyKey?.replace(/-/g, " "),
+    knownDish?.canonicalName,
+    ...(dish?.names.english ?? []),
+    ...(dish?.names.native ?? []),
+    ...(dish?.names.other ?? [])
+  ];
+
+  if (identity.mainIngredientKey === "liver" || /\b(liver|kebda|kibda|ciger|cigeri)\b/i.test(identity.cleanQuery)) {
+    aliases.push("liver", "kebda", "kibda", "ciger", "cigeri", ARABIC.liver, ARABIC.liverAlt);
+  }
+
+  return Array.from(
+    new Set(
+      aliases
+        .filter((value): value is string => Boolean(value?.trim()))
+        .flatMap((value) => getStrictTextTokens(value))
+        .filter((value) => value.length >= 4)
+        .filter((value) => !STRICT_GENERIC_TOKENS.has(value))
+    )
+  ).slice(0, 16);
+}
+
+const STRICT_GENERIC_TOKENS = new Set([
+  "asian",
+  "bread",
+  "dish",
+  "egyptian",
+  "food",
+  "italian",
+  "meal",
+  "middle",
+  "plate",
+  "rice",
+  "soup",
+  "turkish"
+]);
+
+function getStrictTextTokens(value: string) {
+  const normalized = normalizeRecipePhotoQuery(value);
+  const tokens = normalized.split(/\s+/).filter((token) => token.length >= 4);
+  return [normalized, ...tokens].filter(Boolean);
+}
+
+function includesStrictToken(haystack: string, token: string) {
+  return new RegExp(`(^|\\s)${escapeRegExp(token)}($|\\s)`, "iu").test(haystack);
 }
 
 function buildRecipePhotoSignature({

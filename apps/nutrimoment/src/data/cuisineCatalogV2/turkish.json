@@ -1,0 +1,355 @@
+{
+  "cuisine": "turkish",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Soft scrambled eggs with tomato and green pepper",
+      "id": "menemen",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "olive oil",
+          "cheese"
+        ],
+        "required": [
+          "egg",
+          "tomato",
+          "pepper"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Menemen"
+        ],
+        "native": [
+          "Menemen"
+        ]
+      },
+      "region": "Turkey",
+      "score": 92
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Bulgur and spice kofte traditionally shaped by hand and served with herbs",
+      "id": "cig-kofte",
+      "ingredients": {
+        "optional": [
+          "pepper paste",
+          "parsley",
+          "lettuce",
+          "lemon"
+        ],
+        "required": [
+          "bulgur",
+          "ground meat",
+          "tomato paste"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Cig Kofte",
+          "Çiğ Köfte"
+        ],
+        "native": [
+          "Çiğ köfte"
+        ]
+      },
+      "region": "Southeastern Turkey",
+      "score": 91
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Spicy ground meat kebab",
+      "id": "adana-kebab",
+      "ingredients": {
+        "optional": [
+          "parsley",
+          "garlic"
+        ],
+        "required": [
+          "ground meat",
+          "spices",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Adana Kebab"
+        ],
+        "native": [
+          "Adana kebabı"
+        ]
+      },
+      "region": "Adana",
+      "score": 91
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Sliced meat over bread with yogurt and sauce",
+      "id": "iskender-kebab",
+      "ingredients": {
+        "optional": [
+          "tomato sauce"
+        ],
+        "required": [
+          "meat",
+          "bread",
+          "yogurt"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Iskender Kebab"
+        ],
+        "native": [
+          "İskender kebabı"
+        ]
+      },
+      "region": "Bursa",
+      "score": 89
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Meat cooked on vertical spit",
+      "id": "doner-kebab",
+      "ingredients": {
+        "optional": [
+          "onion"
+        ],
+        "required": [
+          "meat",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Doner Kebab"
+        ],
+        "native": [
+          "döner kebabı"
+        ]
+      },
+      "region": "Turkey",
+      "score": 90
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Small dumplings filled with meat",
+      "id": "manti",
+      "ingredients": {
+        "optional": [
+          "yogurt"
+        ],
+        "required": [
+          "dough",
+          "ground meat",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Manti"
+        ],
+        "native": [
+          "mantı"
+        ]
+      },
+      "region": "Turkey",
+      "score": 85
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Thin flatbread with minced meat topping",
+      "id": "lahmacun",
+      "ingredients": {
+        "optional": [
+          "parsley",
+          "garlic"
+        ],
+        "required": [
+          "dough",
+          "ground meat",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Lahmacun"
+        ],
+        "native": [
+          "lahmacun"
+        ]
+      },
+      "region": "Turkey",
+      "score": 87
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Turkish boat-shaped flatbread with topping",
+      "id": "pide",
+      "ingredients": {
+        "optional": [
+          "cheese",
+          "vegetables"
+        ],
+        "required": [
+          "dough",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Pide"
+        ],
+        "native": [
+          "pide"
+        ]
+      },
+      "region": "Turkey",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "turkish",
+      "description": "Pastry with savory filling",
+      "id": "borek",
+      "ingredients": {
+        "optional": [
+          "meat",
+          "spinach"
+        ],
+        "required": [
+          "phyllo",
+          "cheese"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Borek"
+        ],
+        "native": [
+          "börek"
+        ]
+      },
+      "region": "Turkey",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "turkish",
+      "description": "Kebab cooked in clay pot",
+      "id": "testi-kebab",
+      "ingredients": {
+        "optional": [
+          "spices"
+        ],
+        "required": [
+          "meat",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Testi Kebab"
+        ],
+        "native": [
+          "testikebabi"
+        ]
+      },
+      "region": "Turkey",
+      "score": 80
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

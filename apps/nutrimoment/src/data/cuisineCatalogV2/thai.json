@@ -1,0 +1,760 @@
+{
+  "cuisine": "thai",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Stir-fried rice noodles with tamarind, egg, tofu or shrimp, and peanuts",
+      "id": "pad-thai",
+      "ingredients": {
+        "optional": [
+          "shrimp",
+          "tofu",
+          "peanuts"
+        ],
+        "required": [
+          "rice noodles",
+          "tamarind",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Pad Thai"
+        ],
+        "native": [
+          "Pad Thai"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 96,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Hot-sour shrimp soup with lemongrass, galangal, and lime leaf",
+      "id": "tom-yum-goong",
+      "ingredients": {
+        "optional": [
+          "galangal",
+          "kaffir lime leaf",
+          "chili"
+        ],
+        "required": [
+          "shrimp",
+          "lemongrass",
+          "lime"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Tom Yum Goong"
+        ],
+        "native": [
+          "Tom Yum Goong"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 94,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Chicken simmered in green curry paste and coconut milk",
+      "id": "green-curry-chicken",
+      "ingredients": {
+        "optional": [
+          "eggplant",
+          "basil",
+          "fish sauce"
+        ],
+        "required": [
+          "chicken",
+          "green curry paste",
+          "coconut milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Thai Green Curry Chicken",
+          "Gaeng Keow Wan Gai"
+        ],
+        "native": [
+          "Gaeng Keow Wan Gai"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 92,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Red curry paste simmered with coconut milk and meat or vegetables",
+      "id": "red-curry",
+      "ingredients": {
+        "optional": [
+          "bamboo shoots",
+          "basil",
+          "fish sauce"
+        ],
+        "required": [
+          "red curry paste",
+          "coconut milk",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Thai Red Curry"
+        ],
+        "native": [
+          "Gaeng Phed"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 88,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Mild Muslim-influenced curry with potato, peanuts, and warm spices",
+      "id": "massaman-curry",
+      "ingredients": {
+        "optional": [
+          "peanuts",
+          "tamarind",
+          "cinnamon"
+        ],
+        "required": [
+          "beef",
+          "potato",
+          "coconut milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Massaman Curry"
+        ],
+        "native": [
+          "Gaeng Massaman"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 90,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Thick coconut curry with red curry paste and kaffir lime leaf",
+      "id": "panang-curry",
+      "ingredients": {
+        "optional": [
+          "peanuts",
+          "lime leaf",
+          "basil"
+        ],
+        "required": [
+          "meat",
+          "panang curry paste",
+          "coconut milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Panang Curry"
+        ],
+        "native": [
+          "Panang Curry"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 88,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Pounded green papaya salad with lime, chili, fish sauce, and peanuts",
+      "id": "som-tam",
+      "ingredients": {
+        "optional": [
+          "fish sauce",
+          "peanuts",
+          "tomato"
+        ],
+        "required": [
+          "green papaya",
+          "lime",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Som Tam",
+          "Green Papaya Salad"
+        ],
+        "native": [
+          "Som Tam"
+        ]
+      },
+      "region": "Isan",
+      "score": 94,
+      "subCuisine": "northeasternThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Minced chicken salad with toasted rice powder, lime, chili, and herbs",
+      "id": "larb-gai",
+      "ingredients": {
+        "optional": [
+          "mint",
+          "fish sauce",
+          "chili"
+        ],
+        "required": [
+          "ground chicken",
+          "lime",
+          "toasted rice"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Larb Gai"
+        ],
+        "native": [
+          "Larb Gai"
+        ]
+      },
+      "region": "Isan",
+      "score": 90,
+      "subCuisine": "northeasternThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Grilled meat salad with lime, chili, herbs, and toasted rice powder",
+      "id": "nam-tok",
+      "ingredients": {
+        "optional": [
+          "mint",
+          "fish sauce",
+          "chili"
+        ],
+        "required": [
+          "grilled beef",
+          "lime",
+          "toasted rice"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Nam Tok"
+        ],
+        "native": [
+          "Nam Tok"
+        ]
+      },
+      "region": "Isan",
+      "score": 86,
+      "subCuisine": "northeasternThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Stir-fried minced chicken with holy basil and chilies",
+      "id": "pad-krapow-gai",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "fish sauce",
+          "egg"
+        ],
+        "required": [
+          "ground chicken",
+          "holy basil",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Pad Krapow Gai",
+          "Thai Basil Chicken"
+        ],
+        "native": [
+          "Pad Krapow Gai"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 92,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Thai fried rice with egg, onion, and a protein",
+      "id": "khao-pad",
+      "ingredients": {
+        "optional": [
+          "shrimp",
+          "chicken",
+          "lime"
+        ],
+        "required": [
+          "rice",
+          "egg",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Khao Pad",
+          "Thai Fried Rice"
+        ],
+        "native": [
+          "Khao Pad"
+        ]
+      },
+      "region": "Thailand",
+      "score": 84,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Wide rice noodles stir-fried with dark soy sauce, egg, and Chinese broccoli",
+      "id": "pad-see-ew",
+      "ingredients": {
+        "optional": [
+          "chinese broccoli",
+          "chicken",
+          "beef"
+        ],
+        "required": [
+          "wide rice noodles",
+          "egg",
+          "soy sauce"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Pad See Ew"
+        ],
+        "native": [
+          "Pad See Ew"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 90,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Wide noodles topped with savory gravy and Chinese broccoli",
+      "id": "rad-na",
+      "ingredients": {
+        "optional": [
+          "pork",
+          "chicken",
+          "soy sauce"
+        ],
+        "required": [
+          "wide rice noodles",
+          "gravy",
+          "chinese broccoli"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Rad Na"
+        ],
+        "native": [
+          "Rad Na"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 84,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Coconut curry noodle soup with chicken and crispy noodles",
+      "id": "khao-soi",
+      "ingredients": {
+        "optional": [
+          "curry paste",
+          "pickled mustard greens",
+          "lime"
+        ],
+        "required": [
+          "egg noodles",
+          "chicken",
+          "coconut milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Khao Soi"
+        ],
+        "native": [
+          "Khao Soi"
+        ]
+      },
+      "region": "Northern Thailand",
+      "score": 92,
+      "subCuisine": "northernThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Sour orange curry with fish or shrimp and vegetables",
+      "id": "gaeng-som",
+      "ingredients": {
+        "optional": [
+          "vegetables",
+          "shrimp",
+          "lime"
+        ],
+        "required": [
+          "fish",
+          "tamarind",
+          "curry paste"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Gaeng Som"
+        ],
+        "native": [
+          "Gaeng Som"
+        ]
+      },
+      "region": "Southern Thailand",
+      "score": 84,
+      "subCuisine": "southernThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Coconut chicken soup with galangal, lemongrass, and lime",
+      "id": "tom-kha-gai",
+      "ingredients": {
+        "optional": [
+          "lemongrass",
+          "lime",
+          "mushroom"
+        ],
+        "required": [
+          "chicken",
+          "coconut milk",
+          "galangal"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Tom Kha Gai"
+        ],
+        "native": [
+          "Tom Kha Gai"
+        ]
+      },
+      "region": "Central Thailand",
+      "score": 90,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Grilled marinated chicken skewers with peanut sauce",
+      "id": "satay-gai",
+      "ingredients": {
+        "optional": [
+          "coconut milk",
+          "cucumber relish"
+        ],
+        "required": [
+          "chicken",
+          "peanut sauce",
+          "turmeric"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "street_food",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Satay",
+          "Satay Gai"
+        ],
+        "native": [
+          "Satay Gai"
+        ]
+      },
+      "region": "Thailand",
+      "score": 86,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Fried fish cakes with red curry paste and lime leaf",
+      "id": "tod-man-pla",
+      "ingredients": {
+        "optional": [
+          "green beans",
+          "cucumber relish"
+        ],
+        "required": [
+          "fish",
+          "red curry paste",
+          "lime leaf"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Tod Man Pla",
+          "Thai Fish Cakes"
+        ],
+        "native": [
+          "Tod Man Pla"
+        ]
+      },
+      "region": "Thailand",
+      "score": 84,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Spicy glass noodle salad with lime, chili, herbs, and seafood or pork",
+      "id": "yam-woon-sen",
+      "ingredients": {
+        "optional": [
+          "shrimp",
+          "ground pork",
+          "cilantro"
+        ],
+        "required": [
+          "glass noodles",
+          "lime",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Yam Woon Sen",
+          "Glass Noodle Salad"
+        ],
+        "native": [
+          "Yam Woon Sen"
+        ]
+      },
+      "region": "Thailand",
+      "score": 84,
+      "subCuisine": "centralThai"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "thai",
+      "description": "Sweet coconut sticky rice served with ripe mango",
+      "id": "mango-sticky-rice",
+      "ingredients": {
+        "optional": [
+          "sugar",
+          "sesame"
+        ],
+        "required": [
+          "sticky rice",
+          "mango",
+          "coconut milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Mango Sticky Rice"
+        ],
+        "native": [
+          "Khao Niao Mamuang"
+        ]
+      },
+      "region": "Thailand",
+      "score": 94,
+      "subCuisine": "centralThai"
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

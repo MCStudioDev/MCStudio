@@ -1,0 +1,322 @@
+{
+  "cuisine": "mexican",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Marinated pork cooked on vertical spit, served in tortillas",
+      "id": "tacos-al-pastor",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "pineapple"
+        ],
+        "required": [
+          "pork",
+          "chili",
+          "tortillas"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Tacos Al Pastor"
+        ],
+        "native": [
+          "tacos al pastor"
+        ]
+      },
+      "region": "Mexico",
+      "score": 94
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Grilled marinated beef",
+      "id": "carne-asada",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion"
+        ],
+        "required": [
+          "beef",
+          "lime",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Carne Asada"
+        ],
+        "native": [
+          "carne asada"
+        ]
+      },
+      "region": "Mexico",
+      "score": 91
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Rolled tortillas with filling and sauce",
+      "id": "enchiladas",
+      "ingredients": {
+        "optional": [
+          "cheese",
+          "sour cream"
+        ],
+        "required": [
+          "tortillas",
+          "meat",
+          "chili sauce"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Enchiladas"
+        ],
+        "native": [
+          "enchiladas"
+        ]
+      },
+      "region": "Mexico",
+      "score": 89
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Stuffed peppers with cheese and sauce",
+      "id": "chiles-rellenos",
+      "ingredients": {
+        "optional": [
+          "meat",
+          "sauce"
+        ],
+        "required": [
+          "peppers",
+          "cheese",
+          "egg"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chiles Rellenos"
+        ],
+        "native": [
+          "chiles rellenos"
+        ]
+      },
+      "region": "Mexico",
+      "score": 87
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Complex sauce with chocolate and spices",
+      "id": "mole-poblano",
+      "ingredients": {
+        "optional": [
+          "chicken"
+        ],
+        "required": [
+          "chocolate",
+          "chili",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mole Poblano"
+        ],
+        "native": [
+          "mole poblano"
+        ]
+      },
+      "region": "Puebla",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Hominy soup with meat",
+      "id": "pozole",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "hominy",
+          "meat",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Pozole"
+        ],
+        "native": [
+          "pozole"
+        ]
+      },
+      "region": "Mexico",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Corn dough with filling wrapped in corn husks",
+      "id": "tamales",
+      "ingredients": {
+        "optional": [
+          "cheese"
+        ],
+        "required": [
+          "corn dough",
+          "meat",
+          "chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Tamales"
+        ],
+        "native": [
+          "tamales"
+        ]
+      },
+      "region": "Mexico",
+      "score": 85
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "mexican",
+      "description": "Avocado dip with lime and cilantro",
+      "id": "guacamole",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "tomato"
+        ],
+        "required": [
+          "avocado",
+          "lime",
+          "cilantro"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Guacamole"
+        ],
+        "native": [
+          "guacamole"
+        ]
+      },
+      "region": "Mexico",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "mexican",
+      "description": "Tortillas filled with cheese and meat",
+      "id": "quesadillas",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "peppers"
+        ],
+        "required": [
+          "tortillas",
+          "cheese",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Quesadillas"
+        ],
+        "native": [
+          "quesadillas"
+        ]
+      },
+      "region": "Mexico",
+      "score": 81
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

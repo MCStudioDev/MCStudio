@@ -1,0 +1,932 @@
+{
+  "cuisine": "indian",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Yellow lentils tempered with ghee, cumin, garlic, and chilies",
+      "id": "dal-tadka",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "chili",
+          "tomato"
+        ],
+        "required": [
+          "lentils",
+          "ghee",
+          "cumin"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Dal Tadka"
+        ],
+        "native": [
+          "Dal Tadka"
+        ]
+      },
+      "region": "North India",
+      "score": 92,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Chickpeas simmered with onion, tomato, ginger, and garam masala",
+      "id": "chana-masala",
+      "ingredients": {
+        "optional": [
+          "ginger",
+          "garam masala",
+          "cilantro"
+        ],
+        "required": [
+          "chickpeas",
+          "tomato",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chana Masala"
+        ],
+        "native": [
+          "Chana Masala"
+        ]
+      },
+      "region": "North India",
+      "score": 90,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Kidney bean curry served with rice",
+      "id": "rajma",
+      "ingredients": {
+        "optional": [
+          "ginger",
+          "garlic",
+          "rice"
+        ],
+        "required": [
+          "kidney beans",
+          "tomato",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Rajma"
+        ],
+        "native": [
+          "Rajma"
+        ]
+      },
+      "region": "Punjab",
+      "score": 88,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Dry cauliflower and potato sabzi with turmeric and cumin",
+      "id": "aloo-gobi",
+      "ingredients": {
+        "optional": [
+          "cumin",
+          "ginger",
+          "cilantro"
+        ],
+        "required": [
+          "potato",
+          "cauliflower",
+          "turmeric"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Aloo Gobi"
+        ],
+        "native": [
+          "Aloo Gobi"
+        ]
+      },
+      "region": "North India",
+      "score": 88,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Paneer cubes in spiced spinach gravy",
+      "id": "palak-paneer",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "ginger",
+          "garam masala"
+        ],
+        "required": [
+          "spinach",
+          "paneer",
+          "cream"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Palak Paneer"
+        ],
+        "native": [
+          "Palak Paneer"
+        ]
+      },
+      "region": "North India",
+      "score": 90,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Paneer in buttery tomato-cashew gravy",
+      "id": "paneer-butter-masala",
+      "ingredients": {
+        "optional": [
+          "cream",
+          "cashew",
+          "fenugreek"
+        ],
+        "required": [
+          "paneer",
+          "tomato",
+          "butter"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Paneer Butter Masala"
+        ],
+        "native": [
+          "Paneer Butter Masala"
+        ]
+      },
+      "region": "North India",
+      "score": 88,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Tandoori chicken simmered in buttery tomato gravy",
+      "id": "butter-chicken",
+      "ingredients": {
+        "optional": [
+          "cream",
+          "fenugreek",
+          "garam masala"
+        ],
+        "required": [
+          "chicken",
+          "tomato",
+          "butter"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Butter Chicken",
+          "Murgh Makhani"
+        ],
+        "native": [
+          "Murgh Makhani"
+        ]
+      },
+      "region": "Delhi",
+      "score": 94,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Chicken tikka in spiced tomato cream sauce",
+      "id": "chicken-tikka-masala",
+      "ingredients": {
+        "optional": [
+          "yogurt",
+          "garam masala",
+          "ginger"
+        ],
+        "required": [
+          "chicken",
+          "tomato",
+          "cream"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Tikka Masala"
+        ],
+        "native": [
+          "Chicken Tikka Masala"
+        ]
+      },
+      "region": "North Indian diaspora",
+      "score": 86,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Crisp rice-lentil crepe filled with spiced potatoes",
+      "id": "masala-dosa",
+      "ingredients": {
+        "optional": [
+          "mustard seed",
+          "curry leaves",
+          "chutney"
+        ],
+        "required": [
+          "rice batter",
+          "lentils",
+          "potato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Masala Dosa"
+        ],
+        "native": [
+          "Masala Dosa"
+        ]
+      },
+      "region": "South India",
+      "score": 94,
+      "subCuisine": "southIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Steamed rice-lentil cakes served with lentil vegetable stew",
+      "id": "idli-sambar",
+      "ingredients": {
+        "optional": [
+          "coconut chutney",
+          "curry leaves"
+        ],
+        "required": [
+          "rice batter",
+          "lentils",
+          "sambar"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Idli Sambar"
+        ],
+        "native": [
+          "Idli Sambar"
+        ]
+      },
+      "region": "South India",
+      "score": 90,
+      "subCuisine": "southIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Fried lentil doughnuts served with sambar",
+      "id": "vada-sambar",
+      "ingredients": {
+        "optional": [
+          "coconut chutney",
+          "chili"
+        ],
+        "required": [
+          "urad dal",
+          "sambar",
+          "curry leaves"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Vada Sambar"
+        ],
+        "native": [
+          "Vada Sambar"
+        ]
+      },
+      "region": "South India",
+      "score": 86,
+      "subCuisine": "southIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Thick rice-lentil pancake with onion, chili, and tomato",
+      "id": "uttapam",
+      "ingredients": {
+        "optional": [
+          "chili",
+          "coconut chutney"
+        ],
+        "required": [
+          "rice batter",
+          "onion",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Uttapam"
+        ],
+        "native": [
+          "Uttapam"
+        ]
+      },
+      "region": "South India",
+      "score": 84,
+      "subCuisine": "southIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Mixed vegetables in coconut-yogurt sauce",
+      "id": "avial",
+      "ingredients": {
+        "optional": [
+          "curry leaves",
+          "cumin",
+          "green chili"
+        ],
+        "required": [
+          "mixed vegetables",
+          "coconut",
+          "yogurt"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Avial"
+        ],
+        "native": [
+          "Avial"
+        ]
+      },
+      "region": "Kerala",
+      "score": 84,
+      "subCuisine": "southIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Fish simmered with coconut, chili, curry leaves, and tamarind",
+      "id": "kerala-fish-curry",
+      "ingredients": {
+        "optional": [
+          "curry leaves",
+          "chili",
+          "rice"
+        ],
+        "required": [
+          "fish",
+          "coconut milk",
+          "tamarind"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kerala Fish Curry"
+        ],
+        "native": [
+          "Meen Curry"
+        ]
+      },
+      "region": "Kerala",
+      "score": 88,
+      "subCuisine": "southIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Layered rice and marinated meat cooked with saffron and spices",
+      "id": "hyderabadi-biryani",
+      "ingredients": {
+        "optional": [
+          "saffron",
+          "mint",
+          "fried onion"
+        ],
+        "required": [
+          "rice",
+          "chicken",
+          "yogurt"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Hyderabadi Biryani"
+        ],
+        "native": [
+          "Hyderabadi Biryani"
+        ]
+      },
+      "region": "Hyderabad",
+      "score": 95,
+      "subCuisine": "southIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Aromatic lamb curry with Kashmiri chili and warm spices",
+      "id": "lamb-rogan-josh",
+      "ingredients": {
+        "optional": [
+          "ginger",
+          "fennel",
+          "rice"
+        ],
+        "required": [
+          "lamb",
+          "yogurt",
+          "kashmiri chili"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Rogan Josh"
+        ],
+        "native": [
+          "Rogan Josh"
+        ]
+      },
+      "region": "Kashmir",
+      "score": 90,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Mashed spiced vegetable curry served with buttered bread rolls",
+      "id": "pav-bhaji",
+      "ingredients": {
+        "optional": [
+          "butter",
+          "onion",
+          "cilantro"
+        ],
+        "required": [
+          "potato",
+          "mixed vegetables",
+          "bread"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Pav Bhaji"
+        ],
+        "native": [
+          "Pav Bhaji"
+        ]
+      },
+      "region": "Mumbai",
+      "score": 88,
+      "subCuisine": "westIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Spiced potato fritter in a bread roll with chutneys",
+      "id": "vada-pav",
+      "ingredients": {
+        "optional": [
+          "chili",
+          "garlic",
+          "gram flour"
+        ],
+        "required": [
+          "potato",
+          "bread",
+          "chutney"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Vada Pav"
+        ],
+        "native": [
+          "Vada Pav"
+        ]
+      },
+      "region": "Mumbai",
+      "score": 90,
+      "subCuisine": "westIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Flattened rice cooked with mustard seed, onion, turmeric, and peanuts",
+      "id": "poha",
+      "ingredients": {
+        "optional": [
+          "peanuts",
+          "curry leaves",
+          "lemon"
+        ],
+        "required": [
+          "flattened rice",
+          "onion",
+          "turmeric"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Poha"
+        ],
+        "native": [
+          "Poha"
+        ]
+      },
+      "region": "Maharashtra",
+      "score": 84,
+      "subCuisine": "westIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Steamed fermented gram flour cakes with mustard tempering",
+      "id": "dhokla",
+      "ingredients": {
+        "optional": [
+          "curry leaves",
+          "green chili"
+        ],
+        "required": [
+          "gram flour",
+          "yogurt",
+          "mustard seed"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Dhokla"
+        ],
+        "native": [
+          "Dhokla"
+        ]
+      },
+      "region": "Gujarat",
+      "score": 84,
+      "subCuisine": "westIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Light Bengali fish curry with potato, tomato, and mustard oil",
+      "id": "macher-jhol",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "turmeric",
+          "rice"
+        ],
+        "required": [
+          "fish",
+          "potato",
+          "mustard oil"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Macher Jhol"
+        ],
+        "native": [
+          "Macher Jhol"
+        ]
+      },
+      "region": "Bengal",
+      "score": 86,
+      "subCuisine": "eastIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Roasted wheat balls filled with sattu served with mashed vegetables",
+      "id": "litti-chokha",
+      "ingredients": {
+        "optional": [
+          "potato",
+          "tomato",
+          "mustard oil"
+        ],
+        "required": [
+          "wheat flour",
+          "sattu",
+          "eggplant"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Litti Chokha"
+        ],
+        "native": [
+          "Litti Chokha"
+        ]
+      },
+      "region": "Bihar",
+      "score": 82,
+      "subCuisine": "eastIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Fried pastry filled with spiced potatoes and peas",
+      "id": "samosa",
+      "ingredients": {
+        "optional": [
+          "cumin",
+          "chutney",
+          "chili"
+        ],
+        "required": [
+          "flour",
+          "potato",
+          "peas"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Samosa"
+        ],
+        "native": [
+          "Samosa"
+        ]
+      },
+      "region": "India",
+      "score": 92,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Rice pudding with milk, sugar, cardamom, and nuts",
+      "id": "kheer",
+      "ingredients": {
+        "optional": [
+          "cardamom",
+          "nuts",
+          "saffron"
+        ],
+        "required": [
+          "rice",
+          "milk",
+          "sugar"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Kheer"
+        ],
+        "native": [
+          "Kheer"
+        ]
+      },
+      "region": "India",
+      "score": 84,
+      "subCuisine": "northIndian"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "indian",
+      "description": "Milk-solid dumplings soaked in cardamom syrup",
+      "id": "gulab-jamun",
+      "ingredients": {
+        "optional": [
+          "cardamom",
+          "rose water"
+        ],
+        "required": [
+          "milk solids",
+          "flour",
+          "syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Gulab Jamun"
+        ],
+        "native": [
+          "Gulab Jamun"
+        ]
+      },
+      "region": "North India",
+      "score": 90,
+      "subCuisine": "northIndian"
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

@@ -1,0 +1,322 @@
+{
+  "cuisine": "italian",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Pasta with eggs, cheese, and guanciale",
+      "id": "spaghetti-carbonara",
+      "ingredients": {
+        "optional": [
+          "guanciale",
+          "black pepper"
+        ],
+        "required": [
+          "pasta",
+          "egg",
+          "parmesan"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Spaghetti Carbonara"
+        ],
+        "native": [
+          "Spaghetti alla Carbonara"
+        ]
+      },
+      "region": "Rome",
+      "score": 94
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Layered pasta with meat sauce and bechamel",
+      "id": "lasagna",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "cheese"
+        ],
+        "required": [
+          "pasta",
+          "ground meat",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Lasagna"
+        ],
+        "native": [
+          "Lasagna alla Bolognese"
+        ]
+      },
+      "region": "Italy",
+      "score": 92
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Pizza with tomato, mozzarella, and basil",
+      "id": "pizza-margherita",
+      "ingredients": {
+        "optional": [
+          "basil",
+          "olive oil"
+        ],
+        "required": [
+          "dough",
+          "tomato",
+          "mozzarella"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Pizza Margherita"
+        ],
+        "native": [
+          "Pizza Margherita"
+        ]
+      },
+      "region": "Naples",
+      "score": 93
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Creamy rice with saffron",
+      "id": "risotto-milanese",
+      "ingredients": {
+        "optional": [
+          "butter",
+          "parmesan"
+        ],
+        "required": [
+          "rice",
+          "saffron",
+          "broth"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Risotto alla Milanese"
+        ],
+        "native": [
+          "Risotto alla Milanese"
+        ]
+      },
+      "region": "Milan",
+      "score": 87
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Pasta with olives, capers, and anchovies",
+      "id": "pasta-puttanesca",
+      "ingredients": {
+        "optional": [
+          "anchovies",
+          "tomato"
+        ],
+        "required": [
+          "pasta",
+          "olives",
+          "capers"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Pasta Puttanesca"
+        ],
+        "native": [
+          "Pasta alla Puttanesca"
+        ]
+      },
+      "region": "Italy",
+      "score": 83
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Pasta with rich meat sauce",
+      "id": "pasta-bolognese",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "pasta",
+          "ground meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Pasta Bolognese",
+          "Bolognese Sauce"
+        ],
+        "native": [
+          "Ragù alla Bolognese"
+        ]
+      },
+      "region": "Italy",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Filled pasta parcels",
+      "id": "ravioli",
+      "ingredients": {
+        "optional": [
+          "cheese",
+          "meat"
+        ],
+        "required": [
+          "pasta",
+          "ricotta",
+          "spinach"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Ravioli"
+        ],
+        "native": [
+          "Ravioli"
+        ]
+      },
+      "region": "Italy",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Layered coffee and mascarpone dessert",
+      "id": "tiramisu",
+      "ingredients": {
+        "optional": [
+          "eggs"
+        ],
+        "required": [
+          "mascarpone",
+          "coffee",
+          "cocoa"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Tiramisu"
+        ],
+        "native": [
+          "Tiramisu"
+        ]
+      },
+      "region": "Italy",
+      "score": 87
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "italian",
+      "description": "Creamy rice with seafood",
+      "id": "risotto-seafood",
+      "ingredients": {
+        "optional": [
+          "white wine",
+          "parmesan"
+        ],
+        "required": [
+          "rice",
+          "seafood",
+          "broth"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Seafood Risotto"
+        ],
+        "native": [
+          "Risotto ai Frutti di Mare"
+        ]
+      },
+      "region": "Italy",
+      "score": 84
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

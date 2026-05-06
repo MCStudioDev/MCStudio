@@ -1,3 +1,5 @@
+import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
+
 export interface CuisineDishCatalog {
   iconicDishes: string[];
   pantryAnchors: string[];
@@ -693,7 +695,8 @@ export const CUISINE_DISH_CATALOGS: Record<string, CuisineDishCatalog> = {
 };
 
 export function getCuisineDishCatalog(cuisine: string) {
-  return CUISINE_DISH_CATALOGS[normalizeCuisineCatalogKey(cuisine)];
+  const detailedCatalog = buildDetailedCuisineDishCatalog(cuisine);
+  return detailedCatalog ?? CUISINE_DISH_CATALOGS[normalizeCuisineCatalogKey(cuisine)];
 }
 
 export function getCuisineDishReferenceText(cuisine: string, limit = 50) {
@@ -708,4 +711,29 @@ export function getCuisinePantryAnchors(cuisine: string) {
 
 function normalizeCuisineCatalogKey(value: string) {
   return value.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function buildDetailedCuisineDishCatalog(cuisine: string): CuisineDishCatalog | null {
+  const catalog = getCompleteCuisineCatalog(cuisine);
+  if (!catalog?.length) return null;
+
+  return {
+    iconicDishes: [...catalog]
+      .sort((left, right) => right.iconicScore - left.iconicScore || left.names.english[0].localeCompare(right.names.english[0]))
+      .flatMap((dish) => dish.names.english)
+      .map(normalizeDishName)
+      .filter(Boolean),
+    pantryAnchors: Array.from(
+      new Set(
+        catalog
+          .flatMap((dish) => [...dish.primaryIngredients, ...dish.optionalIngredients])
+          .map(normalizeDishName)
+          .filter(Boolean)
+      )
+    )
+  };
+}
+
+function normalizeDishName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }

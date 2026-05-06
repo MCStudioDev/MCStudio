@@ -1,0 +1,3606 @@
+{
+  "cuisine": "egyptian",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Slow-cooked fava beans with garlic, lemon, and cumin",
+      "id": "ful-medames",
+      "ingredients": {
+        "optional": [
+          "olive oil",
+          "onion",
+          "egg"
+        ],
+        "required": [
+          "fava bean",
+          "garlic",
+          "lemon"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Ful Medames",
+          "Foul Medames"
+        ],
+        "native": [
+          "فول مدمس"
+        ]
+      },
+      "region": "Egypt",
+      "score": 95
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Egyptian falafel made from fava beans instead of chickpeas",
+      "id": "taameya",
+      "ingredients": {
+        "optional": [
+          "parsley",
+          "cilantro",
+          "garlic"
+        ],
+        "required": [
+          "fava bean",
+          "herbs",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "street_food",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Taameya",
+          "Ta'ameya"
+        ],
+        "native": [
+          "طعمية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 92
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Layered rice, pasta, lentils with tomato and vinegar sauce, topped with fried onions",
+      "id": "koshary",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "chickpea"
+        ],
+        "required": [
+          "rice",
+          "pasta",
+          "lentil"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Koshary",
+          "Koshari"
+        ],
+        "native": [
+          "كشري"
+        ]
+      },
+      "region": "Cairo",
+      "score": 98
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Green leafy stew with garlic and rabbit or chicken",
+      "id": "molokhia",
+      "ingredients": {
+        "optional": [
+          "rabbit",
+          "beef",
+          "onion"
+        ],
+        "required": [
+          "molokhia leaves",
+          "garlic",
+          "chicken"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Molokhia",
+          "Mulookhiyah"
+        ],
+        "native": [
+          "ملوخية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 94
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Layered pastry with sweet or savory filling",
+      "id": "feteer-meshaltet",
+      "ingredients": {
+        "optional": [
+          "cheese",
+          "jam",
+          "nuts"
+        ],
+        "required": [
+          "flour",
+          "butter",
+          "honey"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack",
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Feteer Meshaltet",
+          "Feteer"
+        ],
+        "native": [
+          "فطير مشلتت"
+        ]
+      },
+      "region": "Egypt",
+      "score": 90
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Spiced ground meat baked inside flatbread",
+      "id": "hawawshi",
+      "ingredients": {
+        "optional": [
+          "peppers",
+          "tomato",
+          "herbs"
+        ],
+        "required": [
+          "ground meat",
+          "bread",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Hawawshi",
+          "Hawaashi"
+        ],
+        "native": [
+          "حواوشي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 93
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Baked pasta with meat sauce and creamy bechamel topping",
+      "id": "macarona-bechamel",
+      "ingredients": {
+        "optional": [
+          "cheese",
+          "butter",
+          "flour"
+        ],
+        "required": [
+          "pasta",
+          "ground meat",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Macarona Bechamel"
+        ],
+        "native": [
+          "مكرونة بشاميل"
+        ]
+      },
+      "region": "Egypt",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Sautéed liver with garlic and spices in pita bread",
+      "id": "egyptian-liver-sandwiches",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "peppers",
+          "lemon"
+        ],
+        "required": [
+          "liver",
+          "garlic",
+          "bread"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Egyptian Liver Sandwiches",
+          "Liver Kebab Sandwich"
+        ],
+        "native": [
+          "سندوتشات كبدة إسكندراني"
+        ]
+      },
+      "region": "Egypt",
+      "score": 87
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Eggs poached in tomato and peppers sauce",
+      "id": "shakshuka",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic",
+          "cumin"
+        ],
+        "required": [
+          "egg",
+          "tomato",
+          "peppers"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Shakshuka"
+        ],
+        "native": [
+          "شكشوكة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 91
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Fish with rice, onions, and tahini sauce from Alexandria",
+      "id": "sayadeya",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic",
+          "lemon"
+        ],
+        "required": [
+          "fish",
+          "rice",
+          "tahini"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Sayadeya",
+          "Sayadiah"
+        ],
+        "native": [
+          "صيادية"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 89
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Grilled ground meat kebab seasoned with herbs and spices",
+      "id": "kofta-kebab",
+      "ingredients": {
+        "optional": [
+          "mint",
+          "garlic",
+          "pepper"
+        ],
+        "required": [
+          "ground meat",
+          "onion",
+          "parsley"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kofta",
+          "Kofta Kebab"
+        ],
+        "native": [
+          "كفتة مشوية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 92
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Ground meat kebab with raisins and pine nuts",
+      "id": "kebab-halla",
+      "ingredients": {
+        "optional": [
+          "pine nuts",
+          "parsley",
+          "garlic"
+        ],
+        "required": [
+          "ground meat",
+          "onion",
+          "raisins"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kebab Halla"
+        ],
+        "native": [
+          "كباب حلة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 85
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Layered rice, bread, meat, and garlic-vinegar tomato sauce",
+      "id": "fattah",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "vinegar",
+          "tomato"
+        ],
+        "required": [
+          "bread",
+          "rice",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Fattah"
+        ],
+        "native": [
+          "فتة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Grape leaves stuffed with rice and ground meat",
+      "id": "waraq-enab",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "grape leaves",
+          "rice",
+          "ground meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Waraq Enab",
+          "Grape Leaves"
+        ],
+        "native": [
+          "ورق عنب"
+        ]
+      },
+      "region": "Egypt",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Zucchini stuffed with meat and rice, served with tomato sauce",
+      "id": "kousa-mahshi",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "zucchini",
+          "ground meat",
+          "rice"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kousa Mahshi",
+          "Stuffed Zucchini"
+        ],
+        "native": [
+          "كوسة محشي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 87
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Peppers stuffed with meat and rice",
+      "id": "mahshi-filfil",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "peppers",
+          "ground meat",
+          "rice"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mahshi Filfil",
+          "Stuffed Peppers"
+        ],
+        "native": [
+          "محشي فلفل"
+        ]
+      },
+      "region": "Egypt",
+      "score": 85
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Cabbage leaves stuffed with meat and rice",
+      "id": "mahshi-kromb",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "cabbage",
+          "ground meat",
+          "rice"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mahshi Kromb",
+          "Stuffed Cabbage"
+        ],
+        "native": [
+          "محشي كرنب"
+        ]
+      },
+      "region": "Egypt",
+      "score": 83
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Okra stewed with meat, tomato, and garlic",
+      "id": "bamia",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion",
+          "cumin"
+        ],
+        "required": [
+          "okra",
+          "meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Bamia",
+          "Okra Stew"
+        ],
+        "native": [
+          "بامية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "White beans stewed with meat and tomato",
+      "id": "fasolia-beida",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion",
+          "cumin"
+        ],
+        "required": [
+          "white beans",
+          "meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Fasolia Beida",
+          "White Beans"
+        ],
+        "native": [
+          "فاصولية بيضاء"
+        ]
+      },
+      "region": "Egypt",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Fish baked with tomato, peppers, and olives",
+      "id": "egyptian-fish-tagine",
+      "ingredients": {
+        "optional": [
+          "olives",
+          "garlic",
+          "onion"
+        ],
+        "required": [
+          "fish",
+          "tomato",
+          "peppers"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Egyptian Fish Tagine"
+        ],
+        "native": [
+          "طاجين السمك"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Shrimp with garlic and tomato sauce",
+      "id": "alexandrian-shrimp",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "peppers",
+          "lemon"
+        ],
+        "required": [
+          "shrimp",
+          "garlic",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Alexandrian Shrimp"
+        ],
+        "native": [
+          "روبيان إسكندراني"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 81
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Whole fish grilled with herbs and lemon",
+      "id": "samak-singari",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "olive oil",
+          "parsley"
+        ],
+        "required": [
+          "fish",
+          "lemon",
+          "herbs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Samak Singari",
+          "Fish Singari"
+        ],
+        "native": [
+          "سمك سنجاري"
+        ]
+      },
+      "region": "Egypt",
+      "score": 83
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Rice with chickpeas and herbs",
+      "id": "roz-meammar",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic",
+          "cumin"
+        ],
+        "required": [
+          "rice",
+          "chickpea",
+          "herbs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Roz Meammar",
+          "Stuffed Rice"
+        ],
+        "native": [
+          "أرز معمر"
+        ]
+      },
+      "region": "Egypt",
+      "score": 75
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Rice cooked in milk and yogurt, sweet preparation",
+      "id": "roz-bel-laban",
+      "ingredients": {
+        "optional": [
+          "sugar",
+          "butter",
+          "nuts"
+        ],
+        "required": [
+          "rice",
+          "yogurt",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Roz Bel Laban",
+          "Rice with Yogurt"
+        ],
+        "native": [
+          "رز باللبن"
+        ]
+      },
+      "region": "Egypt",
+      "score": 70
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Creamy lentil soup with cumin and garlic",
+      "id": "lentil-soup",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "carrot",
+          "celery"
+        ],
+        "required": [
+          "lentil",
+          "garlic",
+          "cumin"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Lentil Soup",
+          "Shourbet Adas"
+        ],
+        "native": [
+          "شوربة العدس"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Soup with pasta, lentils, and chickpeas",
+      "id": "lesan-asfour-soup",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion",
+          "tomato"
+        ],
+        "required": [
+          "pasta",
+          "lentil",
+          "chickpea"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Lesan Asfour Soup"
+        ],
+        "native": [
+          "شوربة لسان العصفور"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Broad bean soup with garlic and cumin",
+      "id": "bessara",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "lemon",
+          "olive oil"
+        ],
+        "required": [
+          "fava bean",
+          "garlic",
+          "cumin"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Bessara",
+          "Bisara"
+        ],
+        "native": [
+          "بسارة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Pigeon stuffed with rice and herbs, roasted",
+      "id": "hamam-mahshi",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion",
+          "parsley"
+        ],
+        "required": [
+          "pigeon",
+          "rice",
+          "herbs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Hamam Mahshi",
+          "Stuffed Pigeon"
+        ],
+        "native": [
+          "حمام محشي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 85
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Grilled chicken seasoned with lemon and herbs",
+      "id": "farakh-meshwi",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion",
+          "cumin"
+        ],
+        "required": [
+          "chicken",
+          "lemon",
+          "herbs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Farakh Meshwi",
+          "Grilled Chicken"
+        ],
+        "native": [
+          "فراخ مشوي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Chicken with molokhia leaves in garlic sauce",
+      "id": "chicken-molokhia",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "tomato",
+          "cumin"
+        ],
+        "required": [
+          "chicken",
+          "molokhia leaves",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Molokhia"
+        ],
+        "native": [
+          "ملوخية الدجاج"
+        ]
+      },
+      "region": "Egypt",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Fattah prepared with chicken instead of meat",
+      "id": "chicken-fattah",
+      "ingredients": {
+        "optional": [
+          "rice",
+          "garlic",
+          "chickpea"
+        ],
+        "required": [
+          "chicken",
+          "bread",
+          "yogurt"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Fattah"
+        ],
+        "native": [
+          "فتة دجاج"
+        ]
+      },
+      "region": "Egypt",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Baked egg and vegetable dish, similar to frittata",
+      "id": "eggah",
+      "ingredients": {
+        "optional": [
+          "peppers",
+          "tomato",
+          "parsley"
+        ],
+        "required": [
+          "egg",
+          "herbs",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Eggah",
+          "Eggeh"
+        ],
+        "native": [
+          "عجة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 77
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Spiced sausages, grilled or fried",
+      "id": "sujuk",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "pepper",
+          "cumin"
+        ],
+        "required": [
+          "ground meat",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Sujuk",
+          "Soudjouk"
+        ],
+        "native": [
+          "سجق"
+        ]
+      },
+      "region": "Egypt",
+      "score": 74
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Fava beans with tahini sauce",
+      "id": "foul-bil-tahina",
+      "ingredients": {
+        "optional": [
+          "lemon",
+          "garlic",
+          "olive oil"
+        ],
+        "required": [
+          "fava bean",
+          "tahini"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Foul Bil Tahina"
+        ],
+        "native": [
+          "فول بالطحينة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Semolina and coconut sweet, soaked in syrup",
+      "id": "basbousa",
+      "ingredients": {
+        "optional": [
+          "almond",
+          "yogurt"
+        ],
+        "required": [
+          "semolina",
+          "coconut",
+          "sugar syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Basbousa",
+          "Basboussa"
+        ],
+        "native": [
+          "بسبوسة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 87
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Shredded pastry with cream or nuts, soaked in syrup",
+      "id": "kunafa",
+      "ingredients": {
+        "optional": [
+          "nuts",
+          "pistachio",
+          "rose water"
+        ],
+        "required": [
+          "phyllo dough",
+          "cream",
+          "sugar syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Kunafa",
+          "Konafa"
+        ],
+        "native": [
+          "كنافة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Bread pudding with milk, cream, and nuts",
+      "id": "om-ali",
+      "ingredients": {
+        "optional": [
+          "nuts",
+          "coconut",
+          "raisins"
+        ],
+        "required": [
+          "bread",
+          "milk",
+          "cream"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Om Ali",
+          "Um Ali"
+        ],
+        "native": [
+          "أم علي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 85
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Creamy milk pudding with rose water",
+      "id": "mahalabia",
+      "ingredients": {
+        "optional": [
+          "sugar",
+          "nuts",
+          "pistachio"
+        ],
+        "required": [
+          "milk",
+          "cornstarch",
+          "rose water"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Mahalabia",
+          "Mahallabia"
+        ],
+        "native": [
+          "محلبية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Thin pancakes stuffed with nuts and soaked in syrup",
+      "id": "qatayef",
+      "ingredients": {
+        "optional": [
+          "cream",
+          "honey",
+          "rose water"
+        ],
+        "required": [
+          "flour",
+          "nuts",
+          "sugar syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Qatayef"
+        ],
+        "native": [
+          "قطايف"
+        ]
+      },
+      "region": "Egypt",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Baked vegetables with meat sauce",
+      "id": "torly",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "eggplant",
+          "potato",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Torly"
+        ],
+        "native": [
+          "طرلي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 72
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Layered eggplant and meat with bechamel sauce",
+      "id": "moussaka",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "cheese"
+        ],
+        "required": [
+          "eggplant",
+          "ground meat",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Moussaka"
+        ],
+        "native": [
+          "موسaka"
+        ]
+      },
+      "region": "Egypt",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Liver prepared in Alexandrian style with special spices",
+      "id": "kebda-eskandarani",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "lemon",
+          "peppers"
+        ],
+        "required": [
+          "liver",
+          "garlic",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kebda Eskandarani",
+          "Alexandrian Liver"
+        ],
+        "native": [
+          "كبدة إسكندراني"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Grilled liver with special Alexandria seasoning",
+      "id": "alexandria-liver",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "peppers",
+          "olive oil"
+        ],
+        "required": [
+          "liver",
+          "cumin",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Alexandria Liver"
+        ],
+        "native": [
+          "كبدة الإسكندرية"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Meat shawarma in pita with garlic sauce",
+      "id": "shawarma-arabi",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "lemon"
+        ],
+        "required": [
+          "meat",
+          "bread",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Shawarma Arabi"
+        ],
+        "native": [
+          "شاورما عربي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Rice with mixed vegetables",
+      "id": "roz-bel-khalta",
+      "ingredients": {
+        "optional": [
+          "carrots",
+          "peas",
+          "garlic"
+        ],
+        "required": [
+          "rice",
+          "vegetables",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Roz Bel Khalta"
+        ],
+        "native": [
+          "رز بالخلطة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 70
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Sweet fried dough puffs soaked in sugar syrup",
+      "id": "zalabya",
+      "ingredients": {
+        "optional": [
+          "honey",
+          "rose water"
+        ],
+        "required": [
+          "flour",
+          "sugar syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Zalabya",
+          "Jalabia"
+        ],
+        "native": [
+          "زلابية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 71
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Twisted pastry strips fried and soaked in syrup",
+      "id": "meshabek",
+      "ingredients": {
+        "optional": [
+          "butter",
+          "honey"
+        ],
+        "required": [
+          "flour",
+          "sugar syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Meshabek"
+        ],
+        "native": [
+          "مشبك"
+        ]
+      },
+      "region": "Egypt",
+      "score": 68
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Spiced meat and vegetable stew",
+      "id": "goulash",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "peppers",
+          "garlic"
+        ],
+        "required": [
+          "meat",
+          "paprika",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Goulash"
+        ],
+        "native": [
+          "جولاش"
+        ]
+      },
+      "region": "Egypt",
+      "score": 72
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Spinach and meat stew",
+      "id": "sabanegh",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "tomato",
+          "cumin"
+        ],
+        "required": [
+          "spinach",
+          "ground meat",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Sabanegh",
+          "Spinach"
+        ],
+        "native": [
+          "سبانخ"
+        ]
+      },
+      "region": "Egypt",
+      "score": 74
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Okra stew in tajine/clay pot",
+      "id": "taagen-bamia",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion"
+        ],
+        "required": [
+          "okra",
+          "meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Taagen Bamia"
+        ],
+        "native": [
+          "تاجن البامية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 75
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Kofta cooked in tajine",
+      "id": "taagen-kofta",
+      "ingredients": {
+        "optional": [
+          "peppers",
+          "garlic"
+        ],
+        "required": [
+          "ground meat",
+          "onion",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Taagen Kofta"
+        ],
+        "native": [
+          "طاجن كفتة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 73
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Egyptian rice kofta made from ground meat, rice, herbs, and tomato sauce",
+      "id": "koftet-roz",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "ground meat",
+          "rice",
+          "herbs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Koftet Roz",
+          "Egyptian Rice Kofta"
+        ],
+        "native": [
+          "كفتة رز"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Duck cooked with rice",
+      "id": "bat-bel-roz",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "tomato"
+        ],
+        "required": [
+          "duck",
+          "rice",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Bat Bel Roz",
+          "Duck with Rice"
+        ],
+        "native": [
+          "بط بالرز"
+        ]
+      },
+      "region": "Egypt",
+      "score": 71
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Duck cooked with roasted green wheat",
+      "id": "duck-freekeh",
+      "ingredients": {
+        "optional": [
+          "garlic"
+        ],
+        "required": [
+          "duck",
+          "freekeh",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Duck with Freekeh"
+        ],
+        "native": [
+          "بط بالفريكة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 69
+    },
+    {
+      "authenticity": {
+        "confidence": "low",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Meat feet stew",
+      "id": "kaware",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "meat feet",
+          "chickpea",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kaware",
+          "Kawareh"
+        ],
+        "native": [
+          "كوارع"
+        ]
+      },
+      "region": "Egypt",
+      "score": 55
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Alexandrian preparation of fava beans",
+      "id": "foul-iskandarani",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "peppers"
+        ],
+        "required": [
+          "fava bean",
+          "onion",
+          "lemon"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Foul Iskandarani"
+        ],
+        "native": [
+          "فول إسكندراني"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "low",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Chicken with chocolate and spice sauce",
+      "id": "chicken-negresco",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "chicken",
+          "chocolate",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Negresco"
+        ],
+        "native": [
+          "دجاج نيجريسكو"
+        ]
+      },
+      "region": "Egypt",
+      "score": 64
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Mixed seafood with rice and tahini",
+      "id": "seafood-sayadeya",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "lemon"
+        ],
+        "required": [
+          "seafood",
+          "rice",
+          "tahini"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Seafood Sayadeya"
+        ],
+        "native": [
+          "سيادية الأسماك"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 79
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Traditional Egyptian whole wheat bread",
+      "id": "aish-baladi",
+      "ingredients": {
+        "optional": [
+          "yeast"
+        ],
+        "required": [
+          "whole wheat flour",
+          "water",
+          "salt"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Aish Baladi",
+          "Baladi Bread"
+        ],
+        "native": [
+          "عيش بلدي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 85
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Leavened bread variant popular in Egypt",
+      "id": "naan-egyptian",
+      "ingredients": {
+        "optional": [
+          "sesame"
+        ],
+        "required": [
+          "flour",
+          "yogurt",
+          "salt"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Egyptian Naan"
+        ],
+        "native": [
+          "نان مصري"
+        ]
+      },
+      "region": "Egypt",
+      "score": 72
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Layered pastry with honey and mixed nuts",
+      "id": "feteer-honey-nuts",
+      "ingredients": {
+        "optional": [
+          "butter",
+          "cinnamon"
+        ],
+        "required": [
+          "dough",
+          "honey",
+          "nuts"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Feteer with Honey and Nuts"
+        ],
+        "native": [
+          "فطير بالعسل والجوز"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Mixed seafood soup from coastal regions",
+      "id": "seafood-soup",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "peppers"
+        ],
+        "required": [
+          "seafood",
+          "tomato",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Seafood Soup"
+        ],
+        "native": [
+          "شوربة المأكولات البحرية"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 75
+    },
+    {
+      "authenticity": {
+        "confidence": "low",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Eel cooked in traditional stew",
+      "id": "eel-stew",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "peppers"
+        ],
+        "required": [
+          "eel",
+          "tomato",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Eel Stew"
+        ],
+        "native": [
+          "طاجن الثعبان"
+        ]
+      },
+      "region": "Egypt",
+      "score": 62
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Various vegetables in tomato sauce",
+      "id": "mixed-vegetables-stew",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "herbs"
+        ],
+        "required": [
+          "mixed vegetables",
+          "tomato",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mixed Vegetables Stew"
+        ],
+        "native": [
+          "يخنة الخضار المشكلة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 68
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Chopped vegetables with oil and lemon",
+      "id": "salad-mix",
+      "ingredients": {
+        "optional": [
+          "parsley",
+          "lemon"
+        ],
+        "required": [
+          "tomato",
+          "cucumber",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Egyptian Salad Mix"
+        ],
+        "native": [
+          "سلطة مصرية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 65
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Fried liver in pita bread with sauce",
+      "id": "liver-sandwich",
+      "ingredients": {
+        "optional": [
+          "peppers",
+          "garlic"
+        ],
+        "required": [
+          "liver",
+          "bread",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Liver Sandwich"
+        ],
+        "native": [
+          "ساندوتش الكبدة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Fava bean sandwich",
+      "id": "fool-sandwich",
+      "ingredients": {
+        "optional": [
+          "tahini",
+          "lemon"
+        ],
+        "required": [
+          "fava beans",
+          "bread"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Fool Sandwich"
+        ],
+        "native": [
+          "ساندوتش الفول"
+        ]
+      },
+      "region": "Egypt",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "low",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Rice with cooked tomato sauce",
+      "id": "roz-mahshi-tomato",
+      "ingredients": {
+        "optional": [
+          "garlic"
+        ],
+        "required": [
+          "rice",
+          "tomato",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Rice with Tomato Sauce"
+        ],
+        "native": [
+          "رز بصلصة الطماطم"
+        ]
+      },
+      "region": "Egypt",
+      "score": 62
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Pasta topped with spiced meat sauce",
+      "id": "pasta-meat-sauce",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "pasta",
+          "ground meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Pasta with Meat Sauce"
+        ],
+        "native": [
+          "معكرونة بصلصة اللحم"
+        ]
+      },
+      "region": "Egypt",
+      "score": 68
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Pastry with nuts and sugar syrup",
+      "id": "baklava",
+      "ingredients": {
+        "optional": [
+          "honey",
+          "rose water"
+        ],
+        "required": [
+          "phyllo",
+          "nuts",
+          "sugar syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Baklava"
+        ],
+        "native": [
+          "بقلاوة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Egyptian cookie with filling",
+      "id": "kahk",
+      "ingredients": {
+        "optional": [
+          "dates",
+          "nuts"
+        ],
+        "required": [
+          "flour",
+          "butter",
+          "eggs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Kahk"
+        ],
+        "native": [
+          "كحك"
+        ]
+      },
+      "region": "Egypt",
+      "score": 75
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Rice cooked with toasted vermicelli",
+      "id": "roz-bel-shaareya",
+      "ingredients": {
+        "optional": [
+          "stock",
+          "salt"
+        ],
+        "required": [
+          "rice",
+          "vermicelli",
+          "butter"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Roz Bel Shaareya",
+          "Egyptian Vermicelli Rice"
+        ],
+        "native": [
+          "أرز بالشعرية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Fattah served with slow-cooked trotters and garlic vinegar sauce",
+      "id": "fatta-kaware",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "vinegar",
+          "tomato"
+        ],
+        "required": [
+          "bread",
+          "rice",
+          "meat feet"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Fatta Kaware"
+        ],
+        "native": [
+          "فتة كوارع"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Slow-simmered trotters soup with aromatics",
+      "id": "kaware-soup",
+      "ingredients": {
+        "optional": [
+          "lemon",
+          "rice"
+        ],
+        "required": [
+          "meat feet",
+          "onion",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Kaware Soup"
+        ],
+        "native": [
+          "شوربة كوارع"
+        ]
+      },
+      "region": "Egypt",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Mixed vegetable stew with meat",
+      "id": "torly-bel-lahma",
+      "ingredients": {
+        "optional": [
+          "zucchini",
+          "tomato",
+          "onion"
+        ],
+        "required": [
+          "meat",
+          "potato",
+          "eggplant"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Torly Bel Lahma"
+        ],
+        "native": [
+          "تورلي باللحمة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Eggs cooked in tomato and pepper sauce",
+      "id": "egyptian-shakshuka",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "egg",
+          "tomato",
+          "pepper"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Egyptian Shakshuka"
+        ],
+        "native": [
+          "شكشوكة مصرية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Potatoes stuffed with spiced minced meat",
+      "id": "batates-mahshi",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "potato",
+          "ground meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Batates Mahshi",
+          "Stuffed Potatoes"
+        ],
+        "native": [
+          "بطاطس محشية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Spinach stew with meat and tomato",
+      "id": "sabanekh-bel-lahma",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion",
+          "rice"
+        ],
+        "required": [
+          "spinach",
+          "meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Sabanekh Bel Lahma"
+        ],
+        "native": [
+          "سبانخ باللحمة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Taro stew with garlic and coriander greens",
+      "id": "qolqas",
+      "ingredients": {
+        "optional": [
+          "meat",
+          "rice"
+        ],
+        "required": [
+          "taro",
+          "garlic",
+          "coriander"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Qolqas",
+          "Egyptian Taro Stew"
+        ],
+        "native": [
+          "قلقاس"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Molokhia soup served with chicken",
+      "id": "molokhia-chicken",
+      "ingredients": {
+        "optional": [
+          "rice",
+          "coriander"
+        ],
+        "required": [
+          "molokhia",
+          "chicken",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Molokhia"
+        ],
+        "native": [
+          "ملوخية بالدجاج"
+        ]
+      },
+      "region": "Egypt",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Molokhia soup served with beef or meat broth",
+      "id": "molokhia-beef",
+      "ingredients": {
+        "optional": [
+          "rice",
+          "coriander"
+        ],
+        "required": [
+          "molokhia",
+          "meat",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Beef Molokhia"
+        ],
+        "native": [
+          "ملوخية باللحمة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Okra tagine with meat and tomato sauce",
+      "id": "taagen-bamia-bel-lahma",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion"
+        ],
+        "required": [
+          "okra",
+          "meat",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Taagen Bamia Bel Lahma"
+        ],
+        "native": [
+          "طاجن بامية باللحمة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Layered Egyptian pastry filled with cheese",
+      "id": "feteer-cheese",
+      "ingredients": {
+        "optional": [
+          "milk",
+          "egg"
+        ],
+        "required": [
+          "flour",
+          "butter",
+          "cheese"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Feteer With Cheese"
+        ],
+        "native": [
+          "فطير بالجبنة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Layered Egyptian pastry served with honey",
+      "id": "feteer-honey",
+      "ingredients": {
+        "optional": [
+          "cream",
+          "milk"
+        ],
+        "required": [
+          "flour",
+          "butter",
+          "honey"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "dessert",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Feteer With Honey"
+        ],
+        "native": [
+          "فطير بالعسل"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Sausage cooked with peppers, tomato, and spices",
+      "id": "sogo-iskandarani",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "sausage",
+          "pepper",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Sogo Iskandarani",
+          "Alexandrian Sausage"
+        ],
+        "native": [
+          "سجق إسكندراني"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Eggs cooked with spiced sausage",
+      "id": "sogo-bel-bayd",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion"
+        ],
+        "required": [
+          "sausage",
+          "egg",
+          "pepper"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Sogo Bel Bayd",
+          "Sausage and Eggs"
+        ],
+        "native": [
+          "سجق بالبيض"
+        ]
+      },
+      "region": "Egypt",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Alexandrian-style spiced meat baked in dough",
+      "id": "hawawshi-iskandarani",
+      "ingredients": {
+        "optional": [
+          "pepper",
+          "tomato",
+          "herbs"
+        ],
+        "required": [
+          "ground meat",
+          "dough",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Alexandrian Hawawshi"
+        ],
+        "native": [
+          "حواوشي إسكندراني"
+        ]
+      },
+      "region": "Alexandria",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Spiced minced meat baked inside baladi bread",
+      "id": "hawawshi-baladi",
+      "ingredients": {
+        "optional": [
+          "pepper",
+          "tomato"
+        ],
+        "required": [
+          "ground meat",
+          "baladi bread",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Baladi Hawawshi"
+        ],
+        "native": [
+          "حواوشي بلدي"
+        ]
+      },
+      "region": "Egypt",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Meatballs cooked in tomato sauce",
+      "id": "daoud-basha",
+      "ingredients": {
+        "optional": [
+          "rice",
+          "pine nuts"
+        ],
+        "required": [
+          "ground meat",
+          "tomato",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Daoud Basha"
+        ],
+        "native": [
+          "داود باشا"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Egyptian pasta with tomato sauce",
+      "id": "macarona-salsa",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "ground meat"
+        ],
+        "required": [
+          "pasta",
+          "tomato",
+          "garlic"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Macarona Salsa",
+          "Egyptian Tomato Pasta"
+        ],
+        "native": [
+          "مكرونة بالصلصة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 78
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Egyptian bechamel pasta with chicken",
+      "id": "macarona-bechamel-chicken",
+      "ingredients": {
+        "optional": [
+          "flour",
+          "butter",
+          "cheese"
+        ],
+        "required": [
+          "pasta",
+          "chicken",
+          "milk"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Chicken Macarona Bechamel"
+        ],
+        "native": [
+          "مكرونة بشاميل بالفراخ"
+        ]
+      },
+      "region": "Egypt",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Fried eggplant cooked with tomato and pepper sauce",
+      "id": "mesaqaa",
+      "ingredients": {
+        "optional": [
+          "ground meat",
+          "garlic"
+        ],
+        "required": [
+          "eggplant",
+          "tomato",
+          "pepper"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mesaqaa",
+          "Egyptian Moussaka"
+        ],
+        "native": [
+          "مسقعة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Ful medames topped or cooked with eggs",
+      "id": "ful-bel-bayd",
+      "ingredients": {
+        "optional": [
+          "lemon",
+          "olive oil"
+        ],
+        "required": [
+          "fava bean",
+          "egg",
+          "cumin"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Ful Bel Bayd",
+          "Ful With Eggs"
+        ],
+        "native": [
+          "فول بالبيض"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Ful medames mixed with tahini and lemon",
+      "id": "ful-bel-tahina",
+      "ingredients": {
+        "optional": [
+          "cumin",
+          "garlic"
+        ],
+        "required": [
+          "fava bean",
+          "tahini",
+          "lemon"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Ful Bel Tahina",
+          "Ful With Tahini"
+        ],
+        "native": [
+          "فول بالطحينة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 80
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Egyptian falafel sandwich in baladi bread",
+      "id": "taameya-sandwich",
+      "ingredients": {
+        "optional": [
+          "tahini",
+          "pickles"
+        ],
+        "required": [
+          "taameya",
+          "bread",
+          "salad"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "street_food",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Taameya Sandwich"
+        ],
+        "native": [
+          "ساندوتش طعمية"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "egyptian",
+      "description": "Yogurt and flour porridge or soup with fried onions",
+      "id": "kishk",
+      "ingredients": {
+        "optional": [
+          "chicken",
+          "rice"
+        ],
+        "required": [
+          "yogurt",
+          "flour",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Kishk"
+        ],
+        "native": [
+          "كشك"
+        ]
+      },
+      "region": "Egypt",
+      "score": 76
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Shredded pastry dessert with syrup",
+      "id": "konafa",
+      "ingredients": {
+        "optional": [
+          "cream",
+          "nuts"
+        ],
+        "required": [
+          "konafa pastry",
+          "butter",
+          "syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Konafa"
+        ],
+        "native": [
+          "كنافة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 88
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Fried choux pastry soaked in syrup",
+      "id": "balah-el-sham",
+      "ingredients": {
+        "optional": [
+          "vanilla",
+          "oil"
+        ],
+        "required": [
+          "flour",
+          "egg",
+          "syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Balah El Sham"
+        ],
+        "native": [
+          "بلح الشام"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Semolina cake soaked in syrup",
+      "id": "semolina-basbousa",
+      "ingredients": {
+        "optional": [
+          "coconut",
+          "almond"
+        ],
+        "required": [
+          "semolina",
+          "yogurt",
+          "syrup"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "dessert"
+      ],
+      "names": {
+        "english": [
+          "Semolina Basbousa"
+        ],
+        "native": [
+          "بسبوسة بالسميد"
+        ]
+      },
+      "region": "Egypt",
+      "score": 84
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "egyptian",
+      "description": "Rice kofta simmered in tomato sauce",
+      "id": "rice-kofta-tomato-sauce",
+      "ingredients": {
+        "optional": [
+          "herbs",
+          "garlic",
+          "onion"
+        ],
+        "required": [
+          "ground meat",
+          "rice",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Rice Kofta in Tomato Sauce"
+        ],
+        "native": [
+          "كفتة رز بالصلصة"
+        ]
+      },
+      "region": "Egypt",
+      "score": 82
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

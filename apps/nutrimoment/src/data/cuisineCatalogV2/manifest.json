@@ -1,0 +1,16 @@
+{
+  "cuisines": {
+    "american": "american.json",
+    "asian": "asian.json",
+    "egyptian": "egyptian.json",
+    "indian": "indian.json",
+    "italian": "italian.json",
+    "mediterranean": "mediterranean.json",
+    "mexican": "mexican.json",
+    "middleEastern": "middleEastern.json",
+    "thai": "thai.json",
+    "turkish": "turkish.json"
+  },
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "version": 2
+}

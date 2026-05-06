@@ -25,10 +25,16 @@ function cleanEnvValue(value: string | undefined) {
 }
 
 function getStorageBucketName() {
-  return (
-    cleanEnvValue(process.env.FIREBASE_ADMIN_STORAGE_BUCKET) ??
-    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)
-  );
+  const adminBucket = cleanEnvValue(process.env.FIREBASE_ADMIN_STORAGE_BUCKET);
+  if (adminBucket) return adminBucket;
+
+  const publicBucket = cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET);
+  if (publicBucket) return publicBucket;
+
+  const projectId =
+    cleanEnvValue(process.env.FIREBASE_ADMIN_PROJECT_ID) ??
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
+  return projectId ? `${projectId}.appspot.com` : publicBucket;
 }
 
 export function hasFirebaseAdminConfig() {

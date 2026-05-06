@@ -1,0 +1,1130 @@
+{
+  "cuisine": "middleEastern",
+  "entries": [
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Creamy chickpea dip with tahini, lemon, and garlic",
+      "id": "hummus",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "olive oil"
+        ],
+        "required": [
+          "chickpea",
+          "tahini",
+          "lemon"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Hummus"
+        ],
+        "native": [
+          "حمص"
+        ]
+      },
+      "region": "Levant",
+      "score": 98,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Roasted eggplant dip with tahini and lemon",
+      "id": "baba-ghanoush",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "olive oil",
+          "parsley"
+        ],
+        "required": [
+          "eggplant",
+          "tahini",
+          "lemon"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Baba Ghanoush"
+        ],
+        "native": [
+          "بابا غنوج"
+        ]
+      },
+      "region": "Levant",
+      "score": 92,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Eggplant dip with pomegranate molasses",
+      "id": "mutabbal",
+      "ingredients": {
+        "optional": [
+          "lemon",
+          "garlic"
+        ],
+        "required": [
+          "eggplant",
+          "pomegranate molasses",
+          "tahini"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Mutabbal"
+        ],
+        "native": [
+          "متبل"
+        ]
+      },
+      "region": "Levant",
+      "score": 84,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Parsley salad with bulgur, tomato, lemon, and olive oil",
+      "id": "tabbouleh",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "lemon",
+          "olive oil"
+        ],
+        "required": [
+          "parsley",
+          "bulgur",
+          "tomato"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Tabbouleh"
+        ],
+        "native": [
+          "تبولة"
+        ]
+      },
+      "region": "Levant",
+      "score": 90,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Lentils and rice topped with deeply caramelized onions",
+      "id": "mujaddara",
+      "ingredients": {
+        "optional": [
+          "olive oil",
+          "cumin",
+          "yogurt"
+        ],
+        "required": [
+          "lentil",
+          "rice",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mujaddara",
+          "Mujadara"
+        ],
+        "native": [
+          "مجدرة"
+        ]
+      },
+      "region": "Levant",
+      "score": 89,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Upside-down rice pot layered with chicken or lamb and vegetables",
+      "id": "maqluba",
+      "ingredients": {
+        "optional": [
+          "cauliflower",
+          "potato",
+          "almond",
+          "yogurt"
+        ],
+        "required": [
+          "rice",
+          "eggplant",
+          "chicken"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Maqluba",
+          "Maklouba"
+        ],
+        "native": [
+          "مقلوبة"
+        ]
+      },
+      "region": "Palestine and Jordan",
+      "score": 91,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Jordanian lamb cooked in jameed yogurt sauce and served over rice",
+      "id": "mansaf",
+      "ingredients": {
+        "optional": [
+          "almond",
+          "pine nut",
+          "shrack bread"
+        ],
+        "required": [
+          "lamb",
+          "jameed",
+          "rice"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mansaf"
+        ],
+        "native": [
+          "منسف"
+        ]
+      },
+      "region": "Jordan",
+      "score": 93,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Mixed salad with vegetables and crispy pita chips",
+      "id": "fattoush",
+      "ingredients": {
+        "optional": [
+          "olive oil",
+          "garlic",
+          "sumac"
+        ],
+        "required": [
+          "mixed vegetables",
+          "pita bread",
+          "lemon"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Fattoush"
+        ],
+        "native": [
+          "فتوش"
+        ]
+      },
+      "region": "Levant",
+      "score": 88,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Fried chickpea fritters with herbs and spices",
+      "id": "falafel",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "parsley",
+          "cilantro"
+        ],
+        "required": [
+          "chickpea",
+          "herbs",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "street_food",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Falafel"
+        ],
+        "native": [
+          "فلافل"
+        ]
+      },
+      "region": "Levant",
+      "score": 94,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Strained yogurt cheese, creamy and tangy",
+      "id": "labneh",
+      "ingredients": {
+        "optional": [
+          "salt",
+          "olive oil",
+          "herbs"
+        ],
+        "required": [
+          "yogurt"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Labneh"
+        ],
+        "native": [
+          "لبنة"
+        ]
+      },
+      "region": "Levant",
+      "score": 86,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Flatbread topped with zaatar, cheese, or meat",
+      "id": "manakish",
+      "ingredients": {
+        "optional": [
+          "cheese",
+          "meat",
+          "olive oil"
+        ],
+        "required": [
+          "dough",
+          "zaatar"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "breakfast",
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Manakish",
+          "Manaeesh"
+        ],
+        "native": [
+          "منقوشة"
+        ]
+      },
+      "region": "Levant",
+      "score": 89,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Ground meat and bulgur croquettes, fried or baked",
+      "id": "kibbeh",
+      "ingredients": {
+        "optional": [
+          "pine nuts",
+          "garlic"
+        ],
+        "required": [
+          "ground meat",
+          "bulgur",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kibbeh"
+        ],
+        "native": [
+          "كبة"
+        ]
+      },
+      "region": "Levant",
+      "score": 92,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Sliced marinated meat cooked on vertical spit",
+      "id": "shawarma",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "parsley"
+        ],
+        "required": [
+          "meat",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "street_food"
+      ],
+      "names": {
+        "english": [
+          "Shawarma"
+        ],
+        "native": [
+          "شاورما"
+        ]
+      },
+      "region": "Levant",
+      "score": 93,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Fragrant rice with meat and spices",
+      "id": "kabsa",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "tomato"
+        ],
+        "required": [
+          "rice",
+          "meat",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kabsa"
+        ],
+        "native": [
+          "كبسة"
+        ]
+      },
+      "region": "Gulf",
+      "score": 90,
+      "subCuisine": "gulf"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Rice with meat roasted in underground oven",
+      "id": "mandi",
+      "ingredients": {
+        "optional": [
+          "onion"
+        ],
+        "required": [
+          "rice",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Mandi"
+        ],
+        "native": [
+          "منديو"
+        ]
+      },
+      "region": "Yemen",
+      "score": 87,
+      "subCuisine": "gulf"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Rice cooked with meat or fish in one pot",
+      "id": "machboos",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "spices"
+        ],
+        "required": [
+          "rice",
+          "meat",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Machboos"
+        ],
+        "native": [
+          "مچبوس"
+        ]
+      },
+      "region": "Gulf",
+      "score": 85,
+      "subCuisine": "gulf"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Grilled fish split open and marinated",
+      "id": "masgouf",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "onion"
+        ],
+        "required": [
+          "fish",
+          "lemon",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Masgouf"
+        ],
+        "native": [
+          "مسكوف"
+        ]
+      },
+      "region": "Iraq",
+      "score": 86
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Stewed meat with vegetables",
+      "id": "tikleh",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "garlic"
+        ],
+        "required": [
+          "meat",
+          "vegetables",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Tikleh"
+        ],
+        "native": [
+          "تكلة"
+        ]
+      },
+      "region": "Iraq",
+      "score": 72
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Slow-cooked stew with meat and fruits",
+      "id": "tagine",
+      "ingredients": {
+        "optional": [
+          "prunes",
+          "apricot",
+          "ginger"
+        ],
+        "required": [
+          "meat",
+          "dried fruits",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Tagine"
+        ],
+        "native": [
+          "طاجين"
+        ]
+      },
+      "region": "Maghreb",
+      "score": 88,
+      "subCuisine": "maghrebi"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Steamed semolina grains with meat and vegetables",
+      "id": "couscous",
+      "ingredients": {
+        "optional": [
+          "chickpea",
+          "onion"
+        ],
+        "required": [
+          "couscous",
+          "meat",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Couscous"
+        ],
+        "native": [
+          "كسكس"
+        ]
+      },
+      "region": "Maghreb",
+      "score": 90,
+      "subCuisine": "maghrebi"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Rich vegetable and meat soup with chickpeas",
+      "id": "harira",
+      "ingredients": {
+        "optional": [
+          "tomato",
+          "onion",
+          "ginger"
+        ],
+        "required": [
+          "lentil",
+          "chickpea",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner",
+        "soup"
+      ],
+      "names": {
+        "english": [
+          "Harira"
+        ],
+        "native": [
+          "حريرة"
+        ]
+      },
+      "region": "Maghreb",
+      "score": 85,
+      "subCuisine": "maghrebi"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Marinated chicken skewers grilled",
+      "id": "shish-tawook",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "peppers"
+        ],
+        "required": [
+          "chicken",
+          "yogurt",
+          "spices"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Shish Tawook"
+        ],
+        "native": [
+          "شيش طاووق"
+        ]
+      },
+      "region": "Levant",
+      "score": 87,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Ground meat kebab with herbs",
+      "id": "kofta-kebab",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "cumin"
+        ],
+        "required": [
+          "ground meat",
+          "onion",
+          "parsley"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Kofta Kebab"
+        ],
+        "native": [
+          "كفتة مشوية"
+        ]
+      },
+      "region": "Levant",
+      "score": 85,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Grape leaves stuffed with rice and meat",
+      "id": "waraq-enab",
+      "ingredients": {
+        "optional": [
+          "onion",
+          "garlic"
+        ],
+        "required": [
+          "grape leaves",
+          "rice",
+          "ground meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Waraq Enab"
+        ],
+        "native": [
+          "ورق عنب"
+        ]
+      },
+      "region": "Levant",
+      "score": 83,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Stuffed vegetables or grape leaves",
+      "id": "dolma",
+      "ingredients": {
+        "optional": [
+          "herbs",
+          "spices"
+        ],
+        "required": [
+          "vegetables",
+          "rice",
+          "meat"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Dolma"
+        ],
+        "native": [
+          "دولما"
+        ]
+      },
+      "region": "Levant",
+      "score": 81,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "high",
+        "hardGate": true
+      },
+      "cuisine": "middleEastern",
+      "description": "Red pepper and walnut dip",
+      "id": "muhammara",
+      "ingredients": {
+        "optional": [
+          "pomegranate molasses",
+          "lemon"
+        ],
+        "required": [
+          "red pepper",
+          "walnut",
+          "breadcrumbs"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "snack",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Muhammara"
+        ],
+        "native": [
+          "محمرة"
+        ]
+      },
+      "region": "Levant",
+      "score": 82,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Raw kibbeh with meat and bulgur",
+      "id": "kibbeh-nayyeh",
+      "ingredients": {
+        "optional": [
+          "parsley",
+          "mint"
+        ],
+        "required": [
+          "raw meat",
+          "bulgur",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch"
+      ],
+      "names": {
+        "english": [
+          "Kibbeh Nayyeh"
+        ],
+        "native": [
+          "كبة نية"
+        ]
+      },
+      "region": "Levant",
+      "score": 78,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Salad with sumac dressing",
+      "id": "fattoush-extended",
+      "ingredients": {
+        "optional": [
+          "lemon",
+          "olive oil"
+        ],
+        "required": [
+          "vegetables",
+          "sumac",
+          "pita"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "side"
+      ],
+      "names": {
+        "english": [
+          "Fattoush with Sumac"
+        ],
+        "native": [
+          "فتوش بالسماق"
+        ]
+      },
+      "region": "Levant",
+      "score": 76,
+      "subCuisine": "levantine"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Meat and wheat porridge",
+      "id": "harees",
+      "ingredients": {
+        "optional": [
+          "ghee"
+        ],
+        "required": [
+          "meat",
+          "wheat",
+          "onion"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Harees"
+        ],
+        "native": [
+          "هريس"
+        ]
+      },
+      "region": "Gulf",
+      "score": 72,
+      "subCuisine": "gulf"
+    },
+    {
+      "authenticity": {
+        "confidence": "medium",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Underground oven roasted meat",
+      "id": "zarb",
+      "ingredients": {
+        "optional": [
+          "spices"
+        ],
+        "required": [
+          "meat",
+          "vegetables"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "names": {
+        "english": [
+          "Zarb"
+        ],
+        "native": [
+          "ضرب"
+        ]
+      },
+      "region": "Gulf",
+      "score": 75,
+      "subCuisine": "gulf"
+    },
+    {
+      "authenticity": {
+        "confidence": "low",
+        "hardGate": false
+      },
+      "cuisine": "middleEastern",
+      "description": "Pickled vegetables served as side",
+      "id": "mukhallel",
+      "ingredients": {
+        "optional": [
+          "garlic",
+          "spices"
+        ],
+        "required": [
+          "vegetables",
+          "vinegar"
+        ]
+      },
+      "kind": "canonical",
+      "mealTypes": [
+        "side",
+        "snack"
+      ],
+      "names": {
+        "english": [
+          "Mukhallel",
+          "Pickled Vegetables"
+        ],
+        "native": [
+          "مخلل"
+        ]
+      },
+      "region": "Levant",
+      "score": 58,
+      "subCuisine": "levantine"
+    }
+  ],
+  "generatedAt": "2026-05-05T00:00:00.000Z",
+  "source": "completeCatalogs.ts",
+  "version": 2
+}

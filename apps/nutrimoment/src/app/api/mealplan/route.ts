@@ -2,7 +2,13 @@ import { z } from "zod";
 import { buildMealPlanPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson, getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/openai";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
-import { accessErrorResponse, accessPayload, isFirebaseTransientError, requireUser } from "@/services/authService";
+import {
+  accessErrorResponse,
+  accessPayload,
+  canUseApiFeature,
+  consumeFreeAiCredit,
+  isFirebaseTransientError
+} from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { logger } from "@/lib/logger";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
@@ -77,7 +83,8 @@ export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   logger.info("Meal plan HTTP request received", { requestId });
   try {
-    const access = await requireUser(request);
+    const accessCheck = await canUseApiFeature(request, "weekly_plan");
+    const access = accessCheck.access;
     const rl = applyRateLimit({
       uid: access.uid,
       feature: "meal_plan",
@@ -94,15 +101,17 @@ export async function POST(request: Request) {
     }
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
 
-    if (!access.isPremium) {
+    if (!accessCheck.allowed) {
       return Response.json(
         {
-          error: "Weekly meal plans are a premium feature. Free users can keep using manual pantry and the shared recipe pool.",
+          error: "Your 3 free weekly meal plans are used. Upgrade to premium for more weekly planning.",
           access: accessPayload(access)
         },
-        { status: 403 }
+        { status: 402 }
       );
     }
+
+    const nextAccess = await consumeFreeAiCredit(access, "weekly_plan");
 
     if (USE_MOCK) {
       const mockPlan = { ...MOCK_MEAL_PLAN, servedFrom: "mock" as const };
@@ -117,7 +126,7 @@ export async function POST(request: Request) {
         meals: outputMockPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
         recipes: outputMockPlan.recommendedRecipes
       });
-      return Response.json({ result: JSON.stringify(outputMockPlan), access: accessPayload(access) });
+      return Response.json({ result: JSON.stringify(outputMockPlan), access: accessPayload(nextAccess) });
     }
 
     const pantryItems = parsed.data.pantryItems ?? [];
@@ -183,7 +192,7 @@ export async function POST(request: Request) {
         return Response.json({
           result: JSON.stringify({ ...outputMealPlan, servedFrom: "fallback_ai" }),
           servedFrom: "fallback_ai",
-          access: accessPayload(access)
+          access: accessPayload(nextAccess)
         });
       }
 
@@ -200,7 +209,7 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error: "The shared recipe pool is empty right now, so no fallback meal plan is available.",
-          access: accessPayload(access)
+          access: accessPayload(nextAccess)
         },
         { status: 503 }
       );
@@ -229,7 +238,7 @@ export async function POST(request: Request) {
       result: JSON.stringify(outputEmergencyMealPlan),
       servedFrom: "shared_pool",
       fallbackNotice: "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool.",
-      access: accessPayload(access)
+      access: accessPayload(nextAccess)
     });
   } catch (err) {
     if (

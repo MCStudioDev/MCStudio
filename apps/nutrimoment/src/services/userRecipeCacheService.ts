@@ -259,7 +259,7 @@ function createMealRecipe(meal: MealPlanMeal, fallbackId: string): Recipe {
   return {
     id: fallbackId,
     name: meal.name,
-    cuisine: "Unknown",
+    cuisine: meal.cuisine ?? "Unknown",
     image_search_index: meal.image_search_index,
     image_search_indices: meal.image_search_indices,
     ingredients: meal.ingredients ?? [],

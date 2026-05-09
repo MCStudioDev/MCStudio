@@ -20,9 +20,9 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     key: "alexandrian-liver",
     canonicalName: "alexandrian liver",
     cuisine: "Egyptian",
-    pantrySignals: ["liver", "beef", "garlic", "pepper", "chili"],
-    visualForms: ["foil liver tray", "sliced liver with peppers", "street-style liver filling"],
-    imageQueries: ["alexandrian liver", "egyptian liver sandwich filling", "kibda iskandarani"]
+    pantrySignals: ["liver", "kebda", "kibda", "garlic", "pepper", "chili"],
+    visualForms: ["pan-fried sliced kebda with bell pepper", "glossy liver pieces with garlic and lemon", "street-style liver filling"],
+    imageQueries: ["kebda eskandarani", "alexandrian liver", "egyptian liver sandwich filling", "kibda iskandarani"]
   },
   {
     key: "mahshi-mixed",
@@ -45,8 +45,8 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "hawawshi",
     cuisine: "Egyptian",
     pantrySignals: ["ground meat", "baladi bread", "pita", "onion", "parsley"],
-    visualForms: ["stuffed baladi bread", "crispy meat bread wedge", "griddled meat pita"],
-    imageQueries: ["hawawshi egyptian", "egyptian meat stuffed bread", "baladi hawawshi"]
+    visualForms: ["crispy stuffed pita pocket", "stuffed baladi bread wedges", "meat filling visible at cut edge"],
+    imageQueries: ["hawawshi egyptian", "egyptian meat stuffed bread", "hawawshi pita"]
   },
   {
     key: "farouj-meshwi",
@@ -85,8 +85,32 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "kofta",
     cuisine: "Egyptian",
     pantrySignals: ["ground meat", "parsley", "onion", "garlic", "cumin"],
-    visualForms: ["kofta logs", "grilled minced meat kebabs", "kofta platter"],
-    imageQueries: ["egyptian kofta", "kofta kebab egyptian", "grilled kofta platter"]
+    visualForms: ["charcoal-grilled kofta skewers", "minced meat logs with char marks", "kofta mashwia platter"],
+    imageQueries: ["egyptian kofta mashwia", "kofta kebab egyptian", "grilled kofta platter"]
+  },
+  {
+    key: "rice-kofta",
+    canonicalName: "rice kofta",
+    cuisine: "Egyptian",
+    pantrySignals: ["ground meat", "rice", "parsley", "dill", "cilantro", "tomato sauce"],
+    visualForms: ["fried rice kofta in tomato sauce", "kofta fingers in red sauce", "egyptian koftet roz"],
+    imageQueries: ["egyptian rice kofta", "koftet roz", "rice kofta tomato sauce"]
+  },
+  {
+    key: "dawood-basha",
+    canonicalName: "Dawood Basha",
+    cuisine: "Egyptian",
+    pantrySignals: ["ground meat", "tomato sauce", "onion", "garlic", "rice"],
+    visualForms: ["small meatballs in red tomato sauce", "Egyptian saucy kofta meatballs", "Dawood Basha with rice"],
+    imageQueries: ["dawood basha", "egyptian meatballs tomato sauce", "kofta dawood basha"]
+  },
+  {
+    key: "taagen-kofta",
+    canonicalName: "taagen kofta",
+    cuisine: "Egyptian",
+    pantrySignals: ["ground meat", "potato", "tomato sauce", "onion", "pepper"],
+    visualForms: ["baked kofta tray", "kofta with potato slices", "tomato-sauce kofta tagine"],
+    imageQueries: ["egyptian kofta tagine", "taagen kofta potatoes", "kofta potato tray"]
   },
   {
     key: "macarona-bechamel",
@@ -192,8 +216,8 @@ const TURKISH_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "kiymali pide",
     cuisine: "Turkish",
     pantrySignals: ["ground meat", "beef", "lamb", "pepper", "tomato", "dough"],
-    visualForms: ["boat-shaped meat flatbread", "open minced meat pide", "baked Turkish meat bread"],
-    imageQueries: ["kiymali pide", "turkish minced meat pide", "turkish meat flatbread"]
+    visualForms: ["boat-shaped meat flatbread", "open minced meat pide with folded edges", "sliced Turkish beef pide"],
+    imageQueries: ["kiymali pide", "turkish beef pide", "turkish minced meat pide"]
   },
   {
     key: "lahmacun",
@@ -264,8 +288,24 @@ const TURKISH_VISUAL_REFERENCES: CuisineVisualReference[] = [
     canonicalName: "karniyarik",
     cuisine: "Turkish",
     pantrySignals: ["eggplant", "ground meat", "tomato", "pepper", "garlic"],
-    visualForms: ["stuffed eggplant in tomato sauce", "split eggplants with meat filling", "baked eggplant boat"],
+    visualForms: ["split eggplant stuffed with minced meat", "whole eggplant with tomato meat filling", "baked eggplant boat"],
     imageQueries: ["karniyarik", "turkish stuffed eggplant", "karniyarik turkish"]
+  },
+  {
+    key: "turkish-spiral-borek",
+    canonicalName: "turkish spiral borek",
+    cuisine: "Turkish",
+    pantrySignals: ["ground meat", "phyllo", "yufka", "onion", "paprika", "parsley"],
+    visualForms: ["golden coiled borek", "spiral phyllo pastry with beef", "sliced savory borek coil"],
+    imageQueries: ["turkish spiral borek", "ground beef borek", "kol boregi"]
+  },
+  {
+    key: "turkish-musakka",
+    canonicalName: "turkish musakka",
+    cuisine: "Turkish",
+    pantrySignals: ["eggplant", "ground meat", "tomato", "pepper", "bechamel", "cheese"],
+    visualForms: ["layered eggplant beef casserole", "turkish musakka slice", "eggplant tomato meat bake"],
+    imageQueries: ["turkish musakka", "turkish eggplant ground beef casserole", "eggplant beef moussaka"]
   },
   {
     key: "patlican-kebabi",
@@ -285,8 +325,65 @@ const TURKISH_VISUAL_REFERENCES: CuisineVisualReference[] = [
   }
 ];
 
+const MOROCCAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
+  {
+    key: "moroccan-kebda",
+    canonicalName: "moroccan kebda",
+    cuisine: "Moroccan",
+    pantrySignals: ["liver", "kebda", "garlic", "coriander", "cilantro", "lemon"],
+    visualForms: ["pan-browned liver strips with coriander", "glossy kebda with lemon wedges", "liver strips with Moroccan bread"],
+    imageQueries: ["moroccan kebda", "moroccan liver strips", "liver coriander lemon"]
+  },
+  {
+    key: "kebda-chermoula",
+    canonicalName: "kebda chermoula",
+    cuisine: "North African",
+    pantrySignals: ["liver", "kebda", "garlic", "tomato", "paprika", "caraway"],
+    visualForms: ["liver pieces in red chermoula sauce", "saucy spiced lamb liver", "liver with parsley tomato sauce"],
+    imageQueries: ["kebda chermoula", "north african liver chermoula", "algerian liver tomato sauce"]
+  },
+  {
+    key: "moroccan-liver-stew",
+    canonicalName: "moroccan liver stew",
+    cuisine: "Moroccan",
+    pantrySignals: ["liver", "kebda", "onion", "tomato", "parsley", "coriander"],
+    visualForms: ["red tomato liver stew", "liver cubes in Moroccan tomato sauce", "kebda mchermla oven dish"],
+    imageQueries: ["moroccan liver stew", "kebda mchermla", "moroccan kebda tomato stew"]
+  }
+];
+
+const AMERICAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
+  {
+    key: "ground-beef-penne",
+    canonicalName: "one-pan ground beef penne",
+    cuisine: "American",
+    pantrySignals: ["ground beef", "ground meat", "minced meat", "pasta", "penne", "tomato sauce"],
+    visualForms: ["penne in red meat sauce", "crumbled ground beef pasta skillet", "tomato-coated beef penne"],
+    imageQueries: ["ground beef penne", "beef tomato penne", "one pan beef penne"]
+  },
+  {
+    key: "ground-beef-pasta",
+    canonicalName: "ground beef pasta",
+    cuisine: "American",
+    pantrySignals: ["ground beef", "ground meat", "pasta", "macaroni", "tomato sauce", "zucchini", "bell pepper"],
+    visualForms: ["elbow macaroni in red beef sauce", "ground beef pasta with vegetables", "cheesy beef pasta skillet"],
+    imageQueries: ["ground beef pasta", "beef macaroni skillet", "hamburger pasta"]
+  },
+  {
+    key: "hamburger-stew",
+    canonicalName: "hamburger stew",
+    cuisine: "American",
+    pantrySignals: ["ground beef", "ground meat", "potato", "carrot", "celery", "tomato"],
+    visualForms: ["chunky tomato hamburger stew", "ground beef vegetable stew", "potato carrot beef stew bowl"],
+    imageQueries: ["hamburger stew", "ground beef vegetable stew", "hamburger soup potatoes carrots"]
+  }
+];
+
 const CUISINE_VISUAL_REFERENCES: Record<string, CuisineVisualReference[]> = {
+  american: AMERICAN_VISUAL_REFERENCES,
   egyptian: EGYPTIAN_VISUAL_REFERENCES,
+  moroccan: MOROCCAN_VISUAL_REFERENCES,
+  northafrican: MOROCCAN_VISUAL_REFERENCES,
   turkish: TURKISH_VISUAL_REFERENCES
 };
 

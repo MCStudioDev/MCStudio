@@ -6,7 +6,8 @@ export type AccessRole = "admin" | "user";
 export type AccessTier = "free" | "premium";
 export type AiFeatureKey = "image_to_text" | "recipe_generation" | "recipe_image" | "weekly_plan";
 
-export const FREE_LIFETIME_AI_CREDITS = 5;
+export const FREE_LIFETIME_AI_CREDITS = 10;
+export const FREE_LIFETIME_WEEKLY_PLANS = 3;
 const FIREBASE_TRANSIENT_RETRY_ATTEMPTS = 5;
 const ACCESS_CACHE_TTL_MS = 10 * 60 * 1000;
 const accessCache = new Map<string, { access: RequestAccess; expiresAt: number }>();
@@ -30,6 +31,9 @@ export interface RequestAccess {
   aiCreditsUsed: number;
   aiCreditsLimit: number;
   aiCreditsRemaining: number;
+  weeklyPlanUsed: number;
+  weeklyPlanLimit: number;
+  weeklyPlanRemaining: number;
 }
 
 export function isFirebaseTransientError(error: unknown) {
@@ -70,16 +74,24 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
       isPremium,
       aiCreditsUsed: 0,
       aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
-      aiCreditsRemaining: FREE_LIFETIME_AI_CREDITS
+      aiCreditsRemaining: FREE_LIFETIME_AI_CREDITS,
+      weeklyPlanUsed: 0,
+      weeklyPlanLimit: FREE_LIFETIME_WEEKLY_PLANS,
+      weeklyPlanRemaining: FREE_LIFETIME_WEEKLY_PLANS
     });
   }
 
   const db = getAdminDb();
   const usageRef = db.doc(`users/${decoded.uid}/usage/aiCredits`);
+  const weeklyPlanUsageRef = db.doc(`users/${decoded.uid}/usage/weeklyPlans`);
   let usageSnap;
+  let weeklyPlanUsageSnap;
 
   try {
-    usageSnap = await withFirebaseTransientRetry(() => usageRef.get(), "read AI credit usage");
+    [usageSnap, weeklyPlanUsageSnap] = await withFirebaseTransientRetry(
+      () => Promise.all([usageRef.get(), weeklyPlanUsageRef.get()]),
+      "read free usage"
+    );
   } catch (error) {
     if (isFirebaseTransientError(error)) {
       const cached = getCachedAccess(decoded.uid);
@@ -106,14 +118,19 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
         isPremium,
         aiCreditsUsed: FREE_LIFETIME_AI_CREDITS - 1,
         aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
-        aiCreditsRemaining: 1
+        aiCreditsRemaining: 1,
+        weeklyPlanUsed: FREE_LIFETIME_WEEKLY_PLANS - 1,
+        weeklyPlanLimit: FREE_LIFETIME_WEEKLY_PLANS,
+        weeklyPlanRemaining: 1
       });
     }
     throw error;
   }
 
   const usageData = usageSnap.data();
+  const weeklyPlanUsageData = weeklyPlanUsageSnap.data();
   const aiCreditsUsed = Number(usageData?.lifetimeUsed ?? 0);
+  const weeklyPlanUsed = Number(weeklyPlanUsageData?.lifetimeUsed ?? 0);
 
   return cacheAccess({
     uid: decoded.uid,
@@ -124,7 +141,10 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
     isPremium,
     aiCreditsUsed,
     aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
-    aiCreditsRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - aiCreditsUsed, 0)
+    aiCreditsRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - aiCreditsUsed, 0),
+    weeklyPlanUsed,
+    weeklyPlanLimit: FREE_LIFETIME_WEEKLY_PLANS,
+    weeklyPlanRemaining: Math.max(FREE_LIFETIME_WEEKLY_PLANS - weeklyPlanUsed, 0)
   });
 }
 
@@ -150,11 +170,16 @@ export async function requirePremium(request: Request) {
 
 export async function canUseApiFeature(request: Request, featureKey: AiFeatureKey) {
   const access = await getRequestAccess(request);
+  const featureRemaining = featureKey === "weekly_plan" ? access.weeklyPlanRemaining : access.aiCreditsRemaining;
   return {
     access,
     featureKey,
-    allowed: access.isPremium || access.aiCreditsRemaining > 0,
-    reason: access.isPremium || access.aiCreditsRemaining > 0 ? null : "free_ai_credits_exhausted"
+    allowed: access.isPremium || featureRemaining > 0,
+    reason: access.isPremium || featureRemaining > 0
+      ? null
+      : featureKey === "weekly_plan"
+        ? "free_weekly_plans_exhausted"
+        : "free_ai_credits_exhausted"
   };
 }
 
@@ -163,19 +188,28 @@ export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiF
     return access;
   }
 
-  if (access.aiCreditsRemaining <= 0) {
-    throw new AccessError("Your free AI credits are used. Continue manually with offline recipes or upgrade to premium.", 402);
+  const isWeeklyPlan = featureKey === "weekly_plan";
+  const remaining = isWeeklyPlan ? access.weeklyPlanRemaining : access.aiCreditsRemaining;
+  const limit = isWeeklyPlan ? FREE_LIFETIME_WEEKLY_PLANS : FREE_LIFETIME_AI_CREDITS;
+
+  if (remaining <= 0) {
+    throw new AccessError(
+      isWeeklyPlan
+        ? "Your 3 free weekly meal plans are used. Upgrade to premium for more weekly planning."
+        : "Your 10 free recipe generations are used. Continue manually with offline recipes or upgrade to premium.",
+      402
+    );
   }
 
   const db = getAdminDb();
-  const usageRef = db.doc(`users/${access.uid}/usage/aiCredits`);
+  const usageRef = db.doc(`users/${access.uid}/usage/${isWeeklyPlan ? "weeklyPlans" : "aiCredits"}`);
   try {
     await withFirebaseTransientRetry(
       () =>
         usageRef.set(
           {
             uid: access.uid,
-            lifetimeLimit: FREE_LIFETIME_AI_CREDITS,
+            lifetimeLimit: limit,
             lifetimeUsed: FieldValue.increment(1),
             lastFeature: featureKey,
             updatedAt: FieldValue.serverTimestamp()
@@ -193,8 +227,10 @@ export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiF
       });
       const nextAccess = {
         ...access,
-        aiCreditsUsed: access.aiCreditsUsed + 1,
-        aiCreditsRemaining: Math.max(access.aiCreditsRemaining - 1, 0)
+        aiCreditsUsed: isWeeklyPlan ? access.aiCreditsUsed : access.aiCreditsUsed + 1,
+        aiCreditsRemaining: isWeeklyPlan ? access.aiCreditsRemaining : Math.max(access.aiCreditsRemaining - 1, 0),
+        weeklyPlanUsed: isWeeklyPlan ? access.weeklyPlanUsed + 1 : access.weeklyPlanUsed,
+        weeklyPlanRemaining: isWeeklyPlan ? Math.max(access.weeklyPlanRemaining - 1, 0) : access.weeklyPlanRemaining
       };
       cacheAccess(nextAccess);
       return nextAccess;
@@ -204,8 +240,10 @@ export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiF
 
   return cacheAccess({
     ...access,
-    aiCreditsUsed: access.aiCreditsUsed + 1,
-    aiCreditsRemaining: Math.max(access.aiCreditsRemaining - 1, 0)
+    aiCreditsUsed: isWeeklyPlan ? access.aiCreditsUsed : access.aiCreditsUsed + 1,
+    aiCreditsRemaining: isWeeklyPlan ? access.aiCreditsRemaining : Math.max(access.aiCreditsRemaining - 1, 0),
+    weeklyPlanUsed: isWeeklyPlan ? access.weeklyPlanUsed + 1 : access.weeklyPlanUsed,
+    weeklyPlanRemaining: isWeeklyPlan ? Math.max(access.weeklyPlanRemaining - 1, 0) : access.weeklyPlanRemaining
   });
 }
 
@@ -215,7 +253,10 @@ export function accessPayload(access: RequestAccess) {
     role: access.role,
     aiCreditsUsed: access.aiCreditsUsed,
     aiCreditsLimit: access.aiCreditsLimit,
-    aiCreditsRemaining: access.aiCreditsRemaining
+    aiCreditsRemaining: access.aiCreditsRemaining,
+    weeklyPlanUsed: access.weeklyPlanUsed,
+    weeklyPlanLimit: access.weeklyPlanLimit,
+    weeklyPlanRemaining: access.weeklyPlanRemaining
   };
 }
 

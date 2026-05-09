@@ -49,9 +49,9 @@ export async function POST(request: Request) {
           "pantry.manual": true,
           "pantry.imageScan": tier === "premium",
           "recipes.offline": true,
-          "recipes.api": tier === "premium",
+          "recipes.api": true,
           "recipes.imageLookup": tier === "premium",
-          "mealPlan.weekly": tier === "premium",
+          "mealPlan.weekly": true,
           "shoppingList.quantities": true
         },
         updatedAt: FieldValue.serverTimestamp()

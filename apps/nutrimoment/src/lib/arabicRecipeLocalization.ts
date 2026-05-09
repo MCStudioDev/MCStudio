@@ -226,6 +226,9 @@ const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
   "خبز بلدي": "baladi bread",
   "عيش بلدي": "baladi bread",
   "لحم مفروم": "ground meat",
+  "لحمه مفرومه": "ground meat",
+  "لحمة مفرومة": "ground meat",
+  "لحمة مفرومةو": "ground meat",
   "اللحم المفروم": "ground meat",
   "فول": "canned beans",
   "فول مدمس": "fava beans",
@@ -235,6 +238,10 @@ const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
   "كبدة": "liver",
   "كبده": "liver",
   "كبدة دجاج": "chicken liver",
+  "سمك": "fish",
+  "سمكة": "fish",
+  "أسماك": "fish",
+  "اسماك": "fish",
   "ملح": "salt",
   "بشاميل": "bechamel",
   "سباجيتي": "spaghetti",
@@ -377,6 +384,7 @@ export function localizeMealForArabic(meal: MealPlanMeal): MealPlanMeal {
   return {
     ...meal,
     name: translateRecipeTitle(meal.name),
+    cuisine: meal.cuisine ? translateCuisine(meal.cuisine) : meal.cuisine,
     ingredients: meal.ingredients?.map(translateIngredient),
     steps: meal.steps?.map(translateStep)
   };
@@ -386,6 +394,7 @@ export function localizeMealForEnglish(meal: MealPlanMeal): MealPlanMeal {
   return {
     ...meal,
     name: translateRecipeTitleToEnglish(meal.name, meal.image_search_index),
+    cuisine: meal.cuisine ? translateCuisineToEnglish(meal.cuisine) : meal.cuisine,
     ingredients: meal.ingredients?.map(translateIngredientToEnglish),
     steps: meal.steps?.map(translateStepToEnglish)
   };

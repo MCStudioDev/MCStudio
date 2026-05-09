@@ -54,6 +54,8 @@ export function HistoryTab() {
 
     return items.filter((entry) => {
       const haystack = [
+        entry.title,
+        entry.sessionType,
         formatDate(entry.timestamp),
         ...entry.recipes.flatMap((recipe) => [
           recipe.name,
@@ -176,7 +178,7 @@ export function HistoryTab() {
                       {formatDate(entry.timestamp)}
                     </p>
                     <h3 className="theme-history-entry-title mt-2 text-2xl font-display font-bold text-white">
-                      {entry.recipes[0]?.name ?? t("savedRecipeSession")}
+                      {entry.title ?? entry.recipes[0]?.name ?? t("savedRecipeSession")}
                     </h3>
                   </div>
                   <button

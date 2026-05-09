@@ -61,6 +61,13 @@ export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
 
 export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
   if (!hasFirebaseAdminConfig()) return entry;
+  if (entry.source !== "generated") {
+    logger.info("Shared recipe photo cache skipped non-generated provider image", {
+      signature: entry.signature,
+      source: entry.source
+    });
+    return entry;
+  }
 
   let persistedImageUrl = entry.imageUrl;
   try {

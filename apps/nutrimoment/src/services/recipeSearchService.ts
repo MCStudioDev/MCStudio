@@ -232,6 +232,7 @@ export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): Me
 
   return {
     name: recipe.title,
+    cuisine: recipe.cuisine,
     calories: recipe.calories,
     protein: `${recipe.protein}g`,
     carbs: `${recipe.carbs}g`,

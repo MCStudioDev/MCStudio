@@ -58,15 +58,14 @@ export function ResultLegalNotice({ mode }: { mode: "recipes" | "mealplan" }) {
   const message = mode === "recipes" ? t("recipeSafetyNotice") : t("mealPlanSafetyNotice");
 
   return (
-    <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-950">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-        <div className="space-y-2">
-          <p className="font-semibold">{t("importantSafetyNotice")}</p>
-          <p className="text-amber-900">{message}</p>
-          <p className="text-amber-900">{t("legalFooterText")}</p>
-          <LegalLinksRow />
-        </div>
+    <div className="place-self-start self-start inline-flex w-fit max-w-full rounded-xl border border-amber-300/18 bg-amber-300/8 px-3 py-1.5 text-[11px] leading-snug text-amber-50/86 backdrop-blur">
+      <div className="flex items-center gap-2.5">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-200" />
+        <p className="min-w-0">
+          <span className="font-semibold text-amber-100">{t("importantSafetyNotice")}</span>{" "}
+          <span className="text-amber-50/72">{message}</span>
+          <span className="ms-2 hidden sm:inline-flex"><LegalLinksRow inline /></span>
+        </p>
       </div>
     </div>
   );

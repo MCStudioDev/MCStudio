@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, ChefHat, ImagePlus, Plus, Sparkles, Upload, Utensils, X } from "lucide-react";
+import { Camera, ChefHat, Plus, Sparkles, Upload, Utensils, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -10,7 +10,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useHistory } from "@/hooks/useHistory";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
-import { fileToBase64 } from "@/lib/utils";
+import { cn, fileToBase64 } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
 import { EmptyState } from "./shared";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
@@ -35,6 +35,8 @@ const PREMIUM_REPLICATE_MAX_RETRIES = 4;
 const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
 const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
 const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
+const PREMIUM_REPLICATE_IMAGE_CONCURRENCY = 2;
+const FREE_RECIPE_IMAGE_CONCURRENCY = 6;
 const SCANNER_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const SCAN_ACCESS_RETRY_ATTEMPTS = 3;
 const SCAN_ACCESS_RETRY_DELAY_MS = 700;
@@ -234,7 +236,6 @@ export function ScannerTab() {
       );
       const resolved: Recipe[] = [...seeded];
       const pendingPremiumIndexes = new Set<number>();
-      let lookupCount = 0;
       const maxLookups = isPremium ? inputRecipes.length : Math.min(Math.max(inputRecipes.length, 4), 8);
 
       const resolveRecipePhoto = async (recipe: Recipe) => {
@@ -309,24 +310,25 @@ export function ScannerTab() {
         return { data, ok: false as const, response };
       };
 
-      for (const [index, recipe] of seeded.entries()) {
-        if (requestVersion !== recipeRequestVersionRef.current) {
-          return;
-        }
+      const lookupCandidates = seeded
+        .map((recipe, index) => ({ index, recipe }))
+        .filter(({ index, recipe }) => duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url));
+      const lookupTasks = lookupCandidates.slice(0, maxLookups);
+      const skippedLookupIndexes = new Set(lookupCandidates.slice(maxLookups).map(({ index }) => index));
 
+      seeded.forEach((recipe, index) => {
         const needsLookup = duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url);
-
-        if (!needsLookup) {
+        if (!needsLookup || skippedLookupIndexes.has(index)) {
           resolved[index] = { ...recipe, image_loading: false, image_error: false };
-          continue;
         }
+      });
 
-        if (lookupCount >= maxLookups) {
-          resolved[index] = { ...recipe, image_loading: false, image_error: false };
-          continue;
-        }
+      if (requestVersion === recipeRequestVersionRef.current) {
+        setRecipes([...resolved]);
+      }
 
-        lookupCount += 1;
+      await runWithConcurrency(lookupTasks, isPremium ? PREMIUM_REPLICATE_IMAGE_CONCURRENCY : FREE_RECIPE_IMAGE_CONCURRENCY, async ({ index, recipe }) => {
+        if (requestVersion !== recipeRequestVersionRef.current) return;
 
         try {
           const { data, ok } = await resolveRecipePhoto(recipe);
@@ -344,19 +346,12 @@ export function ScannerTab() {
               setRecipes([...resolved]);
             }
             if (historyEntryId && !isPremium) {
-              await updateRecipeImage(
-                historyEntryId,
-                index,
-                recipe.image_url ?? "",
-                true,
-                recipe.image_source,
-                {
-                  name: recipe.image_attribution_name,
-                  url: recipe.image_attribution_url
-                }
-              );
+              await updateRecipeImage(historyEntryId, index, recipe.image_url ?? "", true, recipe.image_source, {
+                name: recipe.image_attribution_name,
+                url: recipe.image_attribution_url
+              });
             }
-            continue;
+            return;
           }
 
           usedImageUrls.add(data.imageUrl);
@@ -373,17 +368,10 @@ export function ScannerTab() {
             setRecipes([...resolved]);
           }
           if (historyEntryId) {
-            await updateRecipeImage(
-              historyEntryId,
-              index,
-              data.imageUrl,
-              false,
-              data.imageSource,
-              {
-                name: data.imageAttributionName,
-                url: data.imageAttributionUrl
-              }
-            );
+            await updateRecipeImage(historyEntryId, index, data.imageUrl, false, data.imageSource, {
+              name: data.imageAttributionName,
+              url: data.imageAttributionUrl
+            });
           }
         } catch {
           resolved[index] = { ...recipe, image_loading: false, image_error: true };
@@ -391,39 +379,26 @@ export function ScannerTab() {
             setRecipes([...resolved]);
           }
           if (historyEntryId) {
-            await updateRecipeImage(
-              historyEntryId,
-              index,
-              recipe.image_url ?? "",
-              true,
-              recipe.image_source,
-              {
-                name: recipe.image_attribution_name,
-                url: recipe.image_attribution_url
-              }
-            );
+            await updateRecipeImage(historyEntryId, index, recipe.image_url ?? "", true, recipe.image_source, {
+              name: recipe.image_attribution_name,
+              url: recipe.image_attribution_url
+            });
           }
         }
-
-        if (isPremium && lookupCount < maxLookups && index < seeded.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_LOOKUP_DELAY_MS));
-        }
-      }
+      });
 
       if (isPremium) {
         for (let round = 0; round < PREMIUM_REPLICATE_REQUEUE_ROUNDS && pendingPremiumIndexes.size > 0; round += 1) {
           await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_REQUEUE_DELAY_MS));
+          const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS - 1;
 
-          for (const index of Array.from(pendingPremiumIndexes)) {
-            if (requestVersion !== recipeRequestVersionRef.current) {
-              return;
-            }
+          await runWithConcurrency(Array.from(pendingPremiumIndexes), PREMIUM_REPLICATE_IMAGE_CONCURRENCY, async (index) => {
+            if (requestVersion !== recipeRequestVersionRef.current) return;
 
             const recipe = resolved[index];
             try {
               const { data, ok } = await resolveRecipePhoto(recipe);
               if (!ok || !data?.imageUrl) {
-                const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS - 1;
                 resolved[index] = {
                   ...recipe,
                   image_loading: !isLastRound,
@@ -433,17 +408,10 @@ export function ScannerTab() {
                 if (isLastRound) {
                   pendingPremiumIndexes.delete(index);
                   if (historyEntryId) {
-                    await updateRecipeImage(
-                      historyEntryId,
-                      index,
-                      recipe.image_url ?? "",
-                      false,
-                      recipe.image_source,
-                      {
-                        name: recipe.image_attribution_name,
-                        url: recipe.image_attribution_url
-                      }
-                    );
+                    await updateRecipeImage(historyEntryId, index, recipe.image_url ?? "", false, recipe.image_source, {
+                      name: recipe.image_attribution_name,
+                      url: recipe.image_attribution_url
+                    });
                   }
                 }
               } else {
@@ -460,21 +428,13 @@ export function ScannerTab() {
                 pendingPremiumIndexes.delete(index);
 
                 if (historyEntryId) {
-                  await updateRecipeImage(
-                    historyEntryId,
-                    index,
-                    data.imageUrl,
-                    false,
-                    data.imageSource,
-                    {
-                      name: data.imageAttributionName,
-                      url: data.imageAttributionUrl
-                    }
-                  );
+                  await updateRecipeImage(historyEntryId, index, data.imageUrl, false, data.imageSource, {
+                    name: data.imageAttributionName,
+                    url: data.imageAttributionUrl
+                  });
                 }
               }
             } catch {
-              const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS - 1;
               resolved[index] = {
                 ...recipe,
                 image_loading: !isLastRound,
@@ -488,11 +448,7 @@ export function ScannerTab() {
             if (requestVersion === recipeRequestVersionRef.current) {
               setRecipes([...resolved]);
             }
-
-            if (pendingPremiumIndexes.size > 0) {
-              await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_LOOKUP_DELAY_MS));
-            }
-          }
+          });
         }
       }
 
@@ -954,42 +910,92 @@ export function ScannerTab() {
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    variant="secondary"
-                    leftIcon={<Camera className="h-4 w-4" />}
-                    onClick={startScannerCamera}
-                    disabled={cameraStarting || scanLoading}
-                  >
-                    {cameraStarting ? t("identifying") : t("takePhoto")}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    leftIcon={<Upload className="h-4 w-4" />}
-                    onClick={() => scannerInputRef.current?.click()}
-                    disabled={scanLoading}
-                  >
-                    {t("uploadFridgePhoto")}
-                  </Button>
-                </div>
-              )}
-
-              <label htmlFor="scanner-photo-upload" className="block">
-                <span className="sr-only">{t("uploadFridgePhoto")}</span>
-                <input
-                  key={scannerInputKey}
-                  ref={scannerInputRef}
-                  id="scanner-photo-upload"
-                  name="scanner-photo-upload"
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={handleImageUpload}
-                  aria-label={t("uploadFridgePhoto")}
-                />
-                <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[1.25rem] border border-dashed border-white/12 bg-white/[0.04] px-5 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <motion.button
+                      type="button"
+                      onClick={startScannerCamera}
+                      disabled={cameraStarting || scanLoading}
+                      aria-busy={cameraStarting || undefined}
+                      whileHover={cameraStarting || scanLoading ? undefined : { y: -3, scale: 1.015 }}
+                      whileTap={cameraStarting || scanLoading ? undefined : { scale: 0.985 }}
+                      className={cn(
+                        "focus-ring group relative min-h-32 overflow-hidden rounded-[1.35rem] border border-cyan-200/20 bg-cyan-300/10 p-4 text-start text-emerald-50 shadow-[0_18px_50px_rgba(34,211,238,0.10)] transition-ui sm:min-h-36",
+                        "hover:border-cyan-200/42 hover:bg-cyan-300/14 hover:shadow-[0_22px_65px_rgba(34,211,238,0.18)]",
+                        "disabled:cursor-not-allowed disabled:opacity-60"
+                      )}
+                    >
+                      <span className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-cyan-200/16 blur-2xl transition group-hover:bg-cyan-200/24" />
+                      <span className="relative flex h-full flex-col justify-between gap-5">
+                        <span className="flex items-start justify-between gap-3">
+                          <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-100/18 bg-cyan-200/14 text-cyan-100">
+                            {cameraStarting ? (
+                              <span className="h-5 w-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                            ) : (
+                              <Camera className="h-5 w-5" />
+                            )}
+                          </span>
+                          <Sparkles className="h-4 w-4 text-cyan-100/55 transition group-hover:rotate-12 group-hover:text-cyan-100" />
+                        </span>
+                        <span>
+                          <span className="block text-base font-display font-bold leading-tight text-white sm:text-lg">
+                            {cameraStarting ? t("identifying") : t("takePhoto")}
+                          </span>
+                          <span className="mt-1 block text-xs leading-snug text-emerald-50/60">
+                            {t("scanIng")}
+                          </span>
+                        </span>
+                      </span>
+                    </motion.button>
+                    <motion.button
+                      type="button"
+                      onClick={() => scannerInputRef.current?.click()}
+                      disabled={scanLoading}
+                      aria-busy={scanLoading || undefined}
+                      whileHover={scanLoading ? undefined : { y: -3, scale: 1.015 }}
+                      whileTap={scanLoading ? undefined : { scale: 0.985 }}
+                      className={cn(
+                        "focus-ring group relative min-h-32 overflow-hidden rounded-[1.35rem] border border-emerald-200/20 bg-emerald-300/10 p-4 text-start text-emerald-50 shadow-[0_18px_50px_rgba(16,185,129,0.10)] transition-ui sm:min-h-36",
+                        "hover:border-emerald-200/42 hover:bg-emerald-300/14 hover:shadow-[0_22px_65px_rgba(16,185,129,0.18)]",
+                        "disabled:cursor-not-allowed disabled:opacity-60"
+                      )}
+                    >
+                      <span className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-emerald-200/16 blur-2xl transition group-hover:bg-emerald-200/24" />
+                      <span className="relative flex h-full flex-col justify-between gap-5">
+                        <span className="flex items-start justify-between gap-3">
+                          <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-100/18 bg-emerald-200/14 text-emerald-100">
+                            {scanLoading ? (
+                              <span className="h-5 w-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                            ) : (
+                              <Upload className="h-5 w-5" />
+                            )}
+                          </span>
+                          <Sparkles className="h-4 w-4 text-emerald-100/55 transition group-hover:rotate-12 group-hover:text-emerald-100" />
+                        </span>
+                        <span>
+                          <span className="block text-base font-display font-bold leading-tight text-white sm:text-lg">
+                            {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
+                          </span>
+                          <span className="mt-1 block text-xs leading-snug text-emerald-50/60">
+                            {t("scannerCompactActions")}
+                          </span>
+                        </span>
+                      </span>
+                    </motion.button>
+                  </div>
+                  <input
+                    key={scannerInputKey}
+                    ref={scannerInputRef}
+                    id="scanner-photo-upload"
+                    name="scanner-photo-upload"
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleImageUpload}
+                    aria-label={t("uploadFridgePhoto")}
+                  />
                   {scanPreviewUrl ? (
-                    <span className="relative h-32 w-full overflow-hidden rounded-[1rem] border border-white/10 bg-black/20">
+                    <div className="relative h-24 overflow-hidden rounded-[1rem] border border-white/10 bg-black/20">
                       {/* Browser object URLs from camera uploads should render without Next image optimization. */}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -1003,16 +1009,10 @@ export function ScannerTab() {
                           {t("scannerStageExtracting")}
                         </span>
                       ) : null}
-                    </span>
-                  ) : (
-                    <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
-                  )}
-                  <span className="text-sm font-semibold text-white" aria-live="polite">
-                    {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
-                  </span>
-                  <span className="text-xs text-emerald-50/55">{t("scannerCompactActions")}</span>
-                </span>
-              </label>
+                    </div>
+                  ) : null}
+                </>
+              )}
 
               <div className="space-y-2.5">
                 <label htmlFor="scanner-manual-ingredient" className="text-sm font-semibold text-emerald-50/88">
@@ -1172,10 +1172,26 @@ export function ScannerTab() {
                                   imageUrl,
                                   query: serializeRecipePhotoQuery(buildRecipePhotoQuery(recipe))
                                 });
+                          const nextImageUrl = persistedImageUrl || imageUrl;
+                          setRecipes((currentRecipes) =>
+                            currentRecipes.map((currentRecipe, currentIndex) =>
+                              currentIndex === index
+                                ? {
+                                    ...currentRecipe,
+                                    image_attribution_name: imageAttributionName,
+                                    image_attribution_url: imageAttributionUrl,
+                                    image_error: false,
+                                    image_loading: false,
+                                    image_source: imageSource,
+                                    image_url: nextImageUrl
+                                  }
+                                : currentRecipe
+                            )
+                          );
                           await updateRecipeImage(
                             historyEntryId,
                             index,
-                            persistedImageUrl || imageUrl,
+                            nextImageUrl,
                             false,
                             imageSource,
                             { name: imageAttributionName, url: imageAttributionUrl }
@@ -1464,4 +1480,22 @@ function getRecipePreviewLabel(recipe: Recipe, t: ReturnType<typeof useApp>["t"]
   }
 
   return t("previewIngredientsMacros");
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+) {
+  const queue = [...items];
+  const workerCount = Math.max(1, Math.min(concurrency, queue.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (queue.length) {
+        const item = queue.shift();
+        if (item === undefined) return;
+        await worker(item);
+      }
+    })
+  );
 }

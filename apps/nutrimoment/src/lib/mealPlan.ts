@@ -116,6 +116,7 @@ function normalizeMeal(value: unknown) {
 
   const name = readString(value, ["name", "title", "meal"]);
   if (!name) return null;
+  const cuisine = readString(value, ["cuisine", "region", "style"]);
   const imageSearchIndices = readStringArray(value, ["image_search_indices", "photo_queries", "search_indices"]);
   const imageSearchIndex = readString(value, ["image_search_index", "photo_query", "search_index"]) || imageSearchIndices?.[0];
   const ingredients = readIngredientList(value, ["ingredients", "items", "ingredient_list"]);
@@ -124,6 +125,7 @@ function normalizeMeal(value: unknown) {
   return {
     ...value,
     name,
+    cuisine,
     image_search_index: imageSearchIndex,
     image_search_indices: imageSearchIndices,
     ingredients,

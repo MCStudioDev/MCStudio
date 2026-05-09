@@ -32,7 +32,7 @@ import {
   isPastaLikeIngredient
 } from "@/lib/ingredientFamilies";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
-import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
+import { buildRecipePhotoIdentity, isStrictRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
@@ -56,7 +56,7 @@ import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
 
-const DEFAULT_RECIPE_RESULT_COUNT = 5;
+const DEFAULT_RECIPE_RESULT_COUNT = 10;
 const MIN_RECIPE_RESULT_COUNT = 1;
 const MAX_SHARED_POOL_RECIPE_RESULT_COUNT = 10;
 const AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS = 3;
@@ -261,7 +261,7 @@ export async function POST(request: Request) {
     });
     const candidateDishHints = buildDishCandidatePromptSummary(candidateDishes);
     const canonicalDishHint = buildCanonicalDishPromptHint(authenticDishCandidates);
-    const requestRestriction = buildHardRequestRestrictionContext(candidateDishes, parsed.data.preferredCuisine);
+    const requestRestriction = buildHardRequestRestrictionContext(candidateDishes, parsed.data.preferredCuisine, ingredients.length);
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const prepareRecipes = (recipes: Recipe[]) =>
@@ -270,7 +270,8 @@ export async function POST(request: Request) {
       );
     const finalizeRecipes = (recipes: Recipe[]) =>
       prepareRecipes(
-        enforceDistinctRecipeVariety(
+        ensureRequestedRecipeCount(
+          enforceDistinctRecipeVariety(
           prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceHardRequestRecipes(
               parsed.data.preferredCuisine === "Any"
                 ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
@@ -289,6 +290,18 @@ export async function POST(request: Request) {
             recipeCount
           }), scoringIngredients),
           recipeCount
+          ),
+          {
+            availableIngredients,
+            calorieTarget: parsed.data.calorieTarget ?? 2000,
+            ingredients,
+            allergens: parsed.data.allergens ?? [],
+            preferredCuisine: parsed.data.preferredCuisine ?? "Any",
+            recipeCount,
+            scoringIngredients,
+            diets: parsed.data.diets ?? [],
+            conditions: parsed.data.conditions ?? []
+          }
         )
       );
     const deliverRecipes = (recipes: Recipe[]) =>
@@ -407,7 +420,7 @@ export async function POST(request: Request) {
       const prompt = ingredients.length
         ? buildRecipeGenerationPrompt(
             normalizedPromptIngredients.map((ingredient, index) => ({
-              name: ingredient.normalized,
+              name: wantsArabic ? ingredient.raw : ingredient.normalized,
               quantity: readIngredientQuantity(parsed.data.ingredientQuantities?.[index])
             })),
             {
@@ -430,15 +443,20 @@ export async function POST(request: Request) {
       const recipes = parseAiJsonPayload(text, "recipe_generation");
       const normalizedRecipes = recipes.recipes ?? recipes;
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
-        let strictRecipes = rankStrictRecipes(
-          applyStrictIngredientOwnership(normalizedRecipes, availableIngredients, {
-            preferredCuisine: parsed.data.preferredCuisine,
-            diets: parsed.data.diets,
-            conditions: parsed.data.conditions,
-            allergens: parsed.data.allergens
-          }),
-          { ...parsed.data, ingredients: scoringIngredients, recipeCount }
-        ).slice(0, recipeCount);
+        const primaryOwnedRecipes = applyStrictIngredientOwnership(normalizedRecipes, availableIngredients, {
+          preferredCuisine: parsed.data.preferredCuisine,
+          diets: parsed.data.diets,
+          conditions: parsed.data.conditions,
+          allergens: parsed.data.allergens
+        });
+        let strictRecipes = rankStrictRecipes(primaryOwnedRecipes, { ...parsed.data, ingredients: scoringIngredients, recipeCount })
+          .slice(0, recipeCount);
+        logRecipeRankingSnapshot("gemini_primary_after_strict_ranking", primaryOwnedRecipes, strictRecipes, {
+          requestId,
+          recipeCount,
+          rankingOptions: { ...parsed.data, ingredients: scoringIngredients, recipeCount },
+          sourceCount: normalizedRecipes.length
+        });
 
         const hasPantryBalancedRecipe = strictRecipes.some((recipe) => isPantryBalancedRecipe(recipe));
         const shouldRunRepairPass =
@@ -466,15 +484,20 @@ export async function POST(request: Request) {
           const retryNormalizedRecipes = retryRecipes.recipes ?? retryRecipes;
 
           if (Array.isArray(retryNormalizedRecipes) && retryNormalizedRecipes.length) {
-            const repairRecipes = rankStrictRecipes(
-              applyStrictIngredientOwnership(retryNormalizedRecipes, availableIngredients, {
-                preferredCuisine: parsed.data.preferredCuisine,
-                diets: parsed.data.diets,
-                conditions: parsed.data.conditions,
-                allergens: parsed.data.allergens
-              }),
-              { ...parsed.data, ingredients: scoringIngredients, recipeCount }
-            ).slice(0, recipeCount);
+            const repairOwnedRecipes = applyStrictIngredientOwnership(retryNormalizedRecipes, availableIngredients, {
+              preferredCuisine: parsed.data.preferredCuisine,
+              diets: parsed.data.diets,
+              conditions: parsed.data.conditions,
+              allergens: parsed.data.allergens
+            });
+            const repairRecipes = rankStrictRecipes(repairOwnedRecipes, { ...parsed.data, ingredients: scoringIngredients, recipeCount })
+              .slice(0, recipeCount);
+            logRecipeRankingSnapshot("gemini_repair_after_strict_ranking", repairOwnedRecipes, repairRecipes, {
+              requestId,
+              recipeCount,
+              rankingOptions: { ...parsed.data, ingredients: scoringIngredients, recipeCount },
+              sourceCount: retryNormalizedRecipes.length
+            });
             strictRecipes = mergeRecipeResults(null, [...repairRecipes, ...strictRecipes], false, recipeCount);
           }
         }
@@ -896,6 +919,664 @@ function mergeRecipeResults(
   return prioritizePantryBalancedRecipes(merged).slice(0, recipeCount);
 }
 
+function ensureRequestedRecipeCount(
+  recipes: Recipe[],
+  context: {
+    availableIngredients: Set<string>;
+    allergens: string[];
+    calorieTarget: number;
+    conditions: string[];
+    diets: string[];
+    ingredients: string[];
+    preferredCuisine: string;
+    recipeCount: number;
+    scoringIngredients: string[];
+  }
+) {
+  const fillers = buildSparseIngredientRecipeFillers(context);
+  if (recipes.length >= context.recipeCount) {
+    return shouldBlendSparseFillerVariety(recipes, context)
+      ? blendSparseFillerVariety(recipes, fillers, context.recipeCount)
+      : recipes.slice(0, context.recipeCount);
+  }
+
+  const merged = [...recipes];
+  const seen = new Set(merged.map(getRecipeSelectionKey));
+  for (const filler of fillers) {
+    if (merged.length >= context.recipeCount) break;
+    const key = getRecipeSelectionKey(filler);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(filler);
+  }
+
+  logger.info("Recipe generation sparse-input fill applied", {
+    addedCount: Math.max(0, merged.length - recipes.length),
+    inputCount: context.ingredients.length,
+    requestedCount: context.recipeCount,
+    returnedCount: merged.length
+  });
+
+  return merged.slice(0, context.recipeCount);
+}
+
+function shouldBlendSparseFillerVariety(
+  recipes: Recipe[],
+  context: {
+    conditions: string[];
+    diets: string[];
+    ingredients: string[];
+    preferredCuisine: string;
+    scoringIngredients: string[];
+  }
+) {
+  if (context.ingredients.length > 2) return false;
+
+  const source = `${context.ingredients.join(" ")} ${context.scoringIngredients.join(" ")}`.toLowerCase();
+  if (!isSparseGroundMeatSource(source) && !/\b(liver|kebda|kibda|ciger|cigeri)\b|كبدة|كبده/iu.test(source)) {
+    return false;
+  }
+
+  const cuisineCount = new Set(recipes.map((recipe) => normalizeCuisinePreference(recipe.cuisine))).size;
+  const familyCount = new Set(recipes.map(getRecipeVarietyFamilyKey).filter(Boolean)).size;
+  const imageIdentityCount = new Set(recipes.map(getRecipeImageIdentityKey).filter(Boolean)).size;
+  const dietMode = Boolean(context.diets.length || context.conditions.length);
+  const anyCuisine = normalizeCuisinePreference(context.preferredCuisine) === "any";
+
+  return (
+    dietMode ||
+    imageIdentityCount < Math.min(6, recipes.length) ||
+    (anyCuisine && (cuisineCount < 3 || familyCount < Math.min(6, recipes.length)))
+  );
+}
+
+function blendSparseFillerVariety(recipes: Recipe[], fillers: Recipe[], recipeCount: number) {
+  const blended: Recipe[] = [];
+  const seen = new Set<string>();
+  const seenFamilies = new Set<string>();
+  const seenCuisines = new Set<string>();
+  const seenImageIdentities = new Set<string>();
+
+  const add = (recipe: Recipe, force = false) => {
+    if (blended.length >= recipeCount) return false;
+    const key = getRecipeSelectionKey(recipe);
+    if (!key || seen.has(key)) return false;
+    const familyKey = getRecipeVarietyFamilyKey(recipe);
+    const cuisineKey = normalizeCuisinePreference(recipe.cuisine);
+    const imageIdentityKey = getRecipeImageIdentityKey(recipe);
+
+    if (!force && familyKey && seenFamilies.has(familyKey) && blended.length + 1 < recipeCount) return false;
+    if (!force && imageIdentityKey && seenImageIdentities.has(imageIdentityKey) && blended.length + 1 < recipeCount) return false;
+    seen.add(key);
+    if (familyKey) seenFamilies.add(familyKey);
+    if (cuisineKey) seenCuisines.add(cuisineKey);
+    if (imageIdentityKey) seenImageIdentities.add(imageIdentityKey);
+    blended.push(recipe);
+    return true;
+  };
+
+  for (const recipe of recipes.slice(0, 4)) {
+    add(recipe);
+  }
+
+  if (blended.length < Math.min(2, recipeCount)) {
+    for (const recipe of recipes.slice(0, 2)) {
+      add(recipe, true);
+    }
+  }
+
+  for (const filler of fillers) {
+    const cuisineKey = normalizeCuisinePreference(filler.cuisine);
+    if (seenCuisines.has(cuisineKey) && blended.length + 3 < recipeCount) continue;
+    add(filler);
+  }
+
+  for (const filler of fillers) {
+    add(filler);
+  }
+
+  for (const recipe of recipes) {
+    add(recipe, true);
+  }
+
+  return blended.slice(0, recipeCount);
+}
+
+function buildSparseIngredientRecipeFillers(context: {
+  availableIngredients: Set<string>;
+  allergens: string[];
+  calorieTarget: number;
+  conditions: string[];
+  diets: string[];
+  ingredients: string[];
+  preferredCuisine: string;
+  recipeCount: number;
+  scoringIngredients: string[];
+}) {
+  const source = `${context.ingredients.join(" ")} ${context.scoringIngredients.join(" ")}`.toLowerCase();
+  const primaryIngredient = choosePrimarySparseIngredient(context.ingredients, context.scoringIngredients);
+  const targetCalories = Math.max(320, Math.round(context.calorieTarget / 3));
+
+  if (isSparseGroundMeatSource(source)) {
+    return buildGroundMeatSparseFillers(primaryIngredient, context, targetCalories);
+  }
+
+  if (/\b(liver|kebda|kibda|ciger|cigeri)\b|كبدة|كبده/iu.test(source)) {
+    return buildLiverSparseFillers(primaryIngredient, context, targetCalories);
+  }
+
+  return buildGenericSparseFillers(primaryIngredient, context, targetCalories);
+}
+
+function choosePrimarySparseIngredient(rawIngredients: string[], scoringIngredients: string[]) {
+  return rawIngredients.find(Boolean) ?? scoringIngredients.find(Boolean) ?? "main ingredient";
+}
+
+function buildGroundMeatSparseFillers(
+  primaryIngredient: string,
+  context: { allergens: string[]; availableIngredients: Set<string>; conditions: string[]; diets: string[]; preferredCuisine: string },
+  targetCalories: number
+) {
+  const preferred = normalizeCuisinePreference(context.preferredCuisine);
+  const source = `${primaryIngredient} ${context.preferredCuisine}`.toLowerCase();
+  const prefersEgyptianFirst = preferred === "egyptian" || isArabicGroundMeatSource(source);
+  const all = [
+    makeSparseFillerRecipe({
+      calories: targetCalories + 30,
+      carbs: "18g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "kofta mashwia",
+      excludeKeywords: ["burger", "steak", "beef cubes", "meatballs in sauce", "pasta"],
+      fat: "22g",
+      fiber: "3g",
+      imageSearchIndices: ["egyptian kofta mashwia", "kofta kebab egyptian", "grilled kofta platter"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["onion", "parsley", "garlic", "cumin", "flatbread"],
+      name: "Egyptian Kofta Mashwia",
+      protein: "34g",
+      sodium: "640mg",
+      sugar: "4g",
+      visualKeywords: ["charred minced meat skewers", "kofta logs", "grill marks"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 20,
+      carbs: "24g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "dawood basha",
+      excludeKeywords: ["grilled kofta", "kebab skewers", "burger", "steak", "pasta"],
+      fat: "20g",
+      fiber: "4g",
+      imageSearchIndices: ["dawood basha", "egyptian meatballs tomato sauce", "kofta dawood basha"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["onion", "tomato sauce", "garlic", "cumin", "rice"],
+      name: "Dawood Basha Meatballs",
+      protein: "32g",
+      sodium: "690mg",
+      sugar: "7g",
+      visualKeywords: ["small meatballs", "red tomato sauce", "egyptian dawood basha"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 85,
+      carbs: "50g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "macarona bechamel",
+      excludeKeywords: ["red sauce pasta", "spaghetti bowl", "lasagna sheets", "grilled kofta", "rice"],
+      fat: "23g",
+      fiber: "4g",
+      imageSearchIndices: ["macarona bechamel egyptian", "egyptian bechamel pasta", "baked macarona bechamel"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["penne pasta", "milk", "flour", "butter", "onion"],
+      name: "Egyptian Macarona Bechamel",
+      protein: "31g",
+      sodium: "720mg",
+      sugar: "8g",
+      visualKeywords: ["baked pasta square", "white bechamel top", "minced meat layer"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 45,
+      carbs: "32g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "taagen kofta",
+      excludeKeywords: ["burger", "steak", "pasta", "loose mince", "plain grilled skewers"],
+      fat: "21g",
+      fiber: "5g",
+      imageSearchIndices: ["egyptian kofta tagine", "taagen kofta potatoes", "kofta potato tray"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["potatoes", "tomato sauce", "onion", "garlic", "green pepper"],
+      name: "Egyptian Taagen Kofta With Potatoes",
+      protein: "33g",
+      sodium: "710mg",
+      sugar: "7g",
+      visualKeywords: ["baked kofta tray", "potato slices", "red tomato sauce"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 60,
+      carbs: "44g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "egyptian rice kofta",
+      excludeKeywords: ["grilled skewers", "burger", "steak", "plain rice", "pasta"],
+      fat: "18g",
+      fiber: "4g",
+      imageSearchIndices: ["egyptian rice kofta", "koftet roz", "rice kofta tomato sauce"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["rice", "parsley", "dill", "cilantro", "tomato sauce"],
+      name: "Egyptian Rice Kofta",
+      protein: "30g",
+      sodium: "720mg",
+      sugar: "7g",
+      visualKeywords: ["fried kofta fingers", "red tomato sauce", "egyptian koftet roz"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 80,
+      carbs: "46g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "hawawshi",
+      excludeKeywords: ["burger bun", "open sandwich", "pizza", "loose meat", "pasta"],
+      fat: "20g",
+      fiber: "4g",
+      imageSearchIndices: ["hawawshi egyptian", "egyptian meat stuffed bread", "hawawshi pita"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["baladi bread", "onion", "green pepper", "parsley", "cumin"],
+      name: "Egyptian Hawawshi",
+      protein: "32g",
+      sodium: "670mg",
+      sugar: "5g",
+      visualKeywords: ["crispy stuffed bread", "meat visible at cut edge", "flat pita wedges"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 40,
+      carbs: "42g",
+      cuisine: "American",
+      difficulty: "Easy",
+      dishName: "one-pan ground beef penne",
+      excludeKeywords: ["steak", "beef cubes", "meatballs", "burger", "plain pasta"],
+      fat: "18g",
+      fiber: "5g",
+      imageSearchIndices: ["ground beef penne", "beef tomato penne", "one pan beef penne"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["penne pasta", "tomato sauce", "onion", "garlic", "olive oil"],
+      name: "One-Pan Ground Beef Penne",
+      protein: "31g",
+      sodium: "720mg",
+      sugar: "8g",
+      visualKeywords: ["penne tubes", "red tomato meat sauce", "crumbled ground beef"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 20,
+      carbs: "38g",
+      cuisine: "American",
+      difficulty: "Easy",
+      dishName: "ground beef pasta skillet",
+      excludeKeywords: ["steak", "beef strips", "meatballs", "white sauce", "rice"],
+      fat: "17g",
+      fiber: "4g",
+      imageSearchIndices: ["ground beef pasta", "beef macaroni skillet", "hamburger pasta"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["elbow macaroni", "tomato sauce", "zucchini", "bell pepper", "mozzarella"],
+      name: "Ground Beef Pasta Skillet",
+      protein: "30g",
+      sodium: "690mg",
+      sugar: "7g",
+      visualKeywords: ["short pasta", "red sauce", "crumbled ground beef"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories,
+      carbs: "34g",
+      cuisine: "American",
+      difficulty: "Easy",
+      dishName: "hamburger stew",
+      excludeKeywords: ["beef cubes", "steak", "meatballs", "pasta", "chili"],
+      fat: "16g",
+      fiber: "6g",
+      imageSearchIndices: ["hamburger stew", "ground beef vegetable stew", "hamburger soup potatoes carrots"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["potatoes", "carrots", "celery", "onion", "diced tomatoes"],
+      name: "Hamburger Stew",
+      protein: "29g",
+      sodium: "760mg",
+      sugar: "9g",
+      visualKeywords: ["chunky tomato broth", "crumbled ground beef", "potatoes and carrots"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 70,
+      carbs: "48g",
+      cuisine: "Turkish",
+      difficulty: "Medium",
+      dishName: "kiymali pide",
+      excludeKeywords: ["round lahmacun", "pizza", "burger", "pasta", "rice"],
+      fat: "19g",
+      fiber: "4g",
+      imageSearchIndices: ["kiymali pide", "turkish beef pide", "turkish minced meat pide"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["pide dough", "onion", "tomato", "green pepper", "parsley"],
+      name: "Turkish Kiymali Pide",
+      protein: "33g",
+      sodium: "710mg",
+      sugar: "6g",
+      visualKeywords: ["boat-shaped flatbread", "folded raised edges", "minced meat topping"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 45,
+      carbs: "42g",
+      cuisine: "Turkish",
+      difficulty: "Medium",
+      dishName: "lahmacun",
+      excludeKeywords: ["pizza cheese", "boat-shaped pide", "burger", "pasta", "rice"],
+      fat: "17g",
+      fiber: "4g",
+      imageSearchIndices: ["lahmacun", "turkish lahmacun", "thin meat flatbread"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["flatbread dough", "tomato", "green pepper", "onion", "parsley"],
+      name: "Turkish Lahmacun",
+      protein: "29g",
+      sodium: "680mg",
+      sugar: "6g",
+      visualKeywords: ["thin round flatbread", "finely minced meat", "edge-to-edge topping"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 20,
+      carbs: "24g",
+      cuisine: "Turkish",
+      difficulty: "Medium",
+      dishName: "karniyarik",
+      excludeKeywords: ["eggplant dip", "layered casserole", "pasta", "burger", "rice bowl"],
+      fat: "21g",
+      fiber: "7g",
+      imageSearchIndices: ["karniyarik", "turkish stuffed eggplant", "eggplant ground beef"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["eggplant", "tomato", "green pepper", "onion", "parsley"],
+      name: "Turkish Karniyarik",
+      protein: "30g",
+      sodium: "650mg",
+      sugar: "9g",
+      visualKeywords: ["split stuffed eggplant", "minced meat filling", "tomato pepper topping"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 95,
+      carbs: "50g",
+      cuisine: "Turkish",
+      difficulty: "Medium",
+      dishName: "turkish spiral borek",
+      excludeKeywords: ["flatbread", "pide", "lahmacun", "burger", "pasta"],
+      fat: "24g",
+      fiber: "3g",
+      imageSearchIndices: ["turkish spiral borek", "ground beef borek", "kol boregi"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["phyllo pastry", "onion", "parsley", "paprika", "yogurt"],
+      name: "Turkish Spiral Borek",
+      protein: "28g",
+      sodium: "740mg",
+      sugar: "4g",
+      visualKeywords: ["golden coiled pastry", "spiral borek", "spiced ground beef filling"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 50,
+      carbs: "28g",
+      cuisine: "Turkish",
+      difficulty: "Medium",
+      dishName: "turkish musakka",
+      excludeKeywords: ["stuffed whole eggplant", "eggplant dip", "pasta", "rice", "burger"],
+      fat: "22g",
+      fiber: "7g",
+      imageSearchIndices: ["turkish musakka", "turkish eggplant beef casserole", "eggplant beef moussaka"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["eggplant", "tomato sauce", "green pepper", "onion", "mozzarella"],
+      name: "Turkish Musakka",
+      protein: "31g",
+      sodium: "700mg",
+      sugar: "8g",
+      visualKeywords: ["layered eggplant casserole", "crumbled beef", "tomato sauce"]
+    }, context)
+  ];
+
+  return prefersEgyptianFirst ? orderSparseFillersByCuisine(all, "egyptian") : orderSparseFillersByCuisine(all, preferred);
+}
+
+function buildLiverSparseFillers(
+  primaryIngredient: string,
+  context: { allergens: string[]; availableIngredients: Set<string>; conditions: string[]; diets: string[]; preferredCuisine: string },
+  targetCalories: number
+) {
+  const preferred = normalizeCuisinePreference(context.preferredCuisine);
+  const all = [
+    makeSparseFillerRecipe({
+      calories: targetCalories,
+      carbs: "16g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "alexandrian liver",
+      excludeKeywords: ["beef steak", "beef cubes", "kofta", "meatballs", "pasta"],
+      fat: "18g",
+      fiber: "3g",
+      imageSearchIndices: ["kebda eskandarani", "alexandrian liver", "egyptian liver sandwich filling"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["onion", "garlic", "green pepper", "lemon", "cumin"],
+      name: "Alexandrian Kebda",
+      protein: "34g",
+      sodium: "620mg",
+      sugar: "4g",
+      visualKeywords: ["sliced liver", "green pepper", "dark glossy kebda"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 30,
+      carbs: "34g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "egyptian liver sandwiches",
+      excludeKeywords: ["burger", "steak sandwich", "kofta", "pasta", "rice bowl"],
+      fat: "17g",
+      fiber: "4g",
+      imageSearchIndices: ["egyptian liver sandwiches", "kebda sandwich", "chopped liver sandwich"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["bread", "onion", "pepper", "garlic", "tahini"],
+      name: "Egyptian Kebda Sandwiches",
+      protein: "32g",
+      sodium: "690mg",
+      sugar: "5g",
+      visualKeywords: ["chopped liver filling", "bread", "peppers and onion"]
+    }, context)
+  ];
+
+  return orderSparseFillersByCuisine(all, preferred);
+}
+
+function buildGenericSparseFillers(
+  primaryIngredient: string,
+  context: { allergens: string[]; availableIngredients: Set<string>; conditions: string[]; diets: string[]; preferredCuisine: string },
+  targetCalories: number
+) {
+  return [
+    makeSparseFillerRecipe({
+      calories: targetCalories,
+      carbs: "30g",
+      cuisine: context.preferredCuisine === "Any" ? "American" : context.preferredCuisine,
+      difficulty: "Easy",
+      dishName: `${primaryIngredient} skillet`,
+      excludeKeywords: ["wrong protein", "dessert", "unrelated side dish"],
+      fat: "16g",
+      fiber: "4g",
+      imageSearchIndices: [`${primaryIngredient} skillet`, `${primaryIngredient} recipe`, `${primaryIngredient} dinner`],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["onion", "garlic", "tomato", "olive oil"],
+      name: `${toTitleCase(primaryIngredient)} Skillet`,
+      protein: "24g",
+      sodium: "600mg",
+      sugar: "5g",
+      visualKeywords: [primaryIngredient, "skillet meal", "simple plated dish"]
+    }, context)
+  ];
+}
+
+interface SparseFillerRecipeInput {
+  calories: number;
+  carbs: string;
+  cuisine: string;
+  difficulty: string;
+  dishName: string;
+  excludeKeywords: string[];
+  fat: string;
+  fiber: string;
+  imageSearchIndices: string[];
+  ingredients: string[];
+  missingIngredients: string[];
+  name: string;
+  protein: string;
+  sodium: string;
+  sugar: string;
+  visualKeywords: string[];
+}
+
+function makeSparseFillerRecipe(input: SparseFillerRecipeInput, context: { allergens?: string[]; availableIngredients: Set<string>; conditions?: string[]; diets?: string[] }): Recipe {
+  const adapted = adaptSparseFillerForDiet(input, context);
+  const owned = dedupeIngredients(input.ingredients).map(getRecipeIngredientLabel);
+  const missing = dedupeIngredients(adapted.missingIngredients)
+    .map(getRecipeIngredientLabel)
+    .filter((ingredient) => !isIngredientAvailable(ingredient, context.availableIngredients));
+
+  return enrichRecipeWithDishIntent({
+    name: adapted.name,
+    cuisine: input.cuisine,
+    dish_intent: {
+      dish_name: input.dishName,
+      cuisine: input.cuisine,
+      meal_type: "dinner",
+      diet_type: adapted.dietType,
+      cooking_method: "home cooking",
+      visual_keywords: adapted.visualKeywords,
+      exclude_keywords: adapted.excludeKeywords
+    },
+    image_search_index: input.imageSearchIndices[0],
+    image_search_indices: input.imageSearchIndices,
+    ingredients: owned,
+    missing_ingredients: missing,
+    steps: [],
+    calories: adapted.calories,
+    protein: input.protein,
+    carbs: adapted.carbs,
+    fat: input.fat,
+    fiber: input.fiber,
+    sugar: input.sugar,
+    sodium: input.sodium,
+    cook_time: input.difficulty === "Easy" ? "30 mins" : "45 mins",
+    difficulty: input.difficulty,
+    preference_hits: adapted.preferenceHits
+  }, {
+    availableIngredients: [...owned, ...missing],
+    preferredCuisine: input.cuisine
+  });
+}
+
+function adaptSparseFillerForDiet(
+  input: SparseFillerRecipeInput,
+  context: { allergens?: string[]; conditions?: string[]; diets?: string[] }
+) {
+  const dietText = [...(context.diets ?? []), ...(context.conditions ?? []), ...(context.allergens ?? [])]
+    .join(" ")
+    .toLowerCase();
+  const wantsLowCarb = /\b(keto|low carb|diabetes|diabetic|blood sugar)\b/.test(dietText);
+  const wantsGlutenFree = /\b(gluten|celiac|coeliac)\b/.test(dietText);
+  const wantsDairyFree = /\b(dairy|lactose)\b/.test(dietText);
+  const wantsLowSodium = /\b(low sodium|hypertension|blood pressure|heart)\b/.test(dietText);
+  const wantsHighProtein = /\b(high protein|muscle|protein)\b/.test(dietText);
+  const activeLabels = [
+    wantsLowCarb ? "low carb" : "",
+    wantsGlutenFree ? "gluten free" : "",
+    wantsDairyFree ? "dairy free" : "",
+    wantsLowSodium ? "low sodium" : "",
+    wantsHighProtein ? "high protein" : ""
+  ].filter(Boolean);
+
+  let missingIngredients = [...input.missingIngredients];
+  let carbs = input.carbs;
+  let calories = input.calories;
+  const visualKeywords = [...input.visualKeywords];
+  const excludeKeywords = [...input.excludeKeywords];
+  const preferenceHits = ["Sparse pantry fill: centers the entered ingredient and lists authentic support items as missing."];
+
+  if (wantsLowCarb) {
+    missingIngredients = missingIngredients.map((ingredient) =>
+      /\b(penne|pasta|macaroni|spaghetti|rice|bread|pita|flatbread|dough|phyllo|filo|yufka|potato|potatoes)\b/i.test(ingredient)
+        ? "zucchini, eggplant, or cauliflower"
+        : ingredient
+    );
+    carbs = "14g";
+    calories = Math.max(300, calories - 70);
+    visualKeywords.push("low-carb vegetable base");
+    excludeKeywords.push("large bread portion", "large pasta portion", "rice bed");
+    preferenceHits.push("Adjusted for low-carb or blood-sugar-friendly needs.");
+  }
+
+  if (wantsGlutenFree) {
+    missingIngredients = missingIngredients.map((ingredient) =>
+      /\b(penne|pasta|macaroni|spaghetti|bread|pita|flatbread|dough|phyllo|filo|yufka)\b/i.test(ingredient)
+        ? `gluten-free ${ingredient}`
+        : ingredient
+    );
+    excludeKeywords.push("wheat bread", "regular pasta");
+    preferenceHits.push("Uses gluten-free starch or pastry substitutions where needed.");
+  }
+
+  if (wantsDairyFree) {
+    missingIngredients = missingIngredients.filter((ingredient) => !/\b(mozzarella|cheese|yogurt|butter|milk|cream)\b/i.test(ingredient));
+    missingIngredients.push("olive oil");
+    excludeKeywords.push("cheese", "cream sauce", "yogurt topping");
+    preferenceHits.push("Removes dairy-based support ingredients.");
+  }
+
+  if (wantsLowSodium) {
+    missingIngredients = missingIngredients.filter((ingredient) => !/\bsalt\b/i.test(ingredient));
+    missingIngredients.push("lemon", "fresh herbs");
+    preferenceHits.push("Uses herbs and citrus for a lower-sodium seasoning profile.");
+  }
+
+  if (wantsHighProtein) {
+    preferenceHits.push("Keeps the entered protein as the center of the plate.");
+  }
+
+  return {
+    ...input,
+    calories,
+    carbs,
+    dietType: activeLabels.join(", ") || "standard",
+    excludeKeywords: Array.from(new Set(excludeKeywords)),
+    missingIngredients: Array.from(new Set(missingIngredients)),
+    name: activeLabels.length ? `${input.name} (${toTitleCase(activeLabels.join(" "))})` : input.name,
+    preferenceHits,
+    visualKeywords: Array.from(new Set(visualKeywords))
+  };
+}
+
+function orderSparseFillersByCuisine(recipes: Recipe[], preferredCuisine: string) {
+  if (preferredCuisine === "any") return recipes;
+  return [...recipes].sort((left, right) => {
+    const leftMatches = normalizeCuisinePreference(left.cuisine) === preferredCuisine ? 1 : 0;
+    const rightMatches = normalizeCuisinePreference(right.cuisine) === preferredCuisine ? 1 : 0;
+    return rightMatches - leftMatches;
+  });
+}
+
+function normalizeCuisinePreference(value?: string) {
+  return (value || "Any").toLowerCase().replace(/[^a-z]/g, "") || "any";
+}
+
+function isSparseGroundMeatSource(source: string) {
+  return /\b(ground|minced|mince)\s+(beef|meat|lamb|veal|protein)\b|\b(beef|meat|lamb|veal)\s+(ground|minced|mince)\b|\bground\s+meat\b|\bminced\s+meat\b|(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?|\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(source);
+}
+
+function isArabicGroundMeatSource(source: string) {
+  return /(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?|\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(source);
+}
+
+function toTitleCase(value: string) {
+  return value.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
 function buildAvailableIngredientSet(inputIngredients: string[], normalizedIngredients: string[]) {
   return new Set(
     [...inputIngredients, ...normalizedIngredients]
@@ -1000,8 +1681,8 @@ function normalizeLocalizedRecipeVariants(value: unknown): Recipe["localized"] {
   if (!value || typeof value !== "object") return undefined;
 
   const localized = value as Record<string, unknown>;
-  const english = normalizeLocalizedRecipeVariant(localized.English);
-  const arabic = normalizeLocalizedRecipeVariant(localized.Arabic);
+  const english = normalizeLocalizedRecipeVariant(localized.English ?? localized.english);
+  const arabic = normalizeLocalizedRecipeVariant(localized.Arabic ?? localized.arabic);
 
   if (!english && !arabic) return undefined;
 
@@ -1072,66 +1753,33 @@ function normalizeLocalizedRecipeVariant(value: unknown): NonNullable<Recipe["lo
   };
 }
 
-function rankStrictRecipes(
-  recipes: Recipe[],
-  options: {
-    ingredients?: string[];
-    preferredCuisine?: string;
-    calorieTarget?: number;
-    maxMissingIngredients?: number;
-    recipeCount?: number;
-    diets?: string[];
-    conditions?: string[];
-  }
-) {
-  const targetCaloriesPerMeal = Math.round((options.calorieTarget ?? 2000) / 3);
-  const preferredCuisine = options.preferredCuisine && options.preferredCuisine !== "Any"
-    ? options.preferredCuisine.toLowerCase()
-    : "";
+interface RecipeRankingOptions {
+  ingredients?: string[];
+  preferredCuisine?: string;
+  calorieTarget?: number;
+  maxMissingIngredients?: number;
+  recipeCount?: number;
+  diets?: string[];
+  conditions?: string[];
+}
+
+interface RankedRecipeCandidate {
+  familyKey: string;
+  index: number;
+  isMainlyPantry: boolean;
+  isPantryBalanced: boolean;
+  missingCount: number;
+  ownedCount: number;
+  recipe: Recipe;
+  score: number;
+  structureKey: string;
+}
+
+function rankStrictRecipes(recipes: Recipe[], options: RecipeRankingOptions) {
   const limit = clampRecipeCount(options.recipeCount);
+  const ranked = buildRankedRecipeCandidates(recipes, options);
 
-  const ranked = recipes
-    .map((recipe, index) => {
-      const pantryUsage = getRecipePantryUsageStats(recipe, options.ingredients ?? []);
-      return {
-        recipe,
-        index,
-        isMainlyPantry: pantryUsage.isMainlyPantry,
-        isPantryBalanced: isPantryBalancedRecipe(recipe, options.ingredients ?? []),
-        missingCount: pantryUsage.missingCount,
-        ownedCount: pantryUsage.ownedCount,
-        score: scoreStrictRecipe(recipe, {
-        targetCaloriesPerMeal,
-        preferredCuisine,
-        maxMissingIngredients: options.maxMissingIngredients ?? 3,
-        hasPreferences: Boolean(options.diets?.length || options.conditions?.length),
-        availableIngredients: options.ingredients ?? []
-      })
-      };
-    })
-    .sort((left, right) => {
-      if (left.isMainlyPantry !== right.isMainlyPantry) {
-        return Number(right.isMainlyPantry) - Number(left.isMainlyPantry);
-      }
-      if (left.ownedCount !== right.ownedCount) {
-        return right.ownedCount - left.ownedCount;
-      }
-      if (left.missingCount !== right.missingCount) {
-        return left.missingCount - right.missingCount;
-      }
-      if (left.isPantryBalanced !== right.isPantryBalanced) {
-        return Number(right.isPantryBalanced) - Number(left.isPantryBalanced);
-      }
-
-      return right.score - left.score || left.index - right.index;
-    });
-
-  const selected = ranked.reduce(selectStructurallyVariedRankedRecipes(limit), [] as Array<{
-      recipe: Recipe;
-      index: number;
-      isPantryBalanced: boolean;
-      score: number;
-    }>);
+  const selected = ranked.reduce(selectStructurallyVariedRankedRecipes(limit), [] as Array<RankedRecipeCandidate>);
 
   if (selected.length < limit) {
     const selectedIds = new Set(selected.map((item) => item.recipe.id ?? item.recipe.name.trim().toLowerCase()));
@@ -1145,6 +1793,99 @@ function rankStrictRecipes(
   }
 
   return selected.map(({ recipe }) => recipe);
+}
+
+function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOptions): RankedRecipeCandidate[] {
+  const targetCaloriesPerMeal = Math.round((options.calorieTarget ?? 2000) / 3);
+  const preferredCuisine = options.preferredCuisine && options.preferredCuisine !== "Any"
+    ? options.preferredCuisine.toLowerCase()
+    : "";
+
+  return recipes
+    .map((recipe, index) => {
+      const pantryUsage = getRecipePantryUsageStats(recipe, options.ingredients ?? []);
+      const familyKey = buildRecipeDishFamilyKey(recipe) || recipe.name.trim().toLowerCase();
+      const structureKey = buildRecipeStructureSignature(recipe);
+      return {
+        familyKey,
+        recipe,
+        index,
+        isMainlyPantry: pantryUsage.isMainlyPantry,
+        isPantryBalanced: isPantryBalancedRecipe(recipe, options.ingredients ?? []),
+        missingCount: pantryUsage.missingCount,
+        ownedCount: pantryUsage.ownedCount,
+        structureKey,
+        score: scoreStrictRecipe(recipe, {
+          targetCaloriesPerMeal,
+          preferredCuisine,
+          maxMissingIngredients: options.maxMissingIngredients ?? 3,
+          hasPreferences: Boolean(options.diets?.length || options.conditions?.length),
+          availableIngredients: options.ingredients ?? []
+        })
+      };
+    })
+    .sort((left, right) => {
+      if (left.isMainlyPantry !== right.isMainlyPantry) {
+        return Number(right.isMainlyPantry) - Number(left.isMainlyPantry);
+      }
+      if (left.ownedCount !== right.ownedCount) {
+        return right.ownedCount - left.ownedCount;
+      }
+      if (Math.abs(left.score - right.score) >= 8) {
+        return right.score - left.score;
+      }
+      if (left.missingCount !== right.missingCount) {
+        return left.missingCount - right.missingCount;
+      }
+      if (left.isPantryBalanced !== right.isPantryBalanced) {
+        return Number(right.isPantryBalanced) - Number(left.isPantryBalanced);
+      }
+
+      return right.score - left.score || left.index - right.index;
+    });
+}
+
+function logRecipeRankingSnapshot(
+  stage: string,
+  candidates: Recipe[],
+  selectedRecipes: Recipe[],
+  context: {
+    rankingOptions: RecipeRankingOptions;
+    recipeCount: number;
+    requestId: string;
+    sourceCount: number;
+  }
+) {
+  const selectedKeys = new Set(selectedRecipes.map(getRecipeSelectionKey));
+  const ranked = buildRankedRecipeCandidates(candidates, context.rankingOptions);
+
+  logger.info("Recipe ranking snapshot", {
+    requestId: context.requestId,
+    stage,
+    requestedCount: context.recipeCount,
+    sourceCount: context.sourceCount,
+    candidateCount: candidates.length,
+    selectedCount: selectedRecipes.length,
+    ranking: ranked.slice(0, 20).map((entry, index) => ({
+      rank: index + 1,
+      selected: selectedKeys.has(getRecipeSelectionKey(entry.recipe)),
+      score: Math.round(entry.score * 10) / 10,
+      ownedCount: entry.ownedCount,
+      missingCount: entry.missingCount,
+      isMainlyPantry: entry.isMainlyPantry,
+      isPantryBalanced: entry.isPantryBalanced,
+      name: entry.recipe.name,
+      cuisine: entry.recipe.cuisine,
+      dishName: entry.recipe.dish_intent?.dish_name,
+      imageSearchIndex: entry.recipe.image_search_index,
+      familyKey: entry.familyKey,
+      structureKey: entry.structureKey
+    }))
+  });
+}
+
+function getRecipeSelectionKey(recipe: Recipe) {
+  return recipe.id ?? recipe.name.trim().toLowerCase();
 }
 
 function clampRecipeCount(value?: number, maxRecipeCount = MAX_SHARED_POOL_RECIPE_RESULT_COUNT) {
@@ -1163,7 +1904,7 @@ function buildRecipeFallbackNotice(
 
   if (!wantsArabic) {
     if (kind === "credits_used_shared_pool") {
-      return "Your 5 free AI credits are used. These recipes are from the shared recipe pool.";
+      return "Your 10 free recipe generations are used. These recipes are from the shared recipe pool.";
     }
 
     if (kind === "ai_busy_shared_pool") {
@@ -1174,7 +1915,7 @@ function buildRecipeFallbackNotice(
   }
 
   if (kind === "credits_used_shared_pool") {
-      return "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. هذه الوصفات من مجموعة الوصفات المشتركة.";
+      return "تم استهلاك 10 طلبات توليد وصفات مجانية. هذه الوصفات من مجموعة الوصفات المشتركة.";
   }
 
   return "تعذر توليد الوصفات بالذكاء الاصطناعي، لذلك استخدمنا مطابقات من مجموعة الوصفات المشتركة.";
@@ -1275,7 +2016,7 @@ function buildScannerPantryBalanceRetryPrompt(basePrompt: string, recipeCount: n
     "Start with the strongest pantry-friendly recipes first, centered on the scanned or typed ingredients.",
     "If there are not enough pantry-strong options, fill the remaining recipe slots with the best pantry-first recipes you can find.",
     "Keep missing_ingredients as low as possible and avoid weak pantry fits unless they are needed to fill later slots.",
-    "If the pantry is sparse, choose simpler dish families, smaller plates, egg dishes, toast dishes, bowls, salads, soups, or direct ingredient-led meals that still respect cuisine and health constraints.",
+    "If the pantry is sparse, choose recognizable named dish families and list authentic support items as missing_ingredients. Do not collapse the retry into plain grilled, garlic-lemon, or generic pasta plates.",
     "Return only valid JSON and follow the same schema as before."
   ].join(" ");
 }
@@ -1309,6 +2050,9 @@ function scoreStrictRecipe(
   const matchQualityScore = getMatchQualityScore(recipe.match_quality);
   const dishIntentScore = Math.max(0, (recipe.dish_intent?.candidate_score ?? 0) / 8);
   const dishIntentHitScore = Math.min(recipe.dish_intent?.candidate_hits?.length ?? 0, 4) * 2;
+  const namedDishScore = getNamedDishSpecificityScore(recipe);
+  const ingredientIntegrationScore = getIngredientIntegrationScore(recipe, options.availableIngredients);
+  const basicFallbackPenalty = getBasicFallbackPenalty(recipe);
   const cuisineFit = scoreCuisineFit({
     preferredCuisine: options.preferredCuisine,
     recipeCuisine: recipe.cuisine,
@@ -1328,11 +2072,85 @@ function scoreStrictRecipe(
     cuisineFit.score +
     dishIntentScore +
     dishIntentHitScore +
+    namedDishScore +
+    ingredientIntegrationScore -
+    basicFallbackPenalty +
     calorieScore +
     ownershipBalanceScore +
     maxMissingBonus +
     matchQualityScore
   );
+}
+
+function getNamedDishSpecificityScore(recipe: Recipe) {
+  const source = [
+    recipe.name,
+    recipe.dish_intent?.dish_name,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (!source.trim()) return 0;
+
+  const namedDishHits = [
+    /\b(hawawshi|kofta|kofte|kafta|kefta|adana|lahmacun|pide|karniyarik|musakka|borek|dawood|daoud|bechamel|koftet\s+roz)\b/,
+    /\b(koshary|ful|taameya|shakshuka|eggah|molokhia|fattah|sayadeya|singari|tagine|alexandrian)\b/,
+    /\b(mujadara|shawarma|fasolia|hummus|fattoush|tabbouleh|kebab)\b/,
+    /\b(chana\s+masala|dal|tadka|keema|biryani|pulao|rajma|curry)\b/,
+    /\b(pad\s+krapow|tom\s+yum|larb|teriyaki|bibimbap|fried\s+rice|congee)\b/,
+    /\b(arrabbiata|pomodoro|risotto|minestrone|piccata|parmesan|frittata)\b/,
+    /\b(hamburger\s+stew|meatloaf|stuffed\s+pepper|taco|enchilada|chili)\b/
+  ].filter((pattern) => pattern.test(source)).length;
+
+  const genericOnly =
+    /\b(grilled|baked|fried|sauteed|pan\s*seared|garlic|lemon|herb|pasta|rice|bowl|plate|skillet)\b/.test(source) &&
+    namedDishHits === 0;
+
+  return namedDishHits ? Math.min(28, namedDishHits * 12) : genericOnly ? -8 : 0;
+}
+
+function getIngredientIntegrationScore(recipe: Recipe, availableIngredients: string[]) {
+  const meaningfulAvailable = availableIngredients
+    .map(normalizeIngredientForStrictMatch)
+    .filter((ingredient) => ingredient && !isCommonPantrySupportIngredient(ingredient));
+  const uniqueAvailable = Array.from(new Set(meaningfulAvailable));
+  if (uniqueAvailable.length <= 1) return 0;
+
+  const ownedMeaningful = recipe.ingredients
+    .map(normalizeIngredientForStrictMatch)
+    .filter((ingredient) => ingredient && uniqueAvailable.includes(ingredient) && !isCommonPantrySupportIngredient(ingredient));
+  const ownedMeaningfulCount = new Set(ownedMeaningful).size;
+
+  if (ownedMeaningfulCount >= 3) return 18;
+  if (ownedMeaningfulCount === 2) return 10;
+  return -6;
+}
+
+function getBasicFallbackPenalty(recipe: Recipe) {
+  const source = [
+    recipe.name,
+    recipe.dish_intent?.dish_name,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    ...(recipe.dish_intent?.visual_keywords ?? [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const basicMethod = /\b(grilled|grill|pan\s*seared|sauteed|baked)\b/.test(source);
+  const basicFlavor = /\b(garlic\s+lemon|lemon\s+garlic|garlic\s+butter|lemon\s+herb|herb\s+garlic)\b/.test(source);
+  const genericName = /\b(protein|meat|beef|chicken|fish|shrimp|seafood)\s+(plate|bowl|skillet|pasta|rice)\b/.test(source);
+  const namedDishScore = getNamedDishSpecificityScore(recipe);
+
+  if (namedDishScore > 0) return 0;
+  if (basicFlavor && (basicMethod || genericName)) return 28;
+  if (genericName) return 18;
+  if (basicMethod && /\b(lemon|garlic|herb|pasta)\b/.test(source)) return 12;
+  return 0;
 }
 
 function enforcePreferredCuisineRecipes(
@@ -1395,9 +2213,19 @@ function buildHardRequestRestrictionContext(
     anchorMatchCount: number;
     supportMatchCount: number;
   }>,
-  preferredCuisine?: string
+  preferredCuisine?: string,
+  inputIngredientCount = 0
 ) {
   const hasSpecificCuisine = Boolean(preferredCuisine && preferredCuisine !== "Any");
+  if (!hasSpecificCuisine && inputIngredientCount <= 2) {
+    return {
+      allowedFamilies: new Set<string>(),
+      hasSpecificCuisine,
+      preferredCuisine: undefined,
+      strict: false
+    };
+  }
+
   const trustedCandidates = candidateDishes
     .filter((candidate) => {
       if (
@@ -1415,7 +2243,7 @@ function buildHardRequestRestrictionContext(
         candidate.hits.some((hit) => hit.startsWith("intent-") || hit.startsWith("sparse-"))
       );
     })
-    .slice(0, 5);
+    .slice(0, inputIngredientCount <= 2 ? 12 : 5);
 
   return {
     allowedFamilies: new Set(
@@ -1485,12 +2313,14 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
   const seenNames = new Set<string>();
   const seenFamilies = new Set<string>();
   const seenStructures = new Set<string>();
+  const seenImageIdentities = new Set<string>();
 
   const addRecipe = (
     recipe: Recipe,
     options: {
       allowFamilyRepeat?: boolean;
       allowStructureRepeat?: boolean;
+      allowImageRepeat?: boolean;
     } = {}
   ) => {
     if (selected.length >= recipeCount) return false;
@@ -1499,22 +2329,25 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
     const nameKey = normalizeDishRestrictionKey(recipe.name);
     const familyKey = getRecipeVarietyFamilyKey(recipe);
     const structureKey = buildRecipeStructureSignature(recipe);
+    const imageIdentityKey = getRecipeImageIdentityKey(recipe);
 
     if (idKey && seenIds.has(idKey)) return false;
     if (nameKey && seenNames.has(nameKey)) return false;
     if (!options.allowFamilyRepeat && familyKey && seenFamilies.has(familyKey)) return false;
     if (!options.allowStructureRepeat && structureKey && seenStructures.has(structureKey)) return false;
+    if (!options.allowImageRepeat && imageIdentityKey && seenImageIdentities.has(imageIdentityKey)) return false;
 
     selected.push(recipe);
     if (idKey) seenIds.add(idKey);
     if (nameKey) seenNames.add(nameKey);
     if (familyKey) seenFamilies.add(familyKey);
     if (structureKey) seenStructures.add(structureKey);
+    if (imageIdentityKey) seenImageIdentities.add(imageIdentityKey);
     return true;
   };
 
   for (const recipe of preservedExactMatches) {
-    addRecipe(recipe, { allowFamilyRepeat: true, allowStructureRepeat: true });
+    addRecipe(recipe, { allowFamilyRepeat: true, allowImageRepeat: true, allowStructureRepeat: true });
   }
 
   for (const recipe of recipes) {
@@ -1525,7 +2358,31 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
     addRecipe(recipe, { allowStructureRepeat: true });
   }
 
+  if (selected.length < recipeCount && recipes.some(isLiverRecipeCandidate)) {
+    for (const recipe of recipes) {
+      addRecipe(recipe, { allowFamilyRepeat: true, allowImageRepeat: true, allowStructureRepeat: true });
+    }
+  }
+
   return selected.slice(0, recipeCount);
+}
+
+function isLiverRecipeCandidate(recipe: Recipe) {
+  const source = [
+    recipe.name,
+    recipe.cuisine,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    recipe.dish_intent?.dish_name,
+    ...(recipe.dish_intent?.visual_keywords ?? []),
+    ...(recipe.ingredients ?? []),
+    ...(recipe.missing_ingredients ?? [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return /\b(liver|kebda|kibda|ciger|cigeri)\b|كبدة|كبده/iu.test(source);
 }
 
 function getRecipeVarietyFamilyKey(recipe: Recipe) {
@@ -1540,6 +2397,31 @@ function getRecipeVarietyFamilyKey(recipe: Recipe) {
     .replace(/\b(grilled|baked|fried|roasted|pan seared|sauteed|simple|classic|spiced|lean|light)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function getRecipeImageIdentityKey(recipe: Recipe) {
+  const candidates = [
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    recipe.dish_intent?.dish_name,
+    recipe.name
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .map(normalizeDishRestrictionKey)
+    .filter(Boolean);
+
+  const exactCandidate = candidates.find((candidate) => !isGenericRecipeImageIdentity(candidate));
+  if (exactCandidate) return exactCandidate;
+
+  return normalizeDishRestrictionKey(buildRecipeStructureSignature(recipe));
+}
+
+function isGenericRecipeImageIdentity(value: string) {
+  if (!value) return true;
+
+  return /^(ground meat|ground beef|minced meat|beef|meat|liver|fish|seafood|shrimp|chicken|food|recipe|dish|meal|plate|bowl)$/i.test(
+    value
+  );
 }
 
 function isRecipeCompliantWithHardRestriction(
@@ -1790,16 +2672,46 @@ function isPantryBalancedRecipe(recipe: Recipe, availableIngredients: string[] =
 function getRecipePantryUsageStats(recipe: Recipe, availableIngredients: string[]) {
   const availableSet = buildAvailableIngredientSet(availableIngredients, expandIngredientFamilies(availableIngredients));
   const ownedCount = recipe.ingredients.filter((ingredient) => isIngredientAvailable(ingredient, availableSet)).length;
-  const missingCount = recipe.missing_ingredients.filter((ingredient) => !isIngredientAvailable(ingredient, availableSet)).length;
+  const availableCount = availableIngredients.filter((ingredient) => ingredient.trim().length > 0).length;
+  const missingCount = recipe.missing_ingredients
+    .filter((ingredient) => !isIngredientAvailable(ingredient, availableSet))
+    .reduce((total, ingredient) => total + getMissingIngredientRankingWeight(ingredient, availableCount), 0);
   const totalRelevant = ownedCount + missingCount;
   const ownedRatio = totalRelevant > 0 ? ownedCount / totalRelevant : 0;
 
   return {
-    isMainlyPantry: ownedCount > 0 && (ownedCount >= missingCount || ownedRatio >= 0.5),
+    isMainlyPantry: ownedCount > 0 && (ownedCount >= missingCount || ownedRatio >= (availableCount <= 2 ? 0.35 : 0.5)),
     missingCount,
     ownedCount,
     ownedRatio
   };
+}
+
+function getMissingIngredientRankingWeight(ingredient: string, availableIngredientCount: number) {
+  const normalized = normalizeIngredientForStrictMatch(ingredient);
+  if (!normalized) return 0;
+
+  if (isCommonPantrySupportIngredient(normalized)) {
+    return availableIngredientCount <= 2 ? 0.15 : 0.35;
+  }
+
+  if (isRecipeStructureSupportIngredient(normalized)) {
+    return availableIngredientCount <= 2 ? 0.45 : 0.75;
+  }
+
+  return 1;
+}
+
+function isCommonPantrySupportIngredient(normalizedIngredient: string) {
+  return /\b(salt|pepper|black pepper|cumin|coriander|paprika|turmeric|chili|chilli|cayenne|sumac|oregano|mint|parsley|cilantro|dill|basil|garlic|onion|oil|olive oil|butter|vinegar|lemon|lime|tomato paste|pepper paste|tahini|yogurt|water|stock|broth)\b/.test(
+    normalizedIngredient
+  );
+}
+
+function isRecipeStructureSupportIngredient(normalizedIngredient: string) {
+  return /\b(rice|bread|pita|flatbread|baladi bread|pasta|penne|macaroni|spaghetti|flour|dough|pide dough|phyllo|filo|yufka|potato|carrot|celery|tomato|tomato sauce|green pepper|bell pepper|eggplant|aubergine|cheese|mozzarella)\b/.test(
+    normalizedIngredient
+  );
 }
 
 function getMatchQualityScore(matchQuality: Recipe["match_quality"]) {
@@ -1868,7 +2780,7 @@ function isSafeIngredientSubsetMatch(recipeIngredient: string, availableIngredie
 }
 
 function normalizeIngredientForStrictMatch(value: string) {
-  return value
+  const normalized = value
     .toLowerCase()
     .replace(/\s+-\s+.*$/, "")
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")
@@ -1880,6 +2792,8 @@ function normalizeIngredientForStrictMatch(value: string) {
     .replace(/\beggs\b/g, "egg")
     .replace(/\s+/g, " ")
     .trim();
+
+  return isSparseGroundMeatSource(normalized) ? "ground meat" : normalized;
 }
 
 async function applyImageFirstRecipeRanking(
@@ -2031,6 +2945,9 @@ async function resolveRecipePhotoCandidate(
 
   const queries = buildRecipePhotoQueriesForRanking(recipe);
   const baseIdentity = buildRecipePhotoIdentity(recipe.image_search_index ?? queries[0] ?? recipe.name);
+  if (isStrictVisualRecipePhotoRequest(recipe, [baseIdentity, ...queries.map((query) => buildRecipePhotoIdentity(query))])) {
+    return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
+  }
   let bestScore = 0;
   let bestSource: keyof typeof MIN_ACCEPTED_PROVIDER_SCORE | null = null;
   let bestSourceScore = 0;
@@ -2093,6 +3010,40 @@ async function resolveRecipePhotoCandidate(
   }
 
   return { photoFitScore: bestScore, recipePatch };
+}
+
+function isStrictVisualRecipePhotoRequest(
+  recipe: Recipe,
+  identities: Array<ReturnType<typeof buildRecipePhotoIdentity>>
+) {
+  if (identities.some(isStrictRecipePhotoIdentity)) return true;
+
+  const source = [
+    recipe.name,
+    recipe.cuisine,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    recipe.dish_intent?.dish_name,
+    ...(recipe.dish_intent?.visual_keywords ?? []),
+    ...(recipe.ingredients ?? []),
+    ...(recipe.missing_ingredients ?? []),
+    ...identities.map((identity) => [
+      identity.cleanQuery,
+      identity.canonicalDishKey,
+      identity.familyKey,
+      identity.mainIngredientKey,
+      identity.mealTypeKey,
+      identity.starchKey
+    ].filter(Boolean).join(" "))
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    /\b(liver|kebda|kibda|ciger|cigeri|fish|seafood|shrimp|prawn|mussel|mussels|clam|clams|calamari|squid|tuna|salmon|sayadeya|sayadieh|sayadiah|samak|singari|sengari|bori|bouri)\b/.test(source) ||
+    /\b(ground|minced|mince)\s+(beef|meat|lamb|veal|protein)\b|\b(beef|meat|lamb|veal)\s+(ground|minced|mince)\b|\bground\s+meat\b|\bminced\s+meat\b|\u0644\u062d\u0645(?:\u0629|\u0647)?\s+\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?|\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?/iu.test(source)
+  );
 }
 
 function buildRecipePhotoQueriesForRanking(recipe: Recipe) {

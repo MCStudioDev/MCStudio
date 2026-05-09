@@ -3,9 +3,11 @@ import { GET as lookupRecipePhoto } from "../route";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+const RECIPE_PHOTO_BATCH_CONCURRENCY = 3;
 
 const batchItemSchema = z.object({
   alt: z.array(z.string()).optional(),
+  cacheOnly: z.boolean().optional(),
   cuisine: z.string().optional(),
   exact: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
@@ -45,28 +47,26 @@ export async function POST(request: Request) {
   const uniqueItems = dedupeBatchItems(parsed.data.items);
   const headers = new Headers(request.headers);
 
-  const settled = await Promise.allSettled(
-    uniqueItems.map(async (item) => {
-      const response = await lookupRecipePhoto(new Request(buildRecipePhotoLookupUrl(origin, item), { headers }));
-      const retryAfterSeconds = Number(response.headers.get("Retry-After") ?? "0") || undefined;
-      const data = (await response.json().catch(() => null)) as Partial<BatchRecipePhotoResult> | null;
+  const settled = await runWithConcurrency(uniqueItems, RECIPE_PHOTO_BATCH_CONCURRENCY, async (item) => {
+    const response = await lookupRecipePhoto(new Request(buildRecipePhotoLookupUrl(origin, item), { headers }));
+    const retryAfterSeconds = Number(response.headers.get("Retry-After") ?? "0") || undefined;
+    const data = (await response.json().catch(() => null)) as Partial<BatchRecipePhotoResult> | null;
 
-      return [
-        item.queryKey,
-        {
-          error: data?.error,
-          imageAttributionName: data?.imageAttributionName,
-          imageAttributionUrl: data?.imageAttributionUrl,
-          imageSource: data?.imageSource,
-          imageUrl: data?.imageUrl,
-          ok: response.ok && Boolean(data?.imageUrl),
-          retryAfterSeconds,
-          source: data?.source,
-          status: response.status
-        } satisfies BatchRecipePhotoResult
-      ] as const;
-    })
-  );
+    return [
+      item.queryKey,
+      {
+        error: data?.error,
+        imageAttributionName: data?.imageAttributionName,
+        imageAttributionUrl: data?.imageAttributionUrl,
+        imageSource: data?.imageSource,
+        imageUrl: data?.imageUrl,
+        ok: response.ok && Boolean(data?.imageUrl),
+        retryAfterSeconds,
+        source: data?.source,
+        status: response.status
+      } satisfies BatchRecipePhotoResult
+    ] as const;
+  });
 
   const results: Record<string, BatchRecipePhotoResult> = {};
   for (const result of settled) {
@@ -112,6 +112,9 @@ function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   appendValues(params, "ingredient", item.ingredient, 10);
   appendValues(params, "exact", item.exact, 8);
   appendValues(params, "exclude", item.exclude, 8);
+  if (item.cacheOnly) {
+    params.set("cacheOnly", "1");
+  }
   if (item.cuisine?.trim()) {
     params.set("cuisine", item.cuisine.trim());
   }
@@ -133,4 +136,30 @@ function buildBatchHeaders(result: "success" | "failure") {
       ? "private, max-age=300, stale-while-revalidate=86400"
       : "private, max-age=60"
   };
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+) {
+  const queue = items.map((item, index) => ({ index, item }));
+  const results: Array<PromiseSettledResult<R> | undefined> = new Array(items.length);
+  const workerCount = Math.max(1, Math.min(concurrency, queue.length));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (queue.length) {
+        const next = queue.shift();
+        if (!next) return;
+        try {
+          results[next.index] = { status: "fulfilled", value: await worker(next.item) };
+        } catch (reason) {
+          results[next.index] = { status: "rejected", reason };
+        }
+      }
+    })
+  );
+
+  return results.filter((result): result is PromiseSettledResult<R> => Boolean(result));
 }

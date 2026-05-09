@@ -46,6 +46,20 @@ service cloud.firestore {
       ]);
     }
 
+    function scanBelongsToRequester() {
+      return isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
+    function scanCreateBelongsToRequester() {
+      return isAuthenticated() && request.resource.data.uid == request.auth.uid;
+    }
+
+    function scanUpdateKeepsRequesterOwner() {
+      return scanBelongsToRequester()
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.uid == request.auth.uid;
+    }
+
     // =====================================
     // USER PROFILES
     // =====================================
@@ -76,11 +90,23 @@ service cloud.firestore {
         allow read, write: if isOwnerOrAdmin(userId);
       }
 
+      match /notifications/{notificationId} {
+        allow read, create, update, delete: if isOwnerOrAdmin(userId);
+      }
+
       match /favorites/{favoriteId} {
         allow read, write: if isOwnerOrAdmin(userId);
       }
 
       match /mealPlans/{mealPlanId} {
+        allow read, write: if isOwnerOrAdmin(userId);
+      }
+
+      match /plans/{planId} {
+        allow read, write: if isOwnerOrAdmin(userId);
+      }
+
+      match /offlineRecipeCache/{recipeId} {
         allow read, write: if isOwnerOrAdmin(userId);
       }
 
@@ -124,10 +150,46 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /sharedOfflineRecipeCache/{recipeId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /recipePhotoCache/{photoId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
     match /scans/{scanId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow read: if isAdmin() || scanBelongsToRequester();
+      allow create: if scanCreateBelongsToRequester();
+      allow update: if isAdmin() || scanUpdateKeepsRequesterOwner();
+      allow delete: if isAdmin() || scanBelongsToRequester();
+    }
+
+    match /metrics/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /recipeSources/{sourceId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /recipeRawImports/{importId} {
+      allow read, write: if false;
+    }
+
+    match /recipeCanonicalStaging/{stagingId} {
+      allow read, write: if false;
+    }
+
+    match /debugSeedProbe/{probeId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

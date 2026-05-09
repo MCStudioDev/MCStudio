@@ -5,8 +5,21 @@ const FAMILY_MEMBERS: Record<string, string[]> = {
   rice: ["rice", "basmati rice", "jasmine rice", "brown rice", "white rice", "risotto rice"],
   noodle: ["noodle", "noodles", "egg noodles", "rice noodles"],
   shrimp: ["shrimp", "prawn", "prawns"],
+  fish: ["fish", "white fish", "tilapia", "cod", "sea bass", "salmon", "سمك", "سمكة", "أسماك", "اسماك"],
   chicken: ["chicken", "chicken breast", "grilled chicken", "fried chicken"],
-  groundmeat: ["ground meat", "ground beef", "minced beef", "minced meat", "ground lamb", "ground turkey"],
+  liver: ["liver", "beef liver", "chicken liver", "kebda", "kibda", "ciger", "cigeri", "كبدة", "كبده"],
+  groundmeat: [
+    "ground meat",
+    "ground beef",
+    "minced beef",
+    "minced meat",
+    "ground lamb",
+    "ground turkey",
+    "\u0644\u062d\u0645 \u0645\u0641\u0631\u0648\u0645",
+    "\u0644\u062d\u0645\u0629 \u0645\u0641\u0631\u0648\u0645\u0629",
+    "\u0644\u062d\u0645\u0647 \u0645\u0641\u0631\u0648\u0645\u0647",
+    "\u0644\u062d\u0645\u0629 \u0645\u0641\u0631\u0648\u0645\u0629\u0648"
+  ],
   tomato: ["tomato", "tomato sauce", "marinara", "red sauce"],
   whitesauce: ["white sauce", "alfredo sauce", "creamy sauce", "bechamel", "bechamel sauce"],
   pesto: ["pesto", "pesto sauce", "صلصة بيستو جاهزة"]
@@ -55,7 +68,7 @@ export function buildRecipeStructureSignature(recipe: Pick<Recipe, "name" | "dis
   const tokens = [
     buildRecipeDishFamilyKey(recipe) || "unknown",
     pickRecipeFamily(ingredients, ["pasta", "rice", "noodle"]) || "starch-none",
-    pickRecipeFamily(ingredients, ["shrimp", "chicken", "ground meat", "fish"]) || "protein-none",
+    pickRecipeFamily(ingredients, ["shrimp", "chicken", "liver", "ground meat", "fish"]) || "protein-none",
     pickRecipeFamily(ingredients, ["white sauce", "tomato", "pesto"]) || "sauce-none",
     normalizeFamilyText(recipe.dish_intent?.cooking_method ?? "") || "method-none"
   ];
@@ -74,10 +87,16 @@ function pickRecipeFamily(ingredients: string[], candidates: string[]) {
 }
 
 function normalizeFamilyText(value: string) {
-  return value
+  const normalized = value
     .toLowerCase()
     .replace(/[_-]/g, " ")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  return isArabicGroundMeat(normalized) ? "ground meat" : normalized;
+}
+
+function isArabicGroundMeat(value: string) {
+  return /(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(value);
 }

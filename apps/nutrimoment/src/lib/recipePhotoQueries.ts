@@ -19,7 +19,11 @@ const PROTEIN_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "shrimp", pattern: /\bshrimp|prawn\b/i },
   { label: "salmon", pattern: /\bsalmon\b/i },
   { label: "fish", pattern: /\bfish|cod|tilapia|snapper|sea bass\b/i },
-  { label: "ground meat", pattern: /\b(ground meat|minced meat|ground beef|beef mince|lamb mince|mince|minced beef|chopped meat)\b/i },
+  {
+    label: "ground meat",
+    pattern:
+      /\b(ground meat|minced meat|ground beef|beef mince|lamb mince|mince|minced beef|chopped meat)\b|(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu
+  },
   { label: "beef", pattern: /\bbeef|steak|meat\b/i },
   { label: "lamb", pattern: /\blamb\b/i },
   { label: "tofu", pattern: /\btofu\b/i },

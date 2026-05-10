@@ -15,7 +15,8 @@ import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiCredit
+  consumeFreeAiCredit,
+  hasRecipeImageAccess
 } from "@/services/authService";
 import { logger } from "@/lib/logger";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
@@ -118,7 +119,7 @@ export async function GET(request: Request) {
   const rl = applyRateLimit({
     uid: accessCheck.access.uid,
     feature: "recipe_photo",
-    isPremium: accessCheck.access.isPremium,
+    isPremium: hasRecipeImageAccess(accessCheck.access),
     bypass: accessCheck.access.isAdmin
   });
   if (!rl.decision.allowed) {
@@ -170,7 +171,7 @@ export async function GET(request: Request) {
     identities.some(isStrictVisualIdentity) ||
     replicateIdentities.some(isStrictVisualIdentity) ||
     isStrictVisualIdentity(identity);
-  const useReplicateGeneration = accessCheck.access.isPremium;
+  const useReplicateGeneration = hasRecipeImageAccess(accessCheck.access);
   const selectedReplicateQuery = useReplicateGeneration
     ? selectReplicateRecipePhotoQuery(replicateQueryCandidates, replicateIdentities, ingredientHints)
     : null;
@@ -617,6 +618,7 @@ async function performRecipePhotoLookup({
   ]);
   const baseIdentity = identities[0] ?? buildRecipePhotoIdentity(query);
   let bestMatch: ProviderRecipePhotoCandidate | null = null;
+  let replicateFallbackReason: string | null = null;
   const preferWikimediaFirst = Boolean(baseIdentity.canonicalDishKey);
 
   if (isStrictVisualIdentity(baseIdentity) && !useReplicateGeneration) {
@@ -635,16 +637,7 @@ async function performRecipePhotoLookup({
         query,
         signature: baseIdentity.signature
       });
-      if (isStrictVisualIdentity(baseIdentity)) {
-        const failure = createRecipePhotoFailure(
-          "Premium generated recipe image is not configured for this strict visual recipe.",
-          503,
-          PREMIUM_REPLICATE_RETRY_TTL_MS,
-          PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-        );
-        setRecipePhotoFailureCache(failureCacheKey, failure);
-        return { failure, ok: false };
-      }
+      replicateFallbackReason = "replicate_not_configured";
     } else {
       const replicateQuery = selectReplicateRecipePhotoQuery(replicateQueryCandidates, replicateIdentities, ingredientHints);
       if (!replicateQuery) {
@@ -652,16 +645,7 @@ async function performRecipePhotoLookup({
           query,
           signature: baseIdentity.signature
         });
-        if (isStrictVisualIdentity(baseIdentity)) {
-          const failure = createRecipePhotoFailure(
-            "No strong generated image prompt was available for this strict visual recipe.",
-            503,
-            PREMIUM_REPLICATE_RETRY_TTL_MS,
-            PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-          );
-          setRecipePhotoFailureCache(failureCacheKey, failure);
-          return { failure, ok: false };
-        }
+        replicateFallbackReason = "replicate_prompt_unavailable";
       } else {
         const replicateCacheSignature = buildGeneratedRecipePhotoSignature(replicateQuery);
         const generatedCacheAliases = Array.from(new Set([...generatedAliasCandidates, ...exactAliasCandidates]));
@@ -701,82 +685,48 @@ async function performRecipePhotoLookup({
                 exactAliasCount: generatedCacheAliases.length,
                 errorMessage: error instanceof Error ? error.message : String(error)
               });
-              const persistenceFailure = createRecipePhotoFailure(
-                "Generated recipe image could not be saved durably yet. Retrying premium image generation shortly.",
-                503,
-                PREMIUM_REPLICATE_RETRY_TTL_MS,
-                PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-              );
-              setRecipePhotoFailureCache(failureCacheKey, persistenceFailure);
-              return {
-                failure: persistenceFailure,
-                ok: false
-              };
+              replicateFallbackReason = "replicate_persistence_failed";
             }
 
-            setRecipePhotoCacheAliases([replicateCacheSignature, ...generatedCacheAliases], selectedPhoto);
-            rememberRecipePhotoSelection(selectedPhoto.imageUrl, selectedPhoto.signature);
-            logger.info("Recipe photo served", {
-              source: selectedPhoto.source,
-              model: selectedPhoto.model,
-              query,
-              replicateQuery,
-              imageMode,
-              reason,
-              exactAliasCount: generatedCacheAliases.length,
-              uniqueImage: !isDuplicateGeneratedImage,
-              signature: replicateCacheSignature
-            });
+            if (!replicateFallbackReason) {
+              setRecipePhotoCacheAliases([replicateCacheSignature, ...generatedCacheAliases], selectedPhoto);
+              rememberRecipePhotoSelection(selectedPhoto.imageUrl, selectedPhoto.signature);
+              logger.info("Recipe photo served", {
+                source: selectedPhoto.source,
+                model: selectedPhoto.model,
+                query,
+                replicateQuery,
+                imageMode,
+                reason,
+                exactAliasCount: generatedCacheAliases.length,
+                uniqueImage: !isDuplicateGeneratedImage,
+                signature: replicateCacheSignature
+              });
 
-            return {
-              consumeFreeCredit: false,
-              ok: true,
-              photo: selectedPhoto
-            };
+              return {
+                consumeFreeCredit: false,
+                ok: true,
+                photo: selectedPhoto
+              };
+            }
           }
 
-          logger.warn("Replicate did not return a usable unique image; returning retryable premium image failure", {
+          logger.warn("Replicate did not return a usable unique image; falling back to provider search", {
             query,
             replicateQuery,
             signature: replicateCacheSignature
           });
-          const unavailableFailure = createRecipePhotoFailure(
-            "Replicate did not return a usable unique image yet. Retrying premium image generation shortly.",
-            503,
-            PREMIUM_REPLICATE_RETRY_TTL_MS,
-            PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-          );
-          if (isStrictVisualIdentity(baseIdentity) || !baseIdentity.canonicalDishKey) {
-            setRecipePhotoFailureCache(failureCacheKey, unavailableFailure);
-            return {
-              failure: unavailableFailure,
-              ok: false
-            };
-          }
+          replicateFallbackReason = replicateFallbackReason ?? "replicate_unusable_result";
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           const status = /\b429\b|rate.?limit/i.test(errorMessage) ? 429 : 503;
-          logger.warn("Replicate recipe image generation failed; returning retryable premium image failure", {
+          logger.warn("Replicate recipe image generation failed; falling back to provider search", {
             query,
             replicateQuery,
             signature: replicateCacheSignature,
             errorMessage
           });
-          const retryFailure = createRecipePhotoFailure(
-            status === 429
-              ? "Replicate is rate-limiting premium recipe image generation right now. Retrying shortly."
-              : "Replicate premium recipe image generation is still processing or temporarily unavailable. Retrying shortly.",
-            status,
-            PREMIUM_REPLICATE_RETRY_TTL_MS,
-            PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-          );
-          if (isStrictVisualIdentity(baseIdentity) || !baseIdentity.canonicalDishKey) {
-            setRecipePhotoFailureCache(failureCacheKey, retryFailure);
-            return {
-              failure: retryFailure,
-              ok: false
-            };
-          }
+          replicateFallbackReason = status === 429 ? "replicate_rate_limited" : "replicate_failed";
         }
       }
     }
@@ -901,6 +851,7 @@ async function performRecipePhotoLookup({
       imageUrl: selectedPhoto.imageUrl,
       imageMode,
       reason,
+      replicateFallbackReason,
       score: bestMatch.score,
       cached: false,
       cachePolicy: "replicate_generated_only",
@@ -916,7 +867,9 @@ async function performRecipePhotoLookup({
 
   const noMatchFailure = useReplicateGeneration
     ? createRecipePhotoFailure(
-        "Premium recipe image generation is still working. Retrying with generated and backup sources shortly.",
+        replicateFallbackReason
+          ? "Replicate was unavailable and no strong backup recipe photo matched yet. Retrying with generated and backup sources shortly."
+          : "Premium recipe image generation is still working. Retrying with generated and backup sources shortly.",
         503,
         PREMIUM_REPLICATE_RETRY_TTL_MS,
         PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
@@ -934,6 +887,7 @@ async function performRecipePhotoLookup({
     queryCandidates,
     imageMode,
     reason,
+    replicateFallbackReason,
     signature: identities[0]?.signature ?? "unknown"
   });
 

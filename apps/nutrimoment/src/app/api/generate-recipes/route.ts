@@ -18,7 +18,8 @@ import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiCredit
+  consumeFreeAiCredit,
+  hasRecipeImageAccess
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
@@ -174,6 +175,7 @@ export async function POST(request: Request) {
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
+    const hasGeneratedImageAccess = hasRecipeImageAccess(requestAccess);
     const rl = applyRateLimit({
       uid: requestAccess.uid,
       feature: "recipe_generation",
@@ -306,7 +308,7 @@ export async function POST(request: Request) {
         )
       );
     const deliverRecipes = (recipes: Recipe[]) =>
-      requestAccess.isPremium ? stripPremiumDeliveredImages(recipes) : recipes;
+      hasGeneratedImageAccess ? stripPremiumDeliveredImages(recipes) : recipes;
 
     if (USE_MOCK && accessCheck.allowed) {
       const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
@@ -323,7 +325,7 @@ export async function POST(request: Request) {
         { ...parsed.data, ingredients: scoringIngredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-        allowProviderLookup: !requestAccess.isPremium
+        allowProviderLookup: !hasGeneratedImageAccess
       });
       const finalRecipes = deliverRecipes(finalizeRecipes(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -383,7 +385,7 @@ export async function POST(request: Request) {
         { ...parsed.data, ingredients: scoringIngredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-        allowProviderLookup: !requestAccess.isPremium
+        allowProviderLookup: !hasGeneratedImageAccess
       });
       const finalRecipes = deliverRecipes(finalizeRecipes(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -503,7 +505,7 @@ export async function POST(request: Request) {
           }
         }
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-          allowProviderLookup: !requestAccess.isPremium
+          allowProviderLookup: !hasGeneratedImageAccess
         });
         const finalRecipes = deliverRecipes(finalizeRecipes(
           mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
@@ -559,7 +561,7 @@ export async function POST(request: Request) {
       { ...parsed.data, ingredients: scoringIngredients, recipeCount }
     );
     const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-      allowProviderLookup: !requestAccess.isPremium
+      allowProviderLookup: !hasGeneratedImageAccess
     });
     const finalRecipes = deliverRecipes(finalizeRecipes(
       mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)

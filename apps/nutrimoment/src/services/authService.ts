@@ -5,12 +5,26 @@ import { logger } from "@/lib/logger";
 export type AccessRole = "admin" | "user";
 export type AccessTier = "free" | "premium";
 export type AiFeatureKey = "image_to_text" | "recipe_generation" | "recipe_image" | "weekly_plan";
+export type EntitlementFeatureKey =
+  | "mealPlan.weekly"
+  | "pantry.imageScan"
+  | "recipes.api"
+  | "recipes.imageLookup"
+  | "recipes.offline"
+  | "shoppingList.quantities"
+  | "pantry.manual";
 
 export const FREE_LIFETIME_AI_CREDITS = 10;
 export const FREE_LIFETIME_WEEKLY_PLANS = 3;
 const FIREBASE_TRANSIENT_RETRY_ATTEMPTS = 5;
 const ACCESS_CACHE_TTL_MS = 10 * 60 * 1000;
 const accessCache = new Map<string, { access: RequestAccess; expiresAt: number }>();
+const AI_FEATURE_TO_ENTITLEMENT_KEY: Record<AiFeatureKey, EntitlementFeatureKey> = {
+  image_to_text: "pantry.imageScan",
+  recipe_generation: "recipes.api",
+  recipe_image: "recipes.imageLookup",
+  weekly_plan: "mealPlan.weekly"
+};
 
 export class AccessError extends Error {
   constructor(
@@ -28,6 +42,7 @@ export interface RequestAccess {
   tier: AccessTier;
   isAdmin: boolean;
   isPremium: boolean;
+  features: Partial<Record<EntitlementFeatureKey, boolean>>;
   aiCreditsUsed: number;
   aiCreditsLimit: number;
   aiCreditsRemaining: number;
@@ -59,8 +74,40 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
 
   const token = authHeader.slice("Bearer ".length).trim();
   const decoded = await withFirebaseTransientRetry(() => getAdminAuth().verifyIdToken(token), "verify auth token");
-  const role = decoded.role === "admin" ? "admin" : "user";
-  const tier = decoded.tier === "premium" ? "premium" : "free";
+  const db = getAdminDb();
+  let entitlementData: Record<string, unknown> | undefined;
+
+  try {
+    const entitlementSnap = await withFirebaseTransientRetry(
+      () => db.doc(`entitlements/${decoded.uid}`).get(),
+      "read entitlement"
+    );
+    entitlementData = entitlementSnap.data();
+  } catch (error) {
+    if (isFirebaseTransientError(error)) {
+      const cached = getCachedAccess(decoded.uid);
+      if (cached) {
+        logger.warn("Serving cached access after transient Firebase entitlement read failure", {
+          uid: decoded.uid,
+          feature: "access_check",
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+        return cached;
+      }
+
+      logger.warn("Continuing without entitlement features after transient Firebase entitlement read failure", {
+        uid: decoded.uid,
+        feature: "access_check",
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    } else {
+      throw error;
+    }
+  }
+
+  const role = entitlementData?.role === "admin" || decoded.role === "admin" ? "admin" : "user";
+  const tier = entitlementData?.tier === "premium" || decoded.tier === "premium" ? "premium" : "free";
+  const features = normalizeEntitlementFeatures(entitlementData?.features);
   const isAdmin = role === "admin";
   const isPremium = tier === "premium";
 
@@ -72,6 +119,7 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
       tier,
       isAdmin,
       isPremium,
+      features,
       aiCreditsUsed: 0,
       aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
       aiCreditsRemaining: FREE_LIFETIME_AI_CREDITS,
@@ -81,7 +129,6 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
     });
   }
 
-  const db = getAdminDb();
   const usageRef = db.doc(`users/${decoded.uid}/usage/aiCredits`);
   const weeklyPlanUsageRef = db.doc(`users/${decoded.uid}/usage/weeklyPlans`);
   let usageSnap;
@@ -116,6 +163,7 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
         tier,
         isAdmin,
         isPremium,
+        features,
         aiCreditsUsed: FREE_LIFETIME_AI_CREDITS - 1,
         aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
         aiCreditsRemaining: 1,
@@ -139,6 +187,7 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
     tier,
     isAdmin,
     isPremium,
+    features,
     aiCreditsUsed,
     aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
     aiCreditsRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - aiCreditsUsed, 0),
@@ -168,14 +217,33 @@ export async function requirePremium(request: Request) {
   return access;
 }
 
+export function hasAiFeatureAccess(access: RequestAccess, featureKey: AiFeatureKey) {
+  if (featureKey === "recipe_image") {
+    return hasRecipeImageAccess(access);
+  }
+
+  return access.isAdmin || access.isPremium || access.features[AI_FEATURE_TO_ENTITLEMENT_KEY[featureKey]] === true;
+}
+
+export function hasRecipeImageAccess(access: RequestAccess) {
+  return (
+    access.isAdmin ||
+    access.isPremium ||
+    access.features["recipes.imageLookup"] === true ||
+    access.aiCreditsLimit > 0 ||
+    access.weeklyPlanLimit > 0
+  );
+}
+
 export async function canUseApiFeature(request: Request, featureKey: AiFeatureKey) {
   const access = await getRequestAccess(request);
   const featureRemaining = featureKey === "weekly_plan" ? access.weeklyPlanRemaining : access.aiCreditsRemaining;
+  const hasFeatureAccess = hasAiFeatureAccess(access, featureKey);
   return {
     access,
     featureKey,
-    allowed: access.isPremium || featureRemaining > 0,
-    reason: access.isPremium || featureRemaining > 0
+    allowed: hasFeatureAccess || featureRemaining > 0,
+    reason: hasFeatureAccess || featureRemaining > 0
       ? null
       : featureKey === "weekly_plan"
         ? "free_weekly_plans_exhausted"
@@ -184,7 +252,7 @@ export async function canUseApiFeature(request: Request, featureKey: AiFeatureKe
 }
 
 export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiFeatureKey) {
-  if (access.isPremium || access.isAdmin) {
+  if (hasAiFeatureAccess(access, featureKey)) {
     return access;
   }
 
@@ -251,6 +319,7 @@ export function accessPayload(access: RequestAccess) {
   return {
     tier: access.tier,
     role: access.role,
+    features: access.features,
     aiCreditsUsed: access.aiCreditsUsed,
     aiCreditsLimit: access.aiCreditsLimit,
     aiCreditsRemaining: access.aiCreditsRemaining,
@@ -304,6 +373,28 @@ function cacheAccess(access: RequestAccess) {
     expiresAt: Date.now() + ACCESS_CACHE_TTL_MS
   });
   return cached;
+}
+
+function normalizeEntitlementFeatures(value: unknown): Partial<Record<EntitlementFeatureKey, boolean>> {
+  if (!value || typeof value !== "object") return {};
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [EntitlementFeatureKey, unknown] => isEntitlementFeatureKey(entry[0]))
+      .map(([key, enabled]) => [key, enabled === true])
+  );
+}
+
+function isEntitlementFeatureKey(value: string): value is EntitlementFeatureKey {
+  return [
+    "mealPlan.weekly",
+    "pantry.imageScan",
+    "recipes.api",
+    "recipes.imageLookup",
+    "recipes.offline",
+    "shoppingList.quantities",
+    "pantry.manual"
+  ].includes(value);
 }
 
 function getCachedAccess(uid: string) {

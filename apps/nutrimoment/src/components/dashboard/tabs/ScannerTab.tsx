@@ -14,7 +14,7 @@ import { cn, fileToBase64 } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
 import { EmptyState } from "./shared";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
-import { useAuth } from "@/contexts/AuthContext";
+import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
@@ -166,6 +166,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 export function ScannerTab() {
   const { t, settings, health, setError, addNotification, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
+  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
   const scannerInputRef = useRef<HTMLInputElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -197,7 +198,7 @@ export function ScannerTab() {
   const hydrateRecipePhotos = useCallback(
     async (inputRecipes: Recipe[], historyEntryId: string | null, requestVersion: number) => {
       if (requestVersion !== recipeRequestVersionRef.current) return;
-      const isPremium = access.tier === "premium";
+      const isPremium = hasGeneratedImageAccess;
 
       const renderableImageCounts = new Map<string, number>();
       inputRecipes.forEach((recipe) => {
@@ -462,7 +463,7 @@ export function ScannerTab() {
       if (requestVersion !== recipeRequestVersionRef.current) return;
       setRecipes(resolved);
     },
-    [access.tier, getAuthHeaders, refreshAccess, replaceEntryRecipes, updateRecipeImage]
+    [getAuthHeaders, hasGeneratedImageAccess, refreshAccess, replaceEntryRecipes, updateRecipeImage]
   );
 
   useEffect(() => {
@@ -561,12 +562,12 @@ export function ScannerTab() {
   const missingPremiumRecipeImages = recipes.filter((recipe) => !hasRenderableImage(recipe.image_url)).length;
 
   useEffect(() => {
-    if (access.tier !== "premium" || recipeLoading || !missingPremiumRecipeImages) return;
+    if (!hasGeneratedImageAccess || recipeLoading || !missingPremiumRecipeImages) return;
     const interval = globalThis.setInterval(() => {
       setImageRepairVersion((value) => value + 1);
     }, SCANNER_PREMIUM_IMAGE_REPAIR_INTERVAL_MS);
     return () => globalThis.clearInterval(interval);
-  }, [access.tier, missingPremiumRecipeImages, recipeLoading]);
+  }, [hasGeneratedImageAccess, missingPremiumRecipeImages, recipeLoading]);
 
   const dismissOnboarding = () => {
     localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
@@ -1143,7 +1144,7 @@ export function ScannerTab() {
               {recipes.map((recipe, index) => (
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
-                  disableAutoImageLookup={access.tier !== "premium"}
+                  disableAutoImageLookup={!hasGeneratedImageAccess}
                   deferImageLookup={index >= 2}
                   imageLookupVersion={imageRepairVersion}
                   eyebrow={getRecipeEyebrow(recipe, t)}
@@ -1166,7 +1167,7 @@ export function ScannerTab() {
                     user && historyEntryId
                       ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                           const persistedImageUrl =
-                            access.tier === "premium"
+                            hasGeneratedImageAccess
                               ? null
                               : await persistRecipeImageForUser({
                                   uid: user.uid,

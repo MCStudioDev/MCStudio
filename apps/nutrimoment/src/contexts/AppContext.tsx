@@ -107,7 +107,8 @@ function normalizeSettings(
   raw: (Partial<UserSettings> & { recipeLanguage?: unknown }) | undefined,
   fallbackLanguage: Language = "en"
 ): Partial<UserSettings> {
-  const { recipeLanguage: _legacyRecipeLanguage, ...rest } = raw ?? {};
+  const rest: Partial<UserSettings> & { recipeLanguage?: unknown } = { ...(raw ?? {}) };
+  delete rest.recipeLanguage;
   const uiLanguage = normalizePilotLanguage(raw?.uiLanguage, fallbackLanguage);
   const themeMode = normalizeThemeMode(raw?.themeMode);
   const recipeCount = Number.isFinite(raw?.recipeCount)
@@ -172,24 +173,30 @@ export function AppProvider({ children }: AppProviderProps) {
       orderBy("createdAt", "desc"),
       limit(MAX_USER_NOTIFICATIONS)
     );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setNotifications(
-        snapshot.docs.map((item) => {
-          const data = item.data() as {
-            createdAtIso?: string;
-            language?: Language;
-            message?: string;
-          };
-          const notificationLanguage: Language = data.language === "ar" ? "ar" : "en";
-          return {
-            id: item.id,
-            createdAt: data.createdAtIso ?? new Date().toISOString(),
-            language: notificationLanguage,
-            message: data.message ?? ""
-          };
-        }).filter((item) => item.message.trim().length > 0)
-      );
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setNotifications(
+          snapshot.docs.map((item) => {
+            const data = item.data() as {
+              createdAtIso?: string;
+              language?: Language;
+              message?: string;
+            };
+            const notificationLanguage: Language = data.language === "ar" ? "ar" : "en";
+            return {
+              id: item.id,
+              createdAt: data.createdAtIso ?? new Date().toISOString(),
+              language: notificationLanguage,
+              message: data.message ?? ""
+            };
+          }).filter((item) => item.message.trim().length > 0)
+        );
+      },
+      (err) => {
+        setError(`Failed to load notifications: ${err.message}`);
+      }
+    );
 
     return () => unsubscribe();
   }, [user]);

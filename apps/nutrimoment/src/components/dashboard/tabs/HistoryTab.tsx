@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { useApp } from "@/contexts/AppContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
@@ -47,6 +47,7 @@ type ReusableHistoryImage = {
 export function HistoryTab() {
   const { t, setError, settings } = useApp();
   const { access, getAuthHeaders, user } = useAuth();
+  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
@@ -104,12 +105,12 @@ export function HistoryTab() {
   }, [searchQuery]);
 
   const visibleMissingPremiumImages = useMemo(() => {
-    if (access.tier !== "premium") return 0;
+    if (!hasGeneratedImageAccess) return 0;
     return visibleItems.reduce(
       (count, entry) => count + entry.recipes.filter((recipe) => !hasRenderableImage(recipe.image_url)).length,
       0
     );
-  }, [access.tier, visibleItems]);
+  }, [hasGeneratedImageAccess, visibleItems]);
 
   useEffect(() => {
     setImageRepairAttempt(0);
@@ -128,7 +129,7 @@ export function HistoryTab() {
   }, [imageRepairAttempt, visibleMissingPremiumImages]);
 
   useEffect(() => {
-    if (access.tier !== "premium" || !user || !visibleItems.length) return;
+    if (!hasGeneratedImageAccess || !user || !visibleItems.length) return;
 
     const reusableImagesByKey = buildReusableHistoryImageIndex(items);
     const reusableMatches: Array<{
@@ -233,7 +234,7 @@ export function HistoryTab() {
     return () => {
       cancelled = true;
     };
-  }, [access.tier, getAuthHeaders, items, updateRecipeImage, user, visibleItems]);
+  }, [getAuthHeaders, hasGeneratedImageAccess, items, updateRecipeImage, user, visibleItems]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -360,12 +361,12 @@ export function HistoryTab() {
                       imageExactNames={buildRecipePhotoExactNames(recipe)}
                       imageCuisine={buildRecipePhotoCuisine(recipe)}
                       imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
-                      disableAutoImageLookup={access.tier === "premium"}
+                      disableAutoImageLookup={hasGeneratedImageAccess && !recipe.image_error}
                       onImageResolved={
                         user
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                               const persistedImageUrl =
-                                access.tier === "premium"
+                                hasGeneratedImageAccess
                                   ? null
                                   : await persistRecipeImageForUser({
                                       uid: user.uid,

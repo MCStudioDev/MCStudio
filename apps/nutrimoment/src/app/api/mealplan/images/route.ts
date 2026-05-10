@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
-import { accessErrorResponse, requireUser } from "@/services/authService";
+import { accessErrorResponse, hasRecipeImageAccess, requireUser } from "@/services/authService";
 import { listUserCachedRecipes } from "@/services/userRecipeCacheService";
 
 export const runtime = "nodejs";
@@ -25,8 +25,8 @@ interface MatchedMealImage {
 export async function POST(request: Request) {
   try {
     const access = await requireUser(request);
-    if (!access.isPremium) {
-      return Response.json({ error: "Meal plan image restore is a premium feature." }, { status: 403 });
+    if (!hasRecipeImageAccess(access)) {
+      return Response.json({ error: "Meal plan image restore requires recipe image access." }, { status: 403 });
     }
 
     const parsed = requestSchema.safeParse(await request.json().catch(() => null));

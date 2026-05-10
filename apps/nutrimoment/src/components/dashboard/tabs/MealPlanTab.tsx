@@ -8,12 +8,12 @@ import { Card } from "@/components/ui/Card";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { useApp } from "@/contexts/AppContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { useMealPlan } from "@/hooks/useMealPlan";
 import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
-import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
+import { translateIngredientToEnglish, translateRecipeTitleToEnglish } from "@/lib/arabicRecipeLocalization";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
@@ -66,6 +66,7 @@ function safeJsonParse<T>(value: string, fallback: T): T {
 export function MealPlanTab() {
   const { t, settings, health, setError } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
+  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items } = usePantry();
   const { addEntry: addHistoryEntry, updateRecipeImage: updateHistoryRecipeImage } = useHistory();
   const { mealPlan, loading: savedPlanLoading, error: mealPlanError, saveMealPlan, updateMealImage } = useMealPlan();
@@ -196,7 +197,7 @@ export function MealPlanTab() {
   }, [updateHistoryRecipeImage]);
 
   const persistMealPlanRecipes = useCallback(async (nextMealPlan: NonNullable<typeof mealPlan>) => {
-    if (!user || access.tier !== "premium") return;
+    if (!user || !hasGeneratedImageAccess) return;
 
     try {
       await fetch("/api/mealplan/cache", {
@@ -210,12 +211,12 @@ export function MealPlanTab() {
     } catch {
       // Recipe-cache persistence is a background convenience; the user plan is already saved.
     }
-  }, [access.tier, getAuthHeaders, settings.uiLanguage, user]);
+  }, [getAuthHeaders, hasGeneratedImageAccess, settings.uiLanguage, user]);
 
   const resolveMealPlanImages = useCallback(async () => {
     void mealPlanImagePlanKey;
     const currentMealPlan = mealPlanRef.current;
-    if (!currentMealPlan || !user || access.tier !== "premium") return;
+    if (!currentMealPlan || !user || !hasGeneratedImageAccess) return;
     if (!mealPlanHistoryEntryIdRef.current) {
       mealPlanHistoryEntryIdRef.current = readMealPlanHistoryEntry(currentMealPlan);
     }
@@ -438,7 +439,7 @@ export function MealPlanTab() {
     if (resolvedImageCount > 0) {
       void persistMealPlanRecipes(latestMealPlanForRecipeCache);
     }
-  }, [access.tier, getAuthHeaders, mealPlanImagePlanKey, persistMealPlanRecipes, user]);
+  }, [getAuthHeaders, hasGeneratedImageAccess, mealPlanImagePlanKey, persistMealPlanRecipes, user]);
 
   useEffect(() => {
     void resolveMealPlanImages();
@@ -450,12 +451,12 @@ export function MealPlanTab() {
   }, [mealPlan]);
 
   useEffect(() => {
-    if (access.tier !== "premium" || savedPlanLoading || !missingPremiumMealImages) return;
+    if (!hasGeneratedImageAccess || savedPlanLoading || !missingPremiumMealImages) return;
     const interval = globalThis.setInterval(() => {
       void resolveMealPlanImages();
     }, MEAL_PLAN_PREMIUM_IMAGE_REPAIR_INTERVAL_MS);
     return () => globalThis.clearInterval(interval);
-  }, [access.tier, missingPremiumMealImages, resolveMealPlanImages, savedPlanLoading]);
+  }, [hasGeneratedImageAccess, missingPremiumMealImages, resolveMealPlanImages, savedPlanLoading]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -530,7 +531,7 @@ export function MealPlanTab() {
                     meal={day.breakfast}
                     deferImageLookup={dayIndex > 0}
                     disableAutoImageLookup={
-                      access.tier === "premium" &&
+                      hasGeneratedImageAccess &&
                       !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
@@ -569,7 +570,7 @@ export function MealPlanTab() {
                     meal={day.lunch}
                     deferImageLookup={dayIndex > 0}
                     disableAutoImageLookup={
-                      access.tier === "premium" &&
+                      hasGeneratedImageAccess &&
                       !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
@@ -608,7 +609,7 @@ export function MealPlanTab() {
                     meal={day.dinner}
                     deferImageLookup={dayIndex > 0}
                     disableAutoImageLookup={
-                      access.tier === "premium" &&
+                      hasGeneratedImageAccess &&
                       !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
@@ -965,11 +966,23 @@ function buildMealSummary(
 
 function buildMealPlanPhotoQuery(meal: MealPlanMeal) {
   const translatedIngredients = buildEnglishMealIngredients(meal.ingredients);
+  const englishMealName = translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
+  const imageSearchIndices = Array.from(
+    new Set(
+      [
+        englishMealName,
+        meal.image_search_index,
+        ...(meal.image_search_indices ?? [])
+      ]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  );
   return buildRecipePhotoQueryCandidates({
-    imageSearchIndex: meal.image_search_index,
-    imageSearchIndices: meal.image_search_indices,
+    imageSearchIndex: imageSearchIndices[0],
+    imageSearchIndices,
     ingredients: translatedIngredients,
-    name: meal.image_search_index ?? meal.name
+    name: englishMealName || meal.image_search_index || meal.name
   });
 }
 
@@ -978,10 +991,12 @@ function serializeRecipePhotoQuery(queries: string[]) {
 }
 
 function buildMealPlanPhotoExactNames(meal: MealPlanMeal) {
+  const englishMealName = translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
   return Array.from(
     new Set(
       [
         meal.name,
+        englishMealName,
         meal.image_search_index,
         ...(meal.image_search_indices ?? [])
       ]

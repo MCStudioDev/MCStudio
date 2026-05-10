@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent } from "react";
 import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { RecipeImageSource } from "@/lib/types";
@@ -96,6 +96,7 @@ export function MealRevealCard({
 }: MealRevealCardProps) {
   const { t } = useApp();
   const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
+  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const bypassClientCache = false;
   const cardRef = useRef<HTMLElement | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
@@ -173,7 +174,7 @@ export function MealRevealCard({
     !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
       ? cachedImageEntry.imageUrl
       : "";
-  const cachedFailure = access.tier !== "premium" && !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
+  const cachedFailure = !hasGeneratedImageAccess && !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage =
     lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) && !isFailedImageUrl(lookupState.image)
       ? lookupState.image
@@ -405,7 +406,7 @@ export function MealRevealCard({
         const retryAfterSeconds = Number(error instanceof Error ? error.message : "0") || 0;
         const retryUntil = now + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS);
         const premiumRetryCount = premiumRetryCountsRef.current.get(queryKey) ?? 0;
-        if (access.tier === "premium" && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
+        if (hasGeneratedImageAccess && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
           premiumRetryCountsRef.current.set(queryKey, premiumRetryCount + 1);
           setLookupState({
             failed: false,
@@ -429,7 +430,7 @@ export function MealRevealCard({
           );
           return;
         }
-        if (!bypassClientCache && access.tier !== "premium") {
+        if (!bypassClientCache && !hasGeneratedImageAccess) {
           recipePhotoFailureCache.set(queryKey, retryUntil);
         }
         setLookupState({
@@ -450,7 +451,7 @@ export function MealRevealCard({
       globalThis.clearTimeout(loadingStateTimeout);
     };
   }, [
-    access.tier,
+    hasGeneratedImageAccess,
     authLoading,
     bypassClientCache,
     cachedImage,
@@ -673,20 +674,20 @@ function RecipeFrontFace({
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 to-transparent" />
 
       {noImageState ? (
-        <div className="absolute inset-0 z-10 flex flex-col justify-between gap-4 px-4 pb-4 pt-[4.5rem] sm:px-5 sm:pb-5 sm:pt-[4.8rem]">
+        <div className="absolute inset-0 z-10 flex flex-col justify-between gap-3 px-4 pb-3 pt-12 sm:px-5 sm:pb-4 sm:pt-14">
           <div className="flex justify-center">
-            <div className="w-full max-w-[14rem] rounded-[1.8rem] border border-white/12 bg-[#f5fffc]/8 p-4 text-center text-white/86 backdrop-blur-md sm:max-w-[15rem] sm:p-5">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-white/12 bg-white/10 text-cyan-100 shadow-[0_18px_40px_rgba(3,18,16,0.28)] sm:h-16 sm:w-16">
-                <ChefHat className="h-7 w-7 sm:h-8 sm:w-8" />
+            <div className="w-full max-w-[13rem] rounded-[1.6rem] border border-white/12 bg-[#f5fffc]/8 p-3 text-center text-white/86 backdrop-blur-md sm:max-w-[14rem] sm:p-4">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-white/10 text-cyan-100 shadow-[0_18px_40px_rgba(3,18,16,0.28)] sm:h-14 sm:w-14">
+                <ChefHat className="h-6 w-6 sm:h-7 sm:w-7" />
               </div>
-              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-cyan-200/18 bg-cyan-300/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100 sm:mt-4">
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-cyan-200/18 bg-cyan-300/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
                 <Sparkles className="h-3.5 w-3.5" />
                 {imageLoading ? t("findingPhoto") : t("curatedFallback")}
               </div>
-              <p className="mt-3 text-sm font-semibold text-white">
+              <p className="mt-2 text-xs font-semibold text-white sm:text-sm">
                 {imageLoading ? t("generatingRecipeImage") : t("awaitingPlatedMatch")}
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-white/62">
+              <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-white/62 sm:text-xs">
                 {imageLoading ? t("recipeImageLoadingHint") : t("hideWeakMatches")}
               </p>
               {showNoExactPhoto && !imageLoading ? (
@@ -705,17 +706,17 @@ function RecipeFrontFace({
             </div>
           </div>
 
-          <div className="rounded-[1.45rem] border border-white/10 bg-[rgba(4,12,10,0.74)] p-4 backdrop-blur-md">
+          <div className="rounded-[1.35rem] border border-white/10 bg-[rgba(4,12,10,0.82)] p-3 backdrop-blur-md sm:p-4">
             <div className="space-y-2">
               {eyebrow ? (
                 <p className="theme-recipe-front-eyebrow text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100/82">{eyebrow}</p>
               ) : null}
-              <h3 className="theme-recipe-front-title line-clamp-3 break-words text-[1.35rem] font-display font-bold leading-tight drop-shadow-sm sm:text-[1.65rem]">{name}</h3>
+              <h3 className="theme-recipe-front-title line-clamp-2 break-words text-[1.15rem] font-display font-bold leading-tight drop-shadow-sm sm:line-clamp-3 sm:text-[1.45rem]">{name}</h3>
               {summary ? <p className="theme-recipe-front-summary line-clamp-2 max-w-xl text-xs leading-relaxed text-white/74 sm:text-sm">{summary}</p> : null}
             </div>
 
             {headlineStats.length ? (
-              <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 {headlineStats.map((stat) => (
                   <div
                     key={`headline-${stat.label}-${stat.value}`}
@@ -734,7 +735,7 @@ function RecipeFrontFace({
                 event.stopPropagation();
                 onOpenRecipe();
               }}
-              className="focus-ring theme-recipe-front-badge mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/88 backdrop-blur-md transition hover:bg-white/[0.18]"
+              className="focus-ring theme-recipe-front-badge mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/88 backdrop-blur-md transition hover:bg-white/[0.18]"
             >
               <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               {t("viewRecipe")}

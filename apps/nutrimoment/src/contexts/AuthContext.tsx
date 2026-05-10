@@ -12,9 +12,19 @@ import {
 import { auth, db } from '../config/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
+export type EntitlementFeatureKey =
+  | "mealPlan.weekly"
+  | "pantry.imageScan"
+  | "recipes.api"
+  | "recipes.imageLookup"
+  | "recipes.offline"
+  | "shoppingList.quantities"
+  | "pantry.manual";
+
 export interface UserAccessState {
   role: "admin" | "user";
   tier: "free" | "premium";
+  features: Partial<Record<EntitlementFeatureKey, boolean>>;
   aiCreditsLimit: number;
   aiCreditsUsed: number;
   aiCreditsRemaining: number;
@@ -37,6 +47,7 @@ interface AuthContextType {
 const DEFAULT_ACCESS: UserAccessState = {
   role: "user",
   tier: "free",
+  features: {},
   aiCreditsLimit: 10,
   aiCreditsUsed: 0,
   aiCreditsRemaining: 10,
@@ -82,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const entitlement = entitlementDoc.data();
     const tier = entitlement?.tier === "premium" || tokenResult.claims.tier === "premium" ? "premium" : "free";
     const role = entitlement?.role === "admin" || tokenResult.claims.role === "admin" ? "admin" : "user";
+    const features = normalizeEntitlementFeatures(entitlement?.features);
     const aiCreditsUsed = Number(usage?.lifetimeUsed ?? 0);
     const aiCreditsLimit = Math.max(10, Number(usage?.lifetimeLimit ?? 10));
     const weeklyPlanUsed = Number(weeklyPlanUsage?.lifetimeUsed ?? 0);
@@ -90,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccess({
       role,
       tier,
+      features,
       aiCreditsLimit,
       aiCreditsUsed,
       aiCreditsRemaining: tier === "premium" ? aiCreditsLimit : Math.max(aiCreditsLimit - aiCreditsUsed, 0),
@@ -173,6 +186,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function hasRecipeImageLookupAccess(access: UserAccessState) {
+  return (
+    access.role === "admin" ||
+    access.tier === "premium" ||
+    access.features["recipes.imageLookup"] === true ||
+    access.aiCreditsLimit > 0 ||
+    access.weeklyPlanLimit > 0
+  );
+}
+
 async function withFirebaseClientRetry<T>(operation: () => Promise<T>): Promise<T> {
   let lastError: unknown;
 
@@ -189,4 +212,26 @@ async function withFirebaseClientRetry<T>(operation: () => Promise<T>): Promise<
   }
 
   throw lastError;
+}
+
+function normalizeEntitlementFeatures(value: unknown): Partial<Record<EntitlementFeatureKey, boolean>> {
+  if (!value || typeof value !== "object") return {};
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [EntitlementFeatureKey, unknown] => isEntitlementFeatureKey(entry[0]))
+      .map(([key, enabled]) => [key, enabled === true])
+  );
+}
+
+function isEntitlementFeatureKey(value: string): value is EntitlementFeatureKey {
+  return [
+    "mealPlan.weekly",
+    "pantry.imageScan",
+    "recipes.api",
+    "recipes.imageLookup",
+    "recipes.offline",
+    "shoppingList.quantities",
+    "pantry.manual"
+  ].includes(value);
 }

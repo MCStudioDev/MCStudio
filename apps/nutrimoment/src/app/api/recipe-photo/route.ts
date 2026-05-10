@@ -177,7 +177,7 @@ export async function GET(request: Request) {
     ? selectReplicateRecipePhotoQuery(replicateQueryCandidates, replicateIdentities, ingredientHints)
     : null;
   const selectedReplicateSignature = selectedReplicateQuery ? buildGeneratedRecipePhotoSignature(selectedReplicateQuery) : null;
-  const allowProviderPhotoSearch = accessCheck.allowed || !useReplicateGeneration;
+  const allowProviderPhotoSearch = !useReplicateGeneration && accessCheck.allowed;
   const generatedAliasCandidates = buildGeneratedRecipePhotoCacheAliasCandidates([...replicateIdentities, ...identities]);
   const signatureCandidates = useReplicateGeneration
     ? Array.from(new Set([...(selectedReplicateSignature ? [selectedReplicateSignature] : []), ...generatedAliasCandidates]))
@@ -669,7 +669,7 @@ async function performRecipePhotoLookup({
 
   if (useReplicateGeneration) {
     if (!isReplicateConfigured()) {
-      logger.warn("Premium Replicate recipe image generation is not configured; falling back to provider search", {
+      logger.warn("Premium Replicate recipe image generation is not configured; provider fallback is disabled", {
         query,
         signature: baseIdentity.signature
       });
@@ -677,7 +677,7 @@ async function performRecipePhotoLookup({
     } else {
       const replicateQuery = selectReplicateRecipePhotoQuery(replicateQueryCandidates, replicateIdentities, ingredientHints);
       if (!replicateQuery) {
-        logger.warn("No strong Replicate image prompt was available; falling back to provider search", {
+        logger.warn("No strong Replicate image prompt was available; provider fallback is disabled", {
           query,
           signature: baseIdentity.signature
         });
@@ -720,7 +720,7 @@ async function performRecipePhotoLookup({
                 excludedUrls.has(selectedPhoto.imageUrl) ||
                 isRecipePhotoRecentlyUsedForDifferentSignature(selectedPhoto.imageUrl, generatedSelectionSignatures);
               if (isDuplicateGeneratedImage) {
-                logger.warn("Replicate returned an image already excluded for this request; falling back", {
+                logger.warn("Replicate returned an image already excluded for this request; provider fallback is disabled", {
                   query,
                   replicateQuery,
                   signature: replicateCacheSignature
@@ -765,7 +765,7 @@ async function performRecipePhotoLookup({
             }
           }
 
-          logger.warn("Replicate did not return a usable unique image; falling back to provider search", {
+          logger.warn("Replicate did not return a usable unique image; provider fallback is disabled", {
             query,
             replicateQuery,
             signature: replicateCacheSignature
@@ -774,7 +774,7 @@ async function performRecipePhotoLookup({
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           const status = /\b429\b|rate.?limit/i.test(errorMessage) ? 429 : 503;
-          logger.warn("Replicate recipe image generation failed; falling back to provider search", {
+          logger.warn("Replicate recipe image generation failed; provider fallback is disabled", {
             query,
             replicateQuery,
             signature: replicateCacheSignature,
@@ -784,6 +784,20 @@ async function performRecipePhotoLookup({
         }
       }
     }
+
+    const noReplicateFailure = createRecipePhotoFailure(
+      replicateFallbackReason
+        ? "Replicate image generation is temporarily unavailable. Retrying generated images shortly."
+        : "Premium recipe image generation is still working. Retrying generated images shortly.",
+      503,
+      PREMIUM_REPLICATE_RETRY_TTL_MS,
+      PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
+    );
+    setRecipePhotoFailureCache(failureCacheKey, noReplicateFailure);
+    return {
+      failure: noReplicateFailure,
+      ok: false
+    };
   }
 
   if (preferWikimediaFirst && WIKIMEDIA_ENABLED) {

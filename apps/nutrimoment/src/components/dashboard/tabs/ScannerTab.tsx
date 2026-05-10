@@ -17,7 +17,7 @@ import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -202,13 +202,13 @@ export function ScannerTab() {
 
       const renderableImageCounts = new Map<string, number>();
       inputRecipes.forEach((recipe) => {
-        if (!hasRenderableImage(recipe.image_url)) return;
+        if (!hasStrictRenderableImage(recipe.image_url, isPremium)) return;
         renderableImageCounts.set(recipe.image_url, (renderableImageCounts.get(recipe.image_url) ?? 0) + 1);
       });
 
       const keptRenderableUrls = new Set<string>();
       const duplicateRefreshFlags = inputRecipes.map((recipe) => {
-        if (!hasRenderableImage(recipe.image_url)) return false;
+        if (!hasStrictRenderableImage(recipe.image_url, isPremium)) return false;
         const count = renderableImageCounts.get(recipe.image_url) ?? 0;
         if (count <= 1) {
           keptRenderableUrls.add(recipe.image_url);
@@ -222,7 +222,7 @@ export function ScannerTab() {
       });
 
       const seeded = inputRecipes.map((recipe, index) =>
-        hasRenderableImage(recipe.image_url) && !duplicateRefreshFlags[index]
+        hasStrictRenderableImage(recipe.image_url, isPremium) && !duplicateRefreshFlags[index]
           ? { ...recipe, image_loading: false, image_error: false }
           : { ...recipe, image_loading: true, image_error: false }
       );
@@ -234,7 +234,7 @@ export function ScannerTab() {
         seeded
           .filter((_, index) => !duplicateRefreshFlags[index])
           .map((recipe) => recipe.image_url)
-          .filter((imageUrl): imageUrl is string => hasRenderableImage(imageUrl))
+          .filter((imageUrl): imageUrl is string => hasStrictRenderableImage(imageUrl, isPremium))
       );
       const resolved: Recipe[] = [...seeded];
       const pendingPremiumIndexes = new Set<number>();
@@ -314,12 +314,12 @@ export function ScannerTab() {
 
       const lookupCandidates = seeded
         .map((recipe, index) => ({ index, recipe }))
-        .filter(({ index, recipe }) => duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url));
+        .filter(({ index, recipe }) => duplicateRefreshFlags[index] || !hasStrictRenderableImage(recipe.image_url, isPremium));
       const lookupTasks = lookupCandidates.slice(0, maxLookups);
       const skippedLookupIndexes = new Set(lookupCandidates.slice(maxLookups).map(({ index }) => index));
 
       seeded.forEach((recipe, index) => {
-        const needsLookup = duplicateRefreshFlags[index] || !hasRenderableImage(recipe.image_url);
+        const needsLookup = duplicateRefreshFlags[index] || !hasStrictRenderableImage(recipe.image_url, isPremium);
         if (!needsLookup || skippedLookupIndexes.has(index)) {
           resolved[index] = { ...recipe, image_loading: false, image_error: false };
         }
@@ -559,7 +559,9 @@ export function ScannerTab() {
     }
   }, [historyItems, hydrateRecipePhotos, setError, t]);
 
-  const missingPremiumRecipeImages = recipes.filter((recipe) => !hasRenderableImage(recipe.image_url)).length;
+  const missingPremiumRecipeImages = recipes.filter(
+    (recipe) => !hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess)
+  ).length;
 
   useEffect(() => {
     if (!hasGeneratedImageAccess || recipeLoading || !missingPremiumRecipeImages) return;
@@ -1153,7 +1155,7 @@ export function ScannerTab() {
                   summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                   previewLabel={getRecipePreviewLabel(recipe, t)}
                   previewItems={buildRecipePreviewItems(recipe)}
-                  imageUrl={recipe.image_url}
+                  imageUrl={hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess) ? recipe.image_url : undefined}
                   imageSource={recipe.image_source}
                   imageAttributionName={recipe.image_attribution_name}
                   imageAttributionUrl={recipe.image_attribution_url}
@@ -1235,6 +1237,11 @@ export function ScannerTab() {
 
 function hasRenderableImage(imageUrl?: string): imageUrl is string {
   return isDurableRecipeImageUrl(imageUrl);
+}
+
+function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
+  if (!hasRenderableImage(imageUrl)) return false;
+  return !strictGeneratedOnly || isReplicateGeneratedRecipeImageUrl(imageUrl);
 }
 
 function getScannerLoadingStatus({

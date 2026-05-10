@@ -15,3 +15,15 @@ export function isTransientRecipeImageUrl(imageUrl?: string | null) {
 export function isDurableRecipeImageUrl(imageUrl?: string | null): imageUrl is string {
   return isHttpImageUrl(imageUrl) && !isTransientRecipeImageUrl(imageUrl);
 }
+
+export function isReplicateGeneratedRecipeImageUrl(imageUrl?: string | null): imageUrl is string {
+  if (!isDurableRecipeImageUrl(imageUrl)) return false;
+
+  try {
+    const url = new URL(imageUrl);
+    const decodedPath = decodeURIComponent(url.pathname);
+    return decodedPath.includes("/recipe-photo-cache/generated:");
+  } catch {
+    return /recipe-photo-cache(?:%2f|\/)generated%3a/i.test(imageUrl);
+  }
+}

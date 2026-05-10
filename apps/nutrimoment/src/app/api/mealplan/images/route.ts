@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { accessErrorResponse, hasRecipeImageAccess, requireUser } from "@/services/authService";
 import { listUserCachedRecipes } from "@/services/userRecipeCacheService";
 
@@ -114,5 +114,5 @@ function normalizeExactName(value: string) {
 }
 
 function isRenderableImage(value?: string): value is string {
-  return isDurableRecipeImageUrl(value);
+  return isReplicateGeneratedRecipeImageUrl(value);
 }

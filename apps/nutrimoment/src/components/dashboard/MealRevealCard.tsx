@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +102,7 @@ export function MealRevealCard({
   const premiumRetryCountsRef = useRef<Map<string, number>>(new Map());
   const [lookupActivated, setLookupActivated] = useState(false);
   const [lookupRetryToken, setLookupRetryToken] = useState(0);
+  const [manualImageLookupRequested, setManualImageLookupRequested] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
@@ -110,6 +112,7 @@ export function MealRevealCard({
     imageAttributionUrl?: string;
     image: string;
     imageSource?: RecipeImageSource;
+    loading: boolean;
     queryKey: string;
     retrying: boolean;
   }>({
@@ -118,6 +121,7 @@ export function MealRevealCard({
     imageAttributionUrl: undefined,
     image: "",
     imageSource: undefined,
+    loading: false,
     queryKey: "",
     retrying: false
   });
@@ -152,6 +156,7 @@ export function MealRevealCard({
           imageAttributionUrl: undefined,
           image: "",
           imageSource: undefined,
+          loading: false,
           queryKey,
           retrying: false
         };
@@ -168,21 +173,20 @@ export function MealRevealCard({
     !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
       ? cachedImageEntry.imageUrl
       : "";
-  const cachedFailure = !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
+  const cachedFailure = access.tier !== "premium" && !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage =
     lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) && !isFailedImageUrl(lookupState.image)
       ? lookupState.image
       : "";
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
+  const lookupLoading = lookupState.queryKey === queryKey ? lookupState.loading : false;
   const lookupRetrying = lookupState.queryKey === queryKey ? lookupState.retrying : false;
   const internetProvidedImage = isInternetImageUrl(imageUrl) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
-  const shouldRefreshProvidedImage = internetProvidedImage
-    ? Boolean(queryKey) && isRecipePhotoRecentlyAssignedToDifferentQuery(internetProvidedImage, queryKey)
-    : false;
-  const effectiveProvidedImage = shouldRefreshProvidedImage ? "" : internetProvidedImage;
+  const effectiveProvidedImage = internetProvidedImage;
   const resolvedImage = imageLoading ? "" : effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
-  const showNoExactPhoto = !resolvedImage && (imageError || lookupFailed || cachedFailure);
+  const effectiveImageLoading = Boolean(imageLoading || lookupLoading || lookupRetrying);
+  const showNoExactPhoto = !resolvedImage && !effectiveImageLoading && (imageError || lookupFailed || cachedFailure);
   const excludedImageUrls = useMemo(
     () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
     [failedImageUrls, queryKey]
@@ -242,9 +246,11 @@ export function MealRevealCard({
       imageAttributionUrl: undefined,
       image: "",
       imageSource: undefined,
+      loading: false,
       queryKey,
       retrying: false
     });
+    setManualImageLookupRequested(true);
     setLookupActivated(true);
     setLookupRetryToken((value) => value + 1);
   }, [queryKey]);
@@ -286,7 +292,7 @@ export function MealRevealCard({
   }, [deferImageLookup, lookupActivated]);
 
   useEffect(() => {
-    if (disableAutoImageLookup) return;
+    if (disableAutoImageLookup && !manualImageLookupRequested) return;
     if (authLoading) return;
     if (!lookupEnabled) return;
     if (imageLoading) return;
@@ -305,6 +311,19 @@ export function MealRevealCard({
       return;
     }
 
+    const loadingStateTimeout = globalThis.setTimeout(() => {
+      if (cancelled) return;
+      setLookupState({
+        failed: false,
+        imageAttributionName: undefined,
+        imageAttributionUrl: undefined,
+        image: "",
+        imageSource: undefined,
+        loading: true,
+        queryKey,
+        retrying: false
+      });
+    }, 0);
     const existingRequest = inFlightRecipePhotoRequests.get(queryKey);
     const request =
       existingRequest ??
@@ -366,10 +385,12 @@ export function MealRevealCard({
           imageAttributionUrl: data.imageAttributionUrl,
           image: data.imageUrl,
           imageSource: data.imageSource,
+          loading: false,
           queryKey,
           retrying: false
         });
         premiumRetryCountsRef.current.delete(queryKey);
+        setManualImageLookupRequested(false);
         void onImageResolved?.({
           imageAttributionName: data.imageAttributionName,
           imageAttributionUrl: data.imageAttributionUrl,
@@ -384,7 +405,7 @@ export function MealRevealCard({
         const retryAfterSeconds = Number(error instanceof Error ? error.message : "0") || 0;
         const retryUntil = now + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS);
         const premiumRetryCount = premiumRetryCountsRef.current.get(queryKey) ?? 0;
-        if (access.tier === "premium" && retryAfterSeconds > 0 && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
+        if (access.tier === "premium" && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
           premiumRetryCountsRef.current.set(queryKey, premiumRetryCount + 1);
           setLookupState({
             failed: false,
@@ -392,6 +413,7 @@ export function MealRevealCard({
             imageAttributionUrl: undefined,
             image: "",
             imageSource: undefined,
+            loading: false,
             queryKey,
             retrying: true
           });
@@ -400,11 +422,14 @@ export function MealRevealCard({
           }
           retryTimeoutRef.current = globalThis.setTimeout(
             () => setLookupRetryToken((value) => value + 1),
-            Math.min(retryAfterSeconds * 1000, PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS)
+            Math.min(
+              retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 5000,
+              PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS
+            )
           );
           return;
         }
-        if (!bypassClientCache) {
+        if (!bypassClientCache && access.tier !== "premium") {
           recipePhotoFailureCache.set(queryKey, retryUntil);
         }
         setLookupState({
@@ -413,13 +438,16 @@ export function MealRevealCard({
           imageAttributionUrl: undefined,
           image: "",
           imageSource: undefined,
+          loading: false,
           queryKey,
           retrying: false
         });
+        setManualImageLookupRequested(false);
       });
 
     return () => {
       cancelled = true;
+      globalThis.clearTimeout(loadingStateTimeout);
     };
   }, [
     access.tier,
@@ -436,6 +464,7 @@ export function MealRevealCard({
     lookupEnabled,
     lookupFailed,
     lookupRetryToken,
+    manualImageLookupRequested,
     lookedUpImage,
     onImageResolved,
     primaryQuery,
@@ -511,7 +540,7 @@ export function MealRevealCard({
                 summary={cardSummary}
                 headlineStats={headlineStats}
                 resolvedImage={resolvedImage}
-                imageLoading={imageLoading || lookupRetrying}
+                imageLoading={effectiveImageLoading}
                 showNoExactPhoto={showNoExactPhoto}
                 placeholderStyle={placeholderStyle}
                 onImageLoadError={handleImageLoadError}
@@ -912,7 +941,7 @@ function hashRecipeSeed(seed: string) {
 }
 
 function isInternetImageUrl(imageUrl?: string): imageUrl is string {
-  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+  return isDurableRecipeImageUrl(imageUrl);
 }
 
 function isRecipePhotoFailureCached(queryKey: string) {

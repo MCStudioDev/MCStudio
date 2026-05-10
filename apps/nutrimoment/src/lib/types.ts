@@ -102,6 +102,7 @@ export interface Recipe {
 
 export interface MealPlanMeal {
   name: string;
+  cuisine?: string;
   image_search_index?: string;
   image_search_indices?: string[];
   calories: number;
@@ -133,6 +134,8 @@ export interface MealPlanData {
 export interface HistoryItem {
   id: string;
   timestamp: string;
+  title?: string;
+  sessionType?: "recipe_generation" | "weekly_meal_plan";
   ingredients: string[];
   recipes: Recipe[];
   generationStatus?: "pending" | "completed" | "failed";

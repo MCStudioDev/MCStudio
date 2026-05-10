@@ -301,11 +301,13 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     stapleStarches: ["bread", "potato", "pasta", "oats", "rice"],
     stapleAromatics: ["onion", "garlic", "mustard", "celery", "black pepper"],
     stapleSauces: ["gravy", "cheese sauce", "barbecue sauce", "pan sauce"],
-    visualAnchors: ["golden cheese tops", "hash-browned potatoes", "stacked sandwiches", "sheet-pan roasted trays"],
+    visualAnchors: ["golden cheese tops", "hash-browned potatoes", "stacked sandwiches", "red-sauce ground beef penne", "chunky hamburger stew", "sheet-pan roasted trays"],
     breakfastPatterns: ["scrambled eggs and toast", "breakfast hash", "oatmeal bowl", "omelette"],
-    lunchDinnerPatterns: ["meatloaf-style plates", "burgers", "mac and cheese", "skillet chicken", "sheet-pan dinners", "grilled cheese and soup"],
+    lunchDinnerPatterns: ["meatloaf-style plates", "burgers", "mac and cheese", "ground beef penne", "ground beef pasta skillet", "hamburger stew", "skillet chicken", "sheet-pan dinners", "grilled cheese and soup"],
     dishTriggers: [
       "ground beef + bread buns -> burger family",
+      "ground beef + penne/pasta + tomato sauce -> one-pan ground beef penne or beef tomato pasta skillet",
+      "ground beef + potato/carrot/celery + tomato -> hamburger stew",
       "pasta + cheddar/milk -> mac and cheese",
       "potato + egg + onion -> breakfast hash",
       "ground meat + breadcrumbs + onion -> meatloaf-style bake"
@@ -368,19 +370,21 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     ]
   },
   turkish: {
-    substyles: ["grill-house kofte and kebabs", "home-style tomato and egg pans", "eggplant and pilaf comfort dishes"],
+    substyles: ["grill-house kofte and kebabs", "Turkish bakery flatbreads", "savory borek pastries", "home-style tomato and egg pans", "eggplant and pilaf comfort dishes"],
     stapleProteins: ["ground meat", "lamb", "beef", "egg", "yogurt", "lentil", "chicken"],
     stapleStarches: ["rice", "flatbread", "bulgur", "pide"],
     stapleAromatics: ["onion", "garlic", "parsley", "cumin", "sumac", "paprika", "aleppo pepper", "tomato paste"],
     stapleSauces: ["pepper paste", "tomato sauce", "yogurt sauce", "butter-paprika drizzle"],
-    visualAnchors: ["grilled kofte logs", "charred kebab skewers", "tomato-rich egg pans", "yogurt-finished meat plates", "rice pilaf beside kebabs"],
+    visualAnchors: ["grilled kofte logs", "charred kebab skewers", "boat-shaped kiymali pide", "thin round lahmacun", "golden spiral borek", "split stuffed karniyarik eggplant", "layered Turkish musakka", "tomato-rich egg pans", "yogurt-finished meat plates", "rice pilaf beside kebabs"],
     breakfastPatterns: ["menemen", "egg and pepper skillets", "cheese and tomato breakfast plates"],
-    lunchDinnerPatterns: ["kofte", "adana kebab", "karniyarik", "lentil soup", "pilaf plates", "yogurt-led grill plates"],
+    lunchDinnerPatterns: ["kofte", "adana kebab", "kiymali pide", "lahmacun", "spiral borek", "karniyarik", "turkish musakka", "lentil soup", "pilaf plates", "yogurt-led grill plates"],
     dishTriggers: [
       "ground meat + onion + parsley + cumin -> kofte",
       "ground meat + paprika or pepper paste -> adana kebab style dish",
+      "ground meat + dough/flatbread + tomato/pepper -> kiymali pide or lahmacun",
+      "ground meat + phyllo/yufka + onion/spices -> Turkish spiral borek",
       "egg + tomato + pepper -> menemen",
-      "eggplant + ground meat + tomato -> karniyarik"
+      "eggplant + ground meat + tomato -> karniyarik or Turkish musakka"
     ],
     substitutionRules: [
       "If a Turkish dish needs pepper paste, sumac, yogurt, or flatbread to feel authentic, keep the dish family and place those items in missing_ingredients.",
@@ -427,12 +431,42 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const hasPastaSignals = ingredientNames.some((ingredient) => isPastaLikeIngredient(String(ingredient)));
   const perMealCalories = Math.round(options.calorieTarget / 3);
   const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
+  const organMeatGuidance = buildOrganMeatGuidance(ingredients, recipeCount, options.preferredCuisine);
+  const dietVarietyGuidance = buildDietVarietyGuidance(options.diets, options.conditions, recipeCount);
+  const groundMeatDistinctCardGuidance = buildGroundMeatDistinctCardGuidance(
+    ingredients,
+    recipeCount,
+    options.preferredCuisine
+  );
+  const ingredientCombinationGuidance = buildIngredientCombinationGuidance(
+    ingredients,
+    recipeCount,
+    options.preferredCuisine
+  );
   const cuisineTargetCount = recipeCount <= 2 ? recipeCount : recipeCount - 1;
   const candidateDishHints = options.candidateDishHints?.trim();
   const canonicalDishHint = options.canonicalDishHint?.trim();
+  const isArabicMode = options.recipeLanguage.toLowerCase() === "arabic";
+  const availableIngredientsLine = isArabicMode
+    ? `مكونات المستخدم المتاحة، اتركها كما كتبها المستخدم ولا تترجمها داخل هذا السطر: ${ingredientNames.join(", ") || "لا توجد مكونات"}.`
+    : `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`;
+  const availableQuantitiesLine = isArabicMode
+    ? `كميات المكونات المتاحة، اترك أسماء المكونات كما كتبها المستخدم: ${ingredientQuantities.join(", ") || "غير متوفرة"}.`
+    : `Available ingredient quantities: ${ingredientQuantities.join(", ") || "not provided"}.`;
+  const arabicPromptPriorityBlock = isArabicMode
+    ? [
+        "تعليمات مهمة لوضع اللغة العربية:",
+        "اترك أسماء مكونات المستخدم كما هي بالضبط في سطر المكونات المتاحة ولا تترجمها داخل البرومبت.",
+        "اكتب كل الحقول التي يقرأها المستخدم بالعربية فقط: الاسم، المطبخ، المكونات، المكونات الناقصة، الخطوات، وقت الطبخ، الصعوبة، أسباب المطابقة، قائمة التسوق، وشرح المطابقة.",
+        "اترك حقول الصور والبحث باللغة الإنجليزية فقط لأنها تذهب إلى البحث وتوليد الصور: image_search_index و image_search_indices وكل حقول dish_intent.",
+        "لا تخلط الإنجليزية داخل الحقول العربية إلا إذا كانت الكلمة دارجة كتعريب شائع.",
+        "يجب أن يحتوي localized على مفتاحين فقط بهذه الأحرف الكبيرة: English و Arabic."
+      ].join(" ")
+    : "";
 
   return [
     "You are NutriMoment's recipe generation assistant.",
+    arabicPromptPriorityBlock,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     `Generate exactly ${recipeCount} practical recipes.`,
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
@@ -448,7 +482,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
       ? "For Any cuisine, prefer a varied mix such as different cuisine families, dish structures, and meal contexts while still keeping the strongest pantry-first matches at the top."
       : `For ${options.preferredCuisine}, generate the requested count by choosing traditional or directly related named dishes from that cuisine. Use missing_ingredients for authentic support items instead of drifting to off-cuisine recipes.`,
     options.preferredCuisine === "Any"
-      ? `Try to cover at least ${Math.min(recipeCount, 3)} different cuisine styles when enough plausible options exist.`
+      ? `Try to cover at least ${Math.min(recipeCount, recipeCount >= 8 ? 5 : 3)} different cuisine styles when enough plausible options exist.`
       : `At least ${cuisineTargetCount} of the ${recipeCount} recipes must clearly belong to ${options.preferredCuisine}. Only go outside ${options.preferredCuisine} when the user selected highly restrictive diets, allergies, or medical conditions that make a traditional option unsafe; explain that compromise in preference_hits.`,
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, vibrant, or loaded unless they are essential to distinguish the dish.",
     "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
@@ -459,6 +493,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
       : "",
     "When the pantry strongly matches a known cuisine-specific dish, prefer that exact dish family over a generic fallback. Example: Egyptian plus ground meat should bias toward kofta, hawawshi, or macarona bechamel when the supporting starches and aromatics fit.",
     "Variety hard rule: do not return the same named plate, same dish_intent.dish_name, or same visual structure twice with only a different sauce, garnish, photo, or wording. Each recipe should represent a meaningfully different meal family, cooking form, starch/sauce structure, or serving format while staying accurate to the pantry and cuisine.",
+    "Image identity hard rule: every recipe must have a different first image_search_index and a different dish_intent.dish_name. Never let multiple cards collapse to generic phrases such as ground meat, beef, minced meat, meat plate, liver plate, fish plate, seafood plate, chicken plate, or dinner plate.",
+    "If two recipes share the same main protein, they must differ in at least two visible dimensions: cuisine, cooking method, starch/base, sauce, shape, serving format, or plating. Do not output repeated diet variants of the same plate.",
+    "Basic fallback ban: do not fill the list with plain grilled, pan-seared, garlic-lemon, garlic butter, lemon herb, or protein-with-pasta recipes. Those are allowed only when the ingredient set truly points there, and never more than one card in a 10-card set.",
     "Accuracy plus creativity rule: be creative inside real cuisine boundaries. Prefer a spread of different authentic forms such as grilled plate, stuffed bread, stew, baked casserole, rice dish, pasta dish, soup, salad, skillet, or sandwich only when that form is genuinely correct for the cuisine and ingredients.",
     options.preferredCuisine === "Any"
       ? "Chicken variety examples for Any cuisine: when chicken is the main pantry ingredient, consider distinct real dish families such as honey garlic chicken, shish tawook, breaded chicken cutlets, chicken tenders, creamy chicken soup, chicken negresco pasta, chicken alfredo pasta, chicken shawarma plate, chicken piccata, butter chicken, teriyaki chicken, chicken biryani, or arroz con pollo. Pick only those that fit the available pantry, diet, and missing-ingredient budget."
@@ -481,9 +518,14 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     substyleGuidance,
     mealTypeRoutingGuidance,
     ingredientDrivenCuisineGuidance,
+    dietVarietyGuidance,
+    organMeatGuidance,
+    groundMeatDistinctCardGuidance,
+    ingredientCombinationGuidance,
     sparseIngredientGuidance,
     "For every recipe also output image_search_indices: an array of 3 to 5 short English food-photo search phrases tuned for Unsplash first and Pexels second, ordered from most exact to broader backup searches.",
     "Each image_search_indices item should be 2 to 6 words, use canonical dish nouns first, add cuisine, protein, sauce, cooking method, or starch only when they improve image accuracy, and avoid quantities, health claims, macro words, filler adjectives, and branding.",
+    "The first image_search_indices item must name the exact dish family or exact plated form, not only the ingredient. Examples: use hawawshi, Egyptian rice kofta, Turkish lahmacun, Turkish karniyarik, hamburger stew, ground beef penne, or garlic shrimp linguine instead of ground meat, beef, shrimp, or seafood.",
     "When the dish has an important visual variant, encode it in the search phrases. Examples: use red sauce pasta vs white sauce pasta, grilled chicken vs fried chicken, rice noodles vs pasta, tomato soup vs creamy soup.",
     imageGuidance,
     "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
@@ -497,13 +539,13 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Start from pantry-first recipes that visibly center the scanned or typed ingredients, then degrade only later if the pantry is too sparse.",
     "If the pantry is too sparse to satisfy the full recipe count under that rule, keep the most pantry-heavy recipes first and only then allow later recipes to have more missing_ingredients than ingredients.",
     "If the recipe needs canonical spices, herbs, pepper paste, yogurt sauce, tahini, butter, citrus, or finishing oil to feel authentic, include those exact items in missing_ingredients instead of silently omitting them or replacing them with generic 'seasoning'.",
-    `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`,
-    `Available ingredient quantities: ${ingredientQuantities.join(", ") || "not provided"}.`,
+    availableIngredientsLine,
+    availableQuantitiesLine,
     preferenceBrief,
     cuisineHint,
     `Recipe language: ${options.recipeLanguage}.`,
     languageOutputGuidance,
-    "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants. The helper translator should only be used as a fallback when one localized side is incomplete.",
+    "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants with those exact capitalized keys. The helper translator should only be used as a fallback when one localized side is incomplete.",
     `Target calories per meal: approximately ${perMealCalories} kcal; keep each recipe within about 15% unless the health profile requires a tighter limit.`,
     `Maximum missing ingredients allowed per recipe: ${options.maxMissingIngredients}.`,
     "Missing ingredients must be compatible with the diet and health rules. Be strict: never put cucumber, herbs, spices, oil, sauces, or staple ingredients in ingredients unless they are in Available pantry ingredients.",
@@ -515,11 +557,138 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Include prep, cooking, finishing, and plating steps; if a sauce, dressing, spice mix, or garnish is needed, tell the user exactly when and how much to add.",
     "For cuisine-authentic recipes, build the seasoning profile explicitly in the steps. State the spice amounts, when they bloom or get mixed in, and what flavor role they play on the final plate.",
     "For ground meat or chopped meat, translate the protein into cuisine-native dish forms and names. Examples: Egyptian kofta or hawawshi, Turkish kofte or adana kebab, Middle Eastern kebab or kofta, Indian keema.",
+    "For liver, kebda, kibda, ciger, or cigeri, treat it as organ meat, not generic beef or red meat. Recipe names, dish_intent.dish_name, visual_keywords, image_search_index, and image_search_indices must explicitly say liver, kebda, kibda, ciger, or cigeri. Do not rename it to beef, steak, meat cubes, kofta, kebab, burger, or ground meat.",
     "For seafood, choose the correct dish form instead of a generic fish or shrimp recipe. Use cuisine plus starch plus method reasoning to decide between grilled fish, fish rice, fish soup, shrimp linguine, garlic shrimp rice, curry shrimp, fried shrimp, or sandwich-style fish dishes.",
     "Return a JSON array, not an object.",
     "Each recipe object must include: name, cuisine, dish_intent, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent.visual_keywords and dish_intent.exclude_keywords must both be arrays of short English strings. localized must contain exactly English and Arabic, and each localized variant must include the same user-facing recipe fields."
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent must be English-only internal image metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
   ].join(" ");
+}
+
+function buildOrganMeatGuidance(
+  ingredients: RecipePromptIngredient[],
+  recipeCount: number,
+  preferredCuisine: string
+) {
+  const source = ingredients.map((ingredient) => ingredient.name).join(" ").toLowerCase();
+  if (!/\b(liver|kebda|kibda|ciger|cigeri)\b|كبدة|كبده/iu.test(source)) {
+    return "";
+  }
+
+  const cuisineLabel = preferredCuisine && preferredCuisine !== "Any" ? preferredCuisine : "the best-fitting cuisine";
+  return [
+    "Liver-specific generation mode is active because the pantry includes liver/kebda.",
+    "Reference cue for Kebda Eskandarani: Egyptian Alexandrian kebda is pan-fried sliced liver, commonly seasoned with cumin, garlic, onion, bell pepper, and lemon, and often served as street food in bread or with rice.",
+    "Reference cue for Moroccan kebda: liver is cut into strips, marinated with olive oil, garlic, coriander or cilantro, and a Moroccan liver spice mix, then browned in a pan and served with Moroccan bread and lemon wedges.",
+    "Reference cue for Moroccan Kebda Mchermla stew: liver cubes can be cooked with onion, parsley, coriander, olive oil, turmeric, paprika, chili, and tomato passata into a red oven/stew dish, served with bread, rice, or salad only when those items are listed or missing ingredients.",
+    "Reference cue for North African kebda chermoula: lamb liver can be browned first, then simmered in a spiced red sauce with garlic, caraway, paprika, cayenne, tomato paste, parsley, and bread for dipping.",
+    "Reference cue for Egyptian kebda sandwiches: chopped small liver pieces are marinated with vinegar, cumin, coriander, mint, chili, cinnamon, garlic, then sauteed with peppers, onions, chilies, and herbs before being stuffed into bread with tahini sauce only when bread and tahini are listed or missing ingredients.",
+    "Reference cue for Kebda Bel Rada: deep-fried sliced liver coated with wheat bran, served as crisp brown slices with parsley; do not render it as balls, nuggets, pate, or generic fried chicken.",
+    `Generate exactly ${recipeCount} recipe cards, no more and no fewer. Every returned card must be a liver-centered organ-meat recipe unless a diet or allergy makes that unsafe.`,
+    `Choose real liver dishes from ${cuisineLabel} or closely related real-world liver traditions; do not convert liver into ordinary beef or mixed meat.`,
+    "Use distinct liver forms across the list when possible: Alexandrian kebda strips, Moroccan kebda with coriander and lemon, Moroccan Kebda Mchermla tomato stew, North African kebda chermoula, kebda with onion and bell pepper, kebda sandwiches, Kebda Bel Rada bran-fried liver slices, chopped fried liver, crispy fried liver strips, liver rice plate, liver with lemon and garlic, liver saute, liver skewers, Turkish ciger tava, or liver stew only when the cuisine and pantry support them.",
+    "For every liver recipe, dish_intent.dish_name must be unique and specific; do not repeat plain dish names such as liver, pan-fried liver, liver stir, or garlic liver for multiple cards.",
+    "For every liver recipe, dish_intent.dish_name and image_search_index must include a liver identity term such as liver, kebda, kibda, ciger, or cigeri plus the distinct form, for example alexandrian liver strips or kebda sandwich.",
+    "For liver visual_keywords, describe thin sliced strips or 2-inch-ish sliced pieces, chopped pieces, minced fried liver, glossy dark brown organ meat, onions, garlic, bell peppers, chili, lemon, parsley, or fried edges only when those ingredients are listed or placed in missing_ingredients.",
+    "Do not describe liver as cubes, whole slabs, steak, pate, paste, balls, patties, or generic brown protein. Prefer strips, chopped pieces, minced fried liver, or crispy thin slices.",
+    "For liver exclude_keywords, include beef steak, beef cubes, beef strips, ground beef, kofta, kebab, meatballs, burger, chicken, fish, egg, pate, bread balls, and generic meat.",
+    "Do not output vague names like beef skillet, meat plate, protein bowl, or grilled meat when liver is the pantry protein."
+  ].join(" ");
+}
+
+function buildDietVarietyGuidance(diets: string[], conditions: string[], recipeCount: number) {
+  const selected = [...diets, ...conditions].map((value) => value.trim()).filter(Boolean);
+
+  if (selected.length) {
+    return [
+      `Diet and health variety mode is active for: ${selected.join(", ")}.`,
+      "Do not ignore these preferences when creating variety. Every recipe must be compatible with them or clearly adapted for them.",
+      "Use dish_intent.diet_type and preference_hits to explain the adaptation, for example low carb, high protein, heart healthy, diabetes friendly, gluten free, dairy free, or low sodium.",
+      "Do not repeat the same base dish just because the diet labels differ; each card still needs a distinct cuisine, cooking form, starch/sauce structure, or serving format.",
+      "When a familiar dish normally conflicts with the selected diet, keep the real dish identity only if a believable substitution is listed in missing_ingredients, such as lettuce or cauliflower instead of bread/rice/pasta for low carb, gluten-free pasta/bread for gluten free, olive oil instead of dairy for dairy free, or herbs/citrus instead of salt for low sodium."
+    ].join(" ");
+  }
+
+  if (recipeCount >= 8) {
+    return "Because the user requested many cards, include natural nutrition variety across the list when truthful: some high-protein plates, some lower-carb plates, some lighter vegetable-heavy plates, and some comfort-food plates. Do not turn these into fake medical claims, and do not repeat the same dish with only a different diet label.";
+  }
+
+  return "";
+}
+
+function buildGroundMeatDistinctCardGuidance(
+  ingredients: RecipePromptIngredient[],
+  recipeCount: number,
+  preferredCuisine: string
+) {
+  const pantry = buildNormalizedPantrySet(ingredients);
+  if (!hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "lamb mince", "mince"])) {
+    return "";
+  }
+
+  const rawSource = ingredients.map((ingredient) => ingredient.name).join(" ");
+  const hasArabicGroundMeat = isArabicGroundMeatPantryIngredient(rawSource.toLowerCase());
+  const cuisineKey = normalizeCuisinePromptKey(preferredCuisine);
+  const anyCuisine = cuisineKey === "any";
+  const minimumDistinctForms = Math.min(recipeCount, recipeCount >= 8 ? 7 : 4);
+  const cuisineScope = hasArabicGroundMeat
+    ? "Because the user entered the ground-meat ingredient in Arabic, treat Egyptian/Arab home cooking as the first cultural context even if cuisine is Any. Put Egyptian and Middle Eastern ground-meat forms ahead of generic American skillets."
+    : anyCuisine
+    ? "Use Any cuisine freedom to spread the list across Egyptian, Turkish, Middle Eastern, American, Italian, Indian, or Asian forms when the missing-ingredient budget allows it."
+    : `Keep most cards rooted in ${preferredCuisine}, but still vary the named forms inside that cuisine and use closely related regional forms when needed.`;
+
+  return [
+    "Ground-meat distinct-card mode is active. The ingredient means minced or ground meat, not sliced beef, steak, cubes, or whole meat.",
+    `Across the recipe set, produce at least ${minimumDistinctForms} visibly different ground-meat dish forms when generating this many cards.`,
+    cuisineScope,
+    "Good distinct forms include: Egyptian kofta mashwia skewers, Dawood Basha meatballs in tomato sauce, macarona bechamel with minced meat, Egyptian rice kofta in tomato sauce, taagen kofta with potatoes or tomato sauce, hawawshi stuffed bread, Turkish kiymali pide, Turkish lahmacun, Turkish karniyarik stuffed eggplant, Turkish spiral borek, Turkish musakka, Indian keema, Middle Eastern kofta bowl, tacos, lettuce cups, or stuffed peppers.",
+    "For Egyptian or Arabic ground-meat inputs, do not make the set mostly grilled garlic/lemon plates or plain pasta. Lemon and garlic are seasoning details, not dish identities. At least the top cards should include named Egyptian forms such as kofta mashwia, Dawood Basha, macarona bechamel, taagen kofta, rice kofta, or hawawshi when diet rules allow the missing support ingredients.",
+    "Do not return several loose ground-meat skillets, several kofta-only cards, or several pasta cards unless the user explicitly asked for that narrow family.",
+    "For each ground-meat recipe, dish_intent.visual_keywords must name the visible form such as stuffed flatbread, skewers, tomato-sauce meatballs, baked bechamel pasta square, kofta tray, boat-shaped pide, thin lahmacun, split stuffed eggplant, spiral pastry, chunky stew, or red-sauce pasta."
+  ].join(" ");
+}
+
+function buildIngredientCombinationGuidance(
+  ingredients: RecipePromptIngredient[],
+  recipeCount: number,
+  preferredCuisine: string
+) {
+  const pantry = buildNormalizedPantrySet(ingredients);
+  const meaningfulIngredients = ingredients
+    .map((ingredient) => normalizePantryIngredient(ingredient.name))
+    .filter((ingredient) => ingredient && !isMinorPantryIngredientForPrompt(ingredient));
+  const uniqueMeaningfulIngredients = Array.from(new Set(meaningfulIngredients));
+  const pantryList = uniqueMeaningfulIngredients.join(", ");
+  const anyCuisine = normalizeCuisinePromptKey(preferredCuisine) === "any";
+
+  if (uniqueMeaningfulIngredients.length <= 1) {
+    return [
+      "Single-ingredient creativity mode: because the pantry is sparse, variety must come from real dish forms and cuisines, not from repeating grilled, garlic, lemon, or pasta defaults.",
+      anyCuisine
+        ? "For Any cuisine with one main ingredient, deliberately branch across cuisines and forms such as stuffed, stewed, baked, fried, soup, rice dish, bread-based dish, skillet, and casserole when plausible."
+        : `For ${preferredCuisine} with one main ingredient, explore the traditional dish universe deeply instead of repeating one cooking method.`,
+      "Support ingredients may be listed in missing_ingredients when they are needed for a real dish identity."
+    ].join(" ");
+  }
+
+  const minimumCombinedCards = Math.min(recipeCount, recipeCount >= 8 ? 6 : Math.max(2, uniqueMeaningfulIngredients.length));
+
+  return [
+    `Ingredient-combination mode is active. Meaningful pantry ingredients include: ${pantryList}.`,
+    `At least ${minimumCombinedCards} recipes must combine two or more meaningful pantry ingredients in the same dish when diet/allergy rules allow it.`,
+    "Do not split every ingredient into separate simple recipes. First look for dish families that naturally combine the pantry as pairs or trios, then list missing support items for the cuisine identity.",
+    "Use different combination patterns across the list: protein plus starch, protein plus vegetable, legume plus grain, egg plus vegetables, seafood plus rice, meat plus bread, pasta plus sauce, stew, soup, stuffed item, casserole, skillet, and salad when appropriate.",
+    pantry.has("pasta") || pantry.has("spaghetti") || pantry.has("penne") || pantry.has("macaroni")
+      ? "Pasta is not allowed to swallow the whole set. Use pasta for only the cards where it is the best real dish form; use other pantry ingredients in rice, stew, baked, stuffed, soup, or bread-based forms too."
+      : "",
+    "Avoid defaulting to garlic/lemon as the main idea. Garlic, lemon, herbs, and basic spices should support a named dish, not become the recipe identity."
+  ].filter(Boolean).join(" ");
+}
+
+function isMinorPantryIngredientForPrompt(ingredient: string) {
+  return /\b(salt|pepper|black pepper|water|oil|olive oil|butter|garlic|lemon|lime|vinegar|herb|herbs|parsley|cilantro|coriander|dill|mint|basil|oregano|cumin|paprika|chili|chilli|spice|spices|seasoning)\b/i.test(
+    ingredient
+  );
 }
 
 export function buildMealPlanPrompt({
@@ -555,6 +724,7 @@ export function buildMealPlanPrompt({
     mode: "meal-plan",
     preferredCuisine
   });
+  const deepMealPlanCuisineGuidance = buildDeepMealPlanCuisineGuidance(preferredCuisine);
   const preferenceBrief = buildPromptPreferenceBrief({
     preferredCuisine,
     calorieTarget,
@@ -562,17 +732,39 @@ export function buildMealPlanPrompt({
     conditions,
     allergens
   });
+  const isArabicMode = recipeLanguage.toLowerCase() === "arabic";
+  const pantryLine = isArabicMode
+    ? `مكونات المستخدم المتاحة للجدول الأسبوعي، اتركها كما كتبها المستخدم ولا تترجمها داخل هذا السطر: ${pantry.join(", ") || "لا توجد مكونات"}.`
+    : `Pantry items: ${pantry.join(", ") || "none provided"}.`;
+  const pantryQuantitiesLine = isArabicMode
+    ? `كميات مكونات المستخدم المتاحة، اترك أسماء المكونات كما كتبها المستخدم: ${pantryWithQuantities.join(", ") || "غير متوفرة"}.`
+    : `Pantry quantities (use these to decide what is actually needed for the week): ${pantryWithQuantities.join(", ") || "not provided"}.`;
+  const arabicMealPlanPromptBlock = isArabicMode
+    ? [
+        "تعليمات مهمة لوضع اللغة العربية في جدول الوجبات:",
+        "اترك أسماء مكونات المستخدم كما هي بالضبط في سطر مكونات المستخدم المتاحة ولا تترجمها داخل البرومبت.",
+        "اكتب كل الحقول التي يقرأها المستخدم بالعربية فقط: اسم اليوم، أسماء الوجبات، المطبخ عند وجوده، المكونات، الخطوات، قائمة التسوق، وأي أسباب أو أوصاف غذائية.",
+        "اترك حقول الصور والبحث باللغة الإنجليزية فقط لأنها تذهب إلى البحث وتوليد الصور: image_search_index و image_search_indices.",
+        "لا تخلط الإنجليزية داخل الحقول العربية إلا إذا كانت الكلمة دارجة كتعريب شائع."
+      ].join(" ")
+    : "";
 
   return [
     "You are NutriMoment's premium weekly meal planning assistant.",
+    arabicMealPlanPromptBlock,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     "Generate a 7-day meal plan.",
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third use pantry ingredients and minimize extra shopping.",
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the meal's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
+    deepMealPlanCuisineGuidance,
     realRecipeGuardrails,
     namedPlatePolicy,
     "When a preferred cuisine is provided, breakfast, lunch, and dinner should mostly stay within that cuisine or its direct regional family unless pantry constraints make that impossible.",
+    "Every breakfast, lunch, and dinner object must include a cuisine field. Use the precise cuisine or regional substyle for that specific meal, not only the user's broad preference. Examples: Egyptian, Alexandrian Egyptian, Turkish, Levantine, North Indian, Thai, Italian-American, Mediterranean.",
+    "Deep cuisine rule for every meal slot: choose a real breakfast/lunch/dinner tradition from that cuisine, then make the ingredients, steps, aromatics, spice base, starch, sauce, garnish, and plating match that tradition. Do not make a generic protein bowl and label it Egyptian, Turkish, Italian, Indian, Asian, or Mediterranean.",
+    "Breakfast should be cuisine-native, not a generic Western breakfast unless that cuisine or user preference supports it. Lunch and dinner should use distinct cuisine-native structures such as stew, rice plate, stuffed bread, grilled plate, baked casserole, curry, soup, pasta, pilaf, bean dish, or skillet only when that structure belongs to the meal's cuisine.",
+    "Across the week, vary cuisine depth by substyle and dish family: do not repeat the same cuisine expression every day. For example, Egyptian can rotate between ful/shakshuka breakfast, koshary/rice-and-stew lunch, hawawshi/kofta/fish tagine dinner; Turkish can rotate menemen breakfast, lentil soup lunch, kofte/adana/pide dinner.",
     "Avoid filler adjectives like simple, hearty, lean, classic, spiced, or loaded unless they are essential.",
     "When a meal matches a known family, title it that way, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the meal name, cuisine label, and image search phrases.",
@@ -593,8 +785,8 @@ export function buildMealPlanPrompt({
     "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
     "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"chicken shawarma bowl\",\"chicken shawarma\",\"shawarma plate\"], [\"baked white fish\",\"white fish vegetables\",\"roasted fish plate\"], [\"grilled chicken red sauce pasta\",\"chicken tomato pasta\",\"grilled chicken pasta\"].",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
-    `Pantry items: ${pantry.join(", ") || "none provided"}.`,
-    `Pantry quantities (use these to decide what is actually needed for the week): ${pantryWithQuantities.join(", ") || "not provided"}.`,
+    pantryLine,
+    pantryQuantitiesLine,
     preferenceBrief,
     `Preferred cuisine: ${preferredCuisine}.`,
     `Recipe language: ${recipeLanguage}.`,
@@ -605,19 +797,21 @@ export function buildMealPlanPrompt({
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Return an object with exactly these top-level keys: plan, shoppingList.",
     "plan must be an array of 7 days.",
-    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
-    "Each meal MUST include an ingredients array of short canonical lowercase names that lists every ingredient the meal uses, including pantry items the diner already owns. This is needed for shopping coverage display.",
+    "Each breakfast, lunch, and dinner object must include cuisine, image_search_index, and image_search_indices for image generation.",
+    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"cuisine\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"cuisine\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"cuisine\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
+    "Each meal MUST include an ingredients array that lists every ingredient the meal uses, including pantry items the diner already owns. In Arabic mode, write ingredients in Arabic and keep pantry ingredient names exactly as the user wrote them when they appear.",
     "Each meal MUST also include a steps array with 7 to 10 detailed preparation instructions suitable for home cooking.",
     "Every meal step string must include the action, exact ingredient quantities used in that step, heat level or tool when relevant, timing in minutes, and the visual/texture cue for moving to the next step.",
+    "Every meal's steps must include at least two cuisine-specific technique/flavor details, such as blooming cumin and coriander for Egyptian kofta, frying tomato-pepper base for shakshuka, simmering dal tadka with tempered spices, grilling adana-style ground meat, folding lahmacun toppings thinly, or finishing Mediterranean fish with lemon, herbs, and olive oil.",
     "Use pantry quantities when provided and choose realistic per-meal quantities for missing ingredients. Be specific enough that a beginner can cook without guessing.",
     "Do not use vague meal-plan steps like 'cook the chicken', 'prepare vegetables', 'mix together', or 'serve'. Break prep, cooking, finishing, and plating into separate explicit steps.",
-    "Include image_search_index and image_search_indices inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
-    "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used.",
-    "Every shoppingList item must include summed quantity and unit, for example: \"rice - 4 cup\" or \"tomato - 8 whole\"."
+    "Include image_search_index and image_search_indices in English inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
+    "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used. In Arabic mode, write shoppingList in Arabic.",
+    "Every shoppingList item must include summed quantity and unit. In English mode use examples like \"rice - 4 cup\" or \"tomato - 8 whole\"; in Arabic mode use Arabic item names and Arabic-readable quantities."
   ].join(" ");
 }
 
-export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLanguage = "English", requestedRecipeCount = 5) {
+export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLanguage = "English", requestedRecipeCount = 10) {
   const languageOutputGuidance = buildLanguageOutputGuidance(recipeLanguage);
   const realRecipeGuardrails = buildRealRecipeGuardrails("Any");
   const namedPlatePolicy = buildNamedPlateGenerationPolicy({
@@ -639,13 +833,56 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
     "Variety hard rule: do not return repeated versions of the same recipe under different titles or photos. Each recipe must be a distinct named dish family or distinct serving structure.",
     `Recipe language: ${recipeLanguage}.`,
     languageOutputGuidance,
-    "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants. The helper translator should only be used as a fallback when one localized side is incomplete.",
+    "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants with those exact capitalized keys. The helper translator should only be used as a fallback when one localized side is incomplete.",
     "Keep image_search_index and image_search_indices in English only.",
     "Return a JSON array, not an object.",
     "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings. localized must contain exactly English and Arabic, and each localized variant must include the same user-facing recipe fields.",
+    "ingredients and missing_ingredients must be arrays of strings in the requested recipe language. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings in the requested recipe language. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields.",
     `User request: ${prompt}`
   ].join(" ");
+}
+
+function buildDeepMealPlanCuisineGuidance(preferredCuisine: string) {
+  const normalized = normalizeCuisinePromptKey(preferredCuisine);
+  const knowledge = CUISINE_KNOWLEDGE[normalized];
+  const selectedCuisine =
+    preferredCuisine && preferredCuisine !== "Any"
+      ? preferredCuisine
+      : "the best-fitting cuisine for each meal slot";
+
+  const base = [
+    `Deep cuisine planning mode: treat each breakfast, lunch, and dinner as a real meal from ${selectedCuisine}, not as a macro template.`,
+    "For each meal, decide the cuisine/substyle first, then choose a canonical dish family and make the pantry fit that dish. The cuisine field must describe that exact choice.",
+    "A meal is only cuisine-deep if its dish name, ingredients, cooking method, aromatics, spice/herb profile, sauce or starch, steps, image_search_index, and plating all point to the same cuisine.",
+    "Avoid shallow labels such as Mediterranean bowl, Asian bowl, Middle Eastern plate, Egyptian chicken, Turkish eggs, or Indian fish unless the structure is tied to a real dish family.",
+    "For Any cuisine, each day should normally include at least two distinct cuisine traditions when the pantry allows it, but breakfast/lunch/dinner must still each be internally coherent."
+  ];
+
+  if (!knowledge) {
+    return base.join(" ");
+  }
+
+  return [
+    ...base,
+    knowledge.substyles?.length
+      ? `Use these regional/substyle lanes when they fit: ${knowledge.substyles.join("; ")}.`
+      : "",
+    knowledge.breakfastPatterns?.length
+      ? `Breakfast depth: prefer real breakfast families such as ${knowledge.breakfastPatterns.join("; ")} instead of generic eggs, yogurt, toast, or bowls.`
+      : "",
+    knowledge.lunchDinnerPatterns?.length
+      ? `Lunch/dinner depth: prefer real lunch and dinner families such as ${knowledge.lunchDinnerPatterns.join("; ")} instead of generic plates.`
+      : "",
+    knowledge.stapleAromatics?.length
+      ? `Technique/flavor depth: steps should use cuisine anchors such as ${knowledge.stapleAromatics.join(", ")}.`
+      : "",
+    knowledge.stapleSauces?.length
+      ? `Sauce/base depth: when appropriate, use cuisine bases such as ${knowledge.stapleSauces.join(", ")}.`
+      : "",
+    knowledge.guardrails?.length
+      ? `Cuisine-depth guardrails: ${knowledge.guardrails.join(" ")}`
+      : ""
+  ].filter(Boolean).join(" ");
 }
 
 function buildPromptPreferenceBrief(snapshot: {
@@ -776,14 +1013,23 @@ function buildCuisineKnowledgeGuidance(preferredCuisine: string) {
 
 function buildLanguageOutputGuidance(recipeLanguage: string) {
   if (recipeLanguage.toLowerCase() !== "arabic") {
-    return "Write all top-level user-facing recipe text in the requested recipe language. Also include localized.English and localized.Arabic for every recipe. Keep image_search_index and image_search_indices in English.";
+    return [
+      "Exact language contract: write all top-level user-facing recipe text in the requested recipe language.",
+      "User-facing fields are name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day_labels, and scan_match_explanation.",
+      "Internal image fields must stay in English only: image_search_index, image_search_indices, dish_intent.dish_name, dish_intent.cuisine, dish_intent.meal_type, dish_intent.diet_type, dish_intent.cooking_method, dish_intent.visual_keywords, and dish_intent.exclude_keywords.",
+      "localized must contain exactly two case-sensitive keys: English and Arabic. Do not output localized.english or localized.arabic.",
+      "localized.English must contain English user-facing recipe text. localized.Arabic must contain Arabic user-facing recipe text."
+    ].join(" ");
   }
 
   return [
-    "Write every user-facing recipe field in Arabic, including name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day labels, and scan_match_explanation.",
-    "Also include localized.English and localized.Arabic for every recipe so the app can store both language variants directly from the model output.",
-    "Keep only image_search_index and image_search_indices in English for image search.",
-    "Use natural Arabic cooking language and avoid mixing English into user-facing text unless the term is a common Arabic transliteration."
+    "Exact language contract for Arabic mode: write every top-level user-facing recipe field in Arabic only.",
+    "Arabic-only user-facing fields are name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day_labels, and scan_match_explanation.",
+    "Do not put English words in those Arabic user-facing fields unless the word is a common Arabic transliteration.",
+    "Internal image fields must stay in English only because they feed photo search and image generation: image_search_index, image_search_indices, dish_intent.dish_name, dish_intent.cuisine, dish_intent.meal_type, dish_intent.diet_type, dish_intent.cooking_method, dish_intent.visual_keywords, and dish_intent.exclude_keywords.",
+    "localized must contain exactly two case-sensitive keys: English and Arabic. Do not output localized.english or localized.arabic.",
+    "localized.Arabic must mirror the top-level Arabic user-facing fields. localized.English must contain the same user-facing fields translated into English.",
+    "Use natural Arabic cooking language throughout the Arabic fields."
   ].join(" ");
 }
 
@@ -925,6 +1171,10 @@ function buildIngredientDrivenCuisineGuidance(
       if (hasAny(pantry, ["tomato", "tomato sauce", "passata"]) && hasAny(pantry, ["rice", "vermicelli"])) {
         hints.push("Egyptian ingredient reasoning: ground meat plus tomato and rice can support kofta with rice or meat kofta in tomato sauce.");
       }
+
+      if (hasAny(pantry, ["rice"]) && hasAny(pantry, ["parsley", "dill", "cilantro", "coriander", "tomato", "tomato sauce"])) {
+        hints.push("Egyptian ingredient reasoning: ground meat plus crushed rice and herbs can support Egyptian rice kofta, koftet roz: fried kofta fingers or balls simmered in red tomato-garlic sauce. This is different from grilled kofta mashwia.");
+      }
     }
 
     if (hasAny(pantry, ["chicken", "chicken breast", "chicken thigh", "whole chicken"])) {
@@ -977,6 +1227,9 @@ function buildIngredientDrivenCuisineGuidance(
     if (hasAny(pantry, ["pasta", "spaghetti", "penne", "macaroni"]) && hasAny(pantry, ["tomato", "tomato sauce", "passata"])) {
       hints.push("Italian ingredient reasoning: pasta plus tomato should favor pomodoro, arrabbiata, baked pasta, or tomato-based pasta families instead of generic noodles.");
     }
+    if (hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "mince"]) && hasAny(pantry, ["pasta", "penne", "macaroni", "rigatoni"]) && hasAny(pantry, ["tomato", "tomato sauce", "passata"])) {
+      hints.push("Italian-American ingredient reasoning: ground beef plus penne or short pasta plus tomato sauce can support a beef tomato pasta skillet or one-pan ground beef penne. The image should show crumbled ground beef in red sauce with visible penne, not steak, meatballs, or beef strips.");
+    }
     if (hasAny(pantry, ["pasta", "spaghetti", "penne", "macaroni"]) && hasAny(pantry, ["milk", "cream", "parmesan", "mozzarella", "butter"])) {
       hints.push("Italian ingredient reasoning: pasta plus dairy should favor creamy pasta or baked pasta families and should be clearly distinguished from red sauce pasta.");
     }
@@ -991,6 +1244,16 @@ function buildIngredientDrivenCuisineGuidance(
     }
     if (hasAny(pantry, ["shrimp", "prawn"]) && hasAny(pantry, ["pasta", "spaghetti", "linguine", "orzo", "garlic"])) {
       hints.push("Mediterranean ingredient reasoning: shrimp plus pasta and garlic should favor garlic shrimp pasta or lemon shrimp pasta instead of a generic shrimp plate.");
+    }
+  }
+
+  if (cuisineKey === "american" || cuisineKey === "any") {
+    if (hasAny(pantry, ["ground meat", "ground beef", "minced beef", "minced meat", "beef mince", "mince"]) && hasAny(pantry, ["pasta", "penne", "macaroni", "rigatoni"]) && hasAny(pantry, ["tomato", "tomato sauce", "passata", "marinara"])) {
+      hints.push("American or Italian-American ingredient reasoning: ground beef plus short pasta plus tomato sauce should strongly suggest one-pan ground beef penne, ground beef pasta, or a beef tomato pasta skillet. Use visual_keywords like penne or elbow macaroni, red tomato meat sauce, and small crumbled ground beef; exclude steak, beef strips, beef cubes, meatballs, burger patties, and unrelated pasta shapes.");
+    }
+
+    if (hasAny(pantry, ["ground meat", "ground beef", "minced beef", "minced meat", "beef mince", "mince"]) && hasAny(pantry, ["potato", "potatoes", "carrot", "celery"]) && hasAny(pantry, ["tomato", "tomato sauce", "stewed tomatoes", "diced tomatoes"])) {
+      hints.push("American ingredient reasoning: ground beef plus potatoes, carrots, celery, onion, and tomatoes should strongly suggest hamburger stew or hamburger soup. The image should show chunky tomato broth with crumbled ground beef and vegetables, not beef cubes, steak, meatballs, pasta, or chili.");
     }
   }
 
@@ -1016,6 +1279,18 @@ function buildIngredientDrivenCuisineGuidance(
 
       if (hasAny(pantry, ["onion", "parsley", "garlic", "cumin", "sumac"])) {
         hints.push("Turkish ingredient reasoning: ground meat plus onion, parsley, garlic, cumin, or sumac should push image and naming language toward kofte, izgara kofte, or kebab.");
+      }
+
+      if (hasAny(pantry, ["dough", "flatbread", "flour", "pide", "bread"]) && hasAny(pantry, ["tomato", "pepper", "bell pepper", "onion"])) {
+        hints.push("Turkish ingredient reasoning: ground meat plus dough or flatbread plus tomato, pepper, and onion should strongly suggest kiymali pide or lahmacun. Kiymali pide is oval and boat-shaped with folded raised edges; lahmacun is very thin and round with finely minced topping.");
+      }
+
+      if (hasAny(pantry, ["phyllo", "filo", "yufka", "pastry"]) && hasAny(pantry, ["onion", "paprika", "cumin", "parsley"])) {
+        hints.push("Turkish ingredient reasoning: ground meat plus phyllo or yufka should suggest Turkish spiral borek, a golden coiled pastry filled with spiced ground beef.");
+      }
+
+      if (hasAny(pantry, ["eggplant", "aubergine"]) && hasAny(pantry, ["tomato", "tomato sauce", "pepper", "bell pepper"])) {
+        hints.push("Turkish ingredient reasoning: ground meat plus eggplant and tomato should branch into karniyarik when the eggplant is split and stuffed, or Turkish musakka when it is a layered casserole.");
       }
     }
 
@@ -1084,7 +1359,7 @@ function buildSparseIngredientGuidance(
   if (normalizedCuisine === "egyptian") {
     if (hasAny(pantry, ["ground meat", "minced meat", "beef mince", "lamb mince", "mince"])) {
       baseGuidance.push(
-        "Sparse Egyptian logic: ground meat alone can still justify kofta, hawawshi, or macarona bechamel if the missing aromatics, bread, pasta, or bechamel staples are listed in missing_ingredients."
+        "Sparse Egyptian logic: ground meat alone can still justify named Egyptian families if missing support items are listed. Prefer a real spread such as kofta mashwia, Dawood Basha tomato meatballs, macarona bechamel, taagen kofta with potatoes or tomato sauce, Egyptian rice kofta, and hawawshi before generic grilled garlic/lemon meat or plain pasta."
       );
     }
 
@@ -1137,13 +1412,19 @@ function countPantryMatches(pantry: Set<string>, candidates: string[]) {
 }
 
 function normalizePantryIngredient(value: string) {
-  return value
+  const normalized = value
     .toLowerCase()
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")
     .replace(/\b(cup|cups|tbsp|tsp|g|gram|grams|kg|lb|oz|bag|bottle|jar|can|cans|carton|pack|package|whole|fresh|dried|dry|frozen|cooked|raw|minced|chopped|diced|sliced)\b/g, " ")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  return isArabicGroundMeatPantryIngredient(normalized) ? "ground meat" : normalized;
+}
+
+function isArabicGroundMeatPantryIngredient(value: string) {
+  return /(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(value);
 }
 
 function formatNutritionGoals(goals: NutritionGoals) {

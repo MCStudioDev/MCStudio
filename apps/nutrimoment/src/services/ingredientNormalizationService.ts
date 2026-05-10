@@ -123,6 +123,8 @@ function buildAliasLookup(aliases: IngredientAliasDoc[]) {
 }
 
 function applyHeuristics(value: string): string {
+  if (isArabicGroundMeat(value)) return "ground meat";
+
   return value
     .replace(/\bbreasts\b/g, "breast")
     .replace(/\btomatoes\b/g, "tomato")
@@ -134,12 +136,18 @@ function applyHeuristics(value: string): string {
 }
 
 function normalizeFreeText(value: string): string {
-  return value
+  const normalized = value
     .toLowerCase()
     .replace(/[_-]/g, " ")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  return isArabicGroundMeat(normalized) ? "ground meat" : normalized;
+}
+
+function isArabicGroundMeat(value: string) {
+  return /(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(value);
 }
 
 function expandRawIngredientInput(value: string) {

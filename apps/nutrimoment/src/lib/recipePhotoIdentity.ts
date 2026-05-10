@@ -74,7 +74,33 @@ const QUERY_NOISE_PATTERNS = [
 
 export const KNOWN_DISHES: KnownDishDefinition[] = [
   {
-    aliases: [/\b(kafta|kebab|kabab)\b/i],
+    aliases: [/\b(rice (?:kofta|kafta)|koftet roz|koftet arroz|egyptian rice (?:kofta|kafta))\b/i],
+    canonicalName: "egyptian rice kofta",
+    cuisineKey: "egyptian",
+    key: "rice-kofta"
+  },
+  {
+    aliases: [
+      /\b(dawood basha|daoud basha|dawood pasha|daoud pasha|kofta dawood basha|egyptian meatballs tomato sauce)\b/i,
+      /\u062f\u0627(?:\u0648|\u0648\u0648)?\u062f\s+\u0628\u0627\u0634\u0627/iu,
+      /\u0643\u0641\u062a(?:\u0629|\u0647)\s+\u062f\u0627(?:\u0648|\u0648\u0648)?\u062f\s+\u0628\u0627\u0634\u0627/iu
+    ],
+    canonicalName: "dawood basha",
+    cuisineKey: "egyptian",
+    key: "dawood-basha"
+  },
+  {
+    aliases: [
+      /\b(taagen kofta|tagine kofta|egyptian kofta tagine|kofta potato tray|kofta with potatoes)\b/i,
+      /\u0637\u0627\u062c\u0646\s+\u0643\u0641\u062a(?:\u0629|\u0647)/iu,
+      /\u0643\u0641\u062a(?:\u0629|\u0647).*\u0628\u0627\u0644\u0628\u0637\u0627\u0637\u0633/iu
+    ],
+    canonicalName: "taagen kofta",
+    cuisineKey: "egyptian",
+    key: "taagen-kofta"
+  },
+  {
+    aliases: [/\b(kafta|kebab|kabab)\b/i, /\u0643\u0641\u062a(?:\u0629|\u0647)/iu],
     canonicalName: "kafta kebab",
     cuisineKey: "middle-eastern",
     imageUrl:
@@ -138,16 +164,31 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "ispanakli-pide"
   },
   {
+    aliases: [/\b(turkish pide with beef|beef pide|turkish beef pide)\b/i],
+    canonicalName: "kiymali pide",
+    cuisineKey: "turkish",
+    key: "kiymali-pide"
+  },
+  {
     aliases: [/\b(kiymali pide|kıymalı pide|minced meat pide)\b/i],
     canonicalName: "kiymali pide",
     cuisineKey: "turkish",
     key: "kiymali-pide"
   },
   {
-    aliases: [/\blahmacun\b/i],
+    aliases: [/\blahmacun\b/i, /\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646/iu],
     canonicalName: "lahmacun",
     cuisineKey: "turkish",
     key: "lahmacun"
+  },
+  {
+    aliases: [
+      /\b(lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|lahmajun|lahmajoun|meat flatbread)\b/i,
+      /\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646/iu
+    ],
+    canonicalName: "lahm bi ajin",
+    cuisineKey: "middle-eastern",
+    key: "lahm-ajin"
   },
   {
     aliases: [/\btavuk sis\b/i, /\bchicken shish\b/i, /\bchicken sis\b/i],
@@ -156,7 +197,7 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "tavuk-sis"
   },
   {
-    aliases: [/\badana kebab\b/i],
+    aliases: [/\badana kebab\b/i, /\u0623\u0636\u0646\u0629\s+(?:\u0643\u0628\u0627\u0628|\u0643\u0641\u062a(?:\u0629|\u0647))|\u0627\u062f\u0646\u0629\s+(?:\u0643\u0628\u0627\u0628|\u0643\u0641\u062a(?:\u0629|\u0647))/iu],
     canonicalName: "adana kebab",
     cuisineKey: "turkish",
     key: "adana-kebab"
@@ -198,6 +239,18 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "karniyarik"
   },
   {
+    aliases: [/\b(turkish spiral borek|spiral borek|ground beef borek|spiced ground beef borek|kol boregi|kol borek)\b/i],
+    canonicalName: "turkish spiral borek",
+    cuisineKey: "turkish",
+    key: "turkish-spiral-borek"
+  },
+  {
+    aliases: [/\b(turkish musakka|turkish moussaka|eggplant ground beef casserole|eggplant and ground beef casserole)\b/i],
+    canonicalName: "turkish musakka",
+    cuisineKey: "turkish",
+    key: "turkish-musakka"
+  },
+  {
     aliases: [/\bpatlican kebabi\b/i, /\bpatlıcan kebabı\b/i, /\beggplant kebab\b/i],
     canonicalName: "patlican kebabi",
     cuisineKey: "turkish",
@@ -210,10 +263,42 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "sarma-dolma"
   },
   {
-    aliases: [/\bmacarona bechamel\b/i, /\bmacarona bashamel\b/i, /\begyptian bechamel pasta\b/i],
+    aliases: [
+      /\bmacarona bechamel\b/i,
+      /\bmacarona bashamel\b/i,
+      /\begyptian bechamel pasta\b/i,
+      /\bbaked macarona bechamel\b/i,
+      /\u0645\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647).*(?:\u0628\u0634\u0627\u0645\u064a\u0644|\u0628\u0627\u0644\u0628\u0634\u0627\u0645\u064a\u0644)/iu,
+      /\u0645\u0639\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647).*(?:\u0628\u0634\u0627\u0645\u064a\u0644|\u0628\u0627\u0644\u0628\u0634\u0627\u0645\u064a\u0644)/iu
+    ],
     canonicalName: "macarona bechamel",
     cuisineKey: "egyptian",
     key: "macarona-bechamel"
+  },
+  {
+    aliases: [
+      /\b(ground beef penne|beef penne|one[-\s]pan beef penne|one[-\s]pan ground beef penne)\b/i,
+      /\b(tomato beef penne)\b/i,
+      /\bpenne\s+(?:with|and)\s+(?:ground beef|minced beef|meat sauce)\b/i
+    ],
+    canonicalName: "one-pan ground beef penne",
+    cuisineKey: "american",
+    key: "ground-beef-penne"
+  },
+  {
+    aliases: [
+      /\b(ground beef pasta|beef pasta skillet|beef tomato pasta|hamburger pasta)\b/i,
+      /\b(elbow macaroni|macaroni)\s+(?:with|and)\s+(?:ground beef|minced beef|meat sauce)\b/i
+    ],
+    canonicalName: "ground beef pasta skillet",
+    cuisineKey: "american",
+    key: "ground-beef-pasta"
+  },
+  {
+    aliases: [/\b(hamburger stew|hamburger soup|ground beef stew|ground beef vegetable stew)\b/i],
+    canonicalName: "hamburger stew",
+    cuisineKey: "american",
+    key: "hamburger-stew"
   },
   {
     aliases: [/\bkebab halla\b/i, /\begyptian meat stew\b/i],
@@ -230,6 +315,36 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "alexandrian liver",
     cuisineKey: "egyptian",
     key: "alexandrian-liver"
+  },
+  {
+    aliases: [/\b(kebda|kibda)\s+chermoula\b/i, /\bkebda\s+mchermla\b/i, /\bnorth african\s+liver\s+chermoula\b/i, /\balgerian\s+liver\b/i],
+    canonicalName: "kebda chermoula",
+    cuisineKey: "north-african",
+    key: "kebda-chermoula"
+  },
+  {
+    aliases: [/\bmoroccan\s+kebda\b/i, /\bmoroccan\s+liver\s+strips?\b/i, /\b(kebda|liver)\s+moroccan\b/i],
+    canonicalName: "moroccan kebda",
+    cuisineKey: "moroccan",
+    key: "moroccan-kebda"
+  },
+  {
+    aliases: [/\bmoroccan\s+liver\s+stew\b/i, /\bkebda\s+mchermla\b/i, /\bkebda\s+mchermoula\b/i, /\bmoroccan\s+kebda\s+stew\b/i],
+    canonicalName: "moroccan liver stew",
+    cuisineKey: "moroccan",
+    key: "moroccan-liver-stew"
+  },
+  {
+    aliases: [/\bkebda\s+bel\s+rada\b/i, /\bfried\s+bran\s+liver\b/i, /\bbran[-\s]coated\s+liver\b/i],
+    canonicalName: "kebda bel rada",
+    cuisineKey: "egyptian",
+    key: "kebda-bel-rada"
+  },
+  {
+    aliases: [/\bkebda\s+sandwiches?\b/i, /\bliver\s+sandwiches?\b/i],
+    canonicalName: "egyptian liver sandwiches",
+    cuisineKey: "egyptian",
+    key: "egyptian-liver-sandwiches"
   },
   {
     aliases: [/\bmahshi\b/i, /\bmixed mahshi\b/i],
@@ -260,6 +375,36 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     imageUrl:
       "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
     key: "koshary"
+  },
+  {
+    aliases: [/\b(sayadeya|sayadeyah|sayadieh|sayadiah|egyptian fish rice)\b/i, /\u0635\u064a\u0627\u062f(?:\u064a\u0629|\u064a\u0647)/iu],
+    canonicalName: "sayadeya",
+    cuisineKey: "egyptian",
+    key: "sayadeya"
+  },
+  {
+    aliases: [
+      /\b(samak singari|samak sengari|fish singari|fish sengari|bori singari|bori sengari|bouri singari|bouri sengari)\b/i,
+      /\b(butterflied egyptian fish|egyptian butterflied fish)\b/i,
+      /\u0633\u0645\u0643\s+\u0633\u0646\u062c\u0627\u0631\u064a/iu,
+      /\u0628\u0648\u0631\u064a\s+\u0633\u0646\u062c\u0627\u0631\u064a/iu,
+      /\u0633\u0646\u062c\u0627\u0631\u064a/iu
+    ],
+    canonicalName: "samak singari",
+    cuisineKey: "egyptian",
+    key: "samak-singari"
+  },
+  {
+    aliases: [
+      /\b(egyptian fish tagine|fish tagine|alexandrian fish|samak iskandarani|samak eskandarani|alexandrian baked fish)\b/i,
+      /\b(baked fish with potato|baked fish with potatoes|oven fish with potato|oven fish with potatoes)\b/i,
+      /\u0637\u0627\u062c\u0646\s+\u0633\u0645\u0643/iu,
+      /\u0633\u0645\u0643\s+\u0627\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a/iu,
+      /\u0633\u0645\u0643\s+\u0625\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a/iu
+    ],
+    canonicalName: "egyptian fish tagine",
+    cuisineKey: "egyptian",
+    key: "egyptian-fish-tagine"
   },
   {
     aliases: [/\b(ful|medames)\b/i, /\bfava bean/i, new RegExp(ARABIC.fava, "iu")],
@@ -804,6 +949,20 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("mujadara"), withCuisine("lentils and rice"), withCuisine("roz bel ads")];
     case "koshary":
       return [withCuisine("koshary"), withCuisine("egyptian pasta lentils"), withCuisine("macarona bel ads")];
+    case "ground-beef-penne":
+      return [withCuisine("ground beef penne"), withCuisine("beef tomato penne"), withCuisine("one pan beef penne")];
+    case "ground-beef-pasta":
+      return [withCuisine("ground beef pasta"), withCuisine("beef macaroni skillet"), withCuisine("hamburger pasta")];
+    case "hamburger-stew":
+      return [withCuisine("hamburger stew"), withCuisine("ground beef vegetable stew"), withCuisine("hamburger soup potatoes carrots")];
+    case "rice-kofta":
+      return [withCuisine("egyptian rice kofta"), withCuisine("koftet roz"), withCuisine("rice kofta tomato sauce")];
+    case "dawood-basha":
+      return [withCuisine("dawood basha"), withCuisine("egyptian meatballs tomato sauce"), withCuisine("kofta dawood basha")];
+    case "taagen-kofta":
+      return [withCuisine("egyptian kofta tagine"), withCuisine("taagen kofta potatoes"), withCuisine("kofta potato tray")];
+    case "macarona-bechamel":
+      return [withCuisine("macarona bechamel egyptian"), withCuisine("egyptian bechamel pasta"), withCuisine("baked macarona bechamel")];
     case "besara":
       return [withCuisine("besara"), withCuisine("fava bean soup")];
     case "balila":
@@ -814,8 +973,32 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("loubia bzeit"), withCuisine("green bean stew")];
     case "kafta":
       return [withCuisine("kafta kebab")];
+    case "kiymali-pide":
+      return [withCuisine("kiymali pide"), withCuisine("turkish beef pide"), withCuisine("turkish minced meat pide")];
+    case "lahmacun":
+      return [withCuisine("lahmacun"), withCuisine("turkish lahmacun"), withCuisine("thin meat flatbread")];
+    case "lahm-ajin":
+      return [withCuisine("lahm bi ajin"), withCuisine("lahm ajin"), withCuisine("middle eastern meat flatbread")];
+    case "adana-kebab":
+      return [withCuisine("adana kebab"), withCuisine("turkish minced meat kebab"), withCuisine("spicy ground lamb kebab")];
+    case "karniyarik":
+      return [withCuisine("karniyarik"), withCuisine("turkish stuffed eggplant"), withCuisine("eggplant ground beef")];
+    case "turkish-spiral-borek":
+      return [withCuisine("turkish spiral borek"), withCuisine("ground beef borek"), withCuisine("kol boregi")];
+    case "turkish-musakka":
+      return [withCuisine("turkish musakka"), withCuisine("turkish eggplant beef casserole"), withCuisine("eggplant beef moussaka")];
     case "alexandrian-liver":
       return [withCuisine("alexandrian liver"), withCuisine("kebda eskandarani"), withCuisine("egyptian liver sandwiches")];
+    case "kebda-chermoula":
+      return [withCuisine("kebda chermoula"), withCuisine("north african liver chermoula"), withCuisine("algerian liver")];
+    case "moroccan-kebda":
+      return [withCuisine("moroccan kebda"), withCuisine("moroccan liver strips"), withCuisine("liver with coriander lemon")];
+    case "moroccan-liver-stew":
+      return [withCuisine("moroccan liver stew"), withCuisine("kebda mchermla"), withCuisine("kebda tomato stew")];
+    case "kebda-bel-rada":
+      return [withCuisine("kebda bel rada"), withCuisine("fried bran liver"), withCuisine("bran coated liver slices")];
+    case "egyptian-liver-sandwiches":
+      return [withCuisine("egyptian liver sandwiches"), withCuisine("kebda sandwich"), withCuisine("chopped liver sandwich")];
     default:
       return [];
   }

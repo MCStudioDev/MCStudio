@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminDb, getAdminStorageBucket, hasFirebaseAdminConfig } from "@/lib/firebaseAdmin";
 import { logger } from "@/lib/logger";
+import { isDurableRecipeImageUrl, isTransientRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export interface SharedRecipePhotoEntry {
   imageAttributionName?: string;
@@ -23,6 +24,20 @@ export async function getSharedRecipePhoto(signature: string): Promise<SharedRec
 
   const data = snapshot.data();
   if (!data?.imageUrl || !data?.source) return null;
+  if (data.source !== "generated") {
+    logger.info("Ignoring non-generated shared recipe photo cache entry", {
+      signature,
+      source: String(data.source)
+    });
+    return null;
+  }
+  if (!isDurableRecipeImageUrl(String(data.imageUrl))) {
+    logger.warn("Ignoring transient generated recipe photo cache URL", {
+      signature,
+      imageUrlHost: safeImageUrlHost(String(data.imageUrl))
+    });
+    return null;
+  }
 
   return {
     imageAttributionName: typeof data.imageAttributionName === "string" ? data.imageAttributionName : undefined,
@@ -61,16 +76,17 @@ export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
 
 export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
   if (!hasFirebaseAdminConfig()) return entry;
-
-  let persistedImageUrl = entry.imageUrl;
-  try {
-    persistedImageUrl = await persistSharedRecipeImageUrl(entry);
-  } catch (error) {
-    logger.warn("Shared recipe photo image persistence failed; caching original URL instead.", {
+  if (entry.source !== "generated") {
+    logger.info("Shared recipe photo cache skipped non-generated provider image", {
       signature: entry.signature,
-      source: entry.source,
-      errorMessage: error instanceof Error ? error.message : String(error)
+      source: entry.source
     });
+    return entry;
+  }
+
+  const persistedImageUrl = await persistSharedRecipeImageUrl(entry);
+  if (!isDurableRecipeImageUrl(persistedImageUrl)) {
+    throw new Error("Generated recipe image persistence did not return a durable HTTP URL.");
   }
 
   const nextEntry = {
@@ -144,7 +160,7 @@ async function persistSharedRecipeImageUrl(entry: SharedRecipePhotoEntry) {
     return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
   }
 
-  if (entry.source === "generated" && /^https?:\/\//i.test(entry.imageUrl)) {
+  if (entry.source === "generated" && isTransientRecipeImageUrl(entry.imageUrl)) {
     const parsed = await fetchRemoteImage(entry.imageUrl);
     return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
   }
@@ -219,4 +235,12 @@ function buildFirebaseDownloadUrl(
   downloadToken: string
 ) {
   return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(objectPath)}?alt=media&token=${downloadToken}`;
+}
+
+function safeImageUrlHost(imageUrl: string) {
+  try {
+    return new URL(imageUrl).host;
+  } catch {
+    return "invalid";
+  }
 }

@@ -18,6 +18,9 @@ export interface UserAccessState {
   aiCreditsLimit: number;
   aiCreditsUsed: number;
   aiCreditsRemaining: number;
+  weeklyPlanLimit: number;
+  weeklyPlanUsed: number;
+  weeklyPlanRemaining: number;
   loading: boolean;
 }
 
@@ -34,9 +37,12 @@ interface AuthContextType {
 const DEFAULT_ACCESS: UserAccessState = {
   role: "user",
   tier: "free",
-  aiCreditsLimit: 5,
+  aiCreditsLimit: 10,
   aiCreditsUsed: 0,
-  aiCreditsRemaining: 5,
+  aiCreditsRemaining: 10,
+  weeklyPlanLimit: 3,
+  weeklyPlanUsed: 0,
+  weeklyPlanRemaining: 3,
   loading: true
 };
 const FIREBASE_CLIENT_RETRY_ATTEMPTS = 3;
@@ -64,18 +70,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const [tokenResult, usageDoc, entitlementDoc] = await Promise.all([
+    const [tokenResult, usageDoc, weeklyPlanUsageDoc, entitlementDoc] = await Promise.all([
       withFirebaseClientRetry(() => getIdTokenResult(currentUser, true)),
       withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits"))),
+      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "weeklyPlans"))),
       withFirebaseClientRetry(() => getDoc(doc(db, "entitlements", currentUser.uid)))
     ]);
 
     const usage = usageDoc.data();
+    const weeklyPlanUsage = weeklyPlanUsageDoc.data();
     const entitlement = entitlementDoc.data();
     const tier = entitlement?.tier === "premium" || tokenResult.claims.tier === "premium" ? "premium" : "free";
     const role = entitlement?.role === "admin" || tokenResult.claims.role === "admin" ? "admin" : "user";
     const aiCreditsUsed = Number(usage?.lifetimeUsed ?? 0);
-    const aiCreditsLimit = Number(usage?.lifetimeLimit ?? 5);
+    const aiCreditsLimit = Math.max(10, Number(usage?.lifetimeLimit ?? 10));
+    const weeklyPlanUsed = Number(weeklyPlanUsage?.lifetimeUsed ?? 0);
+    const weeklyPlanLimit = Math.max(3, Number(weeklyPlanUsage?.lifetimeLimit ?? 3));
 
     setAccess({
       role,
@@ -83,6 +93,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       aiCreditsLimit,
       aiCreditsUsed,
       aiCreditsRemaining: tier === "premium" ? aiCreditsLimit : Math.max(aiCreditsLimit - aiCreditsUsed, 0),
+      weeklyPlanLimit,
+      weeklyPlanUsed,
+      weeklyPlanRemaining: tier === "premium" ? weeklyPlanLimit : Math.max(weeklyPlanLimit - weeklyPlanUsed, 0),
       loading: false
     });
   }, []);

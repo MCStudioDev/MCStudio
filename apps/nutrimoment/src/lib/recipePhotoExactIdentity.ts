@@ -34,7 +34,12 @@ export function buildRecipePhotoExactAliases(input: RecipePhotoExactIdentityInpu
 
       const translatedName = cleanExactRecipePhotoName(translateRecipeTitleToEnglish(cleanedName));
       const englishKey = normalizeExactRecipePhotoName(translatedName, "latin");
-      if (isStrongExactRecipePhotoName(translatedName) && englishKey) {
+      if (
+        isStrongExactRecipePhotoName(translatedName) &&
+        englishKey &&
+        containsLatin(translatedName) &&
+        !containsArabic(translatedName)
+      ) {
         aliases.push(`exact:en:${englishKey}`);
         if (cuisineKey) aliases.push(`exact:cuisine:${cuisineKey}:${englishKey}`);
       }
@@ -98,4 +103,8 @@ function normalizeExactRecipePhotoName(value?: string, script: "arabic" | "latin
 
 function containsArabic(value: string) {
   return /[\u0600-\u06FF]/.test(value);
+}
+
+function containsLatin(value: string) {
+  return /[a-z]/i.test(value);
 }

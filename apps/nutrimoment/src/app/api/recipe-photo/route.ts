@@ -29,7 +29,7 @@ import {
   buildRecipePhotoExactAliases,
   normalizeExactRecipePhotoHints
 } from "@/lib/recipePhotoExactIdentity";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -45,6 +45,7 @@ type CachedRecipePhoto = {
   imageUrl: string;
   source: "generated" | "google_search" | "pexels_search" | "unsplash_search" | "wikimedia";
   model?: string;
+  query?: string;
   signature: string;
 };
 
@@ -221,6 +222,12 @@ export async function GET(request: Request) {
     exactCached &&
     !explicitlyExcludedImageUrls.has(exactCached.imageUrl) &&
     canUseCachedRecipePhotoForVisualRequest(exactCached, strictVisualRequest) &&
+    canUseGeneratedRecipePhotoCacheForRequest(exactCached, {
+      exactNameHints,
+      replicateQueryCandidates,
+      selectedReplicateQuery,
+      useReplicateGeneration
+    }) &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(exactCached.imageUrl, exactCacheLookupCandidates))
   ) {
     await persistExactAliasesForLegacyPhoto(exactCached, exactAliasCandidates);
@@ -249,6 +256,12 @@ export async function GET(request: Request) {
     sharedExactCached &&
     !explicitlyExcludedImageUrls.has(sharedExactCached.imageUrl) &&
     canUseSharedRecipePhotoForVisualRequest(sharedExactCached, strictVisualRequest) &&
+    canUseGeneratedRecipePhotoCacheForRequest(sharedExactCached, {
+      exactNameHints,
+      replicateQueryCandidates,
+      selectedReplicateQuery,
+      useReplicateGeneration
+    }) &&
     (WIKIMEDIA_ENABLED || sharedExactCached.source !== "wikimedia") &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates))
   ) {
@@ -258,6 +271,7 @@ export async function GET(request: Request) {
       imageSource: "cache" as const,
       imageUrl: sharedExactCached.imageUrl,
       model: sharedExactCached.model,
+      query: sharedExactCached.query,
       signature: sharedExactCached.signature,
       source: sharedExactCached.source
     } satisfies CachedRecipePhoto;
@@ -292,6 +306,12 @@ export async function GET(request: Request) {
     !explicitlyExcludedImageUrls.has(cached.imageUrl) &&
     canUseCachedRecipePhotoForVisualRequest(cached, strictVisualRequest) &&
     (!useReplicateGeneration || cached.source === "generated") &&
+    canUseGeneratedRecipePhotoCacheForRequest(cached, {
+      exactNameHints,
+      replicateQueryCandidates,
+      selectedReplicateQuery,
+      useReplicateGeneration
+    }) &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates))
   ) {
     rememberRecipePhotoSelection(cached.imageUrl, cached.signature);
@@ -323,6 +343,12 @@ export async function GET(request: Request) {
     !explicitlyExcludedImageUrls.has(sharedCached.imageUrl) &&
     canUseSharedRecipePhotoForVisualRequest(sharedCached, strictVisualRequest) &&
     (!useReplicateGeneration || sharedCached.source === "generated") &&
+    canUseGeneratedRecipePhotoCacheForRequest(sharedCached, {
+      exactNameHints,
+      replicateQueryCandidates,
+      selectedReplicateQuery,
+      useReplicateGeneration
+    }) &&
     (WIKIMEDIA_ENABLED || sharedCached.source !== "wikimedia") &&
     (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates))
   ) {
@@ -332,6 +358,7 @@ export async function GET(request: Request) {
       imageSource: "cache" as const,
       imageUrl: sharedCached.imageUrl,
       model: sharedCached.model,
+      query: sharedCached.query,
       signature: sharedCached.signature,
       source: sharedCached.source
     } satisfies CachedRecipePhoto;
@@ -481,6 +508,99 @@ function canUseSharedRecipePhotoForVisualRequest(entry: SharedRecipePhotoEntry, 
   if (entry.source !== "generated") return false;
   if (!strictVisualRequest) return true;
   return entry.source === "generated" && entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION);
+}
+
+function canUseGeneratedRecipePhotoCacheForRequest(
+  entry: Pick<CachedRecipePhoto | SharedRecipePhotoEntry, "imageUrl" | "query" | "signature" | "source">,
+  {
+    exactNameHints,
+    replicateQueryCandidates,
+    selectedReplicateQuery,
+    useReplicateGeneration
+  }: {
+    exactNameHints: string[];
+    replicateQueryCandidates: string[];
+    selectedReplicateQuery: string | null;
+    useReplicateGeneration: boolean;
+  }
+) {
+  if (!useReplicateGeneration) return true;
+  if (entry.source !== "generated") return false;
+  if (!isReplicateGeneratedRecipeImageUrl(entry.imageUrl)) return false;
+
+  const cachedQuery = normalizeGeneratedCacheQuery(entry.query || entry.signature);
+  if (!cachedQuery) return false;
+
+  const requestQueries = normalizeRecipePhotoQueries([
+    ...(selectedReplicateQuery ? [selectedReplicateQuery] : []),
+    ...replicateQueryCandidates,
+    ...exactNameHints
+  ]);
+  const normalizedRequestQueries = new Set(requestQueries.map(normalizeRecipePhotoQuery).filter(Boolean));
+  if (normalizedRequestQueries.has(cachedQuery)) return true;
+
+  const cachedIdentity = buildRecipePhotoIdentity(cachedQuery);
+  return requestQueries
+    .map((candidate) => buildRecipePhotoIdentity(candidate))
+    .some((candidateIdentity) => areGeneratedRecipePhotoIdentitiesCompatible(cachedIdentity, candidateIdentity));
+}
+
+function normalizeGeneratedCacheQuery(value: string) {
+  const stripped = value
+    .replace(/^generated:(?:strict-v\d+:)?/i, "")
+    .replace(/^exact:(?:ar|en):/i, "")
+    .replace(/^exact:cuisine:[^:]+:/i, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+
+  return normalizeRecipePhotoQuery(normalizeRecipePhotoTextToEnglish(stripped));
+}
+
+function areGeneratedRecipePhotoIdentitiesCompatible(
+  cachedIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
+  requestIdentity: ReturnType<typeof buildRecipePhotoIdentity>
+) {
+  if (cachedIdentity.canonicalDishKey || requestIdentity.canonicalDishKey) {
+    return cachedIdentity.canonicalDishKey === requestIdentity.canonicalDishKey;
+  }
+
+  if (
+    cachedIdentity.mainIngredientKey &&
+    requestIdentity.mainIngredientKey &&
+    cachedIdentity.mainIngredientKey !== requestIdentity.mainIngredientKey
+  ) {
+    return false;
+  }
+
+  if (cachedIdentity.starchKey && requestIdentity.starchKey && cachedIdentity.starchKey !== requestIdentity.starchKey) {
+    return false;
+  }
+
+  if (
+    cachedIdentity.mealTypeKey &&
+    requestIdentity.mealTypeKey &&
+    cachedIdentity.mealTypeKey !== requestIdentity.mealTypeKey
+  ) {
+    return false;
+  }
+
+  if (
+    cachedIdentity.cookingMethodKey &&
+    requestIdentity.cookingMethodKey &&
+    cachedIdentity.cookingMethodKey !== requestIdentity.cookingMethodKey
+  ) {
+    return false;
+  }
+
+  const cachedTokens = new Set(cachedIdentity.coreTokens);
+  const requestTokens = requestIdentity.coreTokens.filter((token) => cachedTokens.has(token));
+  const hasSharedStrongSignal = Boolean(
+    cachedIdentity.mainIngredientKey &&
+      requestIdentity.mainIngredientKey &&
+      cachedIdentity.mainIngredientKey === requestIdentity.mainIngredientKey
+  );
+
+  return hasSharedStrongSignal && requestTokens.length >= 2;
 }
 
 function normalizeRecipePhotoQueries(queries: string[]) {
@@ -697,6 +817,7 @@ async function performRecipePhotoLookup({
               imageSource: "api" as const,
               imageUrl: generatedImage.imageUrl,
               model: generatedImage.model ?? getReplicateImageModel(),
+              query: replicateQuery,
               signature: replicateCacheSignature,
               source: "generated" as const
             } satisfies CachedRecipePhoto;
@@ -1117,7 +1238,7 @@ async function persistExactAliasesForLegacyPhoto(photo: CachedRecipePhoto, exact
         imageAttributionUrl: photo.imageAttributionUrl,
         imageUrl: photo.imageUrl,
         model: photo.model,
-        query: photo.signature,
+        query: photo.query ?? photo.signature,
         signature: photo.signature,
         source: photo.source
       },

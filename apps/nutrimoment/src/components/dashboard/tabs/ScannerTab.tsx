@@ -283,7 +283,7 @@ export function ScannerTab() {
             await refreshAccess();
           }
 
-          if (response.ok && hasRenderableImage(data.imageUrl)) {
+          if (response.ok && hasRenderableImage(data.imageUrl) && !usedImageUrls.has(data.imageUrl)) {
             return { data, ok: true as const, response };
           }
 

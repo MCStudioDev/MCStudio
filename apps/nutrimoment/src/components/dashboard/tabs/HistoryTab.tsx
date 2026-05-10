@@ -219,8 +219,6 @@ export function HistoryTab() {
                 data.imageSource,
                 { name: data.imageAttributionName, url: data.imageAttributionUrl }
               );
-            } else {
-              await updateRecipeImage(candidate.entryId, candidate.recipeIndex, "", true);
             }
           }
         }
@@ -361,7 +359,6 @@ export function HistoryTab() {
                       imageExactNames={buildRecipePhotoExactNames(recipe)}
                       imageCuisine={buildRecipePhotoCuisine(recipe)}
                       imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
-                      disableAutoImageLookup={hasGeneratedImageAccess && !recipe.image_error}
                       onImageResolved={
                         user
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -497,10 +494,7 @@ function findReusableHistoryImage(recipe: Recipe, imagesByKey: Map<string, Reusa
 function buildReusableHistoryRecipeKeys(recipe: Recipe) {
   return Array.from(
     new Set(
-      [
-        ...buildRecipePhotoExactNames(recipe),
-        ...buildRecipePhotoQuery(recipe)
-      ]
+      buildRecipePhotoExactNames(recipe)
         .map(normalizeHistoryRecipeImageKey)
         .filter(Boolean)
     )

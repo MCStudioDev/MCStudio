@@ -8,6 +8,7 @@ import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
 import {
   getSharedRecipePhotoByExactAliases,
   getSharedRecipePhotoBySignatures,
+  persistSharedRecipePhoto,
   persistSharedRecipePhotoExactAliases,
   type SharedRecipePhotoEntry
 } from "@/lib/sharedRecipePhotoCache";
@@ -199,8 +200,15 @@ export async function GET(request: Request) {
     useReplicateGeneration && ingredientHints.length
       ? `::ingredients:${ingredientHints.join("|")}`
       : "";
+  const generatedRequestScope = useReplicateGeneration
+    ? buildGeneratedRecipePhotoRequestScope({
+        exactAliasCandidates,
+        ingredientHints,
+        replicateQueryCandidates
+      })
+    : "";
   const failureCacheKeyBase = getRecipePhotoFailureCacheKey(
-    `${selectedReplicateSignature ?? (queryCandidates.join("||") || identity.signature)}${premiumFailureScope}`,
+    `${selectedReplicateSignature ?? (queryCandidates.join("||") || identity.signature)}${premiumFailureScope}${generatedRequestScope}`,
     imageMode
   );
   const failureCacheKey =
@@ -435,6 +443,34 @@ function getRecipePhotoFailureCacheKey(signature: string, imageMode: "generated"
   return `${imageMode}:${signature}`;
 }
 
+function buildGeneratedRecipePhotoRequestScope({
+  exactAliasCandidates,
+  ingredientHints,
+  replicateQueryCandidates
+}: {
+  exactAliasCandidates: string[];
+  ingredientHints: string[];
+  replicateQueryCandidates: string[];
+}) {
+  const scope = [
+    exactAliasCandidates.slice(0, 8).join("|"),
+    replicateQueryCandidates.slice(0, 5).map(normalizeRecipePhotoQuery).join("|"),
+    ingredientHints.slice(0, 8).map(normalizeRecipePhotoQuery).join("|")
+  ]
+    .filter(Boolean)
+    .join("::");
+
+  return scope ? `::request:${hashRecipePhotoRequestScope(scope)}` : "";
+}
+
+function hashRecipePhotoRequestScope(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16);
+}
+
 function canUseCachedRecipePhotoForVisualRequest(entry: CachedRecipePhoto, strictVisualRequest: boolean) {
   if (entry.source !== "generated") return false;
   if (!strictVisualRequest) return true;
@@ -657,7 +693,6 @@ async function performRecipePhotoLookup({
           });
 
           if (generatedImage) {
-            const isDuplicateGeneratedImage = excludedUrls.has(generatedImage.imageUrl);
             const selectedPhoto = {
               imageSource: "api" as const,
               imageUrl: generatedImage.imageUrl,
@@ -667,17 +702,33 @@ async function performRecipePhotoLookup({
             } satisfies CachedRecipePhoto;
 
             try {
-              const persistedGeneratedPhoto = await persistSharedRecipePhotoExactAliases(
+              const persistedGeneratedPhoto = await persistSharedRecipePhoto(
                 {
                   imageUrl: selectedPhoto.imageUrl,
                   model: selectedPhoto.model,
                   query: replicateQuery,
                   signature: replicateCacheSignature,
                   source: selectedPhoto.source
-                },
-                generatedCacheAliases
+                }
               );
               selectedPhoto.imageUrl = persistedGeneratedPhoto.imageUrl;
+
+              const generatedSelectionSignatures = exactAliasCandidates.length
+                ? exactAliasCandidates
+                : [selectedPhoto.signature];
+              const isDuplicateGeneratedImage =
+                excludedUrls.has(selectedPhoto.imageUrl) ||
+                isRecipePhotoRecentlyUsedForDifferentSignature(selectedPhoto.imageUrl, generatedSelectionSignatures);
+              if (isDuplicateGeneratedImage) {
+                logger.warn("Replicate returned an image already excluded for this request; falling back", {
+                  query,
+                  replicateQuery,
+                  signature: replicateCacheSignature
+                });
+                replicateFallbackReason = "replicate_duplicate_result";
+              } else {
+                await persistSharedRecipePhotoExactAliases(persistedGeneratedPhoto, generatedCacheAliases);
+              }
             } catch (error) {
               logger.warn("Replicate recipe photo exact cache persistence failed; returning retryable premium image failure", {
                 query,
@@ -690,7 +741,10 @@ async function performRecipePhotoLookup({
 
             if (!replicateFallbackReason) {
               setRecipePhotoCacheAliases([replicateCacheSignature, ...generatedCacheAliases], selectedPhoto);
-              rememberRecipePhotoSelection(selectedPhoto.imageUrl, selectedPhoto.signature);
+              rememberRecipePhotoSelection(
+                selectedPhoto.imageUrl,
+                exactAliasCandidates[0] ?? selectedPhoto.signature
+              );
               logger.info("Recipe photo served", {
                 source: selectedPhoto.source,
                 model: selectedPhoto.model,
@@ -699,7 +753,7 @@ async function performRecipePhotoLookup({
                 imageMode,
                 reason,
                 exactAliasCount: generatedCacheAliases.length,
-                uniqueImage: !isDuplicateGeneratedImage,
+                uniqueImage: true,
                 signature: replicateCacheSignature
               });
 

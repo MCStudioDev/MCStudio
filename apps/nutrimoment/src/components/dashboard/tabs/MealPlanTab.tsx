@@ -388,7 +388,7 @@ export function MealPlanTab() {
       const resolvedMatches: Array<{ data: MealPhotoLookupResponse & { imageUrl: string }; slot: MealPlanImageSlot }> = [];
       for (const slot of lookupSlots) {
         const data = batchResults[slot.key];
-        if (data?.ok && hasRenderableImage(data.imageUrl) && (data.imageSource === "cache" || !usedImageUrls.has(data.imageUrl))) {
+        if (data?.ok && hasRenderableImage(data.imageUrl) && !usedImageUrls.has(data.imageUrl)) {
           pendingPremiumKeys.delete(slot.key);
           resolvedMatches.push({ data: { ...data, imageUrl: data.imageUrl }, slot });
         }
@@ -411,7 +411,7 @@ export function MealPlanTab() {
           result.ok &&
           result.data &&
           hasRenderableImage(result.data.imageUrl) &&
-          (result.data.imageSource === "cache" || !usedImageUrls.has(result.data.imageUrl))
+          !usedImageUrls.has(result.data.imageUrl)
         ) {
           pendingPremiumKeys.delete(slot.key);
           await applyResolvedMealImage(slot, { ...result.data, imageUrl: result.data.imageUrl });

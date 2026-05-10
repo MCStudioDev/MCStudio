@@ -516,7 +516,90 @@ export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: str
   if (/مانتي/.test(normalized)) return "Manti";
   if (/كفتة\s+تركية|كفته\s+تركيه/.test(normalized)) return "Turkish Kofte";
 
+  const composedArabicTitle = translateComposedArabicRecipeTitleToEnglish(normalized);
+  if (composedArabicTitle) return composedArabicTitle;
+
   return REVERSE_RECIPE_TITLES[value] ?? toTitleCase(fallbackQuery ?? value);
+}
+
+function translateComposedArabicRecipeTitleToEnglish(normalized: string) {
+  if (!/[\u0600-\u06FF]/.test(normalized)) return null;
+
+  const protein = detectArabicRecipeProtein(normalized);
+  const egg = /بيض/.test(normalized);
+  const starch = detectArabicRecipeStarch(normalized);
+  const sauce = detectArabicRecipeSauce(normalized);
+  const vegetables = detectArabicRecipeVegetables(normalized);
+  const method = detectArabicRecipeMethod(normalized);
+  const startsWithEgg = /^بيض\b/u.test(normalized);
+  const modifiers: string[] = [];
+
+  if (egg) {
+    if (/مخفوق/.test(normalized)) modifiers.push("Scrambled Eggs");
+    else if (/عيون/.test(normalized)) modifiers.push("Sunny-Side Up Eggs");
+    else if (/مسلوق/.test(normalized)) modifiers.push("Boiled Eggs");
+    else if (/^بيض\b.*(?:مقلي|مقلية)|(?:مقلي|مقلية)\s+بيض/u.test(normalized)) modifiers.push("Fried Eggs");
+    else modifiers.push("Eggs");
+  }
+
+  if (!protein && !starch && !sauce && !vegetables.length && !modifiers.length) return null;
+
+  const leadBase = startsWithEgg && modifiers.length ? modifiers.shift() : protein ?? starch ?? modifiers.shift() ?? "Dish";
+  const methodAppliesToLead = Boolean(method && protein && !startsWithEgg);
+  const lead = methodAppliesToLead ? `${method} ${leadBase}` : leadBase;
+  const details = [...modifiers];
+  if (startsWithEgg && protein) details.push(protein);
+  if (sauce) details.push(sauce);
+  if (starch && starch !== leadBase) details.push(starch);
+  details.push(...vegetables);
+
+  return [lead, details.length ? `with ${details.join(" and ")}` : ""]
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectArabicRecipeProtein(normalized: string) {
+  if (/لحم\s+مفروم|لحمة\s+مفرومة|اللحم\s+المفروم/.test(normalized)) return "Ground Meat";
+  if (/لحم|لحمة|لحمه/.test(normalized)) return "Meat";
+  if (/دجاج|فراخ/.test(normalized)) return "Chicken";
+  if (/سمك|سمكة|اسماك|أسماك/.test(normalized)) return "Fish";
+  if (/جمبري|روبيان/.test(normalized)) return "Shrimp";
+  if (/كبدة|كبده/.test(normalized)) return "Liver";
+  return null;
+}
+
+function detectArabicRecipeStarch(normalized: string) {
+  if (/مكرونة|مكرونه|باستا|بيني|سباجيتي/.test(normalized)) return "Pasta";
+  if (/أرز|ارز|رز/.test(normalized)) return "Rice";
+  if (/بطاطس|بطاطا/.test(normalized)) return "Potatoes";
+  if (/خبز|عيش/.test(normalized)) return "Bread";
+  return null;
+}
+
+function detectArabicRecipeSauce(normalized: string) {
+  if (/طماطم|صلصة\s+حمراء/.test(normalized)) return "Tomato Sauce";
+  if (/بشاميل/.test(normalized)) return "Bechamel";
+  if (/كاري/.test(normalized)) return "Curry";
+  if (/ثوم/.test(normalized)) return "Garlic";
+  if (/ليمون/.test(normalized)) return "Lemon";
+  return null;
+}
+
+function detectArabicRecipeVegetables(normalized: string) {
+  const vegetables: string[] = [];
+  if (/بصل/.test(normalized)) vegetables.push("Onions");
+  if (/فلفل/.test(normalized)) vegetables.push("Peppers");
+  if (/خضار|خضروات/.test(normalized)) vegetables.push("Vegetables");
+  return vegetables;
+}
+
+function detectArabicRecipeMethod(normalized: string) {
+  if (/مشوي|مشوية/.test(normalized)) return "Grilled";
+  if (/مقلي|مقلية/.test(normalized)) return "Fried";
+  if (/مسلوق|مسلوقة/.test(normalized)) return "Boiled";
+  if (/مطهو|مطبوخ/.test(normalized)) return "Cooked";
+  return null;
 }
 
 function translateWeakArabicIngredientTitleToEnglish(normalized: string) {

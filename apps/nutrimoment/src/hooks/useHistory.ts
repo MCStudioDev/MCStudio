@@ -103,7 +103,47 @@ function sanitizeHistoryRecipeImage(recipe: Recipe): Recipe {
     image_url: imageUrl,
     image_source: imageUrl ? recipe.image_source : undefined,
     image_attribution_name: imageUrl ? recipe.image_attribution_name : undefined,
-    image_attribution_url: imageUrl ? recipe.image_attribution_url : undefined
+    image_attribution_url: imageUrl ? recipe.image_attribution_url : undefined,
+    image_loading: false,
+    image_error: imageUrl ? false : Boolean(recipe.image_error)
+  });
+}
+
+function sanitizeHistoryRecipes(recipes: Recipe[]) {
+  return suppressRepeatedHistoryImages(recipes.map(sanitizeHistoryRecipeImage));
+}
+
+function suppressRepeatedHistoryImages(recipes: Recipe[]) {
+  const identitiesByImageUrl = new Map<string, Set<string>>();
+
+  for (const recipe of recipes) {
+    if (!isRenderableImage(recipe.image_url)) continue;
+    const identity = getRecipeImageIdentity(recipe);
+    if (!identity) continue;
+    const identities = identitiesByImageUrl.get(recipe.image_url) ?? new Set<string>();
+    identities.add(identity);
+    identitiesByImageUrl.set(recipe.image_url, identities);
+  }
+
+  const suspectImageUrls = new Set(
+    Array.from(identitiesByImageUrl.entries())
+      .filter(([, identities]) => identities.size > 1)
+      .map(([imageUrl]) => imageUrl)
+  );
+  if (!suspectImageUrls.size) return recipes;
+
+  return recipes.map((recipe) => {
+    if (!recipe.image_url || !suspectImageUrls.has(recipe.image_url)) return recipe;
+
+    return stripUndefined({
+      ...recipe,
+      image_url: undefined,
+      image_source: undefined,
+      image_attribution_name: undefined,
+      image_attribution_url: undefined,
+      image_loading: false,
+      image_error: false
+    });
   });
 }
 
@@ -153,7 +193,7 @@ async function getLatestHistoryEntryForMerge(
         title: data.title,
         sessionType: data.sessionType,
         ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-        recipes: Array.isArray(data.recipes) ? data.recipes.map(sanitizeHistoryRecipeImage) : [],
+        recipes: Array.isArray(data.recipes) ? sanitizeHistoryRecipes(data.recipes) : [],
         generationStatus: data.generationStatus,
         generationMessage: data.generationMessage,
         completedAt: data.completedAt
@@ -230,7 +270,7 @@ export function useHistory(): UseHistoryResult {
             title: data.title,
             sessionType: data.sessionType,
             ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-            recipes: Array.isArray(data.recipes) ? data.recipes.map(sanitizeHistoryRecipeImage) : [],
+            recipes: Array.isArray(data.recipes) ? sanitizeHistoryRecipes(data.recipes) : [],
             generationStatus: data.generationStatus,
             generationMessage: data.generationMessage,
             completedAt: data.completedAt
@@ -258,7 +298,7 @@ export function useHistory(): UseHistoryResult {
       title: entry.title,
       sessionType: entry.sessionType,
       ingredients: entry.ingredients,
-      recipes: entry.recipes.map(sanitizeHistoryRecipeImage),
+      recipes: sanitizeHistoryRecipes(entry.recipes),
       generationStatus: entry.generationStatus,
       generationMessage: entry.generationMessage,
       completedAt: entry.completedAt,
@@ -277,7 +317,7 @@ export function useHistory(): UseHistoryResult {
         .map((recipe) => [getRecipeImageIdentity(recipe), recipe] as const)
         .filter(([identity, recipe]) => Boolean(identity) && isRenderableImage(recipe.image_url))
     );
-    const sanitizedRecipes = recipes.map((recipe, index) => {
+    const sanitizedRecipes = sanitizeHistoryRecipes(recipes.map((recipe, index) => {
       const nextRecipe = sanitizeHistoryRecipeImage(stripUndefined(recipe));
       const identity = getRecipeImageIdentity(nextRecipe);
       const existingAtIndex = current?.recipes[index];
@@ -287,7 +327,7 @@ export function useHistory(): UseHistoryResult {
         nextRecipe,
         matchingIndexedRecipe ?? existingRecipesByIdentity.get(identity)
       );
-    });
+    }));
     dispatch({ type: "recipes", payload: { entryId, recipes: sanitizedRecipes } });
 
     try {
@@ -361,7 +401,7 @@ export function useHistory(): UseHistoryResult {
       image_loading: false,
       image_error: errored
     };
-    const sanitizedRecipes = recipes.map(stripUndefined);
+    const sanitizedRecipes = sanitizeHistoryRecipes(recipes.map(stripUndefined));
     dispatch({ type: "recipes", payload: { entryId, recipes: sanitizedRecipes } });
 
     try {

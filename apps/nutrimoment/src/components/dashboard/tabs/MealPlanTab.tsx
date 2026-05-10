@@ -18,7 +18,7 @@ import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { buildNormalizedShoppingList } from "@/lib/shoppingListNormalizer";
 import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
@@ -226,7 +226,7 @@ export function MealPlanTab() {
     const slots = buildMealPlanImageSlots(currentMealPlan.plan);
     const recoverableFailedKeys = imageErrorSlotsRef.current;
     const slotsNeedingLookup = slots.filter(
-      (slot) => !hasRenderableImage(slot.meal.image_url) && !recoverableFailedKeys.has(slot.key)
+      (slot) => !hasStrictRenderableImage(slot.meal.image_url, hasGeneratedImageAccess) && !recoverableFailedKeys.has(slot.key)
     );
     if (!slotsNeedingLookup.length) {
       setImageLoadingSlots(new Set());
@@ -236,7 +236,7 @@ export function MealPlanTab() {
     const usedImageUrls = new Set(
       slots
         .map((slot) => slot.meal.image_url)
-        .filter((imageUrl): imageUrl is string => hasRenderableImage(imageUrl))
+        .filter((imageUrl): imageUrl is string => hasStrictRenderableImage(imageUrl, hasGeneratedImageAccess))
     );
     const pendingPremiumKeys = new Set(slotsNeedingLookup.map((slot) => slot.key));
     let latestMealPlanForRecipeCache = currentMealPlan;
@@ -388,7 +388,7 @@ export function MealPlanTab() {
       const resolvedMatches: Array<{ data: MealPhotoLookupResponse & { imageUrl: string }; slot: MealPlanImageSlot }> = [];
       for (const slot of lookupSlots) {
         const data = batchResults[slot.key];
-        if (data?.ok && hasRenderableImage(data.imageUrl) && (data.imageSource === "cache" || !usedImageUrls.has(data.imageUrl))) {
+        if (data?.ok && hasRenderableImage(data.imageUrl) && !usedImageUrls.has(data.imageUrl)) {
           pendingPremiumKeys.delete(slot.key);
           resolvedMatches.push({ data: { ...data, imageUrl: data.imageUrl }, slot });
         }
@@ -411,7 +411,7 @@ export function MealPlanTab() {
           result.ok &&
           result.data &&
           hasRenderableImage(result.data.imageUrl) &&
-          (result.data.imageSource === "cache" || !usedImageUrls.has(result.data.imageUrl))
+          !usedImageUrls.has(result.data.imageUrl)
         ) {
           pendingPremiumKeys.delete(slot.key);
           await applyResolvedMealImage(slot, { ...result.data, imageUrl: result.data.imageUrl });
@@ -447,8 +447,10 @@ export function MealPlanTab() {
 
   const missingPremiumMealImages = useMemo(() => {
     if (!mealPlan) return 0;
-    return buildMealPlanImageSlots(mealPlan.plan).filter((slot) => !hasRenderableImage(slot.meal.image_url)).length;
-  }, [mealPlan]);
+    return buildMealPlanImageSlots(mealPlan.plan).filter(
+      (slot) => !hasStrictRenderableImage(slot.meal.image_url, hasGeneratedImageAccess)
+    ).length;
+  }, [hasGeneratedImageAccess, mealPlan]);
 
   useEffect(() => {
     if (!hasGeneratedImageAccess || savedPlanLoading || !missingPremiumMealImages) return;
@@ -537,6 +539,7 @@ export function MealPlanTab() {
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
                     pantryKeys={pantryKeys}
+                    strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
                     onImageResolved={
                       user
@@ -576,6 +579,7 @@ export function MealPlanTab() {
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
                     pantryKeys={pantryKeys}
+                    strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
                     onImageResolved={
                       user
@@ -615,6 +619,7 @@ export function MealPlanTab() {
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
                     pantryKeys={pantryKeys}
+                    strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
                     onImageResolved={
                       user
@@ -685,6 +690,7 @@ function MealPlanRevealCard({
   title,
   meal,
   pantryKeys,
+  strictGeneratedImages,
   t,
   onImageResolved
 }: {
@@ -695,6 +701,7 @@ function MealPlanRevealCard({
   title: string;
   meal: MealPlanMeal;
   pantryKeys: Set<string>;
+  strictGeneratedImages?: boolean;
   t: ReturnType<typeof useApp>["t"];
   onImageResolved?: (payload: {
     imageAttributionName?: string;
@@ -725,7 +732,7 @@ function MealPlanRevealCard({
       summary={buildMealSummary(ingredients, haveIngredients, needIngredients, t)}
       previewLabel={t("pantryNutritionPreview")}
       previewItems={[...haveIngredients, ...needIngredients].slice(0, 5)}
-      imageUrl={meal.image_url}
+      imageUrl={hasStrictRenderableImage(meal.image_url, Boolean(strictGeneratedImages)) ? meal.image_url : undefined}
       imageSource={meal.image_source}
       imageAttributionName={meal.image_attribution_name}
       imageAttributionUrl={meal.image_attribution_url}
@@ -936,6 +943,11 @@ function applyMealImageToMealPlan(
 
 function hasRenderableImage(imageUrl?: string): imageUrl is string {
   return isDurableRecipeImageUrl(imageUrl);
+}
+
+function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
+  if (!hasRenderableImage(imageUrl)) return false;
+  return !strictGeneratedOnly || isReplicateGeneratedRecipeImageUrl(imageUrl);
 }
 
 function clearMealPlanImageSlotState(

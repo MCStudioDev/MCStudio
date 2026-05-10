@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -169,24 +169,27 @@ export function MealRevealCard({
   }, [imageLookupVersion, queryKey]);
   const cachedImageEntry = !bypassClientCache && queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
   const cachedImage =
-    isInternetImageUrl(cachedImageEntry?.imageUrl) &&
+    isUsableRecipeCardImageUrl(cachedImageEntry?.imageUrl, hasGeneratedImageAccess) &&
     !isFailedImageUrl(cachedImageEntry.imageUrl) &&
     !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
       ? cachedImageEntry.imageUrl
       : "";
   const cachedFailure = !hasGeneratedImageAccess && !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage =
-    lookupState.queryKey === queryKey && isInternetImageUrl(lookupState.image) && !isFailedImageUrl(lookupState.image)
+    lookupState.queryKey === queryKey &&
+    isUsableRecipeCardImageUrl(lookupState.image, hasGeneratedImageAccess) &&
+    !isFailedImageUrl(lookupState.image)
       ? lookupState.image
       : "";
   const lookupFailed = lookupState.queryKey === queryKey ? lookupState.failed : false;
   const lookupLoading = lookupState.queryKey === queryKey ? lookupState.loading : false;
   const lookupRetrying = lookupState.queryKey === queryKey ? lookupState.retrying : false;
-  const internetProvidedImage = isInternetImageUrl(imageUrl) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
+  const internetProvidedImage =
+    isUsableRecipeCardImageUrl(imageUrl, hasGeneratedImageAccess) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
   const effectiveProvidedImage = internetProvidedImage;
-  const resolvedImage = imageLoading ? "" : effectiveProvidedImage || lookedUpImage || cachedImage;
+  const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
-  const effectiveImageLoading = Boolean(imageLoading || lookupLoading || lookupRetrying);
+  const effectiveImageLoading = !resolvedImage && Boolean(imageLoading || lookupLoading || lookupRetrying);
   const showNoExactPhoto = !resolvedImage && !effectiveImageLoading && (imageError || lookupFailed || cachedFailure);
   const excludedImageUrls = useMemo(
     () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
@@ -225,7 +228,7 @@ export function MealRevealCard({
         recipePhotoSuccessCache.delete(queryKey);
       }
     },
-    [bypassClientCache, queryKey]
+    [bypassClientCache, queryKey, setFailedImageUrls]
   );
 
   const handleRetryImageLookup = useCallback(() => {
@@ -254,7 +257,14 @@ export function MealRevealCard({
     setManualImageLookupRequested(true);
     setLookupActivated(true);
     setLookupRetryToken((value) => value + 1);
-  }, [queryKey]);
+  }, [
+    queryKey,
+    setFailedImageUrls,
+    setLookupActivated,
+    setLookupRetryToken,
+    setLookupState,
+    setManualImageLookupRequested
+  ]);
 
   useEffect(() => {
     if (!queryKey || !resolvedImage) return;
@@ -943,6 +953,11 @@ function hashRecipeSeed(seed: string) {
 
 function isInternetImageUrl(imageUrl?: string): imageUrl is string {
   return isDurableRecipeImageUrl(imageUrl);
+}
+
+function isUsableRecipeCardImageUrl(imageUrl: string | undefined, hasGeneratedImageAccess: boolean): imageUrl is string {
+  if (!isInternetImageUrl(imageUrl)) return false;
+  return hasGeneratedImageAccess ? isReplicateGeneratedRecipeImageUrl(imageUrl) : true;
 }
 
 function isRecipePhotoFailureCached(queryKey: string) {

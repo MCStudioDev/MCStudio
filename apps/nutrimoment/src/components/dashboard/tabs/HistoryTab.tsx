@@ -11,7 +11,7 @@ import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -107,7 +107,8 @@ export function HistoryTab() {
   const visibleMissingPremiumImages = useMemo(() => {
     if (!hasGeneratedImageAccess) return 0;
     return visibleItems.reduce(
-      (count, entry) => count + entry.recipes.filter((recipe) => !hasRenderableImage(recipe.image_url)).length,
+      (count, entry) =>
+        count + entry.recipes.filter((recipe) => !hasStrictRenderableImage(recipe.image_url, true)).length,
       0
     );
   }, [hasGeneratedImageAccess, visibleItems]);
@@ -131,7 +132,7 @@ export function HistoryTab() {
   useEffect(() => {
     if (!hasGeneratedImageAccess || !user || !visibleItems.length) return;
 
-    const reusableImagesByKey = buildReusableHistoryImageIndex(items);
+    const reusableImagesByKey = buildReusableHistoryImageIndex(items, hasGeneratedImageAccess);
     const reusableMatches: Array<{
       entryId: string;
       image: ReusableHistoryImage;
@@ -140,7 +141,7 @@ export function HistoryTab() {
     const candidates = visibleItems.flatMap((entry) =>
       entry.recipes
         .map((recipe, recipeIndex) => {
-          if (hasRenderableImage(recipe.image_url)) return null;
+          if (hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess)) return null;
           const repairKey = buildHistoryPhotoRepairKey(entry.id, recipeIndex, recipe);
           if (cacheRepairKeysRef.current.has(repairKey)) return null;
           cacheRepairKeysRef.current.add(repairKey);
@@ -219,8 +220,6 @@ export function HistoryTab() {
                 data.imageSource,
                 { name: data.imageAttributionName, url: data.imageAttributionUrl }
               );
-            } else {
-              await updateRecipeImage(candidate.entryId, candidate.recipeIndex, "", true);
             }
           }
         }
@@ -353,7 +352,7 @@ export function HistoryTab() {
                       summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                       previewLabel={getRecipePreviewLabel(recipe, t)}
                       previewItems={buildRecipePreviewItems(recipe)}
-                      imageUrl={recipe.image_url}
+                      imageUrl={getHistoryRecipeImageUrl(recipe, hasGeneratedImageAccess)}
                       imageSource={recipe.image_source}
                       imageAttributionName={recipe.image_attribution_name}
                       imageAttributionUrl={recipe.image_attribution_url}
@@ -361,7 +360,6 @@ export function HistoryTab() {
                       imageExactNames={buildRecipePhotoExactNames(recipe)}
                       imageCuisine={buildRecipePhotoCuisine(recipe)}
                       imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
-                      disableAutoImageLookup={hasGeneratedImageAccess && !recipe.image_error}
                       onImageResolved={
                         user
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -462,12 +460,21 @@ function hasRenderableImage(imageUrl?: string): imageUrl is string {
   return isDurableRecipeImageUrl(imageUrl);
 }
 
-function buildReusableHistoryImageIndex(items: Array<{ recipes: Recipe[] }>) {
+function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
+  if (!hasRenderableImage(imageUrl)) return false;
+  return !strictGeneratedOnly || isReplicateGeneratedRecipeImageUrl(imageUrl);
+}
+
+function getHistoryRecipeImageUrl(recipe: Recipe, strictGeneratedOnly: boolean) {
+  return hasStrictRenderableImage(recipe.image_url, strictGeneratedOnly) ? recipe.image_url : undefined;
+}
+
+function buildReusableHistoryImageIndex(items: Array<{ recipes: Recipe[] }>, strictGeneratedOnly: boolean) {
   const imagesByKey = new Map<string, ReusableHistoryImage>();
 
   for (const entry of items) {
     for (const recipe of entry.recipes) {
-      if (!hasRenderableImage(recipe.image_url)) continue;
+      if (!hasStrictRenderableImage(recipe.image_url, strictGeneratedOnly)) continue;
       const image: ReusableHistoryImage = {
         imageAttributionName: recipe.image_attribution_name,
         imageAttributionUrl: recipe.image_attribution_url,
@@ -497,10 +504,7 @@ function findReusableHistoryImage(recipe: Recipe, imagesByKey: Map<string, Reusa
 function buildReusableHistoryRecipeKeys(recipe: Recipe) {
   return Array.from(
     new Set(
-      [
-        ...buildRecipePhotoExactNames(recipe),
-        ...buildRecipePhotoQuery(recipe)
-      ]
+      buildRecipePhotoExactNames(recipe)
         .map(normalizeHistoryRecipeImageKey)
         .filter(Boolean)
     )

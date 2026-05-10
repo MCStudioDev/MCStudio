@@ -17,6 +17,7 @@ import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -281,7 +282,7 @@ export function ScannerTab() {
             await refreshAccess();
           }
 
-          if (response.ok && data.imageUrl) {
+          if (response.ok && hasRenderableImage(data.imageUrl)) {
             return { data, ok: true as const, response };
           }
 
@@ -333,7 +334,7 @@ export function ScannerTab() {
         try {
           const { data, ok } = await resolveRecipePhoto(recipe);
 
-          if (!ok || !data?.imageUrl) {
+          if (!ok || !data || !hasRenderableImage(data.imageUrl)) {
             resolved[index] = {
               ...recipe,
               image_loading: isPremium,
@@ -398,7 +399,7 @@ export function ScannerTab() {
             const recipe = resolved[index];
             try {
               const { data, ok } = await resolveRecipePhoto(recipe);
-              if (!ok || !data?.imageUrl) {
+              if (!ok || !data || !hasRenderableImage(data.imageUrl)) {
                 resolved[index] = {
                   ...recipe,
                   image_loading: !isLastRound,
@@ -1232,7 +1233,7 @@ export function ScannerTab() {
 }
 
 function hasRenderableImage(imageUrl?: string): imageUrl is string {
-  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+  return isDurableRecipeImageUrl(imageUrl);
 }
 
 function getScannerLoadingStatus({

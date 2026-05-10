@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +102,7 @@ export function MealRevealCard({
   const premiumRetryCountsRef = useRef<Map<string, number>>(new Map());
   const [lookupActivated, setLookupActivated] = useState(false);
   const [lookupRetryToken, setLookupRetryToken] = useState(0);
+  const [manualImageLookupRequested, setManualImageLookupRequested] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
@@ -248,6 +250,7 @@ export function MealRevealCard({
       queryKey,
       retrying: false
     });
+    setManualImageLookupRequested(true);
     setLookupActivated(true);
     setLookupRetryToken((value) => value + 1);
   }, [queryKey]);
@@ -289,7 +292,7 @@ export function MealRevealCard({
   }, [deferImageLookup, lookupActivated]);
 
   useEffect(() => {
-    if (disableAutoImageLookup) return;
+    if (disableAutoImageLookup && !manualImageLookupRequested) return;
     if (authLoading) return;
     if (!lookupEnabled) return;
     if (imageLoading) return;
@@ -387,6 +390,7 @@ export function MealRevealCard({
           retrying: false
         });
         premiumRetryCountsRef.current.delete(queryKey);
+        setManualImageLookupRequested(false);
         void onImageResolved?.({
           imageAttributionName: data.imageAttributionName,
           imageAttributionUrl: data.imageAttributionUrl,
@@ -438,6 +442,7 @@ export function MealRevealCard({
           queryKey,
           retrying: false
         });
+        setManualImageLookupRequested(false);
       });
 
     return () => {
@@ -459,6 +464,7 @@ export function MealRevealCard({
     lookupEnabled,
     lookupFailed,
     lookupRetryToken,
+    manualImageLookupRequested,
     lookedUpImage,
     onImageResolved,
     primaryQuery,
@@ -935,7 +941,7 @@ function hashRecipeSeed(seed: string) {
 }
 
 function isInternetImageUrl(imageUrl?: string): imageUrl is string {
-  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+  return isDurableRecipeImageUrl(imageUrl);
 }
 
 function isRecipePhotoFailureCached(queryKey: string) {

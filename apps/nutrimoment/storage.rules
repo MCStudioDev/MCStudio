@@ -1,0 +1,39 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isImageUpload() {
+      return request.resource != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // Per-user images uploaded from the client. Users can only read/write
+    // their own files, and uploads are limited to small image payloads.
+    match /users/{userId}/recipe-images/{fileName} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isImageUpload();
+      allow delete: if isOwner(userId);
+    }
+
+    // Replicate-generated recipe card images are uploaded only by Firebase
+    // Admin SDK, which bypasses Storage rules. Client writes are blocked.
+    // Reads are public because recipe cards use long-lived Firebase download
+    // URLs and these files contain no user-private content.
+    match /recipe-photo-cache/{filePath=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{filePath=**} {
+      allow read, write: if false;
+    }
+  }
+}

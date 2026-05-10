@@ -18,6 +18,7 @@ import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { buildNormalizedShoppingList } from "@/lib/shoppingListNormalizer";
 import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
@@ -73,6 +74,7 @@ export function MealPlanTab() {
   const [imageErrorSlots, setImageErrorSlots] = useState<Set<string>>(() => new Set());
   const mealPlanImageRequestVersionRef = useRef(0);
   const mealPlanRef = useRef(mealPlan);
+  const imageErrorSlotsRef = useRef(imageErrorSlots);
   const mealPlanHistoryEntryIdRef = useRef<string | null>(null);
   const updateMealImageRef = useRef(updateMealImage);
   const updateHistoryRecipeImageRef = useRef(updateHistoryRecipeImage);
@@ -177,6 +179,15 @@ export function MealPlanTab() {
   }, [mealPlan]);
 
   useEffect(() => {
+    imageErrorSlotsRef.current = imageErrorSlots;
+  }, [imageErrorSlots]);
+
+  useEffect(() => {
+    setImageLoadingSlots(new Set());
+    setImageErrorSlots(new Set());
+  }, [mealPlanImagePlanKey]);
+
+  useEffect(() => {
     updateMealImageRef.current = updateMealImage;
   }, [updateMealImage]);
 
@@ -212,10 +223,12 @@ export function MealPlanTab() {
     mealPlanImageRequestVersionRef.current = requestVersion;
 
     const slots = buildMealPlanImageSlots(currentMealPlan.plan);
-    const slotsNeedingLookup = slots.filter((slot) => !hasRenderableImage(slot.meal.image_url));
+    const recoverableFailedKeys = imageErrorSlotsRef.current;
+    const slotsNeedingLookup = slots.filter(
+      (slot) => !hasRenderableImage(slot.meal.image_url) && !recoverableFailedKeys.has(slot.key)
+    );
     if (!slotsNeedingLookup.length) {
       setImageLoadingSlots(new Set());
-      setImageErrorSlots(new Set());
       return;
     }
 
@@ -272,7 +285,7 @@ export function MealPlanTab() {
       const data = (await response.json().catch(() => null)) as MealPhotoLookupResponse | null;
       return {
         data,
-        ok: response.ok && Boolean(data?.imageUrl),
+        ok: response.ok && hasRenderableImage(data?.imageUrl),
         retryAfterSeconds: Number(response.headers.get("Retry-After") ?? "0") || data?.retryAfterSeconds || 0,
         status: response.status
       };
@@ -374,7 +387,7 @@ export function MealPlanTab() {
       const resolvedMatches: Array<{ data: MealPhotoLookupResponse & { imageUrl: string }; slot: MealPlanImageSlot }> = [];
       for (const slot of lookupSlots) {
         const data = batchResults[slot.key];
-        if (data?.ok && data.imageUrl && (data.imageSource === "cache" || !usedImageUrls.has(data.imageUrl))) {
+        if (data?.ok && hasRenderableImage(data.imageUrl) && (data.imageSource === "cache" || !usedImageUrls.has(data.imageUrl))) {
           pendingPremiumKeys.delete(slot.key);
           resolvedMatches.push({ data: { ...data, imageUrl: data.imageUrl }, slot });
         }
@@ -393,7 +406,12 @@ export function MealPlanTab() {
           retryAfterSeconds: 0,
           status: 503
         }));
-        if (result.ok && result.data?.imageUrl && (result.data.imageSource === "cache" || !usedImageUrls.has(result.data.imageUrl))) {
+        if (
+          result.ok &&
+          result.data &&
+          hasRenderableImage(result.data.imageUrl) &&
+          (result.data.imageSource === "cache" || !usedImageUrls.has(result.data.imageUrl))
+        ) {
           pendingPremiumKeys.delete(slot.key);
           await applyResolvedMealImage(slot, { ...result.data, imageUrl: result.data.imageUrl });
           return;
@@ -401,10 +419,13 @@ export function MealPlanTab() {
 
         if (isLastRound) {
           pendingPremiumKeys.delete(slot.key);
-          setImageLoadingSlots((current) => new Set(current).add(slot.key));
-          setImageErrorSlots((current) => {
+          setImageLoadingSlots((current) => {
             const next = new Set(current);
             next.delete(slot.key);
+            return next;
+          });
+          setImageErrorSlots((current) => {
+            const next = new Set(current).add(slot.key);
             return next;
           });
         }
@@ -508,7 +529,10 @@ export function MealPlanTab() {
                     title={t("breakfast")}
                     meal={day.breakfast}
                     deferImageLookup={dayIndex > 0}
-                    disableAutoImageLookup={access.tier === "premium"}
+                    disableAutoImageLookup={
+                      access.tier === "premium" &&
+                      !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))
+                    }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
                     pantryKeys={pantryKeys}
@@ -531,6 +555,11 @@ export function MealPlanTab() {
                               imageSource,
                               { name: imageAttributionName, url: imageAttributionUrl }
                             );
+                            clearMealPlanImageSlotState(
+                              buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"),
+                              setImageLoadingSlots,
+                              setImageErrorSlots
+                            );
                           }
                         : undefined
                     }
@@ -539,7 +568,10 @@ export function MealPlanTab() {
                     title={t("lunch")}
                     meal={day.lunch}
                     deferImageLookup={dayIndex > 0}
-                    disableAutoImageLookup={access.tier === "premium"}
+                    disableAutoImageLookup={
+                      access.tier === "premium" &&
+                      !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))
+                    }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
                     pantryKeys={pantryKeys}
@@ -562,6 +594,11 @@ export function MealPlanTab() {
                               imageSource,
                               { name: imageAttributionName, url: imageAttributionUrl }
                             );
+                            clearMealPlanImageSlotState(
+                              buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"),
+                              setImageLoadingSlots,
+                              setImageErrorSlots
+                            );
                           }
                         : undefined
                     }
@@ -570,7 +607,10 @@ export function MealPlanTab() {
                     title={t("dinner")}
                     meal={day.dinner}
                     deferImageLookup={dayIndex > 0}
-                    disableAutoImageLookup={access.tier === "premium"}
+                    disableAutoImageLookup={
+                      access.tier === "premium" &&
+                      !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))
+                    }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
                     pantryKeys={pantryKeys}
@@ -592,6 +632,11 @@ export function MealPlanTab() {
                               persistedImageUrl || imageUrl,
                               imageSource,
                               { name: imageAttributionName, url: imageAttributionUrl }
+                            );
+                            clearMealPlanImageSlotState(
+                              buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"),
+                              setImageLoadingSlots,
+                              setImageErrorSlots
                             );
                           }
                         : undefined
@@ -783,6 +828,7 @@ function buildMealPlanHistoryRecipe(
         .filter((value): value is string => Boolean(value))
     )
   );
+  const imageUrl = hasRenderableImage(meal.image_url) ? meal.image_url : undefined;
 
   return stripUndefinedFields({
     id: `weekly-meal-plan-${dayIndex}-${mealType}-${normalizeHistoryRecipeId(meal.name)}`,
@@ -799,11 +845,11 @@ function buildMealPlanHistoryRecipe(
     fat: meal.fat,
     cook_time: "30 minutes",
     difficulty: "Easy",
-    image_url: meal.image_url,
-    image_source: meal.image_source,
-    image_attribution_name: meal.image_attribution_name,
-    image_attribution_url: meal.image_attribution_url,
-    image_loading: !hasRenderableImage(meal.image_url),
+    image_url: imageUrl,
+    image_source: imageUrl ? meal.image_source : undefined,
+    image_attribution_name: imageUrl ? meal.image_attribution_name : undefined,
+    image_attribution_url: imageUrl ? meal.image_attribution_url : undefined,
+    image_loading: !imageUrl,
     image_error: false,
     visual_match_label: `${dayLabel} / ${mealType}`
   });
@@ -888,7 +934,21 @@ function applyMealImageToMealPlan(
 }
 
 function hasRenderableImage(imageUrl?: string): imageUrl is string {
-  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+  return isDurableRecipeImageUrl(imageUrl);
+}
+
+function clearMealPlanImageSlotState(
+  slotKey: string,
+  setLoadingSlots: (updater: (current: Set<string>) => Set<string>) => void,
+  setErrorSlots: (updater: (current: Set<string>) => Set<string>) => void
+) {
+  const removeSlot = (current: Set<string>) => {
+    const next = new Set(current);
+    next.delete(slotKey);
+    return next;
+  };
+  setLoadingSlots(removeSlot);
+  setErrorSlots(removeSlot);
 }
 
 function buildMealSummary(

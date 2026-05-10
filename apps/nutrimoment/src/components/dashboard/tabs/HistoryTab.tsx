@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { History, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -11,6 +11,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -24,15 +25,34 @@ const HISTORY_INITIAL_ENTRY_COUNT = 6;
 const HISTORY_LOAD_MORE_COUNT = 6;
 const HISTORY_EAGER_IMAGE_COUNT = 3;
 const HISTORY_PREMIUM_IMAGE_REPAIR_DELAYS_MS = [18 * 1000, 60 * 1000, 5 * 60 * 1000] as const;
+const HISTORY_IMAGE_CACHE_REPAIR_BATCH_SIZE = 30;
+
+type HistoryPhotoBatchResult = {
+  error?: string;
+  imageAttributionName?: string;
+  imageAttributionUrl?: string;
+  imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+  imageUrl?: string;
+  ok: boolean;
+  status: number;
+};
+
+type ReusableHistoryImage = {
+  imageAttributionName?: string;
+  imageAttributionUrl?: string;
+  imageSource?: Recipe["image_source"];
+  imageUrl: string;
+};
 
 export function HistoryTab() {
   const { t, setError, settings } = useApp();
-  const { access, user } = useAuth();
+  const { access, getAuthHeaders, user } = useAuth();
   const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
   const [imageRepairVersion, setImageRepairVersion] = useState(0);
   const [imageRepairAttempt, setImageRepairAttempt] = useState(0);
+  const cacheRepairKeysRef = useRef<Set<string>>(new Set());
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -106,6 +126,114 @@ export function HistoryTab() {
     }, delay);
     return () => globalThis.clearTimeout(timeout);
   }, [imageRepairAttempt, visibleMissingPremiumImages]);
+
+  useEffect(() => {
+    if (access.tier !== "premium" || !user || !visibleItems.length) return;
+
+    const reusableImagesByKey = buildReusableHistoryImageIndex(items);
+    const reusableMatches: Array<{
+      entryId: string;
+      image: ReusableHistoryImage;
+      recipeIndex: number;
+    }> = [];
+    const candidates = visibleItems.flatMap((entry) =>
+      entry.recipes
+        .map((recipe, recipeIndex) => {
+          if (hasRenderableImage(recipe.image_url)) return null;
+          const repairKey = buildHistoryPhotoRepairKey(entry.id, recipeIndex, recipe);
+          if (cacheRepairKeysRef.current.has(repairKey)) return null;
+          cacheRepairKeysRef.current.add(repairKey);
+
+          const reusableImage = findReusableHistoryImage(recipe, reusableImagesByKey);
+          if (reusableImage) {
+            reusableMatches.push({
+              entryId: entry.id,
+              image: reusableImage,
+              recipeIndex
+            });
+            return null;
+          }
+
+          const queries = buildRecipePhotoQuery(recipe);
+          return {
+            entryId: entry.id,
+            queryKey: repairKey,
+            recipe,
+            recipeIndex,
+            queries
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    );
+
+    if (!candidates.length && !reusableMatches.length) return;
+
+    let cancelled = false;
+
+    const repairFromCache = async () => {
+      try {
+        for (const match of reusableMatches) {
+          if (cancelled) return;
+          await updateRecipeImage(
+            match.entryId,
+            match.recipeIndex,
+            match.image.imageUrl,
+            false,
+            match.image.imageSource,
+            { name: match.image.imageAttributionName, url: match.image.imageAttributionUrl }
+          );
+        }
+
+        for (let index = 0; index < candidates.length; index += HISTORY_IMAGE_CACHE_REPAIR_BATCH_SIZE) {
+          const chunk = candidates.slice(index, index + HISTORY_IMAGE_CACHE_REPAIR_BATCH_SIZE);
+          const response = await fetch("/api/recipe-photo/batch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+            body: JSON.stringify({
+              items: chunk.map((candidate) => ({
+                alt: candidate.queries.slice(1),
+                cacheOnly: true,
+                cuisine: buildRecipePhotoCuisine(candidate.recipe),
+                exact: buildRecipePhotoExactNames(candidate.recipe),
+                ingredient: buildRecipePhotoPromptIngredients(candidate.recipe).slice(0, 10),
+                query: candidate.queries[0] ?? candidate.recipe.name,
+                queryKey: candidate.queryKey
+              }))
+            })
+          });
+
+          const payload = (await response.json().catch(() => ({ results: {} }))) as {
+            results?: Record<string, HistoryPhotoBatchResult>;
+          };
+          if (cancelled) return;
+
+          for (const candidate of chunk) {
+            const data = payload.results?.[candidate.queryKey];
+            if (data?.ok && hasRenderableImage(data.imageUrl)) {
+              await updateRecipeImage(
+                candidate.entryId,
+                candidate.recipeIndex,
+                data.imageUrl,
+                false,
+                data.imageSource,
+                { name: data.imageAttributionName, url: data.imageAttributionUrl }
+              );
+            } else {
+              await updateRecipeImage(candidate.entryId, candidate.recipeIndex, "", true);
+            }
+          }
+        }
+      } catch {
+        candidates.forEach((candidate) => cacheRepairKeysRef.current.delete(candidate.queryKey));
+      }
+    };
+
+    void repairFromCache();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [access.tier, getAuthHeaders, items, updateRecipeImage, user, visibleItems]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -232,6 +360,7 @@ export function HistoryTab() {
                       imageExactNames={buildRecipePhotoExactNames(recipe)}
                       imageCuisine={buildRecipePhotoCuisine(recipe)}
                       imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
+                      disableAutoImageLookup={access.tier === "premium"}
                       onImageResolved={
                         user
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
@@ -329,7 +458,71 @@ function buildRecipePhotoQuery(recipe: Recipe) {
 }
 
 function hasRenderableImage(imageUrl?: string): imageUrl is string {
-  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+  return isDurableRecipeImageUrl(imageUrl);
+}
+
+function buildReusableHistoryImageIndex(items: Array<{ recipes: Recipe[] }>) {
+  const imagesByKey = new Map<string, ReusableHistoryImage>();
+
+  for (const entry of items) {
+    for (const recipe of entry.recipes) {
+      if (!hasRenderableImage(recipe.image_url)) continue;
+      const image: ReusableHistoryImage = {
+        imageAttributionName: recipe.image_attribution_name,
+        imageAttributionUrl: recipe.image_attribution_url,
+        imageSource: recipe.image_source,
+        imageUrl: recipe.image_url
+      };
+
+      for (const key of buildReusableHistoryRecipeKeys(recipe)) {
+        if (!imagesByKey.has(key)) {
+          imagesByKey.set(key, image);
+        }
+      }
+    }
+  }
+
+  return imagesByKey;
+}
+
+function findReusableHistoryImage(recipe: Recipe, imagesByKey: Map<string, ReusableHistoryImage>) {
+  for (const key of buildReusableHistoryRecipeKeys(recipe)) {
+    const image = imagesByKey.get(key);
+    if (image) return image;
+  }
+  return null;
+}
+
+function buildReusableHistoryRecipeKeys(recipe: Recipe) {
+  return Array.from(
+    new Set(
+      [
+        ...buildRecipePhotoExactNames(recipe),
+        ...buildRecipePhotoQuery(recipe)
+      ]
+        .map(normalizeHistoryRecipeImageKey)
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeHistoryRecipeImageKey(value?: string) {
+  return (value ?? "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function buildHistoryPhotoRepairKey(entryId: string, recipeIndex: number, recipe: Recipe) {
+  return [
+    entryId,
+    recipeIndex,
+    buildRecipePhotoExactNames(recipe).join("||"),
+    buildRecipePhotoQuery(recipe).join("||")
+  ]
+    .filter(Boolean)
+    .join("##");
 }
 
 function serializeRecipePhotoQuery(queries: string[]) {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { GET as lookupRecipePhoto } from "../route";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
     const response = await lookupRecipePhoto(new Request(buildRecipePhotoLookupUrl(origin, item), { headers }));
     const retryAfterSeconds = Number(response.headers.get("Retry-After") ?? "0") || undefined;
     const data = (await response.json().catch(() => null)) as Partial<BatchRecipePhotoResult> | null;
+    const imageUrl = isDurableRecipeImageUrl(data?.imageUrl) ? data.imageUrl : undefined;
 
     return [
       item.queryKey,
@@ -59,8 +61,8 @@ export async function POST(request: Request) {
         imageAttributionName: data?.imageAttributionName,
         imageAttributionUrl: data?.imageAttributionUrl,
         imageSource: data?.imageSource,
-        imageUrl: data?.imageUrl,
-        ok: response.ok && Boolean(data?.imageUrl),
+        imageUrl,
+        ok: response.ok && Boolean(imageUrl),
         retryAfterSeconds,
         source: data?.source,
         status: response.status

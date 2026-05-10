@@ -27,6 +27,7 @@ import {
   buildRecipePhotoExactAliases,
   normalizeExactRecipePhotoHints
 } from "@/lib/recipePhotoExactIdentity";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -497,6 +498,15 @@ function normalizeRecipePhotoTextToEnglish(value: string) {
 }
 
 function setRecipePhotoCache(key: string, value: CachedRecipePhoto) {
+  if (!isDurableRecipeImageUrl(value.imageUrl)) {
+    logger.warn("Skipped transient or invalid recipe photo memory cache entry", {
+      key,
+      signature: value.signature,
+      source: value.source
+    });
+    return;
+  }
+
   if (recipePhotoCache.size >= MAX_RECIPE_PHOTO_CACHE_ITEMS) {
     const oldestKey = recipePhotoCache.keys().next().value;
     if (oldestKey) recipePhotoCache.delete(oldestKey);
@@ -516,8 +526,17 @@ function setRecipePhotoCacheAliases(signatures: string[], value: CachedRecipePho
 
 function getRecipePhotoCacheBySignatures(signatures: string[]) {
   for (const signature of signatures) {
-    const cached = recipePhotoCache.get(getRecipePhotoSuccessCacheKey(signature));
+    const key = getRecipePhotoSuccessCacheKey(signature);
+    const cached = recipePhotoCache.get(key);
     if (cached) {
+      if (!isDurableRecipeImageUrl(cached.imageUrl)) {
+        recipePhotoCache.delete(key);
+        logger.warn("Dropped transient or invalid recipe photo from memory cache", {
+          signature,
+          source: cached.source
+        });
+        continue;
+      }
       return cached;
     }
   }
@@ -676,12 +695,23 @@ async function performRecipePhotoLookup({
               );
               selectedPhoto.imageUrl = persistedGeneratedPhoto.imageUrl;
             } catch (error) {
-              logger.warn("Replicate recipe photo exact cache persistence failed; returning generated result", {
+              logger.warn("Replicate recipe photo exact cache persistence failed; returning retryable premium image failure", {
                 query,
                 replicateQuery,
                 exactAliasCount: generatedCacheAliases.length,
                 errorMessage: error instanceof Error ? error.message : String(error)
               });
+              const persistenceFailure = createRecipePhotoFailure(
+                "Generated recipe image could not be saved durably yet. Retrying premium image generation shortly.",
+                503,
+                PREMIUM_REPLICATE_RETRY_TTL_MS,
+                PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
+              );
+              setRecipePhotoFailureCache(failureCacheKey, persistenceFailure);
+              return {
+                failure: persistenceFailure,
+                ok: false
+              };
             }
 
             setRecipePhotoCacheAliases([replicateCacheSignature, ...generatedCacheAliases], selectedPhoto);
@@ -1293,6 +1323,7 @@ function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[]) {
 }
 
 function rememberRecipePhotoSelection(imageUrl: string, signature: string) {
+  if (!isDurableRecipeImageUrl(imageUrl)) return;
   recentRecipePhotoSelections.set(imageUrl, {
     expiresAt: Date.now() + RECENT_SELECTION_TTL_MS,
     signature

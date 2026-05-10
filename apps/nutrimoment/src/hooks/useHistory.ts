@@ -19,6 +19,7 @@ import {
 import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { logger } from "@/lib/logger";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { HistoryItem, Recipe, RecipeImageSource } from "@/lib/types";
 
 const MAX_HISTORY_ITEMS = 50;
@@ -80,7 +81,7 @@ function isFirestoreQuotaError(error: unknown) {
 }
 
 function isRenderableImage(imageUrl?: string) {
-  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+  return isDurableRecipeImageUrl(imageUrl);
 }
 
 function getRecipeImageIdentity(recipe: Recipe) {
@@ -95,21 +96,33 @@ function getRecipeImageIdentity(recipe: Recipe) {
     .join("::");
 }
 
+function sanitizeHistoryRecipeImage(recipe: Recipe): Recipe {
+  const imageUrl = isRenderableImage(recipe.image_url) ? recipe.image_url : undefined;
+  return stripUndefined({
+    ...recipe,
+    image_url: imageUrl,
+    image_source: imageUrl ? recipe.image_source : undefined,
+    image_attribution_name: imageUrl ? recipe.image_attribution_name : undefined,
+    image_attribution_url: imageUrl ? recipe.image_attribution_url : undefined
+  });
+}
+
 function preserveExistingRecipeImage(nextRecipe: Recipe, existingRecipe?: Recipe): Recipe {
-  if (!existingRecipe || isRenderableImage(nextRecipe.image_url)) {
-    return nextRecipe;
+  const sanitizedNextRecipe = sanitizeHistoryRecipeImage(nextRecipe);
+  if (!existingRecipe || isRenderableImage(sanitizedNextRecipe.image_url)) {
+    return sanitizedNextRecipe;
   }
 
   if (!isRenderableImage(existingRecipe.image_url)) {
-    return nextRecipe;
+    return sanitizedNextRecipe;
   }
 
   return stripUndefined({
-    ...nextRecipe,
+    ...sanitizedNextRecipe,
     image_url: existingRecipe.image_url,
-    image_source: nextRecipe.image_source ?? existingRecipe.image_source,
-    image_attribution_name: nextRecipe.image_attribution_name ?? existingRecipe.image_attribution_name,
-    image_attribution_url: nextRecipe.image_attribution_url ?? existingRecipe.image_attribution_url,
+    image_source: sanitizedNextRecipe.image_source ?? existingRecipe.image_source,
+    image_attribution_name: sanitizedNextRecipe.image_attribution_name ?? existingRecipe.image_attribution_name,
+    image_attribution_url: sanitizedNextRecipe.image_attribution_url ?? existingRecipe.image_attribution_url,
     image_loading: false,
     image_error: false
   });
@@ -140,7 +153,7 @@ async function getLatestHistoryEntryForMerge(
         title: data.title,
         sessionType: data.sessionType,
         ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-        recipes: Array.isArray(data.recipes) ? data.recipes : [],
+        recipes: Array.isArray(data.recipes) ? data.recipes.map(sanitizeHistoryRecipeImage) : [],
         generationStatus: data.generationStatus,
         generationMessage: data.generationMessage,
         completedAt: data.completedAt
@@ -217,7 +230,7 @@ export function useHistory(): UseHistoryResult {
             title: data.title,
             sessionType: data.sessionType,
             ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-            recipes: Array.isArray(data.recipes) ? data.recipes : [],
+            recipes: Array.isArray(data.recipes) ? data.recipes.map(sanitizeHistoryRecipeImage) : [],
             generationStatus: data.generationStatus,
             generationMessage: data.generationMessage,
             completedAt: data.completedAt
@@ -245,7 +258,7 @@ export function useHistory(): UseHistoryResult {
       title: entry.title,
       sessionType: entry.sessionType,
       ingredients: entry.ingredients,
-      recipes: entry.recipes,
+      recipes: entry.recipes.map(sanitizeHistoryRecipeImage),
       generationStatus: entry.generationStatus,
       generationMessage: entry.generationMessage,
       completedAt: entry.completedAt,
@@ -265,7 +278,7 @@ export function useHistory(): UseHistoryResult {
         .filter(([identity, recipe]) => Boolean(identity) && isRenderableImage(recipe.image_url))
     );
     const sanitizedRecipes = recipes.map((recipe, index) => {
-      const nextRecipe = stripUndefined(recipe);
+      const nextRecipe = sanitizeHistoryRecipeImage(stripUndefined(recipe));
       const identity = getRecipeImageIdentity(nextRecipe);
       const existingAtIndex = current?.recipes[index];
       const matchingIndexedRecipe =
@@ -321,10 +334,12 @@ export function useHistory(): UseHistoryResult {
     const recipes = [...current.recipes];
     if (!recipes[recipeIndex]) return;
     const currentRecipe = recipes[recipeIndex];
-    const nextImageUrl = imageUrl || currentRecipe.image_url;
-    const nextImageSource = imageSource ?? currentRecipe.image_source;
-    const nextAttributionName = imageAttribution?.name ?? currentRecipe.image_attribution_name;
-    const nextAttributionUrl = imageAttribution?.url ?? currentRecipe.image_attribution_url;
+    const requestedImageUrl = isRenderableImage(imageUrl) ? imageUrl : undefined;
+    const currentImageUrl = isRenderableImage(currentRecipe.image_url) ? currentRecipe.image_url : undefined;
+    const nextImageUrl = requestedImageUrl ?? currentImageUrl;
+    const nextImageSource = nextImageUrl ? imageSource ?? currentRecipe.image_source : undefined;
+    const nextAttributionName = nextImageUrl ? imageAttribution?.name ?? currentRecipe.image_attribution_name : undefined;
+    const nextAttributionUrl = nextImageUrl ? imageAttribution?.url ?? currentRecipe.image_attribution_url : undefined;
 
     if (
       currentRecipe.image_url === nextImageUrl &&

@@ -2,6 +2,7 @@
 
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
 import { storage } from "@/config/firebase";
+import { isTransientRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export async function persistRecipeImageForUser(options: {
   uid: string;
@@ -11,6 +12,7 @@ export async function persistRecipeImageForUser(options: {
   const { uid, imageUrl, query } = options;
 
   if (!imageUrl) return "";
+  if (isTransientRecipeImageUrl(imageUrl)) return "";
   if (/^https?:/i.test(imageUrl)) return imageUrl;
   if (!/^data:/i.test(imageUrl)) return imageUrl;
 

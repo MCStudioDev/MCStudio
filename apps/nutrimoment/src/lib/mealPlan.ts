@@ -1,4 +1,5 @@
 import type { MealPlanData, MealPlanDay } from "@/lib/types";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -121,6 +122,8 @@ function normalizeMeal(value: unknown) {
   const imageSearchIndex = readString(value, ["image_search_index", "photo_query", "search_index"]) || imageSearchIndices?.[0];
   const ingredients = readIngredientList(value, ["ingredients", "items", "ingredient_list"]);
   const steps = readStringList(value, ["steps", "instructions", "prep_steps", "preparation"]);
+  const imageUrl = readString(value, ["image_url", "imageUrl", "photo_url", "photoUrl"]);
+  const hasDurableImage = isDurableRecipeImageUrl(imageUrl);
 
   return {
     ...value,
@@ -133,7 +136,11 @@ function normalizeMeal(value: unknown) {
     calories: readNumber(value, ["calories", "kcal"]),
     protein: readMacro(value, ["protein"]),
     carbs: readMacro(value, ["carbs", "carbohydrates"]),
-    fat: readMacro(value, ["fat", "fats"])
+    fat: readMacro(value, ["fat", "fats"]),
+    image_url: hasDurableImage ? imageUrl : undefined,
+    image_source: hasDurableImage ? readString(value, ["image_source", "imageSource"]) : undefined,
+    image_attribution_name: hasDurableImage ? readString(value, ["image_attribution_name", "imageAttributionName"]) : undefined,
+    image_attribution_url: hasDurableImage ? readString(value, ["image_attribution_url", "imageAttributionUrl"]) : undefined
   };
 }
 

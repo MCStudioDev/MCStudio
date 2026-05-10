@@ -31,6 +31,7 @@ import {
   listSharedCachedRecipesForIngredients,
   listUserCachedRecipes
 } from "@/services/userRecipeCacheService";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export interface CatalogRecipeSearchInput {
   ingredients: string[];
@@ -130,6 +131,9 @@ export function mapCatalogRecipeToUiRecipe(
   const cleanedEnglishName = buildSharedRecipeEnglishTitle(recipeTitleSource);
   const cleanedEnglishCuisine = normalizeEnglishCuisineLabel(normalizedRecipe.localized?.English?.cuisine ?? normalizedRecipe.cuisine);
   const cleanedArabicCuisine = translateCuisineLabelToArabic(normalizedRecipe.localized?.Arabic?.cuisine ?? normalizedRecipe.cuisine);
+  const englishImageUrl =
+    normalizeRecipeImageUrl(normalizedRecipe.localized?.English?.image_url) ??
+    normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath);
   const englishBase: Recipe = {
     id: normalizedRecipe.id,
     name: isWeakEnglishTitle(normalizedRecipe.localized?.English?.name ?? normalizedRecipe.title)
@@ -150,10 +154,10 @@ export function mapCatalogRecipeToUiRecipe(
     sodium: normalizedRecipe.localized?.English?.sodium ?? (normalizedRecipe.sodium ? `${normalizedRecipe.sodium}mg` : undefined),
     cook_time: normalizedRecipe.localized?.English?.cook_time ?? `${normalizedRecipe.totalMinutes} mins`,
     difficulty: normalizedRecipe.localized?.English?.difficulty ?? capitalize(normalizedRecipe.difficulty),
-    image_url: normalizedRecipe.localized?.English?.image_url ?? normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath),
-    image_source: normalizedRecipe.localized?.English?.image_source,
-    image_attribution_name: normalizedRecipe.localized?.English?.image_attribution_name,
-    image_attribution_url: normalizedRecipe.localized?.English?.image_attribution_url,
+    image_url: englishImageUrl,
+    image_source: englishImageUrl ? normalizedRecipe.localized?.English?.image_source : undefined,
+    image_attribution_name: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_name : undefined,
+    image_attribution_url: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_url : undefined,
     image_search_index: normalizedRecipe.localized?.English?.image_search_index,
     image_search_indices: normalizedRecipe.localized?.English?.image_search_indices,
     match_quality: matchQuality,
@@ -175,6 +179,7 @@ export function mapCatalogRecipeToUiRecipe(
     .map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
   const missingLocalized = missingIngredients.map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
 
+  const localizedImageUrl = normalizeRecipeImageUrl(localized.image_url) ?? englishBase.image_url;
   const localizedRecipe: Recipe = {
     ...englishBase,
     name: localized.name,
@@ -190,10 +195,10 @@ export function mapCatalogRecipeToUiRecipe(
     sodium: localized.sodium ?? englishBase.sodium,
     cook_time: localized.cook_time ?? englishBase.cook_time,
     difficulty: localized.difficulty ?? englishBase.difficulty,
-    image_url: localized.image_url ?? englishBase.image_url,
-    image_source: localized.image_source ?? englishBase.image_source,
-    image_attribution_name: localized.image_attribution_name ?? englishBase.image_attribution_name,
-    image_attribution_url: localized.image_attribution_url ?? englishBase.image_attribution_url,
+    image_url: localizedImageUrl,
+    image_source: localizedImageUrl ? localized.image_source ?? englishBase.image_source : undefined,
+    image_attribution_name: localizedImageUrl ? localized.image_attribution_name ?? englishBase.image_attribution_name : undefined,
+    image_attribution_url: localizedImageUrl ? localized.image_attribution_url ?? englishBase.image_attribution_url : undefined,
     image_search_index: englishBase.image_search_index,
     image_search_indices: englishBase.image_search_indices,
     preference_hits: normalizeStringArray(localized.preference_hits).length
@@ -247,9 +252,7 @@ function capitalize(value: string) {
 }
 
 function normalizeRecipeImageUrl(value?: string) {
-  if (!value) return undefined;
-  if (/^https?:\/\//i.test(value)) return value;
-  return undefined;
+  return isDurableRecipeImageUrl(value) ? value : undefined;
 }
 
 function normalizeStringArray(value: unknown): string[] {

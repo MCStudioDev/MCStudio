@@ -55,6 +55,7 @@ import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/lang
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 10;
 const MIN_RECIPE_RESULT_COUNT = 1;
@@ -2854,7 +2855,7 @@ async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
 
   for (const recipe of recipes) {
     const currentImageUrl = recipe.image_url;
-    if (currentImageUrl && !usedImageUrls.has(currentImageUrl)) {
+    if (isDurableRecipeImageUrl(currentImageUrl) && !usedImageUrls.has(currentImageUrl)) {
       usedImageUrls.add(currentImageUrl);
       uniqueRecipes.push(recipe);
       continue;
@@ -2864,7 +2865,7 @@ async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
       const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls, { allowProviderLookup: true });
       const candidateImageUrl = resolvedPhoto.recipePatch?.image_url;
 
-      if (candidateImageUrl && !usedImageUrls.has(candidateImageUrl)) {
+      if (isDurableRecipeImageUrl(candidateImageUrl) && !usedImageUrls.has(candidateImageUrl)) {
         usedImageUrls.add(candidateImageUrl);
         uniqueRecipes.push({
           ...recipe,
@@ -2903,10 +2904,10 @@ function dedupeResolvedRecipeImages(
 
   return scoredRecipes.map((entry) => {
     const imageUrl = entry.recipe.image_url;
-    if (!imageUrl || !usedImageUrls.has(imageUrl)) {
-      if (imageUrl) {
-        usedImageUrls.add(imageUrl);
-      }
+    if (!imageUrl) return entry;
+
+    if (isDurableRecipeImageUrl(imageUrl) && !usedImageUrls.has(imageUrl)) {
+      usedImageUrls.add(imageUrl);
       return entry;
     }
 
@@ -2932,7 +2933,7 @@ async function resolveRecipePhotoCandidate(
     allowProviderLookup?: boolean;
   }
 ) {
-  if (recipe.image_url && !excludedUrls.has(recipe.image_url)) {
+  if (isDurableRecipeImageUrl(recipe.image_url) && !excludedUrls.has(recipe.image_url)) {
     return {
       photoFitScore: 100,
       recipePatch: null as Partial<Recipe> | null

@@ -20,6 +20,7 @@ import {
 import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { logger } from "@/lib/logger";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 type CacheRecipeLanguage = "English" | "Arabic";
 
@@ -256,6 +257,7 @@ async function buildCacheDocs(input: {
 }
 
 function createMealRecipe(meal: MealPlanMeal, fallbackId: string): Recipe {
+  const imageUrl = sanitizeCacheRecipeImageUrl(meal.image_url);
   return {
     id: fallbackId,
     name: meal.name,
@@ -271,10 +273,10 @@ function createMealRecipe(meal: MealPlanMeal, fallbackId: string): Recipe {
     fat: meal.fat,
     cook_time: "30 mins",
     difficulty: "Easy",
-    image_url: meal.image_url,
-    image_source: meal.image_source,
-    image_attribution_name: meal.image_attribution_name,
-    image_attribution_url: meal.image_attribution_url
+    image_url: imageUrl,
+    image_source: imageUrl ? meal.image_source : undefined,
+    image_attribution_name: imageUrl ? meal.image_attribution_name : undefined,
+    image_attribution_url: imageUrl ? meal.image_attribution_url : undefined
   };
 }
 
@@ -289,7 +291,7 @@ async function buildCacheDocFromRecipe(
   sourceLanguage: CacheRecipeLanguage,
   fallbackId: string
 ): Promise<RecipeCatalogDoc | null> {
-  const variants = createRecipeVariants(recipe, sourceLanguage);
+  const variants = createRecipeVariants(sanitizeRecipeImageFields(recipe), sourceLanguage);
   const englishIngredients = [...variants.English.ingredients, ...variants.English.missing_ingredients]
     .map((ingredient) => translateIngredientToEnglish(ingredient))
     .filter(Boolean);
@@ -332,6 +334,7 @@ async function buildCacheDocFromRecipe(
   const imageSignature = buildImageSignature(id, variants.English.cuisine || "Unknown", ingredientCanonicals);
   const normalizedEnglishCuisine = normalizeEnglishCuisineLabel(variants.English.cuisine || recipe.cuisine || "Unknown");
   const normalizedArabicCuisine = translateCuisineLabelToArabic(normalizedEnglishCuisine);
+  const durableImageUrl = sanitizeCacheRecipeImageUrl(variants.English.image_url);
 
   const baseRecipe: RecipeCatalogDoc = {
     id,
@@ -366,21 +369,21 @@ async function buildCacheDocFromRecipe(
     servings: 1,
     steps: variants.English.steps,
     image: {
-      storagePath: variants.English.image_url ?? "",
-      thumbPath: variants.English.image_url,
+      storagePath: durableImageUrl ?? "",
+      thumbPath: durableImageUrl,
       signature: imageSignature,
       sharedCacheKey: imageSignature,
       sourceQuery: dedupeStrings([variants.English.cuisine, englishTitle, ...ingredientCanonicals.slice(0, 3)]).join(" ")
     },
     localized: {
       English: {
-        ...variants.English,
+        ...sanitizeRecipeImageFields(variants.English),
         id,
         name: englishTitle,
         cuisine: normalizedEnglishCuisine
       },
       Arabic: {
-        ...variants.Arabic,
+        ...sanitizeRecipeImageFields(variants.Arabic),
         id,
         name: arabicTitle,
         cuisine: normalizedArabicCuisine
@@ -408,6 +411,23 @@ async function buildCacheDocFromRecipe(
     healthMetadata: buildRecipeHealthMetadata(baseRecipe),
     searchMetadata: buildRecipeSearchMetadata(baseRecipe)
   });
+}
+
+function sanitizeCacheRecipeImageUrl(imageUrl?: string | null) {
+  return isDurableRecipeImageUrl(imageUrl) ? imageUrl : undefined;
+}
+
+function sanitizeRecipeImageFields<T extends Pick<Recipe, "image_url" | "image_source" | "image_attribution_name" | "image_attribution_url">>(
+  recipe: T
+) {
+  const imageUrl = sanitizeCacheRecipeImageUrl(recipe.image_url);
+  return {
+    ...recipe,
+    image_url: imageUrl,
+    image_source: imageUrl ? recipe.image_source : undefined,
+    image_attribution_name: imageUrl ? recipe.image_attribution_name : undefined,
+    image_attribution_url: imageUrl ? recipe.image_attribution_url : undefined
+  };
 }
 
 async function hydrateUserRecipeCacheFromSavedAppData(uid: string) {
@@ -525,12 +545,15 @@ function buildSharedCacheId(title: string, cuisine: string, ingredientCanonicals
 function toSharedCacheDoc(recipe: RecipeCatalogDoc, provider = "shared-user-cache"): RecipeCatalogDoc {
   const sharedId = buildSharedCacheId(recipe.title, recipe.cuisine, recipe.ingredientCanonicals, recipe.mealType);
   const imageSignature = buildImageSignature(sharedId, recipe.cuisine, recipe.ingredientCanonicals);
+  const durableImageUrl = sanitizeCacheRecipeImageUrl(recipe.image.thumbPath || recipe.image.storagePath);
 
   return normalizeCachedRecipeCatalogDoc({
     ...recipe,
     id: sharedId,
     image: {
       ...recipe.image,
+      storagePath: durableImageUrl ?? "",
+      thumbPath: durableImageUrl,
       signature: imageSignature,
       sharedCacheKey: imageSignature
     },
@@ -539,13 +562,13 @@ function toSharedCacheDoc(recipe: RecipeCatalogDoc, provider = "shared-user-cach
           ...recipe.localized,
           English: recipe.localized.English
             ? {
-                ...recipe.localized.English,
+                ...sanitizeRecipeImageFields(recipe.localized.English),
                 id: sharedId
               }
             : recipe.localized.English,
           Arabic: recipe.localized.Arabic
             ? {
-                ...recipe.localized.Arabic,
+                ...sanitizeRecipeImageFields(recipe.localized.Arabic),
                 id: sharedId
               }
             : recipe.localized.Arabic

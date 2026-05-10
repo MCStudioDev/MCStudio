@@ -6,6 +6,7 @@ import { db } from "@/config/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { logger } from "@/lib/logger";
 import { normalizeMealPlanData, sanitizeMealPlanForFirestore } from "@/lib/mealPlan";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { MealPlanData, RecipeImageSource } from "@/lib/types";
 
 interface MealPlanState {
@@ -44,7 +45,7 @@ function isTransientSyncError(error: unknown) {
 }
 
 function isRenderableImage(imageUrl?: string) {
-  return Boolean(imageUrl && /^https?:\/\//i.test(imageUrl));
+  return isDurableRecipeImageUrl(imageUrl);
 }
 
 function getMealImageIdentity(meal: MealPlanData["plan"][number]["breakfast"]) {
@@ -236,12 +237,13 @@ export function useMealPlan() {
     if (!current) return;
     const currentMeal = current.plan[dayIndex]?.[mealType];
     if (!currentMeal) return;
-    const nextImageSource = imageSource ?? currentMeal.image_source;
-    const nextAttributionName = imageAttribution?.name ?? currentMeal.image_attribution_name;
-    const nextAttributionUrl = imageAttribution?.url ?? currentMeal.image_attribution_url;
+    const nextImageUrl = isRenderableImage(imageUrl) ? imageUrl : undefined;
+    const nextImageSource = nextImageUrl ? imageSource ?? currentMeal.image_source : undefined;
+    const nextAttributionName = nextImageUrl ? imageAttribution?.name ?? currentMeal.image_attribution_name : undefined;
+    const nextAttributionUrl = nextImageUrl ? imageAttribution?.url ?? currentMeal.image_attribution_url : undefined;
 
     if (
-      currentMeal.image_url === imageUrl &&
+      currentMeal.image_url === nextImageUrl &&
       currentMeal.image_source === nextImageSource &&
       currentMeal.image_attribution_name === nextAttributionName &&
       currentMeal.image_attribution_url === nextAttributionUrl
@@ -255,7 +257,7 @@ export function useMealPlan() {
             ...day,
             [mealType]: {
               ...currentMeal,
-              image_url: imageUrl,
+              image_url: nextImageUrl,
               image_source: nextImageSource,
               image_attribution_name: nextAttributionName,
               image_attribution_url: nextAttributionUrl

@@ -105,8 +105,13 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
     }
   }
 
-  const role = entitlementData?.role === "admin" || decoded.role === "admin" ? "admin" : "user";
-  const tier = entitlementData?.tier === "premium" || decoded.tier === "premium" ? "premium" : "free";
+  const role: AccessRole =
+    entitlementData?.role === "admin" || entitlementData?.role === "user"
+      ? entitlementData.role
+      : decoded.role === "admin"
+        ? "admin"
+        : "user";
+  const tier = resolveEffectiveAccessTier(entitlementData, decoded.tier);
   const features = normalizeEntitlementFeatures(entitlementData?.features);
   const isAdmin = role === "admin";
   const isPremium = tier === "premium";
@@ -225,14 +230,64 @@ export function hasAiFeatureAccess(access: RequestAccess, featureKey: AiFeatureK
   return access.isAdmin || access.isPremium || access.features[AI_FEATURE_TO_ENTITLEMENT_KEY[featureKey]] === true;
 }
 
-export function hasRecipeImageAccess(access: RequestAccess) {
-  return (
-    access.isAdmin ||
-    access.isPremium ||
-    access.features["recipes.imageLookup"] === true ||
-    access.aiCreditsLimit > 0 ||
-    access.weeklyPlanLimit > 0
-  );
+export function hasRecipeImageAccess(_access: RequestAccess) {
+  void _access;
+  return true;
+}
+
+export function hasGeneratedRecipeImageAccess(access: RequestAccess) {
+  return access.isAdmin || access.isPremium;
+}
+
+function resolveEffectiveAccessTier(entitlementData: Record<string, unknown> | undefined, claimTier: unknown): AccessTier {
+  const entitlementTier = entitlementData?.tier === "premium" || entitlementData?.tier === "free"
+    ? entitlementData.tier
+    : undefined;
+  const status = typeof entitlementData?.status === "string" ? entitlementData.status.toLowerCase() : "";
+  const expiresAt = getEntitlementExpirationMs(entitlementData);
+  const isExpired = expiresAt !== undefined && expiresAt <= Date.now();
+
+  if (["free", "expired", "canceled", "cancelled", "inactive"].includes(status)) return "free";
+  if (isExpired) return "free";
+
+  if (
+    entitlementTier === "premium" ||
+    claimTier === "premium" ||
+    ["active", "trial", "trialing"].includes(status)
+  ) {
+    return "premium";
+  }
+
+  return "free";
+}
+
+function getEntitlementExpirationMs(entitlementData: Record<string, unknown> | undefined) {
+  if (!entitlementData) return undefined;
+  return [
+    entitlementData.trialEndsAt,
+    entitlementData.trialExpiresAt,
+    entitlementData.currentPeriodEnd,
+    entitlementData.expiresAt,
+    entitlementData.endsAt
+  ]
+    .map(readTimestampMs)
+    .find((value): value is number => typeof value === "number");
+}
+
+function readTimestampMs(value: unknown): number | undefined {
+  if (!value) return undefined;
+  if (typeof value === "number") return value > 1_000_000_000_000 ? value : value * 1000;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  if (typeof value === "object") {
+    const maybeTimestamp = value as { toMillis?: () => number; _seconds?: number; seconds?: number };
+    if (typeof maybeTimestamp.toMillis === "function") return maybeTimestamp.toMillis();
+    const seconds = typeof maybeTimestamp._seconds === "number" ? maybeTimestamp._seconds : maybeTimestamp.seconds;
+    return typeof seconds === "number" ? seconds * 1000 : undefined;
+  }
+  return undefined;
 }
 
 export async function canUseApiFeature(request: Request, featureKey: AiFeatureKey) {

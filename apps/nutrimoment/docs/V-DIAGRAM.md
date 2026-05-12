@@ -1,6 +1,6 @@
 # V-Diagram - NutriMoment Development and Verification Model
-**Version:** 1.1  
-**Date:** 2026-04-24
+**Version:** 1.2  
+**Date:** 2026-05-11
 
 This V-model is updated to match the current NutriMoment app rather than the older all-features vision.
 
@@ -12,15 +12,15 @@ DEFINITION                                      VERIFICATION
 
 Product behavior                               Acceptance checks
 - authenticated pantry-aware cooking app       - signed-in user can scan and get recipes
-- offline-first recipe retrieval               - premium user can generate weekly plan
-- premium weekly meal plans                    - history persists across refresh
+- offline-first recipe retrieval               - premium user can generate weekly plan (unmetered)
+- weekly meal plans (3 free trials, premium)   - free user can use 3 lifetime weekly plans, then hits the upgrade wall
 - public recipe-photo lookup                   - recipe images resolve or fail cleanly
 
 System requirements                            System validation
 - Firebase token verification                  - protected routes reject missing auth
 - offline catalog retrieval                    - recipe route returns ranked results
 - pantry quantity reconciliation               - shopping list subtracts pantry stock
-- photo lookup order                           - cache/Unsplash/Pexels path behaves correctly
+- photo lookup order                           - Replicate-for-premium and cache/Unsplash/Pexels/Wikimedia-for-free paths behave correctly
 
 Architecture and service design                Integration validation
 - Next.js app router                           - UI tabs connect to real routes
@@ -38,7 +38,7 @@ Implementation                                 Current concrete checks
 - scanner, pantry, meal plan, history tabs     - eslint
 - protected API routes                         - next build
 - catalog-first recipe engine                  - manual smoke tests
-- Unsplash and Pexels photo pipeline           - route-level log inspection
+- Replicate + Unsplash/Pexels photo pipeline   - route-level log inspection
 ```
 
 ## Current Verification Reality
@@ -70,4 +70,4 @@ NutriMoment does not yet have the full automated test stack originally envisione
 2. unit tests for pantry shopping-list reconciliation
 3. integration tests for protected routes with valid/invalid tokens
 4. end-to-end tests for scanner -> recipes -> history
-5. end-to-end tests for premium meal plan generation
+5. end-to-end tests for both free-trial and premium meal plan generation paths

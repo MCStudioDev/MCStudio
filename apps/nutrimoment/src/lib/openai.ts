@@ -19,7 +19,13 @@ export interface AiCallTraceOptions {
   requestId?: string;
 }
 
-export const USE_MOCK = process.env.USE_MOCK_API === "true";
+const rawUseMock = process.env.USE_MOCK_API === "true";
+if (rawUseMock && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "USE_MOCK_API=true is not permitted when NODE_ENV=production. Remove the variable or unset NODE_ENV before starting the server."
+  );
+}
+export const USE_MOCK = rawUseMock;
 export const HAS_GEMINI_API_KEY = apiKey.length > 0;
 
 export function getClient(): GoogleGenAI | null {

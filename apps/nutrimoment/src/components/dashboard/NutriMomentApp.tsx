@@ -24,9 +24,13 @@ const TAB_COMPONENTS: Record<Tab, React.ComponentType> = {
   settings: SettingsTab
 };
 
+const DASHBOARD_TAB_STORAGE_KEY = "nutrimoment.dashboard.activeTab";
+const DASHBOARD_TABS = Object.keys(TAB_COMPONENTS) as Tab[];
+
 export function NutriMomentApp() {
   const [activeTab, setActiveTab] = useState<Tab>("scanner");
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const restoredTabRef = useRef(false);
   const { settings } = useApp();
   const ActiveComponent = TAB_COMPONENTS[activeTab];
   const themeMode = settings.themeMode ?? "auroraDark";
@@ -53,9 +57,33 @@ export function NutriMomentApp() {
     };
   }, [themeMode]);
 
+  useEffect(() => {
+    const savedTab = getSavedDashboardTab();
+    if (!savedTab) {
+      restoredTabRef.current = true;
+      return;
+    }
+
+    const restoreId = window.setTimeout(() => {
+      restoredTabRef.current = true;
+      setActiveTab(savedTab);
+    }, 0);
+
+    return () => window.clearTimeout(restoreId);
+  }, []);
+
+  useEffect(() => {
+    if (!restoredTabRef.current) return;
+    persistDashboardTab(activeTab);
+  }, [activeTab]);
+
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+  };
+
   return (
     <>
-      <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <TopNav activeTab={activeTab} onTabChange={handleTabChange} />
       <BackgroundRecipeNotifier />
 
       <div
@@ -89,4 +117,47 @@ export function NutriMomentApp() {
       </div>
     </>
   );
+}
+
+function isDashboardTab(value: string | null): value is Tab {
+  return Boolean(value && DASHBOARD_TABS.includes(value as Tab));
+}
+
+function getSavedDashboardTab() {
+  if (typeof window === "undefined") return null;
+
+  const urlTab = new URLSearchParams(window.location.search).get("tab");
+  if (isDashboardTab(urlTab)) return urlTab;
+
+  const storedTab = safeReadDashboardTab();
+  return isDashboardTab(storedTab) ? storedTab : null;
+}
+
+function persistDashboardTab(tab: Tab) {
+  if (typeof window === "undefined") return;
+
+  safeWriteDashboardTab(tab);
+
+  const url = new URL(window.location.href);
+  if (!url.pathname.startsWith("/dashboard")) return;
+  if (url.searchParams.get("tab") === tab) return;
+
+  url.searchParams.set("tab", tab);
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function safeReadDashboardTab() {
+  try {
+    return window.localStorage.getItem(DASHBOARD_TAB_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function safeWriteDashboardTab(tab: Tab) {
+  try {
+    window.localStorage.setItem(DASHBOARD_TAB_STORAGE_KEY, tab);
+  } catch {
+    // The URL tab parameter still preserves refresh state when storage is blocked.
+  }
 }

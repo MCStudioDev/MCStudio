@@ -11,7 +11,7 @@ import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
-import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -48,7 +48,7 @@ export function HistoryTab() {
   const { t, setError, settings } = useApp();
   const { access, getAuthHeaders, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
-  const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
+  const { items, clear, removeEntry, loading, error: historyError, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
   const [imageRepairVersion, setImageRepairVersion] = useState(0);
@@ -69,6 +69,13 @@ export function HistoryTab() {
       setError(message);
     }
   };
+
+  useEffect(() => {
+    if (historyError) {
+      setError(`History could not sync. ${historyError.message}`);
+    }
+  }, [historyError, setError]);
+
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return items;
@@ -211,7 +218,7 @@ export function HistoryTab() {
 
           for (const candidate of chunk) {
             const data = payload.results?.[candidate.queryKey];
-            if (data?.ok && hasRenderableImage(data.imageUrl)) {
+            if (data?.ok && hasStrictRenderableImage(data.imageUrl, true)) {
               await updateRecipeImage(
                 candidate.entryId,
                 candidate.recipeIndex,
@@ -267,6 +274,15 @@ export function HistoryTab() {
                 <div key={item} className="h-64 animate-pulse rounded-[1.7rem] border border-white/10 bg-white/[0.06]" />
               ))}
             </div>
+          </Card>
+        </motion.div>
+      ) : historyError ? (
+        <motion.div variants={itemVariants}>
+          <Card className="theme-history-entry rounded-[2rem] space-y-3 border-emerald-100 bg-white text-[#173a31] shadow-[0_24px_70px_-42px_rgba(16,58,48,0.32)]">
+            <p className="text-sm font-semibold text-[#173a31]">History is temporarily unavailable.</p>
+            <p className="text-sm leading-relaxed text-[#4f6f66]">
+              Please refresh the page or sign in again.
+            </p>
           </Card>
         </motion.div>
       ) : items.length ? (
@@ -334,7 +350,7 @@ export function HistoryTab() {
                 ) : null}
 
                 {entry.generationStatus === "failed" && !entry.recipes.length ? (
-                  <div className="rounded-[1.4rem] border border-red-200/18 bg-red-400/10 px-4 py-5 text-sm font-semibold text-red-50">
+                  <div className="rounded-[1.4rem] border border-emerald-100 bg-white px-4 py-5 text-sm font-semibold text-[#173a31] shadow-[0_20px_55px_-36px_rgba(16,58,48,0.32)]">
                     {entry.generationMessage ?? t("backgroundRecipesFailed")}
                   </div>
                 ) : null}
@@ -456,13 +472,8 @@ function buildRecipePhotoQuery(recipe: Recipe) {
   });
 }
 
-function hasRenderableImage(imageUrl?: string): imageUrl is string {
-  return isDurableRecipeImageUrl(imageUrl);
-}
-
 function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
-  if (!hasRenderableImage(imageUrl)) return false;
-  return !strictGeneratedOnly || isReplicateGeneratedRecipeImageUrl(imageUrl);
+  return isUsableRecipeImageForAccess(imageUrl, strictGeneratedOnly);
 }
 
 function getHistoryRecipeImageUrl(recipe: Recipe, strictGeneratedOnly: boolean) {

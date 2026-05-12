@@ -54,6 +54,7 @@ export const translations = {
     backgroundRecipesReady: "Recipes are ready in History.",
     backgroundRecipesFailed: "Recipe generation could not finish. Please try again.",
     backgroundRecipesContinuingInHistory: "The browser interrupted the live request, but generation may still finish in History. We will notify you when recipes are ready.",
+    backgroundMealPlanContinuing: "The browser interrupted the live request, but the weekly plan may still finish and save. We will reload it when you return.",
     detectedIng: "Detected Ingredients",
     editList: "Edit List",
     addMissing: "Add missing ingredient…",

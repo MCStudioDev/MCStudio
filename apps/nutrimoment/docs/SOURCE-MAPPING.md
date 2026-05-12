@@ -1,5 +1,5 @@
 # NutriMoment Source Mapping
-**Date:** 2026-04-24  
+**Date:** 2026-05-11  
 **Source app:** historical NutriMoment prototype  
 **Target app:** `apps/nutrimoment`
 
@@ -29,22 +29,39 @@ This document now serves as a "where things live now" map.
 ### Active Backend Routes Used by the UI
 | Concern | Current Route |
 |---|---|
-| ingredient / pantry scan | `src/app/api/scan/route.ts` |
+| ingredient / pantry scan | `src/app/api/scan/route.ts` (+ `scan/process/route.ts`) |
 | recipe suggestions | `src/app/api/generate-recipes/route.ts` |
 | meal plans | `src/app/api/mealplan/route.ts` |
 | recipe photos | `src/app/api/recipe-photo/route.ts` |
+| history list | `src/app/api/history/route.ts` |
+| health probe | `src/app/api/healthz/route.ts` |
+| catalog readiness | `src/app/api/catalog/status/route.ts` |
+| admin access management | `src/app/api/admin/access/route.ts` |
+
+### Legacy / Overlapping Routes Still Present
+| Route | Current Status | Notes |
+|---|---|---|
+| `src/app/api/recipes/route.ts` | Still in tree | Earlier recipe route; `generate-recipes` is the live one. Consolidation pending. |
+| `src/app/api/analyze-image/route.ts` | Still in tree | Earlier image-to-text route; `scan` is the live one. Consolidation pending. |
+| `src/app/api/debug/` | Empty directory | No handler exported. Safe but should be deleted to avoid accidental future surface. |
 
 ### Important Supporting Modules
 | Concern | Location |
 |---|---|
 | access control | `src/services/authService.ts` |
 | Firebase Admin | `src/lib/firebaseAdmin.ts` |
-| Gemini text / vision wrapper | `src/lib/openai.ts` |
+| Gemini text / vision wrapper | `src/lib/openai.ts` (filename retained from earlier prototype; provider is Gemini) |
 | pantry quantity math | `src/lib/pantryQuantity.ts` |
 | meal-plan normalization | `src/lib/mealPlan.ts` |
-| recipe-photo identity and cache | `src/lib/recipePhotoIdentity.ts`, `src/lib/sharedRecipePhotoCache.ts` |
+| recipe-photo identity and cache | `src/lib/recipePhotoIdentity.ts`, `src/lib/recipePhotoExactIdentity.ts`, `src/lib/recipePhotoReuse.ts`, `src/lib/sharedRecipePhotoCache.ts` |
 | Unsplash photo search | `src/lib/unsplashRecipePhotoSearch.ts` |
 | Pexels photo search | `src/lib/pexelsRecipePhotoSearch.ts` |
+| Wikimedia / free public photo lookup | `src/lib/freeRecipePhotos.ts` |
+| Replicate image generation (premium) | `src/lib/replicateRecipeImage.ts` |
+| Cuisine dish catalog (v1) | `src/lib/cuisineCatalogs/` |
+| Cuisine catalog v2 (versioned dish identity) | `src/data/cuisineCatalogV2/` |
+| Rate limiter | `src/services/rateLimitService.ts` |
+| Structured logger | `src/lib/logger.ts` |
 
 ## What Changed Since the Original Mapping Notes
 
@@ -54,7 +71,7 @@ This document now serves as a "where things live now" map.
 - "health tab UI mock only" is no longer true
 - "history tab missing" is no longer true
 - "no auth on protected API routes" is no longer true for the active access-gated routes
-- "Wikimedia photo path is active" is no longer true in the live route
+- "Wikimedia photo path is disabled" is no longer true — Wikimedia is enabled, but only for canonical dishes on the allow-list (`getAllDishes()` plus a small curated extras list)
 
 ### Newer Target-Only Improvements
 - offline catalog retrieval and ranking are first-class
@@ -72,7 +89,7 @@ This document now serves as a "where things live now" map.
 | auth | Google sign-in | Firebase Auth + custom claims + mirrored entitlements |
 | recipe engine | AI-heavy prototype flow | offline-first retrieval and ranking with Gemini fallback |
 | meal plans | AI-centric generation | catalog-first planning with Gemini fallback |
-| recipe photos | older generation / looser matching | cache + Unsplash + Pexels with strict matching |
+| recipe photos | older generation / looser matching | tiered pipeline: Replicate generation for premium, cache + Unsplash + Pexels + allow-listed Wikimedia for free, with strict identity matching |
 
 ## Remaining Cleanup Work
 These are still relevant mapping/cleanup tasks:

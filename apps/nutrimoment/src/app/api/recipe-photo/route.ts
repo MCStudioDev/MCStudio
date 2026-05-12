@@ -17,10 +17,14 @@ import {
   accessPayload,
   canUseApiFeature,
   consumeFreeAiCredit,
-  hasRecipeImageAccess
+  hasGeneratedRecipeImageAccess
 } from "@/services/authService";
 import { logger } from "@/lib/logger";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
+import {
+  isReplicateGenerationAllowedForUser,
+  recordReplicateGeneration
+} from "@/services/replicateCostCapService";
 import {
   translateIngredientToEnglish,
   translateRecipeTitleToEnglish
@@ -30,6 +34,12 @@ import {
   normalizeExactRecipePhotoHints
 } from "@/lib/recipePhotoExactIdentity";
 import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
+import {
+  buildRecipePhotoReuseKeyCandidates,
+  buildRecipePhotoReuseKeyFromIdentity,
+  buildRecipePhotoReuseKeyFromQuery
+} from "@/lib/recipePhotoReuse";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -84,7 +94,7 @@ type ProviderRecipePhotoCandidate = {
 const recipePhotoCache = new Map<string, CachedRecipePhoto>();
 const recipePhotoFailureCache = new Map<string, CachedRecipePhotoFailure>();
 const inFlightRecipePhotoLookups = new Map<string, Promise<RecipePhotoLookupResult>>();
-const recentRecipePhotoSelections = new Map<string, { expiresAt: number; signature: string }>();
+const recentRecipePhotoSelections = new Map<string, { expiresAt: number; reuseKey: string; signature: string }>();
 const MAX_RECIPE_PHOTO_CACHE_ITEMS = 120;
 const MAX_RECIPE_PHOTO_FAILURE_CACHE_ITEMS = 120;
 const STRICT_NO_MATCH_TTL_MS = 30 * 60 * 1000;
@@ -92,7 +102,7 @@ const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const PREMIUM_REPLICATE_RETRY_TTL_MS = 3 * 1000;
 const PREMIUM_REPLICATE_RETRY_AFTER_SECONDS = 2;
 const WIKIMEDIA_ENABLED = true;
-const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v4";
+const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v5";
 const MIN_ACCEPTED_PROVIDER_SCORE = {
   wikimedia: 12,
   pexels_search: 11,
@@ -121,7 +131,7 @@ export async function GET(request: Request) {
   const rl = applyRateLimit({
     uid: accessCheck.access.uid,
     feature: "recipe_photo",
-    isPremium: hasRecipeImageAccess(accessCheck.access),
+    isPremium: hasGeneratedRecipeImageAccess(accessCheck.access),
     bypass: accessCheck.access.isAdmin
   });
   if (!rl.decision.allowed) {
@@ -168,12 +178,33 @@ export async function GET(request: Request) {
   const query = queryCandidates[0] ?? parsed.data.query.trim();
   const identities = queryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate));
   const replicateIdentities = replicateQueryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate));
+  const reuseKeyCandidates = buildRecipePhotoReuseKeyCandidates([
+    ...queryCandidates,
+    ...replicateQueryCandidates,
+    ...exactNameHints
+  ]);
   const identity = identities[0] ?? buildRecipePhotoIdentity(query);
   const strictVisualRequest =
     identities.some(isStrictVisualIdentity) ||
     replicateIdentities.some(isStrictVisualIdentity) ||
     isStrictVisualIdentity(identity);
-  const useReplicateGeneration = hasRecipeImageAccess(accessCheck.access);
+
+  const hasGenerationTier = hasGeneratedRecipeImageAccess(accessCheck.access);
+  let replicateCapDecision: Awaited<ReturnType<typeof isReplicateGenerationAllowedForUser>> | null = null;
+  if (hasGenerationTier) {
+    replicateCapDecision = await isReplicateGenerationAllowedForUser(accessCheck.access);
+    if (!replicateCapDecision.allowed) {
+      logger.warn("Replicate cost cap denied generation; downgrading this request to search mode", {
+        uid: accessCheck.access.uid,
+        reason: replicateCapDecision.reason,
+        dailyLimit: replicateCapDecision.dailyLimit,
+        dailyUsed: replicateCapDecision.dailyUsed,
+        query
+      });
+    }
+  }
+  const useReplicateGeneration = hasGenerationTier && (replicateCapDecision?.allowed ?? false);
+  const replicateDailyLimit = replicateCapDecision?.dailyLimit ?? 0;
   const selectedReplicateQuery = useReplicateGeneration
     ? selectReplicateRecipePhotoQuery(replicateQueryCandidates, replicateIdentities, ingredientHints)
     : null;
@@ -188,7 +219,6 @@ export async function GET(request: Request) {
       useReplicateGeneration
         ? exactAliasCandidates
         : [
-            ...generatedAliasCandidates,
             ...exactAliasCandidates,
             ...buildLegacyExactRecipePhotoCacheCandidates(queryCandidates, identities)
           ]
@@ -221,17 +251,18 @@ export async function GET(request: Request) {
   if (
     exactCached &&
     !explicitlyExcludedImageUrls.has(exactCached.imageUrl) &&
-    canUseCachedRecipePhotoForVisualRequest(exactCached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(exactCached.imageUrl) &&
+    canUseCachedRecipePhotoForVisualRequest(exactCached, strictVisualRequest, useReplicateGeneration) &&
     canUseGeneratedRecipePhotoCacheForRequest(exactCached, {
       exactNameHints,
       replicateQueryCandidates,
       selectedReplicateQuery,
       useReplicateGeneration
     }) &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(exactCached.imageUrl, exactCacheLookupCandidates))
+    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(exactCached.imageUrl, exactCacheLookupCandidates, reuseKeyCandidates))
   ) {
     await persistExactAliasesForLegacyPhoto(exactCached, exactAliasCandidates);
-    rememberRecipePhotoSelection(exactCached.imageUrl, exactCached.signature);
+    rememberRecipePhotoSelection(exactCached.imageUrl, exactCached.signature, getRecipePhotoReuseKeyForEntry(exactCached, reuseKeyCandidates));
     logger.info("Recipe photo served from exact memory cache", {
       source: exactCached.source,
       query,
@@ -255,7 +286,8 @@ export async function GET(request: Request) {
   if (
     sharedExactCached &&
     !explicitlyExcludedImageUrls.has(sharedExactCached.imageUrl) &&
-    canUseSharedRecipePhotoForVisualRequest(sharedExactCached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(sharedExactCached.imageUrl) &&
+    canUseSharedRecipePhotoForVisualRequest(sharedExactCached, strictVisualRequest, useReplicateGeneration) &&
     canUseGeneratedRecipePhotoCacheForRequest(sharedExactCached, {
       exactNameHints,
       replicateQueryCandidates,
@@ -263,7 +295,7 @@ export async function GET(request: Request) {
       useReplicateGeneration
     }) &&
     (WIKIMEDIA_ENABLED || sharedExactCached.source !== "wikimedia") &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates))
+    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates, reuseKeyCandidates))
   ) {
     const sharedPhoto = {
       imageAttributionName: sharedExactCached.imageAttributionName,
@@ -277,7 +309,7 @@ export async function GET(request: Request) {
     } satisfies CachedRecipePhoto;
     await persistExactAliasesForLegacyPhoto(sharedPhoto, exactAliasCandidates);
     setRecipePhotoCacheAliases(exactAliasCandidates, sharedPhoto);
-    rememberRecipePhotoSelection(sharedPhoto.imageUrl, sharedPhoto.signature);
+    rememberRecipePhotoSelection(sharedPhoto.imageUrl, sharedPhoto.signature, getRecipePhotoReuseKeyForEntry(sharedPhoto, reuseKeyCandidates));
 
     logger.info("Recipe photo served from exact shared cache", {
       source: sharedPhoto.source,
@@ -304,7 +336,8 @@ export async function GET(request: Request) {
   if (
     cached &&
     !explicitlyExcludedImageUrls.has(cached.imageUrl) &&
-    canUseCachedRecipePhotoForVisualRequest(cached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(cached.imageUrl) &&
+    canUseCachedRecipePhotoForVisualRequest(cached, strictVisualRequest, useReplicateGeneration) &&
     (!useReplicateGeneration || cached.source === "generated") &&
     canUseGeneratedRecipePhotoCacheForRequest(cached, {
       exactNameHints,
@@ -312,9 +345,9 @@ export async function GET(request: Request) {
       selectedReplicateQuery,
       useReplicateGeneration
     }) &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates))
+    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates, reuseKeyCandidates))
   ) {
-    rememberRecipePhotoSelection(cached.imageUrl, cached.signature);
+    rememberRecipePhotoSelection(cached.imageUrl, cached.signature, getRecipePhotoReuseKeyForEntry(cached, reuseKeyCandidates));
     logger.info("Recipe photo served", {
       source: cached.source,
       query,
@@ -341,7 +374,8 @@ export async function GET(request: Request) {
   if (
     sharedCached &&
     !explicitlyExcludedImageUrls.has(sharedCached.imageUrl) &&
-    canUseSharedRecipePhotoForVisualRequest(sharedCached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(sharedCached.imageUrl) &&
+    canUseSharedRecipePhotoForVisualRequest(sharedCached, strictVisualRequest, useReplicateGeneration) &&
     (!useReplicateGeneration || sharedCached.source === "generated") &&
     canUseGeneratedRecipePhotoCacheForRequest(sharedCached, {
       exactNameHints,
@@ -350,7 +384,7 @@ export async function GET(request: Request) {
       useReplicateGeneration
     }) &&
     (WIKIMEDIA_ENABLED || sharedCached.source !== "wikimedia") &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates))
+    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates, reuseKeyCandidates))
   ) {
     const sharedPhoto = {
       imageAttributionName: sharedCached.imageAttributionName,
@@ -363,7 +397,7 @@ export async function GET(request: Request) {
       source: sharedCached.source
     } satisfies CachedRecipePhoto;
     setRecipePhotoCacheAliases(signatureCandidates, sharedPhoto);
-    rememberRecipePhotoSelection(sharedPhoto.imageUrl, sharedPhoto.signature);
+    rememberRecipePhotoSelection(sharedPhoto.imageUrl, sharedPhoto.signature, getRecipePhotoReuseKeyForEntry(sharedPhoto, reuseKeyCandidates));
 
     logger.info("Recipe photo served", {
       source: sharedPhoto.source,
@@ -424,6 +458,11 @@ export async function GET(request: Request) {
 
     const lookupPromise = performRecipePhotoLookup({
       accessAllowed: allowProviderPhotoSearch,
+      // Premium users who actually attempted generation are eligible for the
+      // search-mode fallback when Replicate fails on a canonical dish. This
+      // preserves "generated only for premium" under normal conditions while
+      // protecting them from outages and rate-limit spikes.
+      allowSearchFallbackOnReplicateFailure: useReplicateGeneration,
       failureCacheKey,
       imageMode,
       identities,
@@ -437,6 +476,7 @@ export async function GET(request: Request) {
       replicateQueryCandidates,
       replicateIdentities,
       exactRecipeNameHint: selectExactRecipePhotoNameHint(exactNameHints),
+      reuseKeyCandidates,
       signatureCandidates,
       useReplicateGeneration,
       reason: accessCheck.reason
@@ -447,6 +487,17 @@ export async function GET(request: Request) {
     inFlightRecipePhotoLookups.set(failureCacheKey, lookupPromise);
 
     const result = await lookupPromise;
+    // Fire-and-forget: only bump the daily counter when this request paid for
+    // a fresh Replicate generation. Cache hits keep `imageSource` as "cache"
+    // (or "search"/"unsplash"/etc.) and do not consume budget.
+    if (
+      useReplicateGeneration &&
+      result.ok &&
+      result.photo.imageSource === "api" &&
+      result.photo.source === "generated"
+    ) {
+      void recordReplicateGeneration(accessCheck.access, replicateDailyLimit);
+    }
     return buildRecipePhotoLookupResponse(result, accessCheck.access);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to look up a recipe photo.";
@@ -498,13 +549,23 @@ function hashRecipePhotoRequestScope(value: string) {
   return hash.toString(16);
 }
 
-function canUseCachedRecipePhotoForVisualRequest(entry: CachedRecipePhoto, strictVisualRequest: boolean) {
+function canUseCachedRecipePhotoForVisualRequest(
+  entry: CachedRecipePhoto,
+  strictVisualRequest: boolean,
+  useReplicateGeneration: boolean
+) {
+  if (!useReplicateGeneration) return entry.source !== "generated" || isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
   if (entry.source !== "generated") return false;
   if (!strictVisualRequest) return true;
   return entry.source === "generated" && entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION);
 }
 
-function canUseSharedRecipePhotoForVisualRequest(entry: SharedRecipePhotoEntry, strictVisualRequest: boolean) {
+function canUseSharedRecipePhotoForVisualRequest(
+  entry: SharedRecipePhotoEntry,
+  strictVisualRequest: boolean,
+  useReplicateGeneration: boolean
+) {
+  if (!useReplicateGeneration) return entry.source !== "generated" || isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
   if (entry.source !== "generated") return false;
   if (!strictVisualRequest) return true;
   return entry.source === "generated" && entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION);
@@ -733,6 +794,7 @@ function setRecipePhotoFailureCache(
 
 async function performRecipePhotoLookup({
   accessAllowed,
+  allowSearchFallbackOnReplicateFailure,
   failureCacheKey,
   imageMode,
   identities,
@@ -746,11 +808,13 @@ async function performRecipePhotoLookup({
   replicateQueryCandidates,
   replicateIdentities,
   exactRecipeNameHint,
+  reuseKeyCandidates,
   signatureCandidates,
   useReplicateGeneration,
   reason
 }: {
   accessAllowed: boolean;
+  allowSearchFallbackOnReplicateFailure: boolean;
   failureCacheKey: string;
   imageMode: "generated" | "search" | "disabled";
   identities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
@@ -764,28 +828,26 @@ async function performRecipePhotoLookup({
   replicateQueryCandidates: string[];
   replicateIdentities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
   exactRecipeNameHint?: string;
+  reuseKeyCandidates: string[];
   signatureCandidates: string[];
   useReplicateGeneration: boolean;
   reason?: string | null;
 }): Promise<RecipePhotoLookupResult> {
+  // When Replicate fails for a premium user *and* the dish is on the canonical
+  // catalog, we want the function to fall through to the existing search-mode
+  // pipeline so the user still gets a sensible photo. `effectiveAccessAllowed`
+  // tracks the gated state for Unsplash/Pexels lookups so we can flip it on
+  // post-failure without breaking the original `accessAllowed` contract.
+  let effectiveAccessAllowed = accessAllowed;
+  let replicateFailedWithFallback = false;
   const excludedUrls = new Set([
-    ...getRecentlyUsedRecipeImageUrls([...generatedAliasCandidates, ...exactAliasCandidates, ...signatureCandidates]),
+    ...getRecentlyUsedRecipeImageUrls([...generatedAliasCandidates, ...exactAliasCandidates, ...signatureCandidates], reuseKeyCandidates),
     ...explicitlyExcludedImageUrls
   ]);
   const baseIdentity = identities[0] ?? buildRecipePhotoIdentity(query);
   let bestMatch: ProviderRecipePhotoCandidate | null = null;
   let replicateFallbackReason: string | null = null;
   const preferWikimediaFirst = Boolean(baseIdentity.canonicalDishKey);
-
-  if (isStrictVisualIdentity(baseIdentity) && !useReplicateGeneration) {
-    const failure = createRecipePhotoFailure(
-      "No faithful generated image is available for this strict visual recipe.",
-      404,
-      STRICT_NO_MATCH_TTL_MS
-    );
-    setRecipePhotoFailureCache(failureCacheKey, failure);
-    return { failure, ok: false };
-  }
 
   if (useReplicateGeneration) {
     if (!isReplicateConfigured()) {
@@ -839,7 +901,7 @@ async function performRecipePhotoLookup({
                 : [selectedPhoto.signature];
               const isDuplicateGeneratedImage =
                 excludedUrls.has(selectedPhoto.imageUrl) ||
-                isRecipePhotoRecentlyUsedForDifferentSignature(selectedPhoto.imageUrl, generatedSelectionSignatures);
+                isRecipePhotoRecentlyUsedForDifferentSignature(selectedPhoto.imageUrl, generatedSelectionSignatures, reuseKeyCandidates);
               if (isDuplicateGeneratedImage) {
                 logger.warn("Replicate returned an image already excluded for this request; provider fallback is disabled", {
                   query,
@@ -864,7 +926,8 @@ async function performRecipePhotoLookup({
               setRecipePhotoCacheAliases([replicateCacheSignature, ...generatedCacheAliases], selectedPhoto);
               rememberRecipePhotoSelection(
                 selectedPhoto.imageUrl,
-                exactAliasCandidates[0] ?? selectedPhoto.signature
+                exactAliasCandidates[0] ?? selectedPhoto.signature,
+                buildRecipePhotoReuseKeyFromQuery(replicateQuery) || reuseKeyCandidates[0] || selectedPhoto.signature
               );
               logger.info("Recipe photo served", {
                 source: selectedPhoto.source,
@@ -906,19 +969,44 @@ async function performRecipePhotoLookup({
       }
     }
 
-    const noReplicateFailure = createRecipePhotoFailure(
-      replicateFallbackReason
-        ? "Replicate image generation is temporarily unavailable. Retrying generated images shortly."
-        : "Premium recipe image generation is still working. Retrying generated images shortly.",
-      503,
-      PREMIUM_REPLICATE_RETRY_TTL_MS,
-      PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-    );
-    setRecipePhotoFailureCache(failureCacheKey, noReplicateFailure);
-    return {
-      failure: noReplicateFailure,
-      ok: false
-    };
+    // Fallback path: when Replicate failed for a recognized canonical dish,
+    // try search-mode (Wikimedia allow-list / Unsplash / Pexels) before giving
+    // up. The dish must be on the canonical catalog so the strict scoring
+    // gates can find a known-good photo; for non-canonical recipes we keep
+    // the existing fast 503 retry response because search-mode would only
+    // return weak matches anyway.
+    const canonicalFallbackEligible =
+      allowSearchFallbackOnReplicateFailure &&
+      Boolean(replicateFallbackReason) &&
+      Boolean(baseIdentity.canonicalDishKey);
+
+    if (!canonicalFallbackEligible) {
+      const noReplicateFailure = createRecipePhotoFailure(
+        replicateFallbackReason
+          ? "Replicate image generation is temporarily unavailable. Retrying generated images shortly."
+          : "Premium recipe image generation is still working. Retrying generated images shortly.",
+        503,
+        PREMIUM_REPLICATE_RETRY_TTL_MS,
+        PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
+      );
+      setRecipePhotoFailureCache(failureCacheKey, noReplicateFailure);
+      return {
+        failure: noReplicateFailure,
+        ok: false
+      };
+    }
+
+    // Allow search-mode providers for the rest of this lookup. Premium users
+    // never reach this branch unless Replicate genuinely failed; we trust the
+    // existing identity gate + minimum-score thresholds to reject bad matches.
+    effectiveAccessAllowed = true;
+    replicateFailedWithFallback = true;
+    logger.info("Replicate failed for a canonical dish; falling through to search-mode fallback", {
+      query,
+      canonicalDishKey: baseIdentity.canonicalDishKey,
+      replicateFallbackReason,
+      signature: baseIdentity.signature
+    });
   }
 
   if (preferWikimediaFirst && WIKIMEDIA_ENABLED) {
@@ -944,12 +1032,12 @@ async function performRecipePhotoLookup({
     }
   }
 
-  if (accessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
+  if (effectiveAccessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
     const unsplashResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
-      if (searchedPhoto) {
+      if (searchedPhoto && !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl)) {
         return {
           attributionName: searchedPhoto.attributionName,
           attributionUrl: searchedPhoto.attributionUrl,
@@ -972,12 +1060,12 @@ async function performRecipePhotoLookup({
     }
   }
 
-  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && accessAllowed && isPexelsRecipePhotoSearchConfigured()) {
+  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && effectiveAccessAllowed && isPexelsRecipePhotoSearchConfigured()) {
     const pexelsResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findPexelsRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
-      if (searchedPhoto) {
+      if (searchedPhoto && !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl)) {
         return {
           imageSource: "search",
           imageUrl: searchedPhoto.imageUrl,
@@ -1021,6 +1109,10 @@ async function performRecipePhotoLookup({
     }
   }
 
+  if (bestMatch && isKnownWeakRecipeProviderImageUrl(bestMatch.imageUrl)) {
+    bestMatch = null;
+  }
+
   if (bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) {
     const selectedPhoto = {
       imageAttributionName: bestMatch.attributionName,
@@ -1032,7 +1124,7 @@ async function performRecipePhotoLookup({
       source: bestMatch.source
     } satisfies CachedRecipePhoto;
 
-    rememberRecipePhotoSelection(selectedPhoto.imageUrl, bestMatch.signature);
+    rememberRecipePhotoSelection(selectedPhoto.imageUrl, bestMatch.signature, buildRecipePhotoReuseKeyFromIdentity(buildRecipePhotoIdentity(bestMatch.matchedQuery || query)));
     logger.info("Recipe photo served", {
       source: selectedPhoto.source,
       query,
@@ -1041,6 +1133,7 @@ async function performRecipePhotoLookup({
       imageMode,
       reason,
       replicateFallbackReason,
+      replicateFailedWithFallback,
       score: bestMatch.score,
       cached: false,
       cachePolicy: "replicate_generated_only",
@@ -1077,6 +1170,7 @@ async function performRecipePhotoLookup({
     imageMode,
     reason,
     replicateFallbackReason,
+    replicateFailedWithFallback,
     signature: identities[0]?.signature ?? "unknown"
   });
 
@@ -1446,9 +1540,10 @@ function getRecipePhotoQueryPriorityAdjustment(
   return adjustment;
 }
 
-function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[]) {
+function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[], reuseKeyCandidates: string[]) {
   const now = Date.now();
   const allowedSignatures = new Set(signatureCandidates);
+  const allowedReuseKeys = new Set(reuseKeyCandidates);
   const excluded = new Set<string>();
 
   for (const [imageUrl, entry] of recentRecipePhotoSelections.entries()) {
@@ -1457,7 +1552,7 @@ function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[]) {
       continue;
     }
 
-    if (!allowedSignatures.has(entry.signature)) {
+    if (!allowedSignatures.has(entry.signature) && !allowedReuseKeys.has(entry.reuseKey)) {
       excluded.add(imageUrl);
     }
   }
@@ -1465,15 +1560,16 @@ function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[]) {
   return excluded;
 }
 
-function rememberRecipePhotoSelection(imageUrl: string, signature: string) {
+function rememberRecipePhotoSelection(imageUrl: string, signature: string, reuseKey: string) {
   if (!isDurableRecipeImageUrl(imageUrl)) return;
   recentRecipePhotoSelections.set(imageUrl, {
     expiresAt: Date.now() + RECENT_SELECTION_TTL_MS,
+    reuseKey,
     signature
   });
 }
 
-function isRecipePhotoRecentlyUsedForDifferentSignature(imageUrl: string, signatureCandidates: string[]) {
+function isRecipePhotoRecentlyUsedForDifferentSignature(imageUrl: string, signatureCandidates: string[], reuseKeyCandidates: string[]) {
   const existing = recentRecipePhotoSelections.get(imageUrl);
   if (!existing) return false;
   if (existing.expiresAt <= Date.now()) {
@@ -1481,7 +1577,14 @@ function isRecipePhotoRecentlyUsedForDifferentSignature(imageUrl: string, signat
     return false;
   }
 
-  return !signatureCandidates.includes(existing.signature);
+  return !signatureCandidates.includes(existing.signature) && !reuseKeyCandidates.includes(existing.reuseKey);
+}
+
+function getRecipePhotoReuseKeyForEntry(
+  entry: Pick<CachedRecipePhoto | SharedRecipePhotoEntry, "query" | "signature">,
+  fallbackReuseKeys: string[]
+) {
+  return buildRecipePhotoReuseKeyFromQuery(entry.query || entry.signature) || fallbackReuseKeys[0] || entry.signature;
 }
 
 function meetsRecipePhotoConfidenceThreshold(candidate: ProviderRecipePhotoCandidate) {

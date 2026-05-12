@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { FieldValue } from "firebase-admin/firestore";
 import { buildMealPlanPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson, getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/openai";
-import { normalizeMealPlanData } from "@/lib/mealPlan";
+import { normalizeMealPlanData, sanitizeMealPlanForFirestore } from "@/lib/mealPlan";
 import {
   accessErrorResponse,
   accessPayload,
@@ -17,7 +18,9 @@ import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
 import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
+import { getAdminDb } from "@/lib/firebaseAdmin";
 import type { RecipeCatalogDoc } from "@/lib/domain";
+import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,7 +34,11 @@ const requestSchema = z.object({
   calorieTarget: z.number().optional(),
   diets: z.array(z.string()).optional(),
   conditions: z.array(z.string()).optional(),
-  allergens: z.array(z.string()).optional()
+  allergens: z.array(z.string()).optional(),
+  historyEntryId: z.string().optional(),
+  historyIngredients: z.array(z.string()).optional(),
+  historyTitle: z.string().optional(),
+  persistResult: z.boolean().optional()
 });
 
 const MOCK_MEAL_PLAN = {
@@ -112,6 +119,8 @@ export async function POST(request: Request) {
     }
 
     const nextAccess = await consumeFreeAiCredit(access, "weekly_plan");
+    const pantryItems = parsed.data.pantryItems ?? [];
+    const pantry = parsed.data.pantry ?? (pantryItems.length ? pantryItems.map((item) => item.name) : extractPantryFromPrompt(parsed.data.prompt ?? ""));
 
     if (USE_MOCK) {
       const mockPlan = { ...MOCK_MEAL_PLAN, servedFrom: "mock" as const };
@@ -126,11 +135,17 @@ export async function POST(request: Request) {
         meals: outputMockPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
         recipes: outputMockPlan.recommendedRecipes
       });
+      await persistMealPlanResultForUser({
+        historyEntryId: parsed.data.historyEntryId,
+        historyIngredients: parsed.data.historyIngredients ?? pantry,
+        historyTitle: parsed.data.historyTitle,
+        mealPlan: outputMockPlan,
+        persistResult: parsed.data.persistResult,
+        uid: access.uid
+      });
       return Response.json({ result: JSON.stringify(outputMockPlan), access: accessPayload(nextAccess) });
     }
 
-    const pantryItems = parsed.data.pantryItems ?? [];
-    const pantry = parsed.data.pantry ?? (pantryItems.length ? pantryItems.map((item) => item.name) : extractPantryFromPrompt(parsed.data.prompt ?? ""));
     const searchResult = await searchCatalogRecipes({
       ingredients: pantry,
       preferredCuisine: parsed.data.preferredCuisine,
@@ -184,6 +199,14 @@ export async function POST(request: Request) {
           meals: outputMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
           recipes: outputMealPlan.recommendedRecipes
         });
+        await persistMealPlanResultForUser({
+          historyEntryId: parsed.data.historyEntryId,
+          historyIngredients: parsed.data.historyIngredients ?? pantry,
+          historyTitle: parsed.data.historyTitle,
+          mealPlan: outputMealPlan,
+          persistResult: parsed.data.persistResult,
+          uid: access.uid
+        });
         logger.info("Meal plan served from Gemini fallback AI", {
           days: outputMealPlan.plan.length,
           shoppingItems: outputMealPlan.shoppingList.length,
@@ -230,6 +253,14 @@ export async function POST(request: Request) {
       meals: outputEmergencyMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
       recipes: outputEmergencyMealPlan.recommendedRecipes
     });
+    await persistMealPlanResultForUser({
+      historyEntryId: parsed.data.historyEntryId,
+      historyIngredients: parsed.data.historyIngredients ?? pantry,
+      historyTitle: parsed.data.historyTitle,
+      mealPlan: outputEmergencyMealPlan,
+      persistResult: parsed.data.persistResult,
+      uid: access.uid
+    });
     logger.info("Meal plan served from shared recipe pool after AI failure", {
       days: outputEmergencyMealPlan.plan.length,
       shoppingItems: outputEmergencyMealPlan.shoppingList.length
@@ -267,10 +298,116 @@ function extractPantryFromPrompt(prompt: string): string[] {
   return match[1].split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+async function persistMealPlanResultForUser({
+  historyEntryId,
+  historyIngredients,
+  historyTitle,
+  mealPlan,
+  persistResult,
+  uid
+}: {
+  historyEntryId?: string;
+  historyIngredients: string[];
+  historyTitle?: string;
+  mealPlan: MealPlanData;
+  persistResult?: boolean;
+  uid: string;
+}) {
+  if (!persistResult) return;
+
+  try {
+    const db = getAdminDb();
+    const sanitized = sanitizeMealPlanForFirestore(mealPlan);
+    await db.doc(`users/${uid}/plans/currentWeekly`).set(
+      {
+        mealPlan: sanitized,
+        updatedAt: FieldValue.serverTimestamp()
+      },
+      { merge: true }
+    );
+
+    if (historyEntryId) {
+      await db.doc(`users/${uid}/history/${historyEntryId}`).set(
+        {
+          completedAt: new Date().toISOString(),
+          generationMessage: null,
+          generationStatus: "completed",
+          ingredients: historyIngredients,
+          recipes: stripUndefinedForFirestore(buildMealPlanHistoryRecipes(mealPlan)),
+          sessionType: "weekly_meal_plan",
+          timestamp: new Date().toISOString(),
+          title: historyTitle ?? "7-Day Meal Plan",
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+    }
+  } catch (error) {
+    logger.warn("Server-side meal plan persistence failed after generation", {
+      historyEntryId: historyEntryId ?? null,
+      uid,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+function buildMealPlanHistoryRecipes(mealPlan: MealPlanData): Recipe[] {
+  return mealPlan.plan.flatMap((day, dayIndex) => [
+    buildMealPlanHistoryRecipe(day.breakfast, day.day, "breakfast", dayIndex),
+    buildMealPlanHistoryRecipe(day.lunch, day.day, "lunch", dayIndex),
+    buildMealPlanHistoryRecipe(day.dinner, day.day, "dinner", dayIndex)
+  ]);
+}
+
+function buildMealPlanHistoryRecipe(
+  meal: MealPlanMeal,
+  day: string,
+  mealType: "breakfast" | "lunch" | "dinner",
+  dayIndex: number
+): Recipe {
+  const ingredients = meal.ingredients ?? [];
+  return {
+    id: `weekly-meal-plan-${dayIndex}-${mealType}-${normalizeHistoryRecipeId(meal.name)}`,
+    name: meal.name,
+    cuisine: meal.cuisine ?? "Weekly meal plan",
+    ingredients,
+    missing_ingredients: ingredients,
+    steps: meal.steps ?? [],
+    calories: meal.calories,
+    protein: meal.protein,
+    carbs: meal.carbs,
+    fat: meal.fat,
+    cook_time: day,
+    difficulty: mealType,
+    image_search_index: meal.image_search_index,
+    image_search_indices: meal.image_search_indices,
+    image_url: meal.image_url,
+    image_source: meal.image_source,
+    image_attribution_name: meal.image_attribution_name,
+    image_attribution_url: meal.image_attribution_url,
+    image_loading: false,
+    image_error: false
+  };
+}
+
+function normalizeHistoryRecipeId(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "meal";
+}
+
+function stripUndefinedForFirestore<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function queueMealPlanCachePersist(input: {
   recipeLanguage: string;
-  meals?: import("@/lib/types").MealPlanMeal[];
-  recipes?: import("@/lib/types").Recipe[];
+  meals?: MealPlanMeal[];
+  recipes?: Recipe[];
   uid?: string | null;
 }) {
   void persistGeneratedRecipeCache(input).catch((error) => {

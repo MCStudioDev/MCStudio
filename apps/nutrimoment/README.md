@@ -12,10 +12,11 @@ Current capabilities include:
 - cuisine-aware results, including Egyptian, Middle Eastern, and Mediterranean coverage
 - persisted current weekly plan
 - quantity-aware shopping lists that subtract pantry stock
-- scan and recipe history
+- scan and recipe history (server-side `/api/history` returns the latest 50 sessions)
 - Arabic UI support with RTL layout
 - in-app legal/safety notices and legal pages
-- public web recipe photo hydration without AI image generation
+- tiered recipe photos: free users get Unsplash/Pexels/allow-listed Wikimedia search; premium/admin users get Replicate-generated images (`flux-schnell` by default)
+- server-enforced free-tier quotas: 10 lifetime AI credits and 3 lifetime weekly meal plans per Firebase user
 
 ## Development
 
@@ -45,6 +46,24 @@ From the monorepo root, the same check is available as:
 npm run predeploy:nutrimoment
 ```
 
+## Firestore Security Rule Tests
+
+Run the security-rule test suite against the Firebase Local Emulator Suite:
+
+```bash
+npm run test:rules
+```
+
+Prerequisites: Java (the emulator runs on the JVM) and `firebase-tools` (`npm install -g firebase-tools`). The script wraps vitest with `firebase emulators:exec`, which starts a Firestore emulator on port 8080, runs the tests, and stops the emulator on exit.
+
+The tests cover owner / admin / unauthenticated access across every rule path in `firestore.rules`. They do not connect to your real project — they spin up a disposable in-memory Firestore instance.
+
+To type-check the test file without running the emulator:
+
+```bash
+npx tsc --noEmit -p tsconfig.test.json
+```
+
 ## Offline Catalog Seed
 
 Generate the offline catalog manifest:
@@ -71,10 +90,16 @@ Without those values, the seed script safely falls back to manifest generation o
 
 ## Key Files
 
+- Product overview: `docs/PRODUCT.md`
+- Requirements (current baseline): `docs/SRS.md`
 - Offline engine spec: `docs/OFFLINE-ENGINE-SPEC.md`
+- Production readiness & weak points: `docs/PRODUCTION_READINESS.md`
+- Deployment guide: `docs/PUBLIC_DEPLOYMENT_GUIDE.md`
+- Env checklist: `docs/DEPLOYMENT_ENV_CHECKLIST.md`
 - Client Firebase config: `src/config/firebase.ts`
 - Firebase Admin helper: `src/lib/firebaseAdmin.ts`
 - Offline data seed source: `src/data/offline`
 - Pantry quantity normalization: `src/lib/pantryQuantity.ts`
 - Weekly meal-plan persistence hook: `src/hooks/useMealPlan.ts`
+- Replicate generation: `src/lib/replicateRecipeImage.ts`
 - Legal pages: `src/app/legal`

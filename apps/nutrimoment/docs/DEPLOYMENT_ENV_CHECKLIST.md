@@ -23,10 +23,16 @@ Use the exact private key from the Firebase service account JSON. Keep the surro
 
 ## AI And Images
 
-- `GEMINI_API_KEY`
-- `UNSPLASH_ACCESS_KEY`
-- `PEXELS_API_KEY` - optional fallback
+- `GEMINI_API_KEY` - text and vision flows
+- `UNSPLASH_ACCESS_KEY` - free-tier recipe photo search (and required by `validate:prod-env`)
+- `PEXELS_API_KEY` - optional fallback for free-tier photo search
+- `REPLICATE_API_TOKEN` - **required for premium recipe-image generation**. Without it, premium users will fall through to "no exact photo" instead of receiving Replicate-generated images.
+- `REPLICATE_IMAGE_MODEL` - optional, default `black-forest-labs/flux-schnell`. Override if you want a different Replicate model.
+- `REPLICATE_IMAGE_INPUT_JSON` - optional JSON blob of extra Replicate `input` overrides (e.g. `output_format`, `aspect_ratio`).
 - `LOG_LEVEL` - optional, use `info` for production
+- `USE_MOCK_API=true` - local/demo mode only; never set in production
+
+Note: `REPLICATE_API_TOKEN` and `REPLICATE_IMAGE_MODEL` are not currently checked by `validate:prod-env` or `/api/healthz`. Verify them manually before launch.
 
 ## Local Verification
 

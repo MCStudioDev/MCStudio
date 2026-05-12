@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
@@ -16,7 +16,8 @@ import {
   ShieldCheck,
   Sparkles,
   SunMedium,
-  Utensils
+  Utensils,
+  X
 } from "lucide-react";
 import { Loader } from "@/components/ui/Loader";
 import { useApp } from "@/contexts/AppContext";
@@ -61,25 +62,25 @@ interface LandingCopy {
 
 const LANDING_COPY: Record<Language, LandingCopy> = {
   en: {
-    badge: "AI Fridge Scanner",
-    heroLead: "Turn your fridge",
-    heroAccent: "into healthier meals.",
+    badge: "Pantry scan + recipe rebuild",
+    heroLead: "Cook what you have.",
+    heroAccent: "Waste less food.",
     subtitle:
-      "Snap a photo of what you have, and NutriMoment matches it to nourishing recipes tuned to your diet, allergens, and weekly plan.",
+      "Snap your fridge, pantry, or a plated meal. NutriMoment finds what is usable, reverse-engineers real recipe ideas, and turns them into easy meals matched to your diet, allergens, and week.",
     languageLabel: "Language",
     languageHelper: "Pick your starting language. You can change it later.",
     languageDetected: "Active",
     trust: [
-      { value: "60+", label: "Diet & health filters" },
-      { value: "Allergen-safe", label: "Every recipe flagged" },
-      { value: "~15s", label: "From snap to plate" }
+      { value: "Less waste", label: "Use ingredients first" },
+      { value: "Real recipes", label: "Rebuilt from food photos" },
+      { value: "Easy plans", label: "Simple steps and swaps" }
     ],
     preview: {
       eyebrow: "Just scanned",
-      recipeName: "Lemon herb chicken bowl",
+      recipeName: "Lemon herb chicken rice",
       matchScore: "93",
       matchUnit: "Fit",
-      matchLabel: "Great fit for your pantry",
+      matchLabel: "Uses what is already in your kitchen",
       macros: [
         { label: "Kcal", value: "512" },
         { label: "Protein", value: "38g" },
@@ -96,16 +97,16 @@ const LANDING_COPY: Record<Language, LandingCopy> = {
     },
     steps: [
       {
-        title: "Snap your fridge",
-        description: "One photo. AI reads the ingredients for you."
+        title: "Scan what you have",
+        description: "Use a fridge, pantry, grocery, or plated-dish photo."
       },
       {
-        title: "Get ranked recipes",
-        description: "We match your pantry to recipes that fit your diet and goals."
+        title: "Get practical recipes",
+        description: "Recipes are ranked by pantry fit, health needs, allergens, and missing items."
       },
       {
-        title: "Plan your week",
-        description: "Build a weekly rhythm of meals with one tap, adjust anytime."
+        title: "Cook with less waste",
+        description: "Turn leftovers and near-expiry ingredients into simple meals and weekly plans."
       }
     ],
     signIn: "Continue with Google",
@@ -120,25 +121,25 @@ const LANDING_COPY: Record<Language, LandingCopy> = {
     }
   },
   ar: {
-    badge: "ماسح المطبخ الذكي",
-    heroLead: "حوّل ثلاجتك",
-    heroAccent: "إلى وجبات صحية.",
+    badge: "مسح المخزن وإعادة بناء الوصفات",
+    heroLead: "اطبخ مما لديك.",
+    heroAccent: "وقلل هدر الطعام.",
     subtitle:
-      "التقط صورة لما لديك، فيقترح لك نوتريمومنت وصفات متوازنة تناسب نظامك الغذائي والحساسية وخطة أسبوعك.",
+      "صوّر ثلاجتك أو مخزنك أو طبقاً جاهزاً. نوتري مومنت يحدد ما يمكن استخدامه، ويعيد بناء أفكار وصفات حقيقية، ثم يحولها إلى وجبات سهلة تناسب نظامك الغذائي وحساسياتك وخطة أسبوعك.",
     languageLabel: "اللغة",
-    languageHelper: "اختر لغة البداية، ويمكنك تغييرها لاحقا.",
+    languageHelper: "اختر لغة البداية. يمكنك تغييرها لاحقاً.",
     languageDetected: "الحالية",
     trust: [
-      { value: "+60", label: "فلتر تغذية وصحة" },
-      { value: "آمن ضد الحساسية", label: "كل وصفة تُراجع" },
-      { value: "~15ث", label: "من الصورة إلى الطبق" }
+      { value: "هدر أقل", label: "استخدم المكونات أولاً" },
+      { value: "وصفات حقيقية", label: "إعادة بناء من صور الطعام" },
+      { value: "خطط سهلة", label: "خطوات وبدائل بسيطة" }
     ],
     preview: {
       eyebrow: "مسح جديد",
-      recipeName: "وعاء دجاج بالليمون والأعشاب",
+      recipeName: "أرز بالدجاج والليمون والأعشاب",
       matchScore: "93",
       matchUnit: "توافق",
-      matchLabel: "خيار ممتاز لمخزنك",
+      matchLabel: "يستخدم ما لديك بالفعل في المطبخ",
       macros: [
         { label: "سعرة", value: "512" },
         { label: "بروتين", value: "38غ" },
@@ -155,22 +156,22 @@ const LANDING_COPY: Record<Language, LandingCopy> = {
     },
     steps: [
       {
-        title: "صوّر ثلاجتك",
-        description: "صورة واحدة، والذكاء الاصطناعي يقرأ المكونات."
+        title: "امسح ما لديك",
+        description: "استخدم صورة للثلاجة أو المخزن أو المشتريات أو طبق جاهز."
       },
       {
-        title: "احصل على وصفات مرتبة",
-        description: "نطابق مخزنك مع وصفات تناسب نظامك الغذائي."
+        title: "احصل على وصفات عملية",
+        description: "نرتب الوصفات حسب ما لديك، واحتياجاتك الصحية، والحساسيات، والمكونات الناقصة."
       },
       {
-        title: "خطط لأسبوعك",
-        description: "ابنِ إيقاع وجبات أسبوعي بنقرة، وعدله وقت ما تريد."
+        title: "اطبخ بهدر أقل",
+        description: "حوّل البقايا والمكونات القريبة من انتهاء الصلاحية إلى وجبات بسيطة وخطط أسبوعية."
       }
     ],
     signIn: "المتابعة باستخدام Google",
     signInBusy: "جارٍ الاتصال...",
-    signInError: "تم إلغاء تسجيل الدخول. حاول مجددًا عندما تكون مستعدًا.",
-    disclaimer: "الدعم هنا لأغراض معلوماتية فقط. تحقق دائمًا من الحساسية والقيم الغذائية وسلامة الطعام.",
+    signInError: "تم إلغاء تسجيل الدخول. حاول مجدداً عندما تكون مستعداً.",
+    disclaimer: "الدعم هنا لأغراض معلوماتية فقط. تحقق دائماً من الحساسية والقيم الغذائية وسلامة الطعام.",
     footer: {
       aiDisclaimer: "إخلاء مسؤولية الذكاء الاصطناعي",
       privacy: "الخصوصية",
@@ -259,6 +260,30 @@ export default function Landing() {
       <div className="blob animate-blob left-[-5rem] top-10 h-56 w-56 bg-emerald-300/18" />
       <div className="blob animate-blob right-[-3rem] top-24 h-72 w-72 bg-cyan-300/14 [animation-delay:-4s]" />
       <div className="blob animate-blob bottom-0 left-[18%] h-52 w-52 bg-lime-200/10 [animation-delay:-8s]" />
+
+      {error ? (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          className="fixed left-1/2 top-6 z-[200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2"
+        >
+          <div className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-[#173a31] shadow-[0_24px_70px_-30px_rgba(16,58,48,0.38)]">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#0f8f7c]" aria-hidden="true" />
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label="Dismiss error"
+              className="focus-ring rounded-lg p-1 text-[#4f6f66] transition-ui hover:bg-emerald-50 hover:text-[#173a31]"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </motion.div>
+      ) : null}
 
       <div id="main-content" className="shell-frame relative z-10 flex min-h-[calc(100vh-3rem)] w-full items-center">
         <motion.div
@@ -371,24 +396,9 @@ export default function Landing() {
                   </p>
                 </div>
 
-                {error ? (
-                  <div
-                    role="alert"
-                    className={cn(
-                      "flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm",
-                      isMintTheme
-                        ? "border-rose-300/35 bg-white/86 text-rose-700 shadow-[0_18px_40px_-28px_rgba(191,86,65,0.35)]"
-                        : "border-rose-300/30 bg-rose-400/10 text-rose-100"
-                    )}
-                  >
-                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
-                    <span>{error}</span>
-                  </div>
-                ) : null}
-
                 <div className={cn("flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.2em]", isMintTheme ? "text-[#5b7b73]" : "text-emerald-50/50")}>
                   <span>{copy.footer.poweredBy}</span>
-                  <span aria-hidden="true">·</span>
+                  <span aria-hidden="true">Â·</span>
                   <Link href="/legal/disclaimer" className={cn("transition-ui", isMintTheme ? "hover:text-[#173a31]" : "hover:text-emerald-50")}>
                     {copy.footer.aiDisclaimer}
                   </Link>
@@ -421,7 +431,7 @@ export default function Landing() {
                   {language === "ar" ? "ثلاث خطوات" : "Three steps"}
                 </p>
                 <h2 className={cn("mt-2 font-display text-2xl font-bold md:text-3xl", isMintTheme ? "text-[#173a31]" : "text-white")}>
-                  {language === "ar" ? "من الثلاجة إلى الطبق" : "From fridge to plate"}
+                  {language === "ar" ? "من المطبخ إلى الطبق" : "From fridge to plate"}
                 </h2>
               </div>
               <div
@@ -433,7 +443,7 @@ export default function Landing() {
                 )}
               >
                 <Scan className="h-3.5 w-3.5" aria-hidden="true" />
-                {language === "ar" ? "بسيط" : "Simple flow"}
+                {language === "ar" ? "خطوات بسيطة" : "Simple flow"}
               </div>
             </div>
 
@@ -716,3 +726,4 @@ function GoogleIcon() {
     </svg>
   );
 }
+

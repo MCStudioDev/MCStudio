@@ -38,12 +38,108 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   hawawshi: {
     englishName: "Egyptian hawawshi",
     visualDescription:
-      "a whole round Egyptian baladi flatbread or pita pocket stuffed internally with a thin layer of seasoned ground beef, onion, garlic, green pepper, hot pepper, parsley, tomato paste, and warm spices only when listed, then baked flat until the bread is crispy, golden brown, blistered, and slightly oily. The bread is sliced into triangular quarters or pita halves with the minced meat filling visible only at the cut edges, like real Egyptian hawawshi",
+      "closed Egyptian baladi bread or pita stuffed internally with a thin layer of seasoned ground beef and aromatics only when listed, then baked or pan-toasted flat until the outside is crispy, golden brown, blistered, and slightly oily. Show browned bread triangles, wedges, or pita halves with the minced meat filling visible only along the cut seams and edges. The meat must be inside the bread, not exposed on top, not loose on the plate, and not shaped as skewers",
     plating:
-      "served as flat crispy bread wedges on a simple plate, with small pickles, tahini sauce, and lemon wedges only if they fit the recipe",
+      "served as stacked or fanned crispy stuffed bread wedges on a simple plate, similar to Egyptian street-food hawawshi. Pickles, tahini sauce, or lemon wedges may appear only if they fit the recipe",
     avoid:
-      "burger bun, hamburger, open sandwich, pita pocket, shawarma wrap, tacos, pizza, quesadilla, cheese, pasta, rice bowl, kebab skewers, loose meatballs, thick bread loaf, random vegetables",
+      "beef skewers, kebab skewers, kofta logs, adana kebab, grilled meat sticks, burger bun, hamburger, open sandwich, open-faced flatbread, lahmacun, pizza, quesadilla, tacos, shawarma wrap, cheese, pasta, rice bowl, loose meatballs, loose ground beef, thick bread loaf, random vegetables",
     cuisineStyle: "authentic Egyptian street food"
+  },
+  "roast-chicken": {
+    englishName: "roast chicken",
+    visualDescription:
+      "golden roasted chicken pieces or a whole roasted chicken with browned crisp skin, pan juices, and visible roasted texture. The chicken must be the hero, not hidden under rice or salad",
+    plating: "served on a simple roasting pan or plate with only recipe-listed aromatics or vegetables",
+    avoid: "rice bowl, plain boiled chicken, chicken cubes, fried chicken coating, curry sauce, pasta, unrelated salad, skewers",
+    cuisineStyle: "editorial home-cooking"
+  },
+  "butter-chicken": {
+    englishName: "butter chicken",
+    visualDescription:
+      "tender chicken pieces in a rich orange-red creamy makhani curry sauce, glossy and thick, with chicken chunks visible at the surface",
+    plating: "served in one bowl or shallow dish; rice or naan only if listed and kept secondary",
+    avoid: "dry grilled chicken, fried chicken, plain rice bowl, pasta, green curry, tomato soup, hidden chicken",
+    cuisineStyle: "authentic Indian curry"
+  },
+  "garlic-butter-chicken": {
+    englishName: "garlic butter chicken",
+    visualDescription:
+      "golden pan-seared chicken breast or cutlets in a glossy garlic butter pan sauce, with browned edges and visible sauce sheen",
+    plating: "served as chicken cutlets or breast pieces in a skillet or plate with sauce; sides only if listed",
+    avoid: "rice bowl, curry sauce, fried chicken, skewers, pasta unless listed, unrelated vegetables, hidden chicken",
+    cuisineStyle: "weeknight skillet chicken"
+  },
+  "kung-pao-chicken": {
+    englishName: "kung pao chicken",
+    visualDescription:
+      "bite-size chicken cubes in a glossy dark Chinese stir-fry sauce with peanuts, dried red chiles, scallions, and peppers only when listed",
+    plating: "served in a wok-style bowl or shallow plate with chicken cubes clearly visible",
+    avoid: "whole chicken breast, fried chicken drumsticks, curry, cream sauce, plain rice bowl hiding chicken, pasta",
+    cuisineStyle: "Chinese stir-fry"
+  },
+  "southern-fried-chicken": {
+    englishName: "southern buttermilk fried chicken",
+    visualDescription:
+      "crispy golden-brown fried chicken pieces with craggy seasoned crust, juicy chicken visible at an edge, clearly fried chicken not nuggets",
+    plating: "served as fried chicken pieces on parchment or a plate; sides only if listed",
+    avoid: "grilled chicken, curry, rice bowl, chicken cubes in sauce, pasta, skewers, breaded fish",
+    cuisineStyle: "Southern American fried chicken"
+  },
+  "cilantro-lime-chicken": {
+    englishName: "cilantro lime chicken",
+    visualDescription:
+      "grilled or pan-seared chicken pieces with lime and cilantro/coriander finish only when listed, bright green herb flecks and charred golden surface",
+    plating: "served as sliced chicken, chunks, or cutlets on one plate with lime-herb finish; sides only if listed",
+    avoid: "cream sauce, curry, fried chicken, plain rice bowl, pasta, unrelated salad, hidden chicken",
+    cuisineStyle: "Mexican or fresh lime-herb chicken"
+  },
+  "creamy-spinach-chicken": {
+    englishName: "creamy spinach chicken",
+    visualDescription:
+      "golden chicken cutlets or breast pieces in a pale creamy sauce with visible spinach leaves, sauce coating the chicken but not hiding it",
+    plating: "served in one skillet or shallow plate with creamy spinach sauce and chicken clearly visible",
+    avoid: "tomato curry, fried chicken, rice bowl, pasta unless listed, soup, hidden chicken, unrelated vegetables",
+    cuisineStyle: "creamy skillet chicken"
+  },
+  "sumac-chicken": {
+    englishName: "sumac chicken",
+    visualDescription:
+      "roasted or pan-seared chicken pieces with reddish-purple sumac seasoning, browned skin or edges, onion or herbs only when listed",
+    plating: "served as a Middle Eastern chicken plate with the seasoned chicken as the clear hero",
+    avoid: "rice bowl hiding chicken, curry, creamy sauce, fried chicken, pasta, unrelated salad, skewers unless listed",
+    cuisineStyle: "Middle Eastern chicken"
+  },
+  "desi-gravy-chicken": {
+    englishName: "desi gravy chicken",
+    visualDescription:
+      "chicken pieces in a deep orange-brown Indian-style onion-tomato gravy, with visible chunks of chicken and glossy spiced sauce",
+    plating: "served in one bowl or shallow curry dish; rice or flatbread only if listed and secondary",
+    avoid: "dry grilled chicken, fried chicken, cream-only sauce, pasta, plain rice bowl, hidden chicken",
+    cuisineStyle: "Indian home-style chicken gravy"
+  },
+  "korean-fried-chicken": {
+    englishName: "Korean fried chicken",
+    visualDescription:
+      "crispy bite-size or wing-style fried chicken pieces glazed in red or soy-garlic sauce, glossy and crunchy with sesame/scallion only when listed",
+    plating: "served as a pile of glazed crispy chicken pieces on a plate or bowl, no unrelated sides",
+    avoid: "plain roast chicken, curry, cream sauce, rice bowl, pasta, nuggets without glaze, hidden chicken",
+    cuisineStyle: "Korean fried chicken"
+  },
+  "soy-garlic-chicken": {
+    englishName: "soy garlic chicken",
+    visualDescription:
+      "chicken pieces or sliced chicken coated in a glossy soy-garlic glaze, browned and shiny, with scallion or sesame only when listed",
+    plating: "served in one skillet-style plate or over a small supporting base only if listed; chicken remains dominant",
+    avoid: "cream sauce, curry, plain boiled chicken, fried chicken crust unless requested, pasta, rice hiding chicken",
+    cuisineStyle: "Asian soy-garlic chicken"
+  },
+  "chicken-rice-skillet": {
+    englishName: "chicken and rice skillet",
+    visualDescription:
+      "seared chicken pieces nestled into seasoned rice in one skillet or tray, with rice integrated around the chicken and chicken still clearly visible on top",
+    plating: "served in a skillet or shallow plate as a complete chicken-and-rice dish, not a plain rice bowl",
+    avoid: "plain white rice bowl, curry, pasta, fried chicken, hidden chicken, unrelated salad, tiny chicken garnish",
+    cuisineStyle: "home-style chicken and rice"
   },
   "macarona-bechamel": {
     englishName: "Egyptian macarona bechamel",
@@ -132,10 +228,82 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   mahshi: {
     englishName: "Egyptian mahshi",
     visualDescription:
-      "stuffed vegetables filled with seasoned rice and herbs, such as bell peppers, zucchini, eggplant, or grape leaves, cooked until tender",
-    plating: "served as arranged stuffed vegetables on one plate with the rice filling visible in at least one piece",
-    avoid: "salad bowl, raw vegetables, pasta, kebab, burger, pizza, unrelated grilled meat",
+      "Egyptian mahshi as hollowed or rolled vegetables filled internally with seasoned rice, herbs, and optional minced meat only when listed. The stuffed item must be the main subject: zucchini cylinders, cabbage rolls, grape-leaf rolls, bell peppers, tomatoes, or eggplant with the filling packed inside, not rice or meat placed beside a vegetable",
+    plating:
+      "served as arranged stuffed vegetables on one plate or shallow tray, with at least one cut-open or open-topped piece showing the rice/herb/meat filling inside the vegetable or roll",
+    avoid:
+      "rice pile beside vegetables, meat on top of rice, unstuffed tomato rice, plain rice bowl, loose ground meat bowl, salad bowl, raw vegetables, pasta, kebab, burger, pizza, unrelated grilled meat",
     cuisineStyle: "authentic Egyptian home cooking"
+  },
+  "kousa-mahshi": {
+    englishName: "kousa mahshi",
+    visualDescription:
+      "Middle Eastern or Egyptian stuffed zucchini: short pale-green zucchini or courgette cylinders hollowed out and filled internally with seasoned rice, herbs, tomato, and optional minced meat only when listed. The open ends should reveal the filling inside each zucchini",
+    plating:
+      "served as several stuffed zucchini cylinders in tomato sauce or light broth on one plate or shallow bowl, with at least one piece cut or angled so the filling is visible inside",
+    avoid:
+      "rice served beside zucchini, loose meat over rice, sliced zucchini stir-fry, unstuffed zucchini stew, pasta, kebab, burger, salad bowl",
+    cuisineStyle: "authentic Egyptian or Levantine mahshi"
+  },
+  "stuffed-cabbage-rolls": {
+    englishName: "stuffed cabbage rolls",
+    visualDescription:
+      "rolled cabbage leaves wrapped tightly around an internal rice, herb, and optional minced-meat filling only when listed. The rolls should look compact and cooked, with filling visible in one cut-open roll",
+    plating:
+      "served as a neat stack or circular arrangement of cabbage rolls in broth or tomato sauce, with no loose rice pile outside the rolls",
+    avoid:
+      "plain cabbage salad, unrolled cabbage stew, rice on the side, meat over rice, grape leaves if cabbage is named, pasta, kebab",
+    cuisineStyle: "Egyptian or Middle Eastern stuffed cabbage"
+  },
+  "warak-enab": {
+    englishName: "warak enab",
+    visualDescription:
+      "small grape leaves or vine leaves rolled tightly around seasoned rice and herbs, optionally with minced meat only when listed. The filling must be inside the green leaf rolls",
+    plating:
+      "served as compact grape-leaf rolls arranged in rows or a circular stack, with lemon or broth only when listed and one roll cut open if possible",
+    avoid:
+      "plain loose rice, meat over rice, cabbage rolls, salad leaves, unrolled green vegetables, pasta, kebab",
+    cuisineStyle: "Egyptian or Levantine stuffed grape leaves"
+  },
+  "stuffed-bell-peppers": {
+    englishName: "stuffed bell peppers",
+    visualDescription:
+      "whole bell peppers hollowed and filled internally with seasoned rice, herbs, tomato, and optional minced meat only when listed. The peppers should be upright or halved with the filling visibly inside",
+    plating:
+      "served as stuffed bell peppers in tomato sauce or a shallow baking dish, not as rice beside pepper pieces",
+    avoid:
+      "pepper slices on rice, loose rice bowl, unstuffed pepper stew, meat over rice, pasta, salad bowl",
+    cuisineStyle: "Mediterranean or Middle Eastern stuffed peppers"
+  },
+  "tomato-mahshi": {
+    englishName: "tomato mahshi",
+    visualDescription:
+      "whole tomatoes hollowed and filled internally with seasoned rice, herbs, tomato pulp, and optional minced meat only when listed. The filling should be inside the tomato shells, with tomato caps or open tops visible",
+    plating:
+      "served as stuffed tomatoes in a shallow plate or baking dish with sauce around them; do not show rice merely mixed with chopped tomatoes",
+    avoid:
+      "tomato rice pile, rice beside tomatoes, loose meat over rice, salad, pasta, unstuffed tomato stew, kebab",
+    cuisineStyle: "Mediterranean or Middle Eastern tomato mahshi"
+  },
+  "stuffed-eggplant": {
+    englishName: "stuffed eggplant",
+    visualDescription:
+      "eggplant halves, boats, or whole split eggplants filled internally with rice/herbs or minced meat mixture only when listed. The eggplant shell must cradle the filling visibly",
+    plating:
+      "served as stuffed eggplant boats or split eggplants in tomato sauce or a shallow tray, with the filling inside the eggplant and not as a side pile",
+    avoid:
+      "layered moussaka, eggplant dip, rice beside eggplant, loose meat bowl, kebab, pasta, salad",
+    cuisineStyle: "Middle Eastern stuffed eggplant"
+  },
+  "sheikh-el-mahshi": {
+    englishName: "sheikh el mahshi",
+    visualDescription:
+      "small eggplants or zucchini split and stuffed internally with minced meat, onions, pine nuts, tomato sauce, or yogurt only when listed. The vegetable shell should be clearly stuffed with meat inside",
+    plating:
+      "served as stuffed vegetable boats in sauce, with the minced-meat filling visible in the split opening and no loose meat pile on the side",
+    avoid:
+      "plain kofta, kebab, loose minced meat over rice, unstuffed eggplant stew, layered casserole, pasta, salad",
+    cuisineStyle: "Levantine stuffed vegetable dish"
   },
   shakshuka: {
     englishName: "Egyptian shakshuka",
@@ -152,6 +320,142 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     plating: "served in one small bowl or deep plate with the fava beans as the clear main subject",
     avoid: "chickpea hummus, lentil soup, rice, pasta, meat stew, salad bowl",
     cuisineStyle: "authentic Egyptian breakfast"
+  },
+  "ful-bil-zeit": {
+    englishName: "ful bil zeit",
+    visualDescription:
+      "fava beans dressed generously with olive oil, lemon, cumin, and simple herbs or vegetables only when listed, glossy with visible oil on the surface but still clearly a bean dish",
+    plating: "served in one shallow bowl or deep plate, with the olive oil dressing visible and no unrelated toppings",
+    avoid: "dry bean salad, hummus dip, lentil soup, rice, pasta, meat stew, eggs unless listed",
+    cuisineStyle: "Levantine or Egyptian fava bean breakfast"
+  },
+  "spicy-ful-bil-zeit": {
+    englishName: "spicy ful bil zeit",
+    visualDescription:
+      "fava beans topped with hot oil or chili oil, tahini, lemon, cumin, and a small vegetable garnish only when listed. The surface should show red-orange spicy oil and creamy tahini streaks if tahini is listed",
+    plating: "served in one breakfast bowl or deep plate with toppings visible on the ful surface",
+    avoid: "plain beans with no topping, hummus, lentil soup, rice, pasta, egg tray, meat stew",
+    cuisineStyle: "Egyptian street-style spicy ful"
+  },
+  "alexandrian-ful": {
+    englishName: "Alexandrian ful",
+    visualDescription:
+      "Egyptian Alexandrian ful with fava beans mixed with tomato, green or red pepper, garlic, cumin, coriander, lemon, chili, and herbs only when listed. It should look colorful, saucy, and rustic",
+    plating: "served in one shallow bowl or plate with tomato-pepper topping visible over the beans",
+    avoid: "plain brown beans, hummus, lentil soup, rice, pasta, unrelated salad bowl",
+    cuisineStyle: "authentic Alexandrian Egyptian breakfast"
+  },
+  "ful-with-fried-egg": {
+    englishName: "ful with fried egg",
+    visualDescription:
+      "Egyptian ful medames topped with one or two fried eggs or visible cooked eggs only when eggs are listed, with fava beans underneath and cumin, lemon, oil, or vegetables only when listed",
+    plating: "served as one breakfast plate or shallow bowl where both the ful and egg are clearly visible",
+    avoid: "plain eggs without beans, shakshuka tomato sauce, omelette, rice, pasta, sausage unless listed",
+    cuisineStyle: "Egyptian suhoor or breakfast plate"
+  },
+  "ful-eggs-cheese-tagine": {
+    englishName: "ful tagine with eggs and cheese",
+    visualDescription:
+      "baked ful tagine with fava beans, visible eggs, and melted or softened cheese only when cheese is listed. The dish should look like a warm baked tray or shallow casserole, not a plain bowl",
+    plating: "served in one small oven dish or shallow tray with eggs and cheese visible on top of the beans",
+    avoid: "plain ful bowl, omelette without beans, sausage, basterma, pasta, rice, soup",
+    cuisineStyle: "Egyptian baked ful breakfast tray"
+  },
+  "ful-eggs-sausage-tray": {
+    englishName: "ful tray with eggs and sausage",
+    visualDescription:
+      "Egyptian ful tray with fava beans, visible eggs, and sliced sausage only when sausage is listed. The tray should look baked or skillet-cooked with the beans underneath",
+    plating: "served in one shallow tray or skillet with beans, egg, and sausage all visible",
+    avoid: "plain sausage and eggs without ful, cheese unless listed, basterma, pasta, rice, soup",
+    cuisineStyle: "Egyptian breakfast tray"
+  },
+  "ful-eggs-basterma-tagine": {
+    englishName: "ful tagine with eggs and basterma",
+    visualDescription:
+      "Egyptian ful tagine with fava beans, visible eggs, and thin reddish-brown basterma or pastrami slices only when basterma or pastrami is listed. The beans should still be visible under the toppings",
+    plating: "served in one shallow baked dish or skillet with ful, eggs, and basterma clearly separated",
+    avoid: "plain eggs and pastrami without ful, sausage, cheese unless listed, rice, pasta, soup",
+    cuisineStyle: "Egyptian breakfast tagine"
+  },
+  "ful-sandwich": {
+    englishName: "Egyptian ful sandwich",
+    visualDescription:
+      "Egyptian ful stuffed in baladi bread, pita, or sandwich bread only when bread is listed, with fava bean filling visible and tomato, cucumber, pickles, tahini, or herbs only when listed",
+    plating: "served as one sandwich or split bread pocket with ful filling visible",
+    avoid: "plain bowl of beans, hummus wrap, falafel sandwich, meat sandwich, rice, pasta",
+    cuisineStyle: "Egyptian street-food breakfast sandwich"
+  },
+  "eggs-with-basterma": {
+    englishName: "Egyptian eggs with basterma",
+    visualDescription:
+      "fried or baked eggs cooked with thin reddish-brown basterma or pastrami slices, with eggs and cured meat clearly visible. This is an egg dish, not a ful dish unless fava beans are listed",
+    plating: "served in one skillet or breakfast plate with basterma around or under the eggs",
+    avoid: "ful beans unless listed, sausage, bacon, plain omelette, shakshuka tomato sauce, rice, pasta",
+    cuisineStyle: "Egyptian breakfast"
+  },
+  "turkish-sunny-side-eggs": {
+    englishName: "Turkish sunny-side eggs",
+    visualDescription:
+      "Turkish-style sunny-side fried eggs with intact yolks, cooked in butter or olive oil with red pepper flakes, paprika, herbs, tomato, or pepper only when listed. The eggs should be the clear subject, not scrambled",
+    plating: "served in one small skillet or breakfast plate with the yolks visible",
+    avoid: "menemen scrambled eggs, shakshuka tomato sauce, omelette, boiled eggs, ful beans, rice, pasta",
+    cuisineStyle: "Turkish breakfast"
+  },
+  "sunny-eggs-with-meat": {
+    englishName: "sunny-side eggs with meat",
+    visualDescription:
+      "sunny-side fried eggs cooked with browned minced meat or small meat pieces only when meat is listed, with egg yolks visible and the meat clearly separate from the eggs",
+    plating: "served in one skillet or breakfast plate with both eggs and meat visible",
+    avoid: "plain eggs, sausage, basterma, ful beans, shakshuka, pasta, rice, burger",
+    cuisineStyle: "Middle Eastern breakfast skillet"
+  },
+  "sunny-eggs-red-pepper": {
+    englishName: "sunny-side eggs with red pepper",
+    visualDescription:
+      "sunny-side fried eggs with visible red pepper strips, chili, or red pepper flakes only when listed, bright pepper pieces around the eggs",
+    plating: "served in one small skillet or breakfast plate with yolks and red pepper visible",
+    avoid: "plain eggs, scrambled eggs, shakshuka sauce, meat, sausage, ful beans, pasta, rice",
+    cuisineStyle: "simple breakfast eggs"
+  },
+  "sunny-eggs-with-sausage": {
+    englishName: "sunny-side eggs with sausage",
+    visualDescription:
+      "sunny-side fried eggs cooked with sliced sausage only when sausage is listed, with visible yolks and sausage pieces browned around the eggs",
+    plating: "served in one skillet or breakfast plate with egg and sausage clearly visible",
+    avoid: "plain eggs, basterma, bacon, ful beans, shakshuka, pasta, rice",
+    cuisineStyle: "breakfast egg skillet"
+  },
+  "sunny-eggs-avocado-toast": {
+    englishName: "sunny-side eggs with avocado toast",
+    visualDescription:
+      "toast topped with mashed or sliced avocado and sunny-side fried egg only when avocado and bread or toast are listed, with the egg yolk visible and avocado green clearly present",
+    plating: "served as one toast or open-faced breakfast plate",
+    avoid: "plain eggs, ful beans, meat skillet, no bread, no avocado, rice, pasta",
+    cuisineStyle: "modern breakfast toast"
+  },
+  "eggs-with-mushrooms": {
+    englishName: "eggs with mushrooms",
+    visualDescription:
+      "eggs cooked with sliced mushrooms only when mushrooms are listed, as a skillet, omelet, or fried egg plate with mushrooms clearly visible",
+    plating: "served as one breakfast plate or skillet with egg and mushroom both visible",
+    avoid: "plain eggs, avocado toast, sausage, meat, ful beans, rice, pasta",
+    cuisineStyle: "light breakfast eggs"
+  },
+  "egg-mushroom-sandwich": {
+    englishName: "egg mushroom sandwich",
+    visualDescription:
+      "sandwich or toast filled with egg and sliced mushrooms only when bread or toast and mushrooms are listed, with the egg and mushrooms visible at the cut or open face",
+    plating: "served as one sandwich, toast, or split bread with filling visible",
+    avoid: "plain egg plate, no bread, avocado toast, meat sandwich, ful sandwich, rice, pasta",
+    cuisineStyle: "breakfast sandwich"
+  },
+  "fried-eggs-with-onion": {
+    englishName: "fried eggs with onion",
+    visualDescription:
+      "fried eggs or sunny-side eggs cooked with visible onion slices or caramelized onion only when onion is listed, with egg yolks or cooked egg clearly visible",
+    plating: "served in one simple skillet or breakfast plate with onion and eggs visible",
+    avoid: "plain eggs, mushroom eggs, avocado toast, sausage, meat, ful beans, rice, pasta",
+    cuisineStyle: "simple Middle Eastern breakfast eggs"
   },
   "kebab-halla": {
     englishName: "Egyptian kebab halla",
@@ -276,10 +580,111 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   "adana-kebab": {
     englishName: "Turkish Adana kebab",
     visualDescription:
-      "long spicy ground/minced lamb or beef kebab molded tightly around flat skewers with char marks and a juicy fine-ground texture. The kebab surface should look like compressed minced meat paste with ridges, never beef cubes, diced meat, chopped steak, or sliced pieces",
-    plating: "served on a simple kebab plate with minimal flatbread or grilled pepper only if they fit the recipe",
-    avoid: "meatballs, burger, steak, beef cubes, diced meat, chopped steak pieces, sliced beef, shawarma strips, kebab cubes, pasta, soup, rice as the main subject",
+      "long spicy ground/minced lamb or beef kebab hand-molded tightly around flat metal skewers, with visible ridged compressed-mince texture, red pepper/paprika color, juicy charred edges, and grill marks. The kebab must look like Adana-style minced meat paste on skewers, never beef cubes, diced meat, chopped steak, or sliced pieces",
+    plating:
+      "served on a Turkish kebab plate with the long kebabs laid over lavash or flatbread only if listed, grilled tomato and long green pepper only if listed, sumac onion and parsley garnish only if listed, and bulgur or salad only as a small side if listed",
+    avoid: "meatballs, burger, steak, beef cubes, diced meat, chopped steak pieces, sliced beef, shawarma strips, kebab cubes, pasta, soup, rice as the main subject, generic kofta logs without skewers, thick burger-like patties",
     cuisineStyle: "authentic Turkish grilled food"
+  },
+  "adana-durum": {
+    englishName: "Turkish Adana durum",
+    visualDescription:
+      "spicy Adana-style minced lamb or beef kebab wrapped in thin lavash as a durum, with the long ridged charred minced-meat strip visible at one open end or in a partially opened wrap. The meat should look like Adana kebab, not sliced doner or shawarma",
+    plating:
+      "served as one lavash wrap or cut durum on a plate or board, with sumac onion, parsley, grilled tomato, or long green pepper only if listed",
+    avoid:
+      "plain kebab plate without wrap, burrito, tortilla wrap, shawarma slices, doner shavings, burger, meatballs, beef cubes, lahmacun unless the recipe explicitly includes it",
+    cuisineStyle: "authentic Turkish street food"
+  },
+  "adana-lahmacun-plate": {
+    englishName: "Adana kebab with lahmacun",
+    visualDescription:
+      "Turkish combo plate showing both long ridged Adana minced-meat kebab skewers and a separate thin round lahmacun with a finely minced meat topping. Both the skewered kebab and the lahmacun flatbread must be visible and distinct",
+    plating:
+      "served as a mixed Turkish grill-and-flatbread plate with lemon, parsley, sumac onion, grilled tomato, or pepper only if listed",
+    avoid:
+      "only lahmacun, only kebab, pizza with cheese, pide boat, shawarma, meat cubes, burger, meatballs, generic mixed grill where lahmacun is missing",
+    cuisineStyle: "authentic Turkish grill-house food"
+  },
+  "cag-kebap": {
+    englishName: "Turkish cag kebap",
+    visualDescription:
+      "thin slices of marinated lamb cooked on a horizontal rotating spit or served on small skewers, with browned edges and juicy sliced meat texture. It should read as Erzurum-style cag kebap, not ground minced Adana kebab",
+    plating:
+      "served on flatbread or a simple Turkish plate with onion, tomato, pepper, or herbs only if listed",
+    avoid:
+      "ground meat logs, adana kebab, kofta, burger, beef cubes, shawarma wrap, chicken doner, pasta, rice bowl",
+    cuisineStyle: "authentic Turkish kebab house food"
+  },
+  "doner-kebab": {
+    englishName: "Turkish doner kebab",
+    visualDescription:
+      "thin shaved layers of seasoned lamb or beef doner with stacked sliced texture, browned edges, and Turkish street-food presentation. The meat must be sliced from a vertical roast, not ground meat skewers",
+    plating:
+      "served on flatbread, rice, or a plate only if listed; include tomato, onion, parsley, yogurt, or pickles only if listed",
+    avoid:
+      "adana kebab, kofta logs, meatballs, beef cubes, burger, lahmacun, pide, pasta, stew",
+    cuisineStyle: "authentic Turkish street food"
+  },
+  "chicken-shawarma": {
+    englishName: "chicken shawarma",
+    visualDescription:
+      "Middle Eastern chicken shawarma made from thin sliced, shaved, or chopped marinated chicken with golden-brown edges, shawarma spice color, and juicy roasted texture. The chicken must look like sliced shawarma pieces or a filled shawarma wrap, not kebab skewers, whole chicken breast, plain cubes, or fried chicken",
+    plating:
+      "served as a pita or lavash wrap with chicken visible at the open end, or as a shawarma plate/bowl with sliced chicken as the hero. Include garlic sauce, tahini, pickles, tomato, onion, lettuce, fries, rice, or bread only if listed or required by the exact shawarma form",
+    avoid:
+      "beef, lamb, doner cone, kofta, kebab skewers, shish tawook skewers, whole chicken breast, generic chicken cubes, fried chicken, taco, burrito, burger, random salad, plain rice bowl hiding the chicken",
+    cuisineStyle: "authentic Middle Eastern shawarma street food"
+  },
+  "beef-shawarma": {
+    englishName: "beef shawarma",
+    visualDescription:
+      "Middle Eastern beef shawarma made from thin sliced or shaved marinated beef strips with dark browned edges, warm spice color, and stacked sliced-meat texture. The beef must look like shawarma slices or filling, not ground beef, kofta, steak cubes, stew chunks, or kebab skewers",
+    plating:
+      "served as a pita or lavash wrap with beef slices visible at the open end, or as a shawarma plate/bowl with thin beef strips as the hero. Include tahini sauce, garlic sauce, pickles, onion, tomato, parsley, fries, rice, or bread only if listed or required by the exact shawarma form",
+    avoid:
+      "chicken, lamb-only plate, ground beef, minced meat, kofta, adana kebab, kebab skewers, steak cubes, stew chunks, burger, meatballs, doner cone, taco, burrito, plain rice bowl hiding the beef",
+    cuisineStyle: "authentic Middle Eastern shawarma street food"
+  },
+  "lamb-shawarma": {
+    englishName: "lamb shawarma",
+    visualDescription:
+      "Middle Eastern lamb shawarma made from thin sliced or shaved marinated lamb with browned roasted edges, tender layered texture, and warm shawarma spices. The lamb must read as sliced shawarma meat, not lamb chops, rack of lamb, kofta, Adana kebab, cubes, or stew",
+    plating:
+      "served as an open pita or lavash wrap with lamb slices visible, or as a shawarma plate/bowl with lamb strips clearly on top. Include yogurt, tahini, pickles, onion, tomato, parsley, rice, fries, or bread only if listed or required by the exact shawarma form",
+    avoid:
+      "chicken, beef-only plate, lamb chops, rack of lamb, ground lamb, kofta, adana kebab, kebab skewers, lamb cubes, stew, burger, doner cone, taco, burrito, plain rice bowl hiding the lamb",
+    cuisineStyle: "authentic Middle Eastern shawarma street food"
+  },
+  "beef-lamb-shawarma": {
+    englishName: "beef and lamb shawarma",
+    visualDescription:
+      "mixed beef and lamb shawarma with thin shaved marinated meat slices, browned roasted edges, and visible layered shawarma texture. It must look like sliced shawarma filling in a wrap or plate, not ground meat, kofta, kebab skewers, steak cubes, or stew chunks",
+    plating:
+      "served as a pita or lavash wrap with mixed shawarma meat visible at the open end, or as a shawarma plate/bowl with the sliced meat as the hero. Include sauces, pickles, salad vegetables, rice, fries, or bread only if listed or required by the exact shawarma form",
+    avoid:
+      "chicken-only shawarma, ground meat, minced meat, kofta, adana kebab, kebab skewers, meatballs, burger, steak cubes, stew chunks, doner cone, taco, burrito, plain rice bowl hiding the meat",
+    cuisineStyle: "authentic Middle Eastern shawarma street food"
+  },
+  "iskender-kebab": {
+    englishName: "Turkish Iskender kebab",
+    visualDescription:
+      "thin slices of doner lamb or beef served over torn pide bread, topped with tomato sauce and melted butter, with a spoonful of yogurt on the side only when listed. The dish should read as Bursa-style Iskender kebab, not ground meat skewers",
+    plating:
+      "served on one plate with sliced doner layered over bread pieces; tomato sauce, butter gloss, yogurt, grilled tomato, or pepper only if listed",
+    avoid:
+      "adana kebab, kofta logs, meatballs, lavash wrap, lahmacun, pide boat, burger, beef cubes, pasta, plain rice bowl",
+    cuisineStyle: "authentic Turkish kebab house food"
+  },
+  "turkish-kofta": {
+    englishName: "Turkish kofta",
+    visualDescription:
+      "Turkish-style ground beef or lamb kofta shaped as short oval logs or meatballs, browned and juicy, optionally served with yogurt sauce, tomato sauce, parsley, or sumac onion only when listed. It should look like kofte, not Adana's long flat skewers",
+    plating:
+      "served as a Turkish kofta plate with sauce, salad, bread, bulgur, or rice only if listed",
+    avoid:
+      "long flat Adana skewers, lavash wrap, lahmacun, pide, burger patties, beef cubes, sliced steak, shawarma, pasta",
+    cuisineStyle: "authentic Turkish home or grill-house food"
   },
   manti: {
     englishName: "Turkish manti",
@@ -323,6 +728,16 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
       "flatbread, pide, lahmacun, pizza, pie crust, pasta, rice, burger, kofta skewers, loose meat filling without pastry",
     cuisineStyle: "authentic Turkish savory pastry"
   },
+  "kiymali-tepsi-boregi": {
+    englishName: "Turkish kiymali tepsi boregi",
+    visualDescription:
+      "rectangular or tray-baked Turkish phyllo borek with spiced ground beef layered between thin pastry sheets, golden flaky top, and a cut piece showing the minced-meat filling inside",
+    plating:
+      "served as square or rectangular slices from a tray on a plate or board; yogurt or salad only if listed",
+    avoid:
+      "spiral borek coil, flatbread, pide, lahmacun, pizza, burger, kofta skewers, loose stew, pasta, rice",
+    cuisineStyle: "authentic Turkish savory pastry"
+  },
   "turkish-musakka": {
     englishName: "Turkish eggplant and ground beef musakka",
     visualDescription:
@@ -332,6 +747,26 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     avoid:
       "stuffed whole eggplant, karniyarik, eggplant dip, pasta, rice bowl, kebab, burger, Greek-style decorative moussaka if the recipe is Turkish",
     cuisineStyle: "authentic Turkish home cooking"
+  },
+  "turkish-ground-beef-stew": {
+    englishName: "Turkish ground beef stew",
+    visualDescription:
+      "home-style Turkish ground beef and vegetable stew with crumbled browned meat in a tomato-rich sauce, potatoes, peas, carrots, peppers, or onion only when listed. The meat should be loose minced beef, not meatballs or kebab",
+    plating:
+      "served in a shallow bowl or plate as a rustic stew; rice, bread, yogurt, or herbs only if listed",
+    avoid:
+      "kofta logs, adana skewers, meatballs, burger patties, pasta sauce, chili con carne, dry rice bowl, sliced steak",
+    cuisineStyle: "authentic Turkish home cooking"
+  },
+  "turkey-picadillo": {
+    englishName: "Turkey picadillo",
+    visualDescription:
+      "Latin-style ground turkey picadillo with loose minced turkey simmered in tomato sauce with peppers, onion, olives, raisins, potatoes, or spices only when listed. This is turkey poultry, not Turkish cuisine",
+    plating:
+      "served as a saucy ground turkey dish in a bowl or over rice only if rice is listed",
+    avoid:
+      "Turkish kebab, adana, kofta, pide, lahmacun, shawarma, beef cubes, burger, pasta",
+    cuisineStyle: "Latin home cooking"
   },
   sayadeya: {
     englishName: "Egyptian sayadeya",
@@ -368,6 +803,362 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
       "served in or from a shallow baked tray or clay-style dish, with fish clearly visible among the listed vegetables or potatoes",
     avoid: "plain steamed fish, sushi, pasta, rice bed, chicken, beef, generic soup, unrelated vegetable medley",
     cuisineStyle: "authentic Egyptian home-style baked fish"
+  },
+  "samak-bel-radah": {
+    englishName: "Samak bel radah",
+    visualDescription:
+      "Egyptian fish coated or rubbed with wheat bran/rada and spices, cooked until browned with visible rustic bran crust or coating, with lemon, cumin, coriander, garlic, and herbs only when listed. The fish should remain recognizable as whole fish or large pieces",
+    plating:
+      "served as one Egyptian fish plate with the bran-coated fish prominent; bread, salad, or tahini only if listed",
+    avoid: "plain white fillet, steamed fish, sushi, pasta, rice bowl, shrimp, chicken, beef, smooth breadcrumb crust if rada or bran is not listed",
+    cuisineStyle: "authentic Egyptian fish with rada"
+  },
+  "egyptian-smoked-fish": {
+    englishName: "Egyptian smoked fish",
+    visualDescription:
+      "Egyptian smoked fish such as ringa, feseekh, or smoked mullet presented as visible fish portions with smoky browned skin or flaky flesh, with onion, lemon, tahini, bread, tomato, or cucumber only when listed",
+    plating:
+      "served as one simple Egyptian smoked fish plate, not a modern salad bowl, with fish pieces clearly visible",
+    avoid: "raw sushi, grilled fresh fish, generic salmon steak, pasta, rice bowl, shrimp, chicken, beef, hidden fish",
+    cuisineStyle: "authentic Egyptian smoked fish plate"
+  },
+  "egyptian-fried-tilapia": {
+    englishName: "Egyptian fried tilapia",
+    visualDescription:
+      "whole or large-piece Egyptian fried tilapia cooked golden and crisp, seasoned with cumin, coriander, garlic, lemon, or chili only when listed. The tilapia shape should be visible, not a generic breaded stick",
+    plating:
+      "served as one crisp fried fish plate with lemon or simple salad only if listed",
+    avoid: "fish sticks, sushi, steamed fish, creamy fish, pasta, rice covering fish, shrimp, chicken, beef",
+    cuisineStyle: "authentic Egyptian fried fish"
+  },
+  "egyptian-baked-fish-tray": {
+    englishName: "Egyptian baked fish tray",
+    visualDescription:
+      "Egyptian oven-baked fish tray with whole fish, tilapia, or fish pieces baked with tomato, pepper, garlic, onion, lemon, cumin, coriander, herbs, potato slices, or tomato sauce only when listed. The tray form must be clear and the fish must not be hidden",
+    plating:
+      "served in one shallow baking tray or from a tray, with fish and listed vegetables visible",
+    avoid: "plain isolated fillet, sushi, pasta, paella, shrimp-only dish, chicken, beef, unrelated roasted vegetables hiding the fish",
+    cuisineStyle: "authentic Egyptian home-style oven fish"
+  },
+  "alexandrian-shrimp": {
+    englishName: "Alexandrian shrimp",
+    visualDescription:
+      "Egyptian Alexandrian shrimp with whole curled pink-orange shrimp sauteed in a bright garlic, cumin, coriander, chili, lemon, tomato, pepper, and herb mixture only when those ingredients are listed. The shrimp must be the clear main subject and look coastal Egyptian, spicy, and saucy, not a generic shrimp cocktail",
+    plating:
+      "served as one shallow skillet or Egyptian seafood plate with shrimp visible on top, lemon and herbs only if listed, bread or rice only as a small support if listed",
+    avoid:
+      "plain boiled shrimp, shrimp cocktail, breaded fried shrimp, pasta, creamy sauce, curry sauce, generic Mediterranean salad, rice mound hiding shrimp, grass background, chicken, beef",
+    cuisineStyle: "authentic Alexandrian Egyptian seafood"
+  },
+  "egyptian-shrimp-tagine": {
+    englishName: "Egyptian shrimp tagine",
+    visualDescription:
+      "Egyptian shrimp tagine in a rustic baked dish or shallow clay-style pan with whole shrimp in tomato sauce, onion, garlic, peppers, cumin, coriander, parsley, cilantro, lemon, or chili only when listed. The tomato sauce should surround the shrimp without hiding them",
+    plating:
+      "served in one oven dish or shallow tagine-style pan, with shrimp clearly visible at the surface and sauce texture visible",
+    avoid:
+      "plain shrimp plate, shrimp cocktail, pasta, rice as the main view, paella pan, creamy soup, yellow curry, hidden shrimp, chicken, beef",
+    cuisineStyle: "authentic Egyptian seafood tagine"
+  },
+  "mediterranean-garlic-shrimp": {
+    englishName: "Mediterranean garlic shrimp",
+    visualDescription:
+      "whole curled pink-orange shrimp cooked in a light olive-oil garlic sauce with sliced red or green bell peppers, shallots or onion, small tomato pieces, parsley, and lemon only when listed. The shrimp must be the clear main subject, glossy and saucy, not breaded or hidden in rice",
+    plating:
+      "served in one shallow skillet, pan, or simple plate with the shrimp visible on top; rice, orzo, couscous, or bread may appear only as a small support if listed",
+    avoid:
+      "plain boiled shrimp, shrimp cocktail, breaded fried shrimp, pasta unless listed, rice mound hiding shrimp, grass background, generic white-plate takeout photo, random salad, heavy cream sauce, curry sauce, unrelated seafood mix",
+    cuisineStyle: "Mediterranean coastal seafood"
+  },
+  "grilled-shrimp-kebabs": {
+    englishName: "grilled shrimp kebabs",
+    visualDescription:
+      "whole shrimp threaded on skewers and grilled until pink-orange with light char marks, brushed with lime, garlic, olive oil, paprika or chili, and cilantro or parsley only when listed. The skewered form must be obvious",
+    plating:
+      "served as a few shrimp skewers on one clean platter or grill-style plate, with lime wedges or herbs only if listed",
+    avoid:
+      "loose shrimp in sauce, fried shrimp, shrimp cocktail, pasta, rice bowl, stew, curry, mixed grill with meat, vegetables dominating the shrimp, hands holding skewers, people, labels",
+    cuisineStyle: "Mediterranean or coastal grilled seafood"
+  },
+  "mediterranean-shrimp-feta": {
+    englishName: "Mediterranean shrimp with feta",
+    visualDescription:
+      "whole shrimp nestled in a red tomato sauce with olives, diced tomatoes, onion or garlic, parsley or oregano, and crumbled white feta only when listed. The feta should appear as small white crumbles, not a thick cream sauce",
+    plating:
+      "served in one shallow skillet, baking dish, or plate with tomato sauce visible around the shrimp and feta scattered on top",
+    avoid:
+      "plain shrimp, fried shrimp, cream sauce, yellow curry, pasta unless listed, rice mound, salad bowl, hidden shrimp, unrelated seafood platter, chicken, beef",
+    cuisineStyle: "Mediterranean Greek-style seafood"
+  },
+  "turkish-prawns-feta": {
+    englishName: "Turkish prawns with feta",
+    visualDescription:
+      "whole pink-orange prawns or shrimp cooked Turkish-style with tomato, red pepper paste or paprika, onion, garlic, green or red peppers, parsley, and crumbled feta or melted cheese only when listed; rustic red saucy surface with visible prawns",
+    plating:
+      "served in one small pan, shallow skillet, or earthenware-style dish with the prawns clearly visible and the tomato-pepper sauce around them",
+    avoid:
+      "plain boiled prawns, breaded fried shrimp, shrimp cocktail, pasta, rice mound hiding prawns, generic Greek salad, creamy Alfredo sauce, curry sauce, unrelated seafood mix",
+    cuisineStyle: "authentic Turkish meyhane-style seafood"
+  },
+  "turkish-prawn-chickpea-stew": {
+    englishName: "Turkish prawn and chickpea stew",
+    visualDescription:
+      "whole prawns or shrimp in a red tomato-based stew with visible chickpeas, onion, garlic, peppers, cumin, sumac, chili, parsley, or dill only when listed. The stew should look spoonable and rustic, with prawns and chickpeas both visible",
+    plating:
+      "served in one shallow bowl or pan with red sauce, chickpeas, and prawns visible at the surface; bread or rice only if listed",
+    avoid:
+      "plain shrimp plate, fried shrimp, shrimp cocktail, pasta, creamy sauce, yellow curry, hidden prawns, bean-only stew, chicken, beef, unrelated vegetables",
+    cuisineStyle: "Turkish home-style seafood stew"
+  },
+  "karides-guvec": {
+    englishName: "Karides Guvec Turkish shrimp casserole",
+    visualDescription:
+      "Turkish shrimp casserole baked in an earthenware guvec or small oven-safe dish with whole shrimp, onion, garlic, green and red peppers, mushrooms, diced tomatoes, and a golden melted cheese topping only when listed. The dish should look baked and rustic, not a raw salad or plain shrimp plate",
+    plating:
+      "served in one clay pot, small casserole, or shallow oven dish, with shrimp visible through the tomato-vegetable sauce and melted cheese on top if cheese is listed",
+    avoid:
+      "plain boiled shrimp, shrimp cocktail, fried shrimp, pasta, rice as the main view, cold salad, curry, cream soup, generic seafood platter, hidden shrimp, unrelated side dishes",
+    cuisineStyle: "authentic Turkish guvec seafood casserole"
+  },
+  "kung-pao-shrimp": {
+    englishName: "Kung Pao shrimp",
+    visualDescription:
+      "whole curled shrimp stir-fried in a glossy reddish-brown Chinese Kung Pao sauce with roasted peanuts, dried red chilies, scallions, garlic, ginger, and diced bell pepper, zucchini, or water chestnuts only when listed. The shrimp and peanuts must both be clearly visible",
+    plating:
+      "served as one wok-style stir-fry plate or shallow bowl with sauce clinging to the shrimp; rice may appear only as a small support if listed",
+    avoid:
+      "plain garlic shrimp, breaded fried shrimp, shrimp cocktail, pasta, cream sauce, curry sauce, random salad, peanut-free stir-fry, hidden shrimp, chicken, beef, unrelated vegetables",
+    cuisineStyle: "Chinese Sichuan-inspired stir-fry"
+  },
+  "asian-garlic-shrimp": {
+    englishName: "Asian garlic shrimp",
+    visualDescription:
+      "whole shrimp coated in a glossy garlic-soy sauce with visible minced garlic, ginger, sesame oil sheen, green onion, and sesame seeds only when listed. The sauce should cling to the shrimp, not look like soup",
+    plating:
+      "served as one close plate or shallow bowl of saucy shrimp; rice or noodles may appear only if listed and must not hide the shrimp",
+    avoid:
+      "plain boiled shrimp, breaded fried shrimp, shrimp cocktail, cream sauce, tomato sauce, curry, pasta unless listed, vegetables dominating the shrimp, hidden shrimp",
+    cuisineStyle: "Chinese or Asian garlic-soy seafood"
+  },
+  "salt-and-pepper-shrimp": {
+    englishName: "Chinese salt and pepper shrimp",
+    visualDescription:
+      "crispy shell-on or tail-on shrimp lightly coated and fried until golden, tossed dry with minced garlic, scallions, sliced green or red chili, salt, and cracked black pepper only when listed. The dish should look dry-crisp, not saucy",
+    plating:
+      "served as one plate of crisp shrimp with scattered garlic, scallions, and chili; no dipping sauces or sides unless listed",
+    avoid:
+      "saucy stir-fry, boiled shrimp, shrimp cocktail, pasta, rice bowl, cream sauce, curry sauce, tomato sauce, heavy vegetables, hidden shrimp, chicken, beef",
+    cuisineStyle: "Chinese Cantonese-style fried seafood"
+  },
+  "chinese-shrimp-broccoli": {
+    englishName: "Chinese shrimp and broccoli",
+    visualDescription:
+      "whole pink shrimp stir-fried with bright green broccoli florets in a glossy soy-garlic-ginger brown sauce. The shrimp and broccoli should be balanced and clearly visible, with sauce lightly coating both",
+    plating:
+      "served as one stir-fry plate or shallow bowl; steamed rice may appear underneath or beside it only if listed and must not dominate",
+    avoid:
+      "plain steamed broccoli, shrimp cocktail, fried breaded shrimp, pasta, cream sauce, tomato sauce, curry, random vegetable medley, hidden shrimp, chicken, beef",
+    cuisineStyle: "Chinese-American shrimp stir-fry"
+  },
+  "ginger-garlic-seafood-stir-fry": {
+    englishName: "Chinese ginger garlic seafood stir fry",
+    visualDescription:
+      "mixed seafood stir-fried over very high heat with julienned ginger, sliced garlic, soy sauce, and spring onions. Shrimp, scallops, squid, or mixed seafood pieces should be visible and lightly glossy, with green spring onion strips on top",
+    plating:
+      "served as one wok-style stir-fry plate or shallow bowl; jasmine rice or noodles may appear only if listed and should not hide the seafood",
+    avoid:
+      "seafood soup, creamy sauce, tomato sauce, curry, fried breaded seafood, pasta, salad, hidden seafood, chicken, beef, random vegetables dominating the seafood",
+    cuisineStyle: "Chinese Cantonese-style seafood stir-fry"
+  },
+  "steamed-fish-oyster-sauce": {
+    englishName: "Chinese steamed fish in oyster sauce",
+    visualDescription:
+      "a tender steamed white fish fillet or whole fish portion glazed with glossy dark oyster sauce, topped with thin ginger strips and spring onion, with light steam-cooked texture. The fish should be intact and clearly visible, not fried or breaded",
+    plating:
+      "served as one simple Chinese steamed fish plate with sauce pooled around the fish; rice may appear only if listed and must stay secondary",
+    avoid:
+      "fried fish, grilled char marks, fish sticks, sushi, creamy sauce, tomato sauce, curry, pasta, salad, shrimp-only dish, chicken, beef, heavy vegetables hiding the fish",
+    cuisineStyle: "Chinese steamed seafood"
+  },
+  "sauteed-seafood-medley": {
+    englishName: "sauteed seafood medley",
+    visualDescription:
+      "a mixed seafood skillet with clearly visible shrimp, scallops, crab pieces, squid rings, mussels, or clams only when listed, sauteed with garlic, butter or olive oil, herbs, and a light glossy sauce. The seafood should look varied but coherent, not like a rice dish",
+    plating:
+      "served as one skillet or shallow plate of mixed seafood, with herbs and lemon only if listed; no large starch base unless listed",
+    avoid:
+      "paella rice, pasta, seafood soup, seafood boil tray, breaded fried seafood, cream-heavy sauce, hidden seafood, chicken, beef, random vegetables dominating the seafood",
+    cuisineStyle: "global seafood skillet"
+  },
+  "seafood-paella": {
+    englishName: "Spanish seafood paella",
+    visualDescription:
+      "Spanish paella de marisco in a wide shallow pan with saffron-yellow rice, shrimp, mussels or clams in shells, squid or seafood pieces only when listed, with rice grains visible and lightly toasted edges. The seafood must sit visibly on top of the rice",
+    plating:
+      "served in one paella pan or wide shallow platter, rice as the base with seafood arranged on top; lemon wedges only if listed",
+    avoid:
+      "plain seafood medley without rice, risotto, biryani, pasta, soup, curry, seafood boil tray, chicken-only rice, hidden seafood, random salad",
+    cuisineStyle: "authentic Spanish seafood paella"
+  },
+  "cajun-seafood-boil": {
+    englishName: "Cajun seafood boil",
+    visualDescription:
+      "Cajun seafood boil spread with shrimp, crab legs or crawfish, corn on the cob, baby potatoes, and sausage only when listed, coated in orange-red Cajun garlic butter seasoning. It should look like a boil spread, not a plated entree",
+    plating:
+      "served as one abundant tray, sheet pan, or butcher-paper seafood boil pile with the seafood and vegetables visible; sauce may be drizzled or in one small cup only if listed",
+    avoid:
+      "single shrimp plate, paella rice, pasta, soup, cream sauce, Chinese stir-fry, plain boiled seafood without seasoning, hidden seafood, unrelated salad, white tablecloth fine-dining plating",
+    cuisineStyle: "Cajun or Louisiana seafood boil"
+  },
+  cioppino: {
+    englishName: "cioppino seafood stew",
+    visualDescription:
+      "Italian-American tomato-broth seafood stew with visible crab legs, shrimp, mussels or clams in shells, fish chunks, calamari, fennel, onion, garlic, herbs, and red tomato broth only when listed. The seafood should rise above the broth and look abundant",
+    plating:
+      "served in one deep bowl of red seafood stew with shellfish and fish visible; toasted bread may appear only if listed",
+    avoid:
+      "creamy chowder, paella rice, seafood boil tray, pasta, curry, fried seafood, hidden seafood, chicken, beef, mashed potatoes unless explicitly listed",
+    cuisineStyle: "Italian-American San Francisco seafood stew"
+  },
+  "seafood-chowder": {
+    englishName: "seafood chowder",
+    visualDescription:
+      "creamy seafood chowder with visible shrimp, fish chunks, scallops, mussels, or mixed seafood only when listed, in a pale cream broth with potato cubes, corn, celery, carrot, onion, parsley, or dill only when listed. The seafood should be visible at the surface, not hidden under a smooth soup",
+    plating:
+      "served in one deep bowl of creamy chowder with seafood pieces and vegetables visible; crackers or bread only if listed",
+    avoid:
+      "tomato cioppino, red fish soup, Cajun boil tray, paella rice, pasta, curry, clear broth, salad, fried seafood, hidden seafood, chicken, beef",
+    cuisineStyle: "Western creamy seafood soup"
+  },
+  "mediterranean-fish-soup": {
+    englishName: "Mediterranean fish soup",
+    visualDescription:
+      "Mediterranean fish soup with visible white fish chunks in a warm tomato or golden broth with tomato pieces, red pepper, celery, onion, garlic, herbs, lemon, cumin, coriander, or turmeric only when listed. The broth should be light and aromatic, not creamy",
+    plating:
+      "served in one bowl with fish pieces visible at the surface, herbs and lemon only if listed; no large rice or pasta base unless listed",
+    avoid:
+      "creamy chowder, paella, seafood boil, pasta, curry, fried fish, sushi, hidden fish, chicken, beef, heavy cream sauce, random salad",
+    cuisineStyle: "Eastern Mediterranean fish soup"
+  },
+  "pla-pad-cha": {
+    englishName: "Thai Pla Pad Cha fried fish",
+    visualDescription:
+      "crispy fried fish pieces or fillets tossed or topped with a spicy Thai chile sauce, garlic, fingerroot or young ginger, green peppercorns, Thai basil or holy basil, red chilies, and glossy fish sauce or oyster sauce only when listed. The fish should look crisp at the edges with vivid Thai aromatics",
+    plating:
+      "served as one Thai fried fish plate with spicy chile sauce on or around the fish; rice may appear only if listed and must not hide the fish",
+    avoid:
+      "plain fried fish, fish sticks, steamed fish, creamy sauce, tomato soup, curry bowl, sushi, pasta, hidden fish, chicken, beef, generic salad",
+    cuisineStyle: "authentic Thai spicy fried fish"
+  },
+  "chilli-lime-fish": {
+    englishName: "Thai chilli lime fish",
+    visualDescription:
+      "pan-seared or lightly fried white fish pieces coated in a glossy spicy chilli-lime sauce with garlic, red chili, lime juice, fish sauce, coriander or cilantro only when listed. The fish pieces should be saucy and caramelized at the edges",
+    plating:
+      "served as one Thai-style plate of saucy fish pieces; rice may appear only if listed and must not hide the fish",
+    avoid:
+      "plain fried fish, whole steamed fish, creamy sauce, tomato soup, curry bowl, sushi, pasta, hidden fish, chicken, beef, generic salad",
+    cuisineStyle: "Thai spicy lime fish"
+  },
+  "fish-florentine": {
+    englishName: "fish Florentine",
+    visualDescription:
+      "a seared white fish fillet resting on a bed of creamy spinach Florentine sauce with garlic, onion or shallot, cream, parmesan, and lemon only when listed. The fish should sit clearly on top of the green spinach cream",
+    plating:
+      "served as one plate or shallow bowl with the fish fillet over creamy spinach; no rice or pasta unless listed",
+    avoid:
+      "fried fish, tomato sauce, curry, soup, plain spinach salad, pasta unless listed, hidden fish, chicken, beef",
+    cuisineStyle: "American or Italian-inspired fish Florentine"
+  },
+  "crispy-pan-fried-fish": {
+    englishName: "crispy pan fried fish",
+    visualDescription:
+      "golden crispy white fish fillets lightly coated in flour or seasoning and pan-fried, with browned crisp edges and flaky white interior visible where cut. Lemon and parsley may appear only when listed",
+    plating:
+      "served as one simple plate of crispy fish fillets; vegetables, salad, or potatoes may appear only if listed and must stay secondary",
+    avoid:
+      "breaded fish sticks, whole fish, creamy sauce, tomato soup, curry, pasta, rice mound hiding fish, sushi, chicken, beef",
+    cuisineStyle: "simple crispy pan-fried fish"
+  },
+  "mediterranean-baked-fish": {
+    englishName: "Mediterranean baked fish with olives and capers",
+    visualDescription:
+      "baked white fish fillets or pieces with tomatoes, olives, capers, garlic, onion, lemon, herbs, and olive oil only when listed. The fish should be visible among the Mediterranean toppings, not buried",
+    plating:
+      "served in one baked dish or plate with fish, olives, capers, tomatoes, and herbs visible; no pasta or rice unless listed",
+    avoid:
+      "plain fried fish, creamy sauce, fish soup, paella, curry, salad bowl, hidden fish, chicken, beef",
+    cuisineStyle: "Mediterranean baked seafood"
+  },
+  "egyptian-spiced-whole-snapper": {
+    englishName: "roasted whole snapper with Egyptian spices",
+    visualDescription:
+      "a whole roasted snapper or similar whole fish, scored across the skin and rubbed with Egyptian spice paste of cumin, coriander, paprika, garlic, lemon, olive oil, and herbs only when listed. The whole fish shape and scored skin must be obvious",
+    plating:
+      "served as one whole fish on a platter with tomatoes, lemon, coriander, or parsley only if listed",
+    avoid:
+      "fish fillets, fish soup, paella, fried fish pieces, sushi, pasta, rice hiding the fish, chicken, beef, unrelated side dishes",
+    cuisineStyle: "Egyptian spiced roasted whole fish"
+  },
+  "arabic-grilled-fish": {
+    englishName: "Arabic charcoal grilled fish",
+    visualDescription:
+      "a whole grilled fish with charcoal marks and Arabic spice marinade of cumin, coriander, paprika, garlic, lemon, olive oil, and parsley only when listed. The fish should look grilled and smoky, with crisp skin and visible whole-fish form",
+    plating:
+      "served as one whole grilled fish on a simple platter; rice, salad, tahini, or lemon may appear only if listed",
+    avoid:
+      "fried fish, baked casserole, fish soup, fish fillet cubes, sushi, pasta, hidden fish, chicken, beef",
+    cuisineStyle: "Arabic or Egyptian charcoal-grilled fish"
+  },
+  "egyptian-tilapia-khalta-tray": {
+    englishName: "Egyptian tilapia tray bil khalta",
+    visualDescription:
+      "Egyptian baked tilapia tray with whole tilapia or large fish portions covered in a visible khalta spice mixture of garlic, peppers, tomato, cumin, coriander, lemon, herbs, and oil only when listed. The tray should look saucy and baked, not plain grilled",
+    plating:
+      "served in one oven tray or shallow platter with the fish visible under the spice mixture; vegetables appear only if listed",
+    avoid:
+      "plain fish fillet, fried fish, fish soup, paella, pasta, sushi, creamy sauce, hidden fish, chicken, beef",
+    cuisineStyle: "Egyptian baked fish tray"
+  },
+  "barboon-maklee": {
+    englishName: "Barboon Maklee Egyptian fried red mullet",
+    visualDescription:
+      "small whole red mullet fish fried golden and crisp after lemon, cumin, coriander, garlic, and flour or cornflour coating only when listed. The fish should be whole, small, and crisp with tails visible",
+    plating:
+      "served as a plate of fried whole red mullet with lemon and parsley only if listed; rice or tahini only if listed and secondary",
+    avoid:
+      "fish fillet, fish sticks, grilled fish, fish soup, paella, pasta, creamy sauce, hidden fish, chicken, beef",
+    cuisineStyle: "Egyptian fried fish"
+  },
+  "egyptian-fried-fish-sandwich": {
+    englishName: "Egyptian fried fish sandwich",
+    visualDescription:
+      "crispy fried fish fillets tucked into Egyptian pita or flatbread with tahini sauce, tomato, cucumber, pickles, arugula, parsley, or lemon only when listed. The bread pocket and fried fish filling must be visible",
+    plating:
+      "served as one Egyptian pita-style fish sandwich or halved sandwich, not a burger bun; sauce and vegetables only if listed",
+    avoid:
+      "burger bun, plain fish fillet plate, tacos, wrap tortilla, fried chicken sandwich, fish soup, pasta, rice bowl, hidden fish",
+    cuisineStyle: "Egyptian street-food fried fish sandwich"
+  },
+  "parmesan-crusted-fish": {
+    englishName: "lemon herb Parmesan crusted fish",
+    visualDescription:
+      "white fish fillets with a golden breadcrumb, herb, lemon zest, and parmesan crust only when listed, baked or pan-finished until the top is crisp and browned. The crumb crust should be clearly visible",
+    plating:
+      "served as one plate of crusted fish fillets with lemon and herbs only if listed; vegetables or potatoes only if listed and secondary",
+    avoid:
+      "plain fried fish, whole fish, creamy sauce, tomato soup, curry, paella, pasta, hidden fish, chicken, beef",
+    cuisineStyle: "Western lemon herb crusted fish"
+  },
+  "garlic-butter-cod": {
+    englishName: "baked cod with garlic butter",
+    visualDescription:
+      "flaky white cod fillets baked in garlic butter with lemon, parsley, paprika, and olive oil only when listed. The cod should look moist and flaky with a light golden top and butter sauce around it",
+    plating:
+      "served as one plate or baking dish of cod fillets with lemon and parsley only if listed; vegetables or potatoes only if listed",
+    avoid:
+      "whole fish, fried fish, fish soup, paella, pasta, curry, heavy cream sauce, hidden fish, chicken, beef",
+    cuisineStyle: "simple baked cod"
   }
 };
 
@@ -624,6 +1415,14 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
   const strictTokens = getStrictRecipePhotoIdentityTokens(identity).slice(0, 6);
   const canonicalName = identity.canonicalDishKey?.replace(/-/g, " ") ?? identity.cleanQuery;
 
+  if (isStuffedDishSource(source)) {
+    return buildStuffedVisualClause(source, forbiddenStarches);
+  }
+
+  if (isShawarmaSource(source)) {
+    return buildShawarmaVisualClause(source, forbiddenStarches);
+  }
+
   if (isGroundMeatSource(source)) {
     return buildGroundMeatVisualClause(source, forbiddenStarches);
   }
@@ -703,6 +1502,14 @@ function getDishImpliedVisibleComponents(identity: ReturnType<typeof buildRecipe
   if (/\b(borek|boregi|yufka|phyllo|filo)\b/iu.test(source)) {
     components.push("pastry wrapper");
   }
+  if (isStuffedDishSource(source)) {
+    components.push("hollowed or rolled stuffed vegetable shell");
+    components.push("internal rice, herb, or meat filling");
+  }
+  if (isShawarmaSource(source)) {
+    components.push("thin sliced shawarma meat");
+    components.push("pita, lavash, wrap, or shawarma plate structure required by the exact dish name");
+  }
 
   return Array.from(new Set(components));
 }
@@ -737,13 +1544,84 @@ function buildLiverIngredientVisualClause(ingredients: string[]) {
   return `Allowed liver-dish visual details from the ingredient whitelist: ${visibleDetails.join(", ")}. Do not add other aromatics, vegetables, lemon, or garnish that are not listed.`;
 }
 
+function isStuffedDishSource(source: string) {
+  return /\b(mahshi|kousa mahshi|koosa mahshi|stuffed zucchini|stuffed courgette|stuffed cabbage|cabbage rolls|malfouf|warak enab|waraq enab|stuffed grape leaves|stuffed vine leaves|stuffed peppers|stuffed bell peppers|stuffed tomatoes?|tomato mahshi|stuffed eggplant|stuffed aubergine|sheikh el mahshi|sheikh al mahshi|dolma|dolmades|sarma)\b|(?:\u0645\u062d\u0634\u064a|\u0645\u062d\u0634\u0649)|\u0643\u0648\u0633\u0627|\u0643\u0631\u0646\u0628|\u0645\u0644\u0641\u0648\u0641|\u0648\u0631\u0642\s*\u0639\u0646\u0628/iu.test(source);
+}
+
+function isShawarmaSource(source: string) {
+  return /\b(shawarma|shwarma|shawerma|shawirma|chawarma|shawarma wrap|shawarma plate|shawarma bowl)\b|\u0634\u0627\u0648\u0631\u0645\u0627/iu.test(source);
+}
+
+function buildShawarmaVisualClause(source: string, forbiddenStarches: string[]) {
+  const proteinCue = /\bchicken\b|\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e/iu.test(source)
+    ? "Use chicken shawarma: golden-brown sliced or chopped marinated chicken, never beef, lamb, or whole chicken breast."
+    : /\blamb\b|\u0636\u0627\u0646\u064a|\u062e\u0631\u0648\u0641/iu.test(source)
+    ? "Use lamb shawarma: thin browned lamb slices, never lamb chops, rack of lamb, ground lamb, or stew chunks."
+    : /\bbeef\b|\bmeat\b|\u0644\u062d\u0645/iu.test(source)
+    ? "Use beef shawarma: thin browned beef slices, never ground beef, kofta, steak cubes, or stew chunks."
+    : "Use the named shawarma protein as thin browned slices or chopped roasted shawarma pieces.";
+  const servingCue = /\b(wrap|sandwich|pita|lavash)\b|\u0633\u0627\u0646\u062f\u0648\u064a\u062a\u0634|\u0631\u0627\u0628/iu.test(source)
+    ? "Serving form: show a pita or lavash wrap with one open end or a cut half so the shawarma meat is clearly visible inside."
+    : /\b(bowl|rice)\b|\u0631\u0632/iu.test(source)
+    ? "Serving form: show a bowl or plate only if named, with shawarma slices clearly on top so rice or vegetables do not hide the meat."
+    : "Serving form: a shawarma wrap, plate, or bowl is acceptable, but the thin sliced shawarma meat must be the most visible subject.";
+
+  return [
+    "Strict visual identity: this is shawarma, a Middle Eastern sliced roasted meat dish, not kebab skewers, kofta, doner cone, steak cubes, stew, or a generic wrap.",
+    proteinCue,
+    servingCue,
+    "The meat texture must be thin sliced, shaved, or chopped from roasted marinated meat with browned edges and visible spice color.",
+    "If sauce, pickles, tomato, onion, parsley, lettuce, fries, rice, or bread are visible, they must be listed in the recipe or structurally required by the exact shawarma wrap/plate/bowl identity.",
+    "Hard negative: do not show Adana kebab, shish kebab, skewers, kofta logs, meatballs, burger, taco, burrito, doner cone, whole chicken breast, steak cubes, stew chunks, loose ground meat, or random salad as the main subject.",
+    forbiddenStarches.length
+      ? `Hard negative: do not include ${forbiddenStarches.join("; ")} as separate sides unless the exact shawarma identity or ingredient whitelist explicitly allows them.`
+      : ""
+  ].filter(Boolean).join(" ");
+}
+
+function buildStuffedVisualClause(source: string, forbiddenStarches: string[]) {
+  const stuffedForms = [
+    /\b(kousa|koosa|zucchini|courgette)\b|\u0643\u0648\u0633\u0627/iu.test(source)
+      ? "for kousa mahshi, show short hollowed zucchini/courgette cylinders packed with filling inside, with open ends or one cut piece revealing the rice/herb/meat filling"
+      : "",
+    /\b(cabbage|malfouf|cabbage rolls)\b|\u0643\u0631\u0646\u0628|\u0645\u0644\u0641\u0648\u0641/iu.test(source)
+      ? "for stuffed cabbage, show rolled cabbage leaves wrapped around the filling, arranged as compact rolls, not loose cabbage or rice"
+      : "",
+    /\b(grape leaves|vine leaves|warak enab|waraq enab|dolma|dolmades|sarma)\b|\u0648\u0631\u0642\s*\u0639\u0646\u0628/iu.test(source)
+      ? "for warak enab or dolma, show small green grape-leaf rolls with rice/herb filling inside the rolls, not loose rice or salad leaves"
+      : "",
+    /\b(bell pepper|pepper|peppers)\b|\u0641\u0644\u0641\u0644/iu.test(source)
+      ? "for stuffed peppers, show whole or halved peppers filled inside with rice/herb/meat mixture, upright or open-topped with visible filling"
+      : "",
+    /\b(tomato|tomatoes)\b|\u0637\u0645\u0627\u0637\u0645/iu.test(source)
+      ? "for tomato mahshi, show hollowed tomato shells filled inside with seasoned rice, with open tops or tomato caps, not tomato rice on a plate"
+      : "",
+    /\b(eggplant|aubergine|sheikh el mahshi|sheikh al mahshi)\b|\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646/iu.test(source)
+      ? "for stuffed eggplant or sheikh el mahshi, show split eggplant boats or small eggplants with filling inside the slit, not loose meat or a layered casserole"
+      : ""
+  ].filter(Boolean);
+
+  return [
+    "Strict visual identity: this is a stuffed dish. The filling must be inside the named vegetable, leaf roll, bread, or shell, not served as a random rice or meat side.",
+    "The stuffed item must be the main subject. Show hollowed, rolled, split, or open-topped pieces that visibly contain rice, herbs, sauce, or minced meat inside them.",
+    stuffedForms.length
+      ? `Recipe-specific stuffed form: ${stuffedForms.join("; ")}.`
+      : "For mixed mahshi, show a tray or plate of visibly stuffed zucchini, peppers, eggplant, cabbage rolls, grape leaves, or tomatoes, with at least one open or cut piece showing filling inside.",
+    "At least one stuffed piece should be cut open, angled, or open-topped so the viewer can see the filling inside the vegetable or roll.",
+    "Hard negative: do not show a pile of white rice with loose meat, tomato rice, meat over rice, plain rice bowl, unstuffed vegetables, vegetable stew, salad, kebab, pasta, burger, or random side dishes as the main image.",
+    forbiddenStarches.length
+      ? `Hard negative: do not include ${forbiddenStarches.join("; ")} as separate side dishes unless the exact stuffed dish identity requires the filling and the starch appears inside the stuffed item.`
+      : ""
+  ].filter(Boolean).join(" ");
+}
+
 function buildGroundMeatVisualClause(source: string, forbiddenStarches: string[]) {
   const styleHints = [
     /\b(kofta|kafta|kofte|kefta|adana|kebab|kabab)\b|\u0643\u0641\u062a\u0629/iu.test(source)
       ? "shape the ground meat as kofta, kebab fingers, or Adana-style minced meat skewers with charred ridges"
       : "",
-    /\b(hawawshi|stuffed bread|stuffed flatbread|stuffed pita)\b|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(source)
-      ? "show the minced meat as a thin stuffing inside crispy flatbread, visible at the cut edges"
+    /\b(hawawshi|arayes|stuffed bread|stuffed flatbread|stuffed pita)\b|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(source)
+      ? "for Egyptian hawawshi, show closed toasted baladi bread or pita cut into crispy triangular wedges with minced meat filling visible only at the cut seams; do not show meat skewers, kofta logs, open-faced meat flatbread, or loose meat"
       : "",
     /\b(kiymali\s+pide|pide)\b/iu.test(source)
       ? "for kiymali pide, show an oval boat-shaped flatbread with folded raised edges and a thin minced-meat topping"

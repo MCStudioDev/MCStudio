@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
-import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
+import { buildRecipePhotoReuseKeyFromQuery } from "@/lib/recipePhotoReuse";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +26,7 @@ const inFlightRecipePhotoRequests = new Map<
     retryAfterSeconds?: number;
   }>
 >();
-const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKey: string }>();
+const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKey: string; reuseKey: string }>();
 const DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS = 10 * 60 * 1000;
 const RECENT_RECIPE_PHOTO_SELECTION_TTL_MS = 10 * 60 * 1000;
 const PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES = 8;
@@ -140,6 +142,7 @@ export function MealRevealCard({
   ]
     .filter(Boolean)
     .join(" ## ");
+  const reuseKey = buildRecipePhotoReuseKeyFromQuery(primaryQuery || queryKey);
   const isFailedImageUrl = useCallback(
     (candidate?: string) => Boolean(candidate && failedImageUrls.has(candidate)),
     [failedImageUrls]
@@ -171,7 +174,7 @@ export function MealRevealCard({
   const cachedImage =
     isUsableRecipeCardImageUrl(cachedImageEntry?.imageUrl, hasGeneratedImageAccess) &&
     !isFailedImageUrl(cachedImageEntry.imageUrl) &&
-    !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
+    !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey, reuseKey)
       ? cachedImageEntry.imageUrl
       : "";
   const cachedFailure = !hasGeneratedImageAccess && !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
@@ -189,11 +192,12 @@ export function MealRevealCard({
   const effectiveProvidedImage = internetProvidedImage;
   const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
-  const effectiveImageLoading = !resolvedImage && Boolean(imageLoading || lookupLoading || lookupRetrying);
+  const effectiveImageLoading =
+    !resolvedImage && Boolean(lookupLoading || lookupRetrying || (imageLoading && !lookupFailed && !cachedFailure));
   const showNoExactPhoto = !resolvedImage && !effectiveImageLoading && (imageError || lookupFailed || cachedFailure);
   const excludedImageUrls = useMemo(
-    () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
-    [failedImageUrls, queryKey]
+    () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey, reuseKey), ...failedImageUrls])),
+    [failedImageUrls, queryKey, reuseKey]
   );
   const placeholderStyle = useMemo(
     () => buildRecipePlaceholderStyle(primaryQuery || name),
@@ -268,8 +272,8 @@ export function MealRevealCard({
 
   useEffect(() => {
     if (!queryKey || !resolvedImage) return;
-    rememberRecentRecipePhotoSelection(resolvedImage, queryKey);
-  }, [queryKey, resolvedImage]);
+    rememberRecentRecipePhotoSelection(resolvedImage, queryKey, reuseKey);
+  }, [queryKey, resolvedImage, reuseKey]);
 
   useEffect(() => {
     return () => {
@@ -306,7 +310,7 @@ export function MealRevealCard({
     if (disableAutoImageLookup && !manualImageLookupRequested) return;
     if (authLoading) return;
     if (!lookupEnabled) return;
-    if (imageLoading) return;
+    if (imageLoading && hasGeneratedImageAccess) return;
     if (effectiveProvidedImage || !queryKey || !primaryQuery || lookedUpImage || lookupFailed) return;
     if (!user) return;
 
@@ -358,7 +362,7 @@ export function MealRevealCard({
               }
             | null;
 
-          if (response.ok && isInternetImageUrl(data?.imageUrl)) {
+          if (response.ok && isUsableRecipeCardImageUrl(data?.imageUrl, hasGeneratedImageAccess)) {
             return {
               imageAttributionName: data.imageAttributionName,
               imageAttributionUrl: data.imageAttributionUrl,
@@ -389,7 +393,7 @@ export function MealRevealCard({
           });
           recipePhotoFailureCache.delete(queryKey);
         }
-        rememberRecentRecipePhotoSelection(data.imageUrl, queryKey);
+        rememberRecentRecipePhotoSelection(data.imageUrl, queryKey, reuseKey);
         setLookupState({
           failed: false,
           imageAttributionName: data.imageAttributionName,
@@ -483,6 +487,7 @@ export function MealRevealCard({
     queryCandidates,
     queryKey,
     refreshAccess,
+    reuseKey,
     user
   ]);
 
@@ -552,6 +557,7 @@ export function MealRevealCard({
                 headlineStats={headlineStats}
                 resolvedImage={resolvedImage}
                 imageLoading={effectiveImageLoading}
+                hasGeneratedImageAccess={hasGeneratedImageAccess}
                 showNoExactPhoto={showNoExactPhoto}
                 placeholderStyle={placeholderStyle}
                 onImageLoadError={handleImageLoadError}
@@ -639,6 +645,7 @@ function RecipeFrontFace({
   headlineStats,
   resolvedImage,
   imageLoading,
+  hasGeneratedImageAccess,
   showNoExactPhoto,
   placeholderStyle,
   onImageLoadError,
@@ -652,6 +659,7 @@ function RecipeFrontFace({
   headlineStats: MealRevealStat[];
   resolvedImage?: string;
   imageLoading?: boolean;
+  hasGeneratedImageAccess: boolean;
   showNoExactPhoto: boolean;
   placeholderStyle: CSSProperties;
   onImageLoadError: (failedUrl: string) => void;
@@ -660,6 +668,8 @@ function RecipeFrontFace({
 }) {
   const { t } = useApp();
   const noImageState = !resolvedImage;
+  const loadingTitle = hasGeneratedImageAccess ? t("generatingRecipeImage") : t("findingPhoto");
+  const loadingHint = hasGeneratedImageAccess ? t("recipeImageLoadingHint") : t("hideWeakMatches");
 
   return (
     <div className="relative h-full overflow-hidden">
@@ -695,10 +705,10 @@ function RecipeFrontFace({
                 {imageLoading ? t("findingPhoto") : t("curatedFallback")}
               </div>
               <p className="mt-2 text-xs font-semibold text-white sm:text-sm">
-                {imageLoading ? t("generatingRecipeImage") : t("awaitingPlatedMatch")}
+                {imageLoading ? loadingTitle : t("awaitingPlatedMatch")}
               </p>
               <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-white/62 sm:text-xs">
-                {imageLoading ? t("recipeImageLoadingHint") : t("hideWeakMatches")}
+                {imageLoading ? loadingHint : t("hideWeakMatches")}
               </p>
               {showNoExactPhoto && !imageLoading ? (
                 <button
@@ -957,7 +967,7 @@ function isInternetImageUrl(imageUrl?: string): imageUrl is string {
 
 function isUsableRecipeCardImageUrl(imageUrl: string | undefined, hasGeneratedImageAccess: boolean): imageUrl is string {
   if (!isInternetImageUrl(imageUrl)) return false;
-  return hasGeneratedImageAccess ? isReplicateGeneratedRecipeImageUrl(imageUrl) : true;
+  return isUsableRecipeImageForAccess(imageUrl, hasGeneratedImageAccess);
 }
 
 function isRecipePhotoFailureCached(queryKey: string) {
@@ -972,7 +982,7 @@ function isRecipePhotoFailureCached(queryKey: string) {
   return true;
 }
 
-function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
+function getRecentlyAssignedRecipePhotoUrls(queryKey: string, reuseKey: string) {
   const now = Date.now();
   const excluded = new Set<string>();
 
@@ -982,7 +992,7 @@ function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
       continue;
     }
 
-    if (entry.queryKey !== queryKey) {
+    if (entry.queryKey !== queryKey && entry.reuseKey !== reuseKey) {
       excluded.add(imageUrl);
     }
   }
@@ -990,15 +1000,16 @@ function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
   return Array.from(excluded);
 }
 
-function rememberRecentRecipePhotoSelection(imageUrl: string, queryKey: string) {
+function rememberRecentRecipePhotoSelection(imageUrl: string, queryKey: string, reuseKey: string) {
   if (!isInternetImageUrl(imageUrl) || !queryKey) return;
   recentRecipePhotoSelections.set(imageUrl, {
     expiresAt: Date.now() + RECENT_RECIPE_PHOTO_SELECTION_TTL_MS,
-    queryKey
+    queryKey,
+    reuseKey
   });
 }
 
-function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKey: string) {
+function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKey: string, reuseKey: string) {
   const existing = recentRecipePhotoSelections.get(imageUrl);
   if (!existing) return false;
   if (existing.expiresAt <= Date.now()) {
@@ -1006,6 +1017,6 @@ function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKe
     return false;
   }
 
-  return existing.queryKey !== queryKey;
+  return existing.queryKey !== queryKey && existing.reuseKey !== reuseKey;
 }
 

@@ -18,9 +18,10 @@ import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
-import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildNormalizedShoppingList } from "@/lib/shoppingListNormalizer";
-import type { MealPlanMeal, Recipe } from "@/lib/types";
+import { isLikelyBackgroundFetchInterruption } from "@/lib/backgroundRecipeJobs";
+import type { MealPlanMeal } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
 const PREMIUM_REPLICATE_LOOKUP_DELAY_MS = 1200;
@@ -28,6 +29,7 @@ const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
 const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
 const MEAL_PLAN_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const MEAL_PLAN_HISTORY_ENTRY_STORAGE_KEY = "nutrimoment-meal-plan-history-entry";
+const PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY = "nutrimoment.pendingMealPlanGenerationIds";
 const MEAL_PLAN_IMAGE_APPLY_CONCURRENCY = 4;
 const MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY = 2;
 type MealSlotType = "breakfast" | "lunch" | "dinner";
@@ -68,8 +70,13 @@ export function MealPlanTab() {
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items } = usePantry();
-  const { addEntry: addHistoryEntry, updateRecipeImage: updateHistoryRecipeImage } = useHistory();
-  const { mealPlan, loading: savedPlanLoading, error: mealPlanError, saveMealPlan, updateMealImage } = useMealPlan();
+  const {
+    items: historyItems,
+    addEntry: addHistoryEntry,
+    updateEntryStatus,
+    updateRecipeImage: updateHistoryRecipeImage
+  } = useHistory();
+  const { mealPlan, loading: savedPlanLoading, error: mealPlanError, reloadMealPlan, saveMealPlan, updateMealImage } = useMealPlan();
   const [loading, setLoading] = useState(false);
   const [imageLoadingSlots, setImageLoadingSlots] = useState<Set<string>>(() => new Set());
   const [imageErrorSlots, setImageErrorSlots] = useState<Set<string>>(() => new Set());
@@ -94,19 +101,39 @@ export function MealPlanTab() {
     }
 
     setLoading(true);
+    let pendingHistoryEntryId: string | null = null;
     try {
+      const historyIngredients = items.map((item) => item.name);
+      pendingHistoryEntryId = await addHistoryEntry({
+        timestamp: new Date().toISOString(),
+        title: t("mealPlanTitle"),
+        sessionType: "weekly_meal_plan",
+        ingredients: historyIngredients,
+        recipes: [],
+        generationStatus: "pending",
+        generationMessage: t("craftingMenu")
+      });
+      if (pendingHistoryEntryId) {
+        rememberPendingMealPlanGeneration(pendingHistoryEntryId);
+        mealPlanHistoryEntryIdRef.current = pendingHistoryEntryId;
+      }
+
       const response = await fetch("/api/mealplan", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
-          pantry: items.map((item) => item.name),
+          pantry: historyIngredients,
           pantryItems: items.map((item) => ({ name: item.name, quantity: item.quantity })),
           uiLanguage: settings.uiLanguage,
           preferredCuisine: settings.preferredCuisine,
           calorieTarget: settings.calorieTarget,
           diets: health.diets,
           conditions: health.conditions,
-          allergens: health.allergens ?? []
+          allergens: health.allergens ?? [],
+          historyEntryId: pendingHistoryEntryId ?? undefined,
+          historyIngredients,
+          historyTitle: t("mealPlanTitle"),
+          persistResult: true
         })
       });
       const data = (await response.json()) as { result?: string; error?: string; fallbackNotice?: string };
@@ -125,25 +152,20 @@ export function MealPlanTab() {
 
       await saveMealPlan(nextMealPlan);
       void persistMealPlanRecipes(nextMealPlan);
-      try {
-        const historyEntryId = await addHistoryEntry({
-          timestamp: new Date().toISOString(),
-          title: t("mealPlanTitle"),
-          sessionType: "weekly_meal_plan",
-          ingredients: items.map((item) => item.name),
-          recipes: buildMealPlanHistoryRecipes(nextMealPlan, pantryKeys),
-          generationStatus: "completed",
-          completedAt: new Date().toISOString()
-        });
-        mealPlanHistoryEntryIdRef.current = historyEntryId;
-        if (historyEntryId) {
-          rememberMealPlanHistoryEntry(nextMealPlan, historyEntryId);
-        }
-      } catch {
-        // Meal-plan saving already succeeded; history is a secondary memory surface.
+      if (pendingHistoryEntryId) {
+        rememberMealPlanHistoryEntry(nextMealPlan, pendingHistoryEntryId);
+        forgetPendingMealPlanGeneration(pendingHistoryEntryId);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate meal plan";
+      if (pendingHistoryEntryId && isLikelyBackgroundFetchInterruption(error)) {
+        setError(t("backgroundMealPlanContinuing"));
+        return;
+      }
+      if (pendingHistoryEntryId) {
+        await updateEntryStatus(pendingHistoryEntryId, "failed", message).catch(() => undefined);
+        forgetPendingMealPlanGeneration(pendingHistoryEntryId);
+      }
       setError(message);
     } finally {
       setLoading(false);
@@ -195,6 +217,56 @@ export function MealPlanTab() {
   useEffect(() => {
     updateHistoryRecipeImageRef.current = updateHistoryRecipeImage;
   }, [updateHistoryRecipeImage]);
+
+  useEffect(() => {
+    if (!user || !readPendingMealPlanGenerationIds().length) return;
+    let lastReloadAt = 0;
+
+    const recoverPendingMealPlan = () => {
+      if (!readPendingMealPlanGenerationIds().length) {
+        setLoading(false);
+        return;
+      }
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastReloadAt < 3000) return;
+      lastReloadAt = now;
+      setLoading(true);
+      void reloadMealPlan().finally(() => {
+        if (!readPendingMealPlanGenerationIds().length) {
+          setLoading(false);
+        }
+      });
+    };
+
+    recoverPendingMealPlan();
+    const intervalId = window.setInterval(recoverPendingMealPlan, 10000);
+    window.addEventListener("focus", recoverPendingMealPlan);
+    document.addEventListener("visibilitychange", recoverPendingMealPlan);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", recoverPendingMealPlan);
+      document.removeEventListener("visibilitychange", recoverPendingMealPlan);
+    };
+  }, [reloadMealPlan, user]);
+
+  useEffect(() => {
+    const pendingIds = readPendingMealPlanGenerationIds();
+    if (!pendingIds.length) return;
+    const pendingSet = new Set(pendingIds);
+    const finishedEntries = historyItems.filter(
+      (item) =>
+        pendingSet.has(item.id) &&
+        (item.generationStatus === "completed" || item.generationStatus === "failed")
+    );
+    if (!finishedEntries.length) return;
+
+    finishedEntries.forEach((item) => forgetPendingMealPlanGeneration(item.id));
+    if (finishedEntries.some((item) => item.generationStatus === "completed")) {
+      void reloadMealPlan();
+    }
+    setLoading(readPendingMealPlanGenerationIds().length > 0);
+  }, [historyItems, reloadMealPlan]);
 
   const persistMealPlanRecipes = useCallback(async (nextMealPlan: NonNullable<typeof mealPlan>) => {
     if (!user || !hasGeneratedImageAccess) return;
@@ -286,7 +358,7 @@ export function MealPlanTab() {
       const data = (await response.json().catch(() => null)) as MealPhotoLookupResponse | null;
       return {
         data,
-        ok: response.ok && hasRenderableImage(data?.imageUrl),
+        ok: response.ok && hasStrictRenderableImage(data?.imageUrl, true),
         retryAfterSeconds: Number(response.headers.get("Retry-After") ?? "0") || data?.retryAfterSeconds || 0,
         status: response.status
       };
@@ -344,7 +416,7 @@ export function MealPlanTab() {
       for (const image of restore.images ?? []) {
         const key = buildMealPlanImageSlotKey(image.dayIndex, image.mealType);
         const slot = slotByKey.get(key);
-        if (!slot || !pendingPremiumKeys.has(key) || !hasRenderableImage(image.imageUrl)) continue;
+        if (!slot || !pendingPremiumKeys.has(key) || !hasStrictRenderableImage(image.imageUrl, true)) continue;
 
         pendingPremiumKeys.delete(key);
         restoredMatches.push({ image, slot });
@@ -388,7 +460,7 @@ export function MealPlanTab() {
       const resolvedMatches: Array<{ data: MealPhotoLookupResponse & { imageUrl: string }; slot: MealPlanImageSlot }> = [];
       for (const slot of lookupSlots) {
         const data = batchResults[slot.key];
-        if (data?.ok && hasRenderableImage(data.imageUrl) && !usedImageUrls.has(data.imageUrl)) {
+        if (data?.ok && hasStrictRenderableImage(data.imageUrl, true) && !usedImageUrls.has(data.imageUrl)) {
           pendingPremiumKeys.delete(slot.key);
           resolvedMatches.push({ data: { ...data, imageUrl: data.imageUrl }, slot });
         }
@@ -410,7 +482,7 @@ export function MealPlanTab() {
         if (
           result.ok &&
           result.data &&
-          hasRenderableImage(result.data.imageUrl) &&
+          hasStrictRenderableImage(result.data.imageUrl, true) &&
           !usedImageUrls.has(result.data.imageUrl)
         ) {
           pendingPremiumKeys.delete(slot.key);
@@ -804,74 +876,6 @@ function getMealPlanHistoryRecipeIndex(dayIndex: number, mealType: MealSlotType)
   return dayIndex * 3 + mealOffset[mealType];
 }
 
-function buildMealPlanHistoryRecipes(
-  mealPlan: NonNullable<ReturnType<typeof normalizeMealPlanData>>,
-  pantryKeys: Set<string>
-): Recipe[] {
-  return mealPlan.plan.flatMap((day, dayIndex) => [
-    buildMealPlanHistoryRecipe(day.breakfast, day.day, "breakfast", dayIndex, pantryKeys),
-    buildMealPlanHistoryRecipe(day.lunch, day.day, "lunch", dayIndex, pantryKeys),
-    buildMealPlanHistoryRecipe(day.dinner, day.day, "dinner", dayIndex, pantryKeys)
-  ]);
-}
-
-function buildMealPlanHistoryRecipe(
-  meal: MealPlanMeal,
-  dayLabel: string,
-  mealType: MealSlotType,
-  dayIndex: number,
-  pantryKeys: Set<string>
-): Recipe {
-  const ingredients = meal.ingredients ?? [];
-  const availableIngredients = ingredients.filter((ingredient) =>
-    pantryKeys.has(normalizePantryIngredientName(ingredient))
-  );
-  const missingIngredients = ingredients.filter(
-    (ingredient) => !pantryKeys.has(normalizePantryIngredientName(ingredient))
-  );
-  const searchIndices = Array.from(
-    new Set(
-      [meal.image_search_index, ...(meal.image_search_indices ?? []), meal.name]
-        .map((value) => value?.trim())
-        .filter((value): value is string => Boolean(value))
-    )
-  );
-  const imageUrl = hasRenderableImage(meal.image_url) ? meal.image_url : undefined;
-
-  return stripUndefinedFields({
-    id: `weekly-meal-plan-${dayIndex}-${mealType}-${normalizeHistoryRecipeId(meal.name)}`,
-    name: meal.name,
-    cuisine: meal.cuisine ?? "Weekly meal plan",
-    image_search_index: searchIndices[0] ?? meal.name,
-    image_search_indices: searchIndices,
-    ingredients: availableIngredients.length ? availableIngredients : ingredients,
-    missing_ingredients: missingIngredients,
-    steps: meal.steps ?? [],
-    calories: meal.calories,
-    protein: meal.protein,
-    carbs: meal.carbs,
-    fat: meal.fat,
-    cook_time: "30 minutes",
-    difficulty: "Easy",
-    image_url: imageUrl,
-    image_source: imageUrl ? meal.image_source : undefined,
-    image_attribution_name: imageUrl ? meal.image_attribution_name : undefined,
-    image_attribution_url: imageUrl ? meal.image_attribution_url : undefined,
-    image_loading: !imageUrl,
-    image_error: false,
-    visual_match_label: `${dayLabel} / ${mealType}`
-  });
-}
-
-function normalizeHistoryRecipeId(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "meal";
-}
-
 function getMealPlanHistoryKey(mealPlan: NonNullable<ReturnType<typeof normalizeMealPlanData>>) {
   return mealPlan.plan
     .map((day) => [day.day, day.breakfast.name, day.lunch.name, day.dinner.name].join("::"))
@@ -908,9 +912,28 @@ function rememberMealPlanHistoryEntry(
   }
 }
 
-function stripUndefinedFields<T extends object>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
+function readPendingMealPlanGenerationIds() {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }
+
+function rememberPendingMealPlanGeneration(entryId: string) {
+  if (typeof window === "undefined") return;
+  const next = Array.from(new Set([...readPendingMealPlanGenerationIds(), entryId]));
+  window.localStorage.setItem(PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY, JSON.stringify(next.slice(-20)));
+}
+
+function forgetPendingMealPlanGeneration(entryId: string) {
+  if (typeof window === "undefined") return;
+  const next = readPendingMealPlanGenerationIds().filter((item) => item !== entryId);
+  window.localStorage.setItem(PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY, JSON.stringify(next));
+}
+
 
 function applyMealImageToMealPlan(
   mealPlan: NonNullable<ReturnType<typeof normalizeMealPlanData>>,
@@ -941,13 +964,8 @@ function applyMealImageToMealPlan(
   };
 }
 
-function hasRenderableImage(imageUrl?: string): imageUrl is string {
-  return isDurableRecipeImageUrl(imageUrl);
-}
-
 function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
-  if (!hasRenderableImage(imageUrl)) return false;
-  return !strictGeneratedOnly || isReplicateGeneratedRecipeImageUrl(imageUrl);
+  return isUsableRecipeImageForAccess(imageUrl, strictGeneratedOnly);
 }
 
 function clearMealPlanImageSlotState(

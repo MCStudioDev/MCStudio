@@ -91,8 +91,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const usage = usageDoc.data();
     const weeklyPlanUsage = weeklyPlanUsageDoc.data();
     const entitlement = entitlementDoc.data();
-    const tier = entitlement?.tier === "premium" || tokenResult.claims.tier === "premium" ? "premium" : "free";
-    const role = entitlement?.role === "admin" || tokenResult.claims.role === "admin" ? "admin" : "user";
+    const tier = resolveEffectiveAccessTier(entitlement, tokenResult.claims.tier);
+    const role: UserAccessState["role"] =
+      entitlement?.role === "admin" || entitlement?.role === "user"
+        ? entitlement.role
+        : tokenResult.claims.role === "admin"
+          ? "admin"
+          : "user";
     const features = normalizeEntitlementFeatures(entitlement?.features);
     const aiCreditsUsed = Number(usage?.lifetimeUsed ?? 0);
     const aiCreditsLimit = Math.max(10, Number(usage?.lifetimeLimit ?? 10));
@@ -187,13 +192,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function hasRecipeImageLookupAccess(access: UserAccessState) {
-  return (
-    access.role === "admin" ||
-    access.tier === "premium" ||
-    access.features["recipes.imageLookup"] === true ||
-    access.aiCreditsLimit > 0 ||
-    access.weeklyPlanLimit > 0
-  );
+  return access.role === "admin" || access.tier === "premium";
+}
+
+function resolveEffectiveAccessTier(entitlement: Record<string, unknown> | undefined, claimTier: unknown): UserAccessState["tier"] {
+  const entitlementTier = entitlement?.tier === "premium" || entitlement?.tier === "free"
+    ? entitlement.tier
+    : undefined;
+  const status = typeof entitlement?.status === "string" ? entitlement.status.toLowerCase() : "";
+  const expiresAt = getEntitlementExpirationMs(entitlement);
+  const isExpired = expiresAt !== undefined && expiresAt <= Date.now();
+
+  if (["free", "expired", "canceled", "cancelled", "inactive"].includes(status)) return "free";
+  if (isExpired) return "free";
+
+  if (
+    entitlementTier === "premium" ||
+    claimTier === "premium" ||
+    ["active", "trial", "trialing"].includes(status)
+  ) {
+    return "premium";
+  }
+
+  return "free";
+}
+
+function getEntitlementExpirationMs(entitlement: Record<string, unknown> | undefined) {
+  if (!entitlement) return undefined;
+  return [
+    entitlement.trialEndsAt,
+    entitlement.trialExpiresAt,
+    entitlement.currentPeriodEnd,
+    entitlement.expiresAt,
+    entitlement.endsAt
+  ]
+    .map(readTimestampMs)
+    .find((value): value is number => typeof value === "number");
+}
+
+function readTimestampMs(value: unknown): number | undefined {
+  if (!value) return undefined;
+  if (typeof value === "number") return value > 1_000_000_000_000 ? value : value * 1000;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  if (typeof value === "object") {
+    const maybeTimestamp = value as { toMillis?: () => number; seconds?: number };
+    if (typeof maybeTimestamp.toMillis === "function") return maybeTimestamp.toMillis();
+    return typeof maybeTimestamp.seconds === "number" ? maybeTimestamp.seconds * 1000 : undefined;
+  }
+  return undefined;
 }
 
 async function withFirebaseClientRetry<T>(operation: () => Promise<T>): Promise<T> {

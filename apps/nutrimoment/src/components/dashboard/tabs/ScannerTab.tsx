@@ -17,7 +17,7 @@ import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
-import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -283,7 +283,7 @@ export function ScannerTab() {
             await refreshAccess();
           }
 
-          if (response.ok && hasRenderableImage(data.imageUrl) && !usedImageUrls.has(data.imageUrl)) {
+          if (response.ok && hasStrictRenderableImage(data.imageUrl, isPremium) && !usedImageUrls.has(data.imageUrl)) {
             return { data, ok: true as const, response };
           }
 
@@ -335,7 +335,7 @@ export function ScannerTab() {
         try {
           const { data, ok } = await resolveRecipePhoto(recipe);
 
-          if (!ok || !data || !hasRenderableImage(data.imageUrl)) {
+          if (!ok || !data || !hasStrictRenderableImage(data.imageUrl, isPremium)) {
             resolved[index] = {
               ...recipe,
               image_loading: isPremium,
@@ -400,7 +400,7 @@ export function ScannerTab() {
             const recipe = resolved[index];
             try {
               const { data, ok } = await resolveRecipePhoto(recipe);
-              if (!ok || !data || !hasRenderableImage(data.imageUrl)) {
+              if (!ok || !data || !hasStrictRenderableImage(data.imageUrl, isPremium)) {
                 resolved[index] = {
                   ...recipe,
                   image_loading: !isLastRound,
@@ -1146,7 +1146,7 @@ export function ScannerTab() {
               {recipes.map((recipe, index) => (
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
-                  disableAutoImageLookup={!hasGeneratedImageAccess}
+                  disableAutoImageLookup={hasGeneratedImageAccess}
                   deferImageLookup={index >= 2}
                   imageLookupVersion={imageRepairVersion}
                   eyebrow={getRecipeEyebrow(recipe, t)}
@@ -1235,13 +1235,8 @@ export function ScannerTab() {
   );
 }
 
-function hasRenderableImage(imageUrl?: string): imageUrl is string {
-  return isDurableRecipeImageUrl(imageUrl);
-}
-
 function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
-  if (!hasRenderableImage(imageUrl)) return false;
-  return !strictGeneratedOnly || isReplicateGeneratedRecipeImageUrl(imageUrl);
+  return isUsableRecipeImageForAccess(imageUrl, strictGeneratedOnly);
 }
 
 function getScannerLoadingStatus({

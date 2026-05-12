@@ -11,7 +11,7 @@ import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
-import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -48,7 +48,7 @@ export function HistoryTab() {
   const { t, setError, settings } = useApp();
   const { access, getAuthHeaders, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
-  const { items, clear, removeEntry, loading, updateRecipeImage } = useHistory();
+  const { items, clear, removeEntry, loading, error: historyError, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
   const [imageRepairVersion, setImageRepairVersion] = useState(0);
@@ -211,7 +211,7 @@ export function HistoryTab() {
 
           for (const candidate of chunk) {
             const data = payload.results?.[candidate.queryKey];
-            if (data?.ok && hasRenderableImage(data.imageUrl)) {
+            if (data?.ok && hasStrictRenderableImage(data.imageUrl, true)) {
               await updateRecipeImage(
                 candidate.entryId,
                 candidate.recipeIndex,
@@ -267,6 +267,15 @@ export function HistoryTab() {
                 <div key={item} className="h-64 animate-pulse rounded-[1.7rem] border border-white/10 bg-white/[0.06]" />
               ))}
             </div>
+          </Card>
+        </motion.div>
+      ) : historyError ? (
+        <motion.div variants={itemVariants}>
+          <Card className="theme-history-entry rounded-[2rem] space-y-3">
+            <p className="text-sm font-semibold text-red-100">History could not sync.</p>
+            <p className="text-sm leading-relaxed text-emerald-50/70">
+              Please refresh the page or sign in again. The last error was: {historyError.message}
+            </p>
           </Card>
         </motion.div>
       ) : items.length ? (
@@ -456,13 +465,8 @@ function buildRecipePhotoQuery(recipe: Recipe) {
   });
 }
 
-function hasRenderableImage(imageUrl?: string): imageUrl is string {
-  return isDurableRecipeImageUrl(imageUrl);
-}
-
 function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
-  if (!hasRenderableImage(imageUrl)) return false;
-  return !strictGeneratedOnly || isReplicateGeneratedRecipeImageUrl(imageUrl);
+  return isUsableRecipeImageForAccess(imageUrl, strictGeneratedOnly);
 }
 
 function getHistoryRecipeImageUrl(recipe: Recipe, strictGeneratedOnly: boolean) {

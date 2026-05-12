@@ -17,7 +17,7 @@ import {
   accessPayload,
   canUseApiFeature,
   consumeFreeAiCredit,
-  hasRecipeImageAccess
+  hasGeneratedRecipeImageAccess
 } from "@/services/authService";
 import { logger } from "@/lib/logger";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
@@ -30,6 +30,7 @@ import {
   normalizeExactRecipePhotoHints
 } from "@/lib/recipePhotoExactIdentity";
 import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -92,7 +93,7 @@ const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const PREMIUM_REPLICATE_RETRY_TTL_MS = 3 * 1000;
 const PREMIUM_REPLICATE_RETRY_AFTER_SECONDS = 2;
 const WIKIMEDIA_ENABLED = true;
-const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v4";
+const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v5";
 const MIN_ACCEPTED_PROVIDER_SCORE = {
   wikimedia: 12,
   pexels_search: 11,
@@ -121,7 +122,7 @@ export async function GET(request: Request) {
   const rl = applyRateLimit({
     uid: accessCheck.access.uid,
     feature: "recipe_photo",
-    isPremium: hasRecipeImageAccess(accessCheck.access),
+    isPremium: hasGeneratedRecipeImageAccess(accessCheck.access),
     bypass: accessCheck.access.isAdmin
   });
   if (!rl.decision.allowed) {
@@ -173,7 +174,7 @@ export async function GET(request: Request) {
     identities.some(isStrictVisualIdentity) ||
     replicateIdentities.some(isStrictVisualIdentity) ||
     isStrictVisualIdentity(identity);
-  const useReplicateGeneration = hasRecipeImageAccess(accessCheck.access);
+  const useReplicateGeneration = hasGeneratedRecipeImageAccess(accessCheck.access);
   const selectedReplicateQuery = useReplicateGeneration
     ? selectReplicateRecipePhotoQuery(replicateQueryCandidates, replicateIdentities, ingredientHints)
     : null;
@@ -188,7 +189,6 @@ export async function GET(request: Request) {
       useReplicateGeneration
         ? exactAliasCandidates
         : [
-            ...generatedAliasCandidates,
             ...exactAliasCandidates,
             ...buildLegacyExactRecipePhotoCacheCandidates(queryCandidates, identities)
           ]
@@ -221,7 +221,8 @@ export async function GET(request: Request) {
   if (
     exactCached &&
     !explicitlyExcludedImageUrls.has(exactCached.imageUrl) &&
-    canUseCachedRecipePhotoForVisualRequest(exactCached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(exactCached.imageUrl) &&
+    canUseCachedRecipePhotoForVisualRequest(exactCached, strictVisualRequest, useReplicateGeneration) &&
     canUseGeneratedRecipePhotoCacheForRequest(exactCached, {
       exactNameHints,
       replicateQueryCandidates,
@@ -255,7 +256,8 @@ export async function GET(request: Request) {
   if (
     sharedExactCached &&
     !explicitlyExcludedImageUrls.has(sharedExactCached.imageUrl) &&
-    canUseSharedRecipePhotoForVisualRequest(sharedExactCached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(sharedExactCached.imageUrl) &&
+    canUseSharedRecipePhotoForVisualRequest(sharedExactCached, strictVisualRequest, useReplicateGeneration) &&
     canUseGeneratedRecipePhotoCacheForRequest(sharedExactCached, {
       exactNameHints,
       replicateQueryCandidates,
@@ -304,7 +306,8 @@ export async function GET(request: Request) {
   if (
     cached &&
     !explicitlyExcludedImageUrls.has(cached.imageUrl) &&
-    canUseCachedRecipePhotoForVisualRequest(cached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(cached.imageUrl) &&
+    canUseCachedRecipePhotoForVisualRequest(cached, strictVisualRequest, useReplicateGeneration) &&
     (!useReplicateGeneration || cached.source === "generated") &&
     canUseGeneratedRecipePhotoCacheForRequest(cached, {
       exactNameHints,
@@ -341,7 +344,8 @@ export async function GET(request: Request) {
   if (
     sharedCached &&
     !explicitlyExcludedImageUrls.has(sharedCached.imageUrl) &&
-    canUseSharedRecipePhotoForVisualRequest(sharedCached, strictVisualRequest) &&
+    !isKnownWeakRecipeProviderImageUrl(sharedCached.imageUrl) &&
+    canUseSharedRecipePhotoForVisualRequest(sharedCached, strictVisualRequest, useReplicateGeneration) &&
     (!useReplicateGeneration || sharedCached.source === "generated") &&
     canUseGeneratedRecipePhotoCacheForRequest(sharedCached, {
       exactNameHints,
@@ -498,13 +502,23 @@ function hashRecipePhotoRequestScope(value: string) {
   return hash.toString(16);
 }
 
-function canUseCachedRecipePhotoForVisualRequest(entry: CachedRecipePhoto, strictVisualRequest: boolean) {
+function canUseCachedRecipePhotoForVisualRequest(
+  entry: CachedRecipePhoto,
+  strictVisualRequest: boolean,
+  useReplicateGeneration: boolean
+) {
+  if (!useReplicateGeneration) return entry.source !== "generated" || isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
   if (entry.source !== "generated") return false;
   if (!strictVisualRequest) return true;
   return entry.source === "generated" && entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION);
 }
 
-function canUseSharedRecipePhotoForVisualRequest(entry: SharedRecipePhotoEntry, strictVisualRequest: boolean) {
+function canUseSharedRecipePhotoForVisualRequest(
+  entry: SharedRecipePhotoEntry,
+  strictVisualRequest: boolean,
+  useReplicateGeneration: boolean
+) {
+  if (!useReplicateGeneration) return entry.source !== "generated" || isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
   if (entry.source !== "generated") return false;
   if (!strictVisualRequest) return true;
   return entry.source === "generated" && entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION);
@@ -777,16 +791,6 @@ async function performRecipePhotoLookup({
   let replicateFallbackReason: string | null = null;
   const preferWikimediaFirst = Boolean(baseIdentity.canonicalDishKey);
 
-  if (isStrictVisualIdentity(baseIdentity) && !useReplicateGeneration) {
-    const failure = createRecipePhotoFailure(
-      "No faithful generated image is available for this strict visual recipe.",
-      404,
-      STRICT_NO_MATCH_TTL_MS
-    );
-    setRecipePhotoFailureCache(failureCacheKey, failure);
-    return { failure, ok: false };
-  }
-
   if (useReplicateGeneration) {
     if (!isReplicateConfigured()) {
       logger.warn("Premium Replicate recipe image generation is not configured; provider fallback is disabled", {
@@ -949,7 +953,7 @@ async function performRecipePhotoLookup({
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
-      if (searchedPhoto) {
+      if (searchedPhoto && !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl)) {
         return {
           attributionName: searchedPhoto.attributionName,
           attributionUrl: searchedPhoto.attributionUrl,
@@ -977,7 +981,7 @@ async function performRecipePhotoLookup({
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findPexelsRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
-      if (searchedPhoto) {
+      if (searchedPhoto && !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl)) {
         return {
           imageSource: "search",
           imageUrl: searchedPhoto.imageUrl,
@@ -1019,6 +1023,10 @@ async function performRecipePhotoLookup({
         });
       }
     }
+  }
+
+  if (bestMatch && isKnownWeakRecipeProviderImageUrl(bestMatch.imageUrl)) {
+    bestMatch = null;
   }
 
   if (bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) {

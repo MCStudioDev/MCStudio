@@ -373,7 +373,10 @@ export function TopNav({ activeTab, onTabChange }: TopNavProps) {
 
               <button
                 type="button"
-                onClick={() => setShowSignOutConfirm(true)}
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  setShowSignOutConfirm(true);
+                }}
                 className="focus-ring theme-topbar-control flex h-11 items-center justify-center rounded-xl border border-white/10 transition-ui hover:bg-red-500/12 hover:text-red-100"
                 aria-label={t("logout")}
                 title={user?.email ?? ""}

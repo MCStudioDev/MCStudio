@@ -19,7 +19,7 @@ import {
   accessPayload,
   canUseApiFeature,
   consumeFreeAiCredit,
-  hasRecipeImageAccess
+  hasGeneratedRecipeImageAccess
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
@@ -175,7 +175,7 @@ export async function POST(request: Request) {
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
-    const hasGeneratedImageAccess = hasRecipeImageAccess(requestAccess);
+    const hasGeneratedImageAccess = hasGeneratedRecipeImageAccess(requestAccess);
     const rl = applyRateLimit({
       uid: requestAccess.uid,
       feature: "recipe_generation",
@@ -902,7 +902,7 @@ function mergeRecipeResults(
   const seen = new Set<string>();
 
   const pushRecipe = (recipe: Recipe, fallbackOrigin?: Recipe["recipe_origin"]) => {
-    const key = recipe.id ?? recipe.name.trim().toLowerCase();
+    const key = getRecipeDuplicateCardKey(recipe);
     if (!key || seen.has(key)) return;
     seen.add(key);
     merged.push({
@@ -1785,9 +1785,9 @@ function rankStrictRecipes(recipes: Recipe[], options: RecipeRankingOptions) {
   const selected = ranked.reduce(selectStructurallyVariedRankedRecipes(limit), [] as Array<RankedRecipeCandidate>);
 
   if (selected.length < limit) {
-    const selectedIds = new Set(selected.map((item) => item.recipe.id ?? item.recipe.name.trim().toLowerCase()));
+    const selectedIds = new Set(selected.map((item) => getRecipeSelectionKey(item.recipe)));
     for (const candidate of ranked) {
-      const key = candidate.recipe.id ?? candidate.recipe.name.trim().toLowerCase();
+      const key = getRecipeSelectionKey(candidate.recipe);
       if (!key || selectedIds.has(key)) continue;
       selected.push(candidate);
       selectedIds.add(key);
@@ -1888,7 +1888,17 @@ function logRecipeRankingSnapshot(
 }
 
 function getRecipeSelectionKey(recipe: Recipe) {
-  return recipe.id ?? recipe.name.trim().toLowerCase();
+  return getRecipeDuplicateCardKey(recipe);
+}
+
+function getRecipeDuplicateCardKey(recipe: Recipe) {
+  const familyKey = getRecipeVarietyFamilyKey(recipe);
+  const nameKey = normalizeDishRestrictionKey(recipe.name);
+  const imageIdentityKey = getRecipeImageIdentityKey(recipe);
+  const ingredientKey = getRecipeVarietyIngredientKey(recipe);
+  const identityKey = familyKey || imageIdentityKey || nameKey || recipe.id || "";
+
+  return [identityKey, ingredientKey || imageIdentityKey].filter(Boolean).join("::");
 }
 
 function clampRecipeCount(value?: number, maxRecipeCount = MAX_SHARED_POOL_RECIPE_RESULT_COUNT) {
@@ -2179,11 +2189,11 @@ function enforcePreferredCuisineRecipes(
   const seen = new Set<string>();
 
   for (const recipe of filtered) {
-    seen.add(recipe.id ?? recipe.name.trim().toLowerCase());
+    seen.add(getRecipeSelectionKey(recipe));
   }
 
   for (const recipe of cuisineMatchedRecipes) {
-    const key = recipe.id ?? recipe.name.trim().toLowerCase();
+    const key = getRecipeSelectionKey(recipe);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     filtered.push(recipe);
@@ -2194,7 +2204,7 @@ function enforcePreferredCuisineRecipes(
 
   if (filtered.length < recipeCount) {
     for (const recipe of recipes) {
-      const key = recipe.id ?? recipe.name.trim().toLowerCase();
+      const key = getRecipeSelectionKey(recipe);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       filtered.push(recipe);
@@ -2285,7 +2295,7 @@ function enforceHardRequestRecipes(
   const seen = new Set<string>();
 
   for (const recipe of [...preservedExactMatches, ...compliantRecipes]) {
-    const key = recipe.id ?? recipe.name.trim().toLowerCase();
+    const key = getRecipeSelectionKey(recipe);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     merged.push(recipe);
@@ -2296,7 +2306,7 @@ function enforceHardRequestRecipes(
 
   if (merged.length < recipeCount) {
     for (const recipe of recipes) {
-      const key = recipe.id ?? recipe.name.trim().toLowerCase();
+      const key = getRecipeSelectionKey(recipe);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       merged.push(recipe);
@@ -2313,10 +2323,10 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
   const preservedExactMatches = recipes.filter((recipe) => recipe.recipe_origin === "exact_scan_match");
   const selected: Recipe[] = [];
   const seenIds = new Set<string>();
-  const seenNames = new Set<string>();
-  const seenFamilies = new Set<string>();
-  const seenStructures = new Set<string>();
-  const seenImageIdentities = new Set<string>();
+  const seenNames = new Map<string, RecipeIngredientVariant[]>();
+  const seenFamilies = new Map<string, RecipeIngredientVariant[]>();
+  const seenStructures = new Map<string, RecipeIngredientVariant[]>();
+  const seenImageIdentities = new Map<string, RecipeIngredientVariant[]>();
 
   const addRecipe = (
     recipe: Recipe,
@@ -2333,19 +2343,38 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
     const familyKey = getRecipeVarietyFamilyKey(recipe);
     const structureKey = buildRecipeStructureSignature(recipe);
     const imageIdentityKey = getRecipeImageIdentityKey(recipe);
+    const ingredientVariant = buildRecipeIngredientVariant(recipe);
 
     if (idKey && seenIds.has(idKey)) return false;
-    if (nameKey && seenNames.has(nameKey)) return false;
-    if (!options.allowFamilyRepeat && familyKey && seenFamilies.has(familyKey)) return false;
-    if (!options.allowStructureRepeat && structureKey && seenStructures.has(structureKey)) return false;
-    if (!options.allowImageRepeat && imageIdentityKey && seenImageIdentities.has(imageIdentityKey)) return false;
+    if (nameKey && !canAcceptRecipeIngredientVariant(seenNames.get(nameKey), ingredientVariant)) return false;
+    if (
+      !options.allowFamilyRepeat &&
+      familyKey &&
+      !canAcceptRecipeIngredientVariant(seenFamilies.get(familyKey), ingredientVariant)
+    ) {
+      return false;
+    }
+    if (
+      !options.allowStructureRepeat &&
+      structureKey &&
+      !canAcceptRecipeIngredientVariant(seenStructures.get(structureKey), ingredientVariant)
+    ) {
+      return false;
+    }
+    if (
+      !options.allowImageRepeat &&
+      imageIdentityKey &&
+      !canAcceptRecipeIngredientVariant(seenImageIdentities.get(imageIdentityKey), ingredientVariant)
+    ) {
+      return false;
+    }
 
     selected.push(recipe);
     if (idKey) seenIds.add(idKey);
-    if (nameKey) seenNames.add(nameKey);
-    if (familyKey) seenFamilies.add(familyKey);
-    if (structureKey) seenStructures.add(structureKey);
-    if (imageIdentityKey) seenImageIdentities.add(imageIdentityKey);
+    if (nameKey) recordRecipeIngredientVariant(seenNames, nameKey, ingredientVariant);
+    if (familyKey) recordRecipeIngredientVariant(seenFamilies, familyKey, ingredientVariant);
+    if (structureKey) recordRecipeIngredientVariant(seenStructures, structureKey, ingredientVariant);
+    if (imageIdentityKey) recordRecipeIngredientVariant(seenImageIdentities, imageIdentityKey, ingredientVariant);
     return true;
   };
 
@@ -2368,6 +2397,80 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
   }
 
   return selected.slice(0, recipeCount);
+}
+
+type RecipeIngredientVariant = {
+  key: string;
+  tokens: Set<string>;
+};
+
+function buildRecipeIngredientVariant(recipe: Recipe): RecipeIngredientVariant {
+  const tokens = getRecipeVarietyIngredientTokens(recipe);
+  return {
+    key: Array.from(tokens).sort().join("|"),
+    tokens
+  };
+}
+
+function getRecipeVarietyIngredientKey(recipe: Recipe) {
+  return buildRecipeIngredientVariant(recipe).key;
+}
+
+function getRecipeVarietyIngredientTokens(recipe: Recipe) {
+  const tokens = new Set<string>();
+  const ingredients = [...(recipe.ingredients ?? []), ...(recipe.missing_ingredients ?? [])];
+
+  for (const ingredient of ingredients) {
+    const normalized = normalizeIngredientForStrictMatch(getRecipeIngredientLabel(ingredient));
+    if (!normalized || isIncidentalRecipeVarietyIngredient(normalized)) continue;
+    tokens.add(normalized);
+  }
+
+  return tokens;
+}
+
+function isIncidentalRecipeVarietyIngredient(normalizedIngredient: string) {
+  return /^(salt|pepper|black pepper|white pepper|water|oil|vegetable oil|olive oil|cooking oil|neutral oil|butter|ghee|زيت|زيت نباتي|زيت زيتون|ملح|فلفل|فلفل اسود|ماء|زبدة|سمنة)$/iu.test(
+    normalizedIngredient
+  );
+}
+
+function canAcceptRecipeIngredientVariant(existingVariants: RecipeIngredientVariant[] | undefined, next: RecipeIngredientVariant) {
+  if (!existingVariants?.length) return true;
+  if (!next.key) return false;
+  if (existingVariants.some((variant) => variant.key === next.key)) return false;
+  if (existingVariants.length >= 2) return false;
+
+  return existingVariants.every((variant) => areMeaningfullyDifferentIngredientVariants(variant.tokens, next.tokens));
+}
+
+function areMeaningfullyDifferentIngredientVariants(left: Set<string>, right: Set<string>) {
+  if (!left.size || !right.size) return false;
+
+  let shared = 0;
+  for (const token of left) {
+    if (right.has(token)) shared += 1;
+  }
+
+  const leftOnly = left.size - shared;
+  const rightOnly = right.size - shared;
+  const union = left.size + right.size - shared;
+  const overlapRatio = union > 0 ? shared / union : 1;
+
+  return (leftOnly >= 1 && rightOnly >= 1) || leftOnly + rightOnly >= 3 || overlapRatio <= 0.72;
+}
+
+function recordRecipeIngredientVariant(
+  variantsByKey: Map<string, RecipeIngredientVariant[]>,
+  key: string,
+  variant: RecipeIngredientVariant
+) {
+  const variants = variantsByKey.get(key);
+  if (variants) {
+    variants.push(variant);
+  } else {
+    variantsByKey.set(key, [variant]);
+  }
 }
 
 function isLiverRecipeCandidate(recipe: Recipe) {
@@ -2517,7 +2620,7 @@ function diversifyAnyCuisineRecipes(recipes: Recipe[], recipeCount: number, inpu
 
   const buckets = Array.from(grouped.values());
   const diversified: Recipe[] = [];
-  const seenStructures = new Set<string>();
+  const seenStructures = new Map<string, RecipeIngredientVariant[]>();
 
   while (diversified.length < recipeCount) {
     let progressed = false;
@@ -2526,11 +2629,12 @@ function diversifyAnyCuisineRecipes(recipes: Recipe[], recipeCount: number, inpu
       const nextRecipe = bucket.shift();
       if (!nextRecipe) continue;
       const structureKey = buildRecipeStructureSignature(nextRecipe);
-      if (seenStructures.has(structureKey)) {
+      const ingredientVariant = buildRecipeIngredientVariant(nextRecipe);
+      if (structureKey && !canAcceptRecipeIngredientVariant(seenStructures.get(structureKey), ingredientVariant)) {
         continue;
       }
       diversified.push(nextRecipe);
-      seenStructures.add(structureKey);
+      if (structureKey) recordRecipeIngredientVariant(seenStructures, structureKey, ingredientVariant);
       progressed = true;
       if (diversified.length >= recipeCount) {
         break;
@@ -2543,9 +2647,9 @@ function diversifyAnyCuisineRecipes(recipes: Recipe[], recipeCount: number, inpu
   }
 
   if (diversified.length < recipeCount) {
-    const selectedKeys = new Set(diversified.map((recipe) => recipe.id ?? recipe.name.trim().toLowerCase()));
+    const selectedKeys = new Set(diversified.map(getRecipeSelectionKey));
     for (const recipe of recipes) {
-      const key = recipe.id ?? recipe.name.trim().toLowerCase();
+      const key = getRecipeSelectionKey(recipe);
       if (!key || selectedKeys.has(key)) continue;
       diversified.push(recipe);
       selectedKeys.add(key);
@@ -2559,8 +2663,8 @@ function diversifyAnyCuisineRecipes(recipes: Recipe[], recipeCount: number, inpu
 }
 
 function selectStructurallyVariedRankedRecipes(limit: number) {
-  const selectedFamilies = new Map<string, number>();
-  const selectedStructures = new Map<string, number>();
+  const selectedFamilies = new Map<string, RecipeIngredientVariant[]>();
+  const selectedStructures = new Map<string, RecipeIngredientVariant[]>();
 
   return (
     selected: Array<{ recipe: Recipe; index: number; isPantryBalanced: boolean; score: number }>,
@@ -2570,20 +2674,21 @@ function selectStructurallyVariedRankedRecipes(limit: number) {
 
     const familyKey = buildRecipeDishFamilyKey(candidate.recipe) || candidate.recipe.name.trim().toLowerCase();
     const structureKey = buildRecipeStructureSignature(candidate.recipe);
-    const familySeen = selectedFamilies.get(familyKey) ?? 0;
-    const structureSeen = selectedStructures.get(structureKey) ?? 0;
+    const ingredientVariant = buildRecipeIngredientVariant(candidate.recipe);
+    const familyVariants = selectedFamilies.get(familyKey);
+    const structureVariants = selectedStructures.get(structureKey);
 
-    if (structureSeen >= 1) {
+    if (structureKey && !canAcceptRecipeIngredientVariant(structureVariants, ingredientVariant)) {
       return selected;
     }
 
-    if (familySeen >= 2 && selected.length + 1 < limit) {
+    if (familyKey && !canAcceptRecipeIngredientVariant(familyVariants, ingredientVariant) && selected.length + 1 < limit) {
       return selected;
     }
 
     selected.push(candidate);
-    selectedFamilies.set(familyKey, familySeen + 1);
-    selectedStructures.set(structureKey, structureSeen + 1);
+    if (familyKey) recordRecipeIngredientVariant(selectedFamilies, familyKey, ingredientVariant);
+    if (structureKey) recordRecipeIngredientVariant(selectedStructures, structureKey, ingredientVariant);
     return selected;
   };
 }

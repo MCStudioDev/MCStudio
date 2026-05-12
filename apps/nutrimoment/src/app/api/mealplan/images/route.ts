@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
-import { accessErrorResponse, hasRecipeImageAccess, requireUser } from "@/services/authService";
+import { accessErrorResponse, hasGeneratedRecipeImageAccess, requireUser } from "@/services/authService";
 import { listUserCachedRecipes } from "@/services/userRecipeCacheService";
 
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ interface MatchedMealImage {
 export async function POST(request: Request) {
   try {
     const access = await requireUser(request);
-    if (!hasRecipeImageAccess(access)) {
+    if (!hasGeneratedRecipeImageAccess(access)) {
       return Response.json({ error: "Meal plan image restore requires recipe image access." }, { status: 403 });
     }
 

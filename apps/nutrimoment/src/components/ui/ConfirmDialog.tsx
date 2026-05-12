@@ -46,7 +46,7 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
-      className="theme-modal-backdrop fixed inset-0 z-[140] flex items-center justify-center p-4 bg-[#020807]/70 backdrop-blur-md"
+      className="theme-modal-backdrop fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-[#020807]/70 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"

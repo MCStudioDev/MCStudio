@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
-import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -189,7 +190,8 @@ export function MealRevealCard({
   const effectiveProvidedImage = internetProvidedImage;
   const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
-  const effectiveImageLoading = !resolvedImage && Boolean(imageLoading || lookupLoading || lookupRetrying);
+  const effectiveImageLoading =
+    !resolvedImage && Boolean(lookupLoading || lookupRetrying || (imageLoading && !lookupFailed && !cachedFailure));
   const showNoExactPhoto = !resolvedImage && !effectiveImageLoading && (imageError || lookupFailed || cachedFailure);
   const excludedImageUrls = useMemo(
     () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
@@ -306,7 +308,7 @@ export function MealRevealCard({
     if (disableAutoImageLookup && !manualImageLookupRequested) return;
     if (authLoading) return;
     if (!lookupEnabled) return;
-    if (imageLoading) return;
+    if (imageLoading && hasGeneratedImageAccess) return;
     if (effectiveProvidedImage || !queryKey || !primaryQuery || lookedUpImage || lookupFailed) return;
     if (!user) return;
 
@@ -358,7 +360,7 @@ export function MealRevealCard({
               }
             | null;
 
-          if (response.ok && isInternetImageUrl(data?.imageUrl)) {
+          if (response.ok && isUsableRecipeCardImageUrl(data?.imageUrl, hasGeneratedImageAccess)) {
             return {
               imageAttributionName: data.imageAttributionName,
               imageAttributionUrl: data.imageAttributionUrl,
@@ -552,6 +554,7 @@ export function MealRevealCard({
                 headlineStats={headlineStats}
                 resolvedImage={resolvedImage}
                 imageLoading={effectiveImageLoading}
+                hasGeneratedImageAccess={hasGeneratedImageAccess}
                 showNoExactPhoto={showNoExactPhoto}
                 placeholderStyle={placeholderStyle}
                 onImageLoadError={handleImageLoadError}
@@ -639,6 +642,7 @@ function RecipeFrontFace({
   headlineStats,
   resolvedImage,
   imageLoading,
+  hasGeneratedImageAccess,
   showNoExactPhoto,
   placeholderStyle,
   onImageLoadError,
@@ -652,6 +656,7 @@ function RecipeFrontFace({
   headlineStats: MealRevealStat[];
   resolvedImage?: string;
   imageLoading?: boolean;
+  hasGeneratedImageAccess: boolean;
   showNoExactPhoto: boolean;
   placeholderStyle: CSSProperties;
   onImageLoadError: (failedUrl: string) => void;
@@ -660,6 +665,8 @@ function RecipeFrontFace({
 }) {
   const { t } = useApp();
   const noImageState = !resolvedImage;
+  const loadingTitle = hasGeneratedImageAccess ? t("generatingRecipeImage") : t("findingPhoto");
+  const loadingHint = hasGeneratedImageAccess ? t("recipeImageLoadingHint") : t("hideWeakMatches");
 
   return (
     <div className="relative h-full overflow-hidden">
@@ -695,10 +702,10 @@ function RecipeFrontFace({
                 {imageLoading ? t("findingPhoto") : t("curatedFallback")}
               </div>
               <p className="mt-2 text-xs font-semibold text-white sm:text-sm">
-                {imageLoading ? t("generatingRecipeImage") : t("awaitingPlatedMatch")}
+                {imageLoading ? loadingTitle : t("awaitingPlatedMatch")}
               </p>
               <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-white/62 sm:text-xs">
-                {imageLoading ? t("recipeImageLoadingHint") : t("hideWeakMatches")}
+                {imageLoading ? loadingHint : t("hideWeakMatches")}
               </p>
               {showNoExactPhoto && !imageLoading ? (
                 <button
@@ -957,7 +964,7 @@ function isInternetImageUrl(imageUrl?: string): imageUrl is string {
 
 function isUsableRecipeCardImageUrl(imageUrl: string | undefined, hasGeneratedImageAccess: boolean): imageUrl is string {
   if (!isInternetImageUrl(imageUrl)) return false;
-  return hasGeneratedImageAccess ? isReplicateGeneratedRecipeImageUrl(imageUrl) : true;
+  return isUsableRecipeImageForAccess(imageUrl, hasGeneratedImageAccess);
 }
 
 function isRecipePhotoFailureCached(queryKey: string) {

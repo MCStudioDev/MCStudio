@@ -20,6 +20,7 @@ import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
+import { buildRecipePhotoReuseKeyCandidates } from "@/lib/recipePhotoReuse";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import {
@@ -199,6 +200,7 @@ export function ScannerTab() {
     async (inputRecipes: Recipe[], historyEntryId: string | null, requestVersion: number) => {
       if (requestVersion !== recipeRequestVersionRef.current) return;
       const isPremium = hasGeneratedImageAccess;
+      const recipeReuseKeys = inputRecipes.map(getRecipePhotoReuseKey);
 
       const renderableImageCounts = new Map<string, number>();
       inputRecipes.forEach((recipe) => {
@@ -206,19 +208,21 @@ export function ScannerTab() {
         renderableImageCounts.set(recipe.image_url, (renderableImageCounts.get(recipe.image_url) ?? 0) + 1);
       });
 
-      const keptRenderableUrls = new Set<string>();
-      const duplicateRefreshFlags = inputRecipes.map((recipe) => {
+      const keptRenderableUrls = new Map<string, string>();
+      const duplicateRefreshFlags = inputRecipes.map((recipe, index) => {
         if (!hasStrictRenderableImage(recipe.image_url, isPremium)) return false;
         const count = renderableImageCounts.get(recipe.image_url) ?? 0;
+        const reuseKey = recipeReuseKeys[index] ?? "";
         if (count <= 1) {
-          keptRenderableUrls.add(recipe.image_url);
+          keptRenderableUrls.set(recipe.image_url, reuseKey);
           return false;
         }
-        if (!keptRenderableUrls.has(recipe.image_url)) {
-          keptRenderableUrls.add(recipe.image_url);
+        const existingReuseKey = keptRenderableUrls.get(recipe.image_url);
+        if (!existingReuseKey) {
+          keptRenderableUrls.set(recipe.image_url, reuseKey);
           return false;
         }
-        return true;
+        return existingReuseKey !== reuseKey;
       });
 
       const seeded = inputRecipes.map((recipe, index) =>
@@ -230,12 +234,11 @@ export function ScannerTab() {
       if (requestVersion !== recipeRequestVersionRef.current) return;
       setRecipes(seeded);
 
-      const usedImageUrls = new Set(
-        seeded
-          .filter((_, index) => !duplicateRefreshFlags[index])
-          .map((recipe) => recipe.image_url)
-          .filter((imageUrl): imageUrl is string => hasStrictRenderableImage(imageUrl, isPremium))
-      );
+      const usedImageUrls = new Map<string, string>();
+      seeded.forEach((recipe, index) => {
+        if (duplicateRefreshFlags[index] || !hasStrictRenderableImage(recipe.image_url, isPremium)) return;
+        usedImageUrls.set(recipe.image_url, recipeReuseKeys[index] ?? "");
+      });
       const resolved: Recipe[] = [...seeded];
       const pendingPremiumIndexes = new Set<number>();
       const maxLookups = isPremium ? inputRecipes.length : Math.min(Math.max(inputRecipes.length, 4), 8);
@@ -260,7 +263,7 @@ export function ScannerTab() {
             buildRecipePhotoRequestUrl(
               buildRecipePhotoQuery(recipe),
               buildRecipePhotoPromptIngredients(recipe),
-              Array.from(usedImageUrls),
+              getUsedImageUrlsForDifferentReuseKey(usedImageUrls, getRecipePhotoReuseKey(recipe)),
               {
                 cuisine: buildRecipePhotoCuisine(recipe),
                 exactNames: buildRecipePhotoExactNames(recipe)
@@ -283,7 +286,11 @@ export function ScannerTab() {
             await refreshAccess();
           }
 
-          if (response.ok && hasStrictRenderableImage(data.imageUrl, isPremium) && !usedImageUrls.has(data.imageUrl)) {
+          if (
+            response.ok &&
+            hasStrictRenderableImage(data.imageUrl, isPremium) &&
+            canUseImageUrlForReuseKey(usedImageUrls, data.imageUrl, getRecipePhotoReuseKey(recipe))
+          ) {
             return { data, ok: true as const, response };
           }
 
@@ -356,7 +363,7 @@ export function ScannerTab() {
             return;
           }
 
-          usedImageUrls.add(data.imageUrl);
+          usedImageUrls.set(data.imageUrl, getRecipePhotoReuseKey(recipe));
           resolved[index] = {
             ...recipe,
             image_attribution_name: data.imageAttributionName,
@@ -417,7 +424,7 @@ export function ScannerTab() {
                   }
                 }
               } else {
-                usedImageUrls.add(data.imageUrl);
+                usedImageUrls.set(data.imageUrl, getRecipePhotoReuseKey(recipe));
                 resolved[index] = {
                   ...recipe,
                   image_attribution_name: data.imageAttributionName,
@@ -1290,6 +1297,22 @@ function buildRecipePhotoQuery(recipe: Recipe) {
     missingIngredients: photoContext.missingIngredients,
     name: photoContext.name
   });
+}
+
+function getRecipePhotoReuseKey(recipe: Recipe) {
+  return buildRecipePhotoReuseKeyCandidates(buildRecipePhotoQuery(recipe))[0] ?? "";
+}
+
+function getUsedImageUrlsForDifferentReuseKey(usedImageUrls: Map<string, string>, reuseKey: string) {
+  return Array.from(usedImageUrls.entries())
+    .filter(([, usedReuseKey]) => usedReuseKey !== reuseKey)
+    .map(([imageUrl]) => imageUrl);
+}
+
+function canUseImageUrlForReuseKey(usedImageUrls: Map<string, string>, imageUrl: string | undefined, reuseKey: string) {
+  if (!imageUrl) return false;
+  const usedReuseKey = usedImageUrls.get(imageUrl);
+  return !usedReuseKey || usedReuseKey === reuseKey;
 }
 
 function buildRecipePhotoRequestUrl(

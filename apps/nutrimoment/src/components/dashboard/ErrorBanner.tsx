@@ -16,16 +16,16 @@ export function ErrorBanner() {
           role="alert"
           aria-live="assertive"
           aria-atomic="true"
-          className="fixed top-36 left-1/2 z-[90] w-[90%] max-w-md -translate-x-1/2 sm:top-36"
+          className="fixed left-1/2 top-24 z-[200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 sm:top-28"
         >
-          <div className="flex items-center gap-3 rounded-2xl border border-red-200/16 bg-[#2a0d14]/92 px-4 py-3 text-sm text-red-50 shadow-soft">
-            <AlertCircle className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <div className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-[#173a31] shadow-[0_24px_70px_-30px_rgba(16,58,48,0.38)]">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#0f8f7c]" aria-hidden="true" />
             <span className="flex-1">{error}</span>
             <button
               type="button"
               onClick={() => setError(null)}
               aria-label="Dismiss error"
-              className="focus-ring rounded-lg p-1 transition-ui hover:bg-red-500/16"
+              className="focus-ring rounded-lg p-1 text-[#4f6f66] transition-ui hover:bg-emerald-50 hover:text-[#173a31]"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>

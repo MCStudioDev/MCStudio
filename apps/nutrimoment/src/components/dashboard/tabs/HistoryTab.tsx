@@ -69,6 +69,13 @@ export function HistoryTab() {
       setError(message);
     }
   };
+
+  useEffect(() => {
+    if (historyError) {
+      setError(`History could not sync. ${historyError.message}`);
+    }
+  }, [historyError, setError]);
+
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return items;
@@ -271,10 +278,10 @@ export function HistoryTab() {
         </motion.div>
       ) : historyError ? (
         <motion.div variants={itemVariants}>
-          <Card className="theme-history-entry rounded-[2rem] space-y-3">
-            <p className="text-sm font-semibold text-red-100">History could not sync.</p>
-            <p className="text-sm leading-relaxed text-emerald-50/70">
-              Please refresh the page or sign in again. The last error was: {historyError.message}
+          <Card className="theme-history-entry rounded-[2rem] space-y-3 border-emerald-100 bg-white text-[#173a31] shadow-[0_24px_70px_-42px_rgba(16,58,48,0.32)]">
+            <p className="text-sm font-semibold text-[#173a31]">History is temporarily unavailable.</p>
+            <p className="text-sm leading-relaxed text-[#4f6f66]">
+              Please refresh the page or sign in again.
             </p>
           </Card>
         </motion.div>
@@ -343,7 +350,7 @@ export function HistoryTab() {
                 ) : null}
 
                 {entry.generationStatus === "failed" && !entry.recipes.length ? (
-                  <div className="rounded-[1.4rem] border border-red-200/18 bg-red-400/10 px-4 py-5 text-sm font-semibold text-red-50">
+                  <div className="rounded-[1.4rem] border border-emerald-100 bg-white px-4 py-5 text-sm font-semibold text-[#173a31] shadow-[0_20px_55px_-36px_rgba(16,58,48,0.32)]">
                     {entry.generationMessage ?? t("backgroundRecipesFailed")}
                   </div>
                 ) : null}

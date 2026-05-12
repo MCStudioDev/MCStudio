@@ -16,7 +16,8 @@ import {
   ShieldCheck,
   Sparkles,
   SunMedium,
-  Utensils
+  Utensils,
+  X
 } from "lucide-react";
 import { Loader } from "@/components/ui/Loader";
 import { useApp } from "@/contexts/AppContext";
@@ -260,6 +261,30 @@ export default function Landing() {
       <div className="blob animate-blob right-[-3rem] top-24 h-72 w-72 bg-cyan-300/14 [animation-delay:-4s]" />
       <div className="blob animate-blob bottom-0 left-[18%] h-52 w-52 bg-lime-200/10 [animation-delay:-8s]" />
 
+      {error ? (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          className="fixed left-1/2 top-6 z-[200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2"
+        >
+          <div className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-[#173a31] shadow-[0_24px_70px_-30px_rgba(16,58,48,0.38)]">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#0f8f7c]" aria-hidden="true" />
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label="Dismiss error"
+              className="focus-ring rounded-lg p-1 text-[#4f6f66] transition-ui hover:bg-emerald-50 hover:text-[#173a31]"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </motion.div>
+      ) : null}
+
       <div id="main-content" className="shell-frame relative z-10 flex min-h-[calc(100vh-3rem)] w-full items-center">
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -370,21 +395,6 @@ export default function Landing() {
                     {copy.disclaimer}
                   </p>
                 </div>
-
-                {error ? (
-                  <div
-                    role="alert"
-                    className={cn(
-                      "flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm",
-                      isMintTheme
-                        ? "border-rose-300/35 bg-white/86 text-rose-700 shadow-[0_18px_40px_-28px_rgba(191,86,65,0.35)]"
-                        : "border-rose-300/30 bg-rose-400/10 text-rose-100"
-                    )}
-                  >
-                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
-                    <span>{error}</span>
-                  </div>
-                ) : null}
 
                 <div className={cn("flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.2em]", isMintTheme ? "text-[#5b7b73]" : "text-emerald-50/50")}>
                   <span>{copy.footer.poweredBy}</span>

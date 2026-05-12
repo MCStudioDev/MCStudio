@@ -7,6 +7,7 @@ import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
+import { buildRecipePhotoReuseKeyFromQuery } from "@/lib/recipePhotoReuse";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +26,7 @@ const inFlightRecipePhotoRequests = new Map<
     retryAfterSeconds?: number;
   }>
 >();
-const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKey: string }>();
+const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKey: string; reuseKey: string }>();
 const DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS = 10 * 60 * 1000;
 const RECENT_RECIPE_PHOTO_SELECTION_TTL_MS = 10 * 60 * 1000;
 const PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES = 8;
@@ -141,6 +142,7 @@ export function MealRevealCard({
   ]
     .filter(Boolean)
     .join(" ## ");
+  const reuseKey = buildRecipePhotoReuseKeyFromQuery(primaryQuery || queryKey);
   const isFailedImageUrl = useCallback(
     (candidate?: string) => Boolean(candidate && failedImageUrls.has(candidate)),
     [failedImageUrls]
@@ -172,7 +174,7 @@ export function MealRevealCard({
   const cachedImage =
     isUsableRecipeCardImageUrl(cachedImageEntry?.imageUrl, hasGeneratedImageAccess) &&
     !isFailedImageUrl(cachedImageEntry.imageUrl) &&
-    !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey)
+    !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey, reuseKey)
       ? cachedImageEntry.imageUrl
       : "";
   const cachedFailure = !hasGeneratedImageAccess && !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
@@ -194,8 +196,8 @@ export function MealRevealCard({
     !resolvedImage && Boolean(lookupLoading || lookupRetrying || (imageLoading && !lookupFailed && !cachedFailure));
   const showNoExactPhoto = !resolvedImage && !effectiveImageLoading && (imageError || lookupFailed || cachedFailure);
   const excludedImageUrls = useMemo(
-    () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey), ...failedImageUrls])),
-    [failedImageUrls, queryKey]
+    () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey, reuseKey), ...failedImageUrls])),
+    [failedImageUrls, queryKey, reuseKey]
   );
   const placeholderStyle = useMemo(
     () => buildRecipePlaceholderStyle(primaryQuery || name),
@@ -270,8 +272,8 @@ export function MealRevealCard({
 
   useEffect(() => {
     if (!queryKey || !resolvedImage) return;
-    rememberRecentRecipePhotoSelection(resolvedImage, queryKey);
-  }, [queryKey, resolvedImage]);
+    rememberRecentRecipePhotoSelection(resolvedImage, queryKey, reuseKey);
+  }, [queryKey, resolvedImage, reuseKey]);
 
   useEffect(() => {
     return () => {
@@ -391,7 +393,7 @@ export function MealRevealCard({
           });
           recipePhotoFailureCache.delete(queryKey);
         }
-        rememberRecentRecipePhotoSelection(data.imageUrl, queryKey);
+        rememberRecentRecipePhotoSelection(data.imageUrl, queryKey, reuseKey);
         setLookupState({
           failed: false,
           imageAttributionName: data.imageAttributionName,
@@ -485,6 +487,7 @@ export function MealRevealCard({
     queryCandidates,
     queryKey,
     refreshAccess,
+    reuseKey,
     user
   ]);
 
@@ -979,7 +982,7 @@ function isRecipePhotoFailureCached(queryKey: string) {
   return true;
 }
 
-function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
+function getRecentlyAssignedRecipePhotoUrls(queryKey: string, reuseKey: string) {
   const now = Date.now();
   const excluded = new Set<string>();
 
@@ -989,7 +992,7 @@ function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
       continue;
     }
 
-    if (entry.queryKey !== queryKey) {
+    if (entry.queryKey !== queryKey && entry.reuseKey !== reuseKey) {
       excluded.add(imageUrl);
     }
   }
@@ -997,15 +1000,16 @@ function getRecentlyAssignedRecipePhotoUrls(queryKey: string) {
   return Array.from(excluded);
 }
 
-function rememberRecentRecipePhotoSelection(imageUrl: string, queryKey: string) {
+function rememberRecentRecipePhotoSelection(imageUrl: string, queryKey: string, reuseKey: string) {
   if (!isInternetImageUrl(imageUrl) || !queryKey) return;
   recentRecipePhotoSelections.set(imageUrl, {
     expiresAt: Date.now() + RECENT_RECIPE_PHOTO_SELECTION_TTL_MS,
-    queryKey
+    queryKey,
+    reuseKey
   });
 }
 
-function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKey: string) {
+function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKey: string, reuseKey: string) {
   const existing = recentRecipePhotoSelections.get(imageUrl);
   if (!existing) return false;
   if (existing.expiresAt <= Date.now()) {
@@ -1013,6 +1017,6 @@ function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKe
     return false;
   }
 
-  return existing.queryKey !== queryKey;
+  return existing.queryKey !== queryKey && existing.reuseKey !== reuseKey;
 }
 

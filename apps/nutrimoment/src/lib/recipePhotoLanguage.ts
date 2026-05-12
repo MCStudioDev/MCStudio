@@ -20,7 +20,7 @@ export function buildEnglishRecipePhotoContext(recipe: Recipe): EnglishRecipePho
   const fallbackName = firstEnglishText([
     recipe.dish_intent?.dish_name,
     recipe.image_search_index,
-    ...(recipe.image_search_indices ?? []),
+    ...toStringArray(recipe.image_search_indices),
     recipe.name
   ]);
   const name = cleanEnglishTitle(englishLocalized?.name ?? recipe.name, fallbackName);
@@ -31,9 +31,9 @@ export function buildEnglishRecipePhotoContext(recipe: Recipe): EnglishRecipePho
   );
   const imageSearchIndices = normalizeEnglishSearchIndices([
     recipe.image_search_index,
-    ...(recipe.image_search_indices ?? []),
+    ...toStringArray(recipe.image_search_indices),
     englishLocalized?.image_search_index,
-    ...(englishLocalized?.image_search_indices ?? []),
+    ...toStringArray(englishLocalized?.image_search_indices),
     dishIntent?.dish_name,
     name
   ]);
@@ -44,10 +44,10 @@ export function buildEnglishRecipePhotoContext(recipe: Recipe): EnglishRecipePho
     imageSearchIndex: imageSearchIndices[0],
     imageSearchIndices,
     ingredients: buildEnglishIngredients(
-      englishLocalized?.ingredients?.length ? englishLocalized.ingredients : recipe.ingredients
+      hasStringArrayItems(englishLocalized?.ingredients) ? englishLocalized?.ingredients : recipe.ingredients
     ),
     missingIngredients: buildEnglishIngredients(
-      englishLocalized?.missing_ingredients?.length
+      hasStringArrayItems(englishLocalized?.missing_ingredients)
         ? englishLocalized.missing_ingredients
         : recipe.missing_ingredients
     ),
@@ -61,7 +61,7 @@ export function buildEnglishRecipePhotoIngredients(recipe: Recipe) {
     new Set([
       ...buildEnglishIngredients(englishLocalized?.ingredients?.length ? englishLocalized.ingredients : recipe.ingredients),
       ...buildEnglishIngredients(
-        englishLocalized?.missing_ingredients?.length
+        hasStringArrayItems(englishLocalized?.missing_ingredients)
           ? englishLocalized.missing_ingredients
           : recipe.missing_ingredients
       )
@@ -83,7 +83,7 @@ function normalizeEnglishLocalizedRecipeVariant(variant?: LocalizedRecipeVariant
     cuisine,
     dish_intent: normalizeDishIntentForPhoto(variant.dish_intent, name, variant.image_search_index),
     image_search_index: normalizeEnglishSearchPhrase(variant.image_search_index, name),
-    image_search_indices: normalizeEnglishSearchIndices(variant.image_search_indices ?? [])
+    image_search_indices: normalizeEnglishSearchIndices(variant.image_search_indices)
   };
 }
 
@@ -98,13 +98,13 @@ function normalizeDishIntentForPhoto(
     ...dishIntent,
     cuisine: cleanEnglishCuisine(dishIntent.cuisine),
     dish_name: dishName || fallbackName,
-    visual_keywords: normalizeEnglishSearchIndices(dishIntent.visual_keywords ?? []),
-    exclude_keywords: normalizeEnglishSearchIndices(dishIntent.exclude_keywords ?? [])
+    visual_keywords: normalizeEnglishSearchIndices(dishIntent.visual_keywords),
+    exclude_keywords: normalizeEnglishSearchIndices(dishIntent.exclude_keywords)
   };
 }
 
-function buildEnglishIngredients(ingredients: unknown[] = []) {
-  return ingredients
+function buildEnglishIngredients(ingredients: unknown = []) {
+  return toUnknownArray(ingredients)
     .map(getRecipeIngredientLabel)
     .map((value) => translateIngredientToEnglish(value).trim())
     .filter(Boolean);
@@ -153,18 +153,41 @@ function normalizeEnglishSearchPhrase(value?: string, fallbackQuery?: string) {
   return cleaned.length >= 3 ? cleaned : undefined;
 }
 
-function normalizeEnglishSearchIndices(values: Array<string | undefined>) {
+function normalizeEnglishSearchIndices(values: unknown) {
   return Array.from(
     new Set(
-      values
+      toStringArray(values)
         .map((value) => normalizeEnglishSearchPhrase(value))
         .filter((value): value is string => Boolean(value))
     )
   ).slice(0, 5);
 }
 
-function firstEnglishText(values: Array<string | undefined>) {
-  return values.find((value) => value && !containsArabicText(value))?.trim();
+function firstEnglishText(values: unknown) {
+  return toStringArray(values).find((value) => value && !containsArabicText(value))?.trim();
+}
+
+function hasStringArrayItems(value: unknown): value is string[] {
+  return Array.isArray(value) && value.some((item) => typeof item === "string" && item.trim());
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item : undefined))
+      .filter((item): item is string => Boolean(item));
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/[,\n;|]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function toUnknownArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
 }
 
 function stripArabicTextArtifacts(value: string) {

@@ -57,12 +57,28 @@ const EGYPTIAN_VISUAL_REFERENCES: CuisineVisualReference[] = [
     imageQueries: ["egyptian grilled chicken", "butterflied chicken platter", "farouj meshwi"]
   },
   {
-    key: "shawarma-burger",
-    canonicalName: "shawarma-style beef sandwich",
+    key: "beef-shawarma",
+    canonicalName: "beef shawarma wrap",
     cuisine: "Egyptian",
-    pantrySignals: ["beef", "onion", "bun", "tahini", "mushroom"],
-    visualForms: ["shawarma beef sandwich", "loaded beef burger filling", "sliced beef bun"],
-    imageQueries: ["egyptian shawarma sandwich", "beef shawarma burger", "shawarma beef bun"]
+    pantrySignals: ["beef", "meat", "tahini", "pita", "pickles"],
+    visualForms: ["thin sliced beef shawarma wrap", "open pita with shaved beef", "shawarma plate with browned beef strips"],
+    imageQueries: ["beef shawarma wrap", "egyptian beef shawarma", "beef shawarma plate"]
+  },
+  {
+    key: "chicken-shawarma",
+    canonicalName: "chicken shawarma wrap",
+    cuisine: "Egyptian",
+    pantrySignals: ["chicken", "garlic", "yogurt", "pita", "pickles"],
+    visualForms: ["thin sliced chicken shawarma wrap", "open lavash with golden chicken shawarma", "chicken shawarma plate with garlic sauce"],
+    imageQueries: ["chicken shawarma wrap", "egyptian chicken shawarma", "chicken shawarma plate"]
+  },
+  {
+    key: "lamb-shawarma",
+    canonicalName: "lamb shawarma plate",
+    cuisine: "Egyptian",
+    pantrySignals: ["lamb", "meat", "tahini", "pita", "pickles"],
+    visualForms: ["thin sliced lamb shawarma wrap", "lamb shawarma bowl with visible meat", "shawarma plate with browned lamb strips"],
+    imageQueries: ["lamb shawarma wrap", "lamb shawarma plate", "middle eastern lamb shawarma"]
   },
   {
     key: "fried-liver",

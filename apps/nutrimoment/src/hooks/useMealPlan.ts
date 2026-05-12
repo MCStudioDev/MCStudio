@@ -304,6 +304,7 @@ export function useMealPlan() {
     mealPlan: state.mealPlan,
     loading: user ? state.loading : false,
     error: state.error,
+    reloadMealPlan: loadMealPlan,
     saveMealPlan,
     updateMealImage
   };

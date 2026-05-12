@@ -8,10 +8,7 @@ import {
   getDoc,
   doc,
   getDocs,
-  limit,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc,
   writeBatch
@@ -23,6 +20,24 @@ import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { HistoryItem, Recipe, RecipeImageSource } from "@/lib/types";
 
 const MAX_HISTORY_ITEMS = 50;
+
+type FirestoreTimestampLike = {
+  seconds?: number;
+  toDate?: () => Date;
+  toMillis?: () => number;
+};
+
+type HistoryDocData = {
+  completedAt?: string;
+  createdAt?: FirestoreTimestampLike | null;
+  generationMessage?: string;
+  generationStatus?: HistoryItem["generationStatus"];
+  ingredients?: string[];
+  recipes?: Recipe[];
+  sessionType?: HistoryItem["sessionType"];
+  timestamp?: string;
+  title?: string;
+};
 
 interface UseHistoryResult {
   items: HistoryItem[];
@@ -78,6 +93,52 @@ function isFirestoreQuotaError(error: unknown) {
     error instanceof Error &&
     /resource-exhausted|quota exceeded|too many requests|unavailable/i.test(error.message)
   );
+}
+
+function getHistoryCreatedAtMillis(createdAt?: FirestoreTimestampLike | null) {
+  if (!createdAt) return 0;
+  if (typeof createdAt.toMillis === "function") return createdAt.toMillis();
+  if (typeof createdAt.toDate === "function") return createdAt.toDate().getTime();
+  if (typeof createdAt.seconds === "number") return createdAt.seconds * 1000;
+  return 0;
+}
+
+function getHistorySortTime(item: Pick<HistoryItem, "completedAt" | "timestamp"> & { createdAt?: FirestoreTimestampLike | null }) {
+  return (
+    getHistoryCreatedAtMillis(item.createdAt) ||
+    Date.parse(item.completedAt ?? "") ||
+    Date.parse(item.timestamp ?? "") ||
+    0
+  );
+}
+
+function mapHistoryDoc(id: string, data: HistoryDocData): HistoryItem & { createdAt?: FirestoreTimestampLike | null } {
+  return {
+    id,
+    timestamp: data.timestamp ?? new Date().toISOString(),
+    title: data.title,
+    sessionType: data.sessionType,
+    ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+    recipes: Array.isArray(data.recipes) ? sanitizeHistoryRecipes(data.recipes) : [],
+    generationStatus: data.generationStatus,
+    generationMessage: data.generationMessage,
+    completedAt: data.completedAt,
+    createdAt: data.createdAt
+  };
+}
+
+function sanitizeHistoryItems(items: HistoryItem[]) {
+  return items
+    .map((item) =>
+      stripUndefined<HistoryItem>({
+        ...item,
+        timestamp: item.timestamp ?? new Date().toISOString(),
+        ingredients: Array.isArray(item.ingredients) ? item.ingredients : [],
+        recipes: Array.isArray(item.recipes) ? sanitizeHistoryRecipes(item.recipes) : []
+      })
+    )
+    .sort((left, right) => getHistorySortTime(right) - getHistorySortTime(left))
+    .slice(0, MAX_HISTORY_ITEMS);
 }
 
 function isRenderableImage(imageUrl?: string) {
@@ -176,28 +237,8 @@ async function getLatestHistoryEntryForMerge(
   try {
     const snapshot = await getDoc(entryRef);
     if (snapshot.exists()) {
-        const data = snapshot.data() as {
-          completedAt?: string;
-          generationMessage?: string;
-          generationStatus?: HistoryItem["generationStatus"];
-          ingredients?: string[];
-          recipes?: Recipe[];
-          sessionType?: HistoryItem["sessionType"];
-          timestamp?: string;
-          title?: string;
-        };
-
-      return {
-        id: entryId,
-        timestamp: data.timestamp ?? new Date().toISOString(),
-        title: data.title,
-        sessionType: data.sessionType,
-        ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-        recipes: Array.isArray(data.recipes) ? sanitizeHistoryRecipes(data.recipes) : [],
-        generationStatus: data.generationStatus,
-        generationMessage: data.generationMessage,
-        completedAt: data.completedAt
-      };
+      const data = snapshot.data() as HistoryDocData;
+      return mapHistoryDoc(entryId, data);
     }
   } catch (error) {
     logger.warn("History merge read failed; using local history state", {
@@ -230,7 +271,7 @@ function historyReducer(state: HistoryState, action: HistoryAction): HistoryStat
 }
 
 export function useHistory(): UseHistoryResult {
-  const { user } = useAuth();
+  const { getAuthHeaders, user } = useAuth();
   const [state, dispatch] = useReducer(historyReducer, INITIAL_STATE);
 
   useEffect(() => {
@@ -245,48 +286,70 @@ export function useHistory(): UseHistoryResult {
         errorMessage: error instanceof Error ? error.message : String(error)
       });
     });
-    const q = query(
-      collection(db, `users/${user.uid}/history`),
-      orderBy("createdAt", "desc"),
-      limit(MAX_HISTORY_ITEMS)
-    );
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const next: HistoryItem[] = snap.docs.map((d) => {
-          const data = d.data() as {
-            completedAt?: string;
-            generationMessage?: string;
-            generationStatus?: HistoryItem["generationStatus"];
-            timestamp?: string;
-            title?: string;
-            sessionType?: HistoryItem["sessionType"];
-            ingredients?: string[];
-            recipes?: Recipe[];
-          };
-          return {
-            id: d.id,
-            timestamp: data.timestamp ?? new Date().toISOString(),
-            title: data.title,
-            sessionType: data.sessionType,
-            ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-            recipes: Array.isArray(data.recipes) ? sanitizeHistoryRecipes(data.recipes) : [],
-            generationStatus: data.generationStatus,
-            generationMessage: data.generationMessage,
-            completedAt: data.completedAt
-          };
+    let cancelled = false;
+    const loadHistoryViaApi = async (listenerError: Error) => {
+      try {
+        const response = await fetch("/api/history", {
+          headers: await getAuthHeaders()
         });
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          items?: HistoryItem[];
+        };
+        if (cancelled) return;
+        if (!response.ok) {
+          throw new Error(payload.error || listenerError.message);
+        }
+        const next = Array.isArray(payload.items) ? sanitizeHistoryItems(payload.items) : [];
+        dispatch({ type: "items", payload: next });
+      } catch (fallbackError) {
+        if (cancelled) return;
+        dispatch({
+          type: "error",
+          payload: fallbackError instanceof Error ? fallbackError : listenerError
+        });
+      } finally {
+        if (!cancelled) {
+          dispatch({ type: "loading", payload: false });
+        }
+      }
+    };
+
+    const unsub = onSnapshot(
+      collection(db, `users/${user.uid}/history`),
+      (snap) => {
+        if (cancelled) return;
+        const next: HistoryItem[] = snap.docs
+          .map((d) => mapHistoryDoc(d.id, d.data() as HistoryDocData))
+          .sort((left, right) => getHistorySortTime(right) - getHistorySortTime(left))
+          .slice(0, MAX_HISTORY_ITEMS)
+          .map((item) => {
+            const historyItem: HistoryItem = {
+              id: item.id,
+              timestamp: item.timestamp,
+              title: item.title,
+              sessionType: item.sessionType,
+              ingredients: item.ingredients,
+              recipes: item.recipes,
+              generationStatus: item.generationStatus,
+              generationMessage: item.generationMessage,
+              completedAt: item.completedAt
+            };
+            return stripUndefined(historyItem);
+          });
         dispatch({ type: "items", payload: next });
         dispatch({ type: "loading", payload: false });
       },
       (err) => {
-        dispatch({ type: "error", payload: err });
-        dispatch({ type: "loading", payload: false });
+        void loadHistoryViaApi(err);
       }
     );
 
-    return () => unsub();
-  }, [user]);
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [getAuthHeaders, user]);
 
   const items = user ? state.items : [];
   const effectiveLoading = user ? state.loading : false;
@@ -443,16 +506,19 @@ export function useHistory(): UseHistoryResult {
 }
 
 async function pruneHistoryToLatestLimit(uid: string) {
-  const q = query(
-    collection(db, `users/${uid}/history`),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  if (snap.docs.length <= MAX_HISTORY_ITEMS) {
+  const snap = await getDocs(collection(db, `users/${uid}/history`));
+  const sortedDocs = snap.docs
+    .map((entry) => ({
+      entry,
+      sortTime: getHistorySortTime(mapHistoryDoc(entry.id, entry.data() as HistoryDocData))
+    }))
+    .sort((left, right) => right.sortTime - left.sortTime);
+
+  if (sortedDocs.length <= MAX_HISTORY_ITEMS) {
     return;
   }
 
-  const overflowDocs = snap.docs.slice(MAX_HISTORY_ITEMS);
+  const overflowDocs = sortedDocs.slice(MAX_HISTORY_ITEMS).map(({ entry }) => entry);
   const batches = chunkArray(overflowDocs, 400);
 
   for (const docs of batches) {

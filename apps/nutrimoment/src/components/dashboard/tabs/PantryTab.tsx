@@ -1,8 +1,8 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ImagePlus, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { Camera, Plus, ShoppingCart, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { getPantryQuantityHint } from "@/lib/pantryQuantity";
-import { fileToBase64 } from "@/lib/utils";
+import { cn, fileToBase64 } from "@/lib/utils";
 import type { PantryItem } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
@@ -19,12 +19,19 @@ export function PantryTab() {
   const { t, settings, setError, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess } = useAuth();
   const { items, addItem, removeItem, clear, loading } = usePantry();
+  const pantryInputRef = useRef<HTMLInputElement | null>(null);
+  const pantryCameraStreamRef = useRef<MediaStream | null>(null);
+  const pantryVideoRef = useRef<HTMLVideoElement | null>(null);
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [expiration, setExpiration] = useState("");
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [scanLoading, setScanLoading] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [scannedItems, setScannedItems] = useState<PantryItem[]>([]);
   const [confirmState, setConfirmState] = useState<{
     title: string;
@@ -55,14 +62,26 @@ export function PantryTab() {
     }
   };
 
-  const handleScanPantry = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  useEffect(() => {
+    const video = pantryVideoRef.current;
+    if (!cameraOpen || !cameraStream || !video) return;
 
+    setCameraReady(false);
+    video.srcObject = cameraStream;
+    const handleReady = () => setCameraReady(true);
+    video.addEventListener("loadedmetadata", handleReady);
+    void video.play().catch(() => undefined);
+
+    return () => {
+      video.removeEventListener("loadedmetadata", handleReady);
+    };
+  }, [cameraOpen, cameraStream]);
+
+  useEffect(() => () => stopPantryCamera(), []);
+
+  const processPantryImage = async (image: string) => {
     setScanLoading(true);
     try {
-      const image = await fileToBase64(file);
       const response = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
@@ -88,6 +107,73 @@ export function PantryTab() {
     } finally {
       setScanLoading(false);
     }
+  };
+
+  const handleScanPantry = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    event.currentTarget.blur();
+    pantryInputRef.current?.blur();
+    if (!file) return;
+
+    try {
+      const image = await readPantryImageFile(file);
+      await processPantryImage(image);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to scan pantry";
+      setError(message);
+    }
+  };
+
+  function stopPantryCamera() {
+    pantryCameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    pantryCameraStreamRef.current = null;
+    setCameraStream(null);
+    setCameraReady(false);
+    if (pantryVideoRef.current) {
+      pantryVideoRef.current.srcObject = null;
+    }
+    setCameraOpen(false);
+    setCameraStarting(false);
+  }
+
+  const startPantryCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      pantryInputRef.current?.click();
+      return;
+    }
+
+    setCameraStarting(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" }
+        }
+      });
+      pantryCameraStreamRef.current = stream;
+      setCameraStream(stream);
+      setCameraOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Camera unavailable";
+      setError(message);
+      pantryInputRef.current?.click();
+    } finally {
+      setCameraStarting(false);
+    }
+  };
+
+  const capturePantryCamera = async () => {
+    const video = pantryVideoRef.current;
+    if (!video) return;
+    if (!cameraReady || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      setError(t("cameraStillStarting"));
+      return;
+    }
+
+    const image = capturePantryVideoFrame(video);
+    stopPantryCamera();
+    await processPantryImage(image);
   };
 
   const updateScannedItem = (index: number, field: "name" | "quantity", value: string) => {
@@ -186,25 +272,62 @@ export function PantryTab() {
             </div>
           )}
 
-          <label htmlFor="pantry-photo-upload" className="block">
-            <span className="sr-only">{t("uploadPantryImage")}</span>
-            <input
-              id="pantry-photo-upload"
-              name="pantry-photo-upload"
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleScanPantry}
-              aria-label={t("uploadPantryImage")}
-            />
-            <span className="focus-within:ring-2 focus-within:ring-cyan-300 focus-within:ring-offset-2 flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.5rem] border border-dashed border-white/12 bg-white/[0.04] px-6 text-center transition-ui hover:border-cyan-300/35 hover:bg-white/[0.07]">
-              <ImagePlus className="h-8 w-8 text-cyan-200" aria-hidden="true" />
-              <span className="text-sm font-semibold text-white" aria-live="polite">
-                {scanLoading ? t("analyzingPantry") : t("uploadPantryImage")}
-              </span>
-              <span className="text-xs text-emerald-50/55">{t("pantryImageHelper")}</span>
-            </span>
-          </label>
+          {cameraOpen ? (
+            <div className="overflow-hidden rounded-[1.35rem] border border-cyan-200/18 bg-black/35">
+              <div className="relative aspect-[4/3] bg-black">
+                <video ref={pantryVideoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+                {!cameraReady ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 text-sm font-semibold text-white">
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    {t("cameraPreviewStarting")}
+                  </div>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2 p-2.5">
+                <Button variant="secondary" leftIcon={<Camera className="h-4 w-4" />} onClick={capturePantryCamera} disabled={!cameraReady}>
+                  {t("capturePhoto")}
+                </Button>
+                <Button variant="ghost" leftIcon={<X className="h-4 w-4" />} onClick={stopPantryCamera}>
+                  {t("cancel")}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <PantryScanAction
+                  busy={cameraStarting}
+                  disabled={cameraStarting || scanLoading}
+                  helper={t("pantryImageHelper")}
+                  icon={Camera}
+                  loadingLabel={t("identifying")}
+                  onClick={startPantryCamera}
+                  tone="cyan"
+                  title={t("takePhoto")}
+                />
+                <PantryScanAction
+                  busy={scanLoading}
+                  disabled={scanLoading}
+                  helper={t("pantryImageHelper")}
+                  icon={Upload}
+                  loadingLabel={t("analyzingPantry")}
+                  onClick={() => pantryInputRef.current?.click()}
+                  tone="emerald"
+                  title={t("uploadPantryImage")}
+                />
+              </div>
+              <input
+                ref={pantryInputRef}
+                id="pantry-photo-upload"
+                name="pantry-photo-upload"
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={handleScanPantry}
+                aria-label={t("uploadPantryImage")}
+              />
+            </>
+          )}
 
           <label htmlFor="pantry-item-name" className="sr-only">
             {t("ingredientName")}
@@ -422,4 +545,142 @@ export function PantryTab() {
       />
     </motion.div>
   );
+}
+
+function PantryScanAction({
+  busy,
+  disabled,
+  helper,
+  icon: Icon,
+  loadingLabel,
+  onClick,
+  title,
+  tone
+}: {
+  busy: boolean;
+  disabled: boolean;
+  helper: string;
+  icon: typeof Camera;
+  loadingLabel: string;
+  onClick: () => void;
+  title: string;
+  tone: "cyan" | "emerald";
+}) {
+  const isCyan = tone === "cyan";
+
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-busy={busy || undefined}
+      whileHover={disabled ? undefined : { y: -3, scale: 1.015 }}
+      whileTap={disabled ? undefined : { scale: 0.985 }}
+      className={cn(
+        "focus-ring group relative min-h-32 overflow-hidden rounded-[1.35rem] p-4 text-start text-emerald-50 shadow-[0_18px_50px_rgba(16,185,129,0.10)] transition-ui sm:min-h-36",
+        "disabled:cursor-not-allowed disabled:opacity-60",
+        isCyan
+          ? "border border-cyan-200/20 bg-cyan-300/10 hover:border-cyan-200/42 hover:bg-cyan-300/14 hover:shadow-[0_22px_65px_rgba(34,211,238,0.18)]"
+          : "border border-emerald-200/20 bg-emerald-300/10 hover:border-emerald-200/42 hover:bg-emerald-300/14 hover:shadow-[0_22px_65px_rgba(16,185,129,0.18)]"
+      )}
+    >
+      <span
+        className={cn(
+          "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl transition",
+          isCyan ? "bg-cyan-200/16 group-hover:bg-cyan-200/24" : "bg-emerald-200/16 group-hover:bg-emerald-200/24"
+        )}
+      />
+      <span className="relative flex h-full flex-col justify-between gap-5">
+        <span className="flex items-start justify-between gap-3">
+          <span
+            className={cn(
+              "flex h-12 w-12 items-center justify-center rounded-2xl border",
+              isCyan ? "border-cyan-100/18 bg-cyan-200/14 text-cyan-100" : "border-emerald-100/18 bg-emerald-200/14 text-emerald-100"
+            )}
+          >
+            {busy ? (
+              <span className="h-5 w-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+            ) : (
+              <Icon className="h-5 w-5" />
+            )}
+          </span>
+          <Sparkles
+            className={cn(
+              "h-4 w-4 transition group-hover:rotate-12",
+              isCyan ? "text-cyan-100/55 group-hover:text-cyan-100" : "text-emerald-100/55 group-hover:text-emerald-100"
+            )}
+          />
+        </span>
+        <span>
+          <span className="block text-base font-display font-bold leading-tight text-white sm:text-lg">
+            {busy ? loadingLabel : title}
+          </span>
+          <span className="mt-1 block text-xs leading-snug text-emerald-50/60">{helper}</span>
+        </span>
+      </span>
+    </motion.button>
+  );
+}
+
+async function readPantryImageFile(file: File) {
+  if (!file.type.startsWith("image/")) {
+    return fileToBase64(file);
+  }
+
+  try {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await loadPantryImageElement(objectUrl);
+      return scalePantryImageToDataUrl(image);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    return fileToBase64(file);
+  }
+}
+
+function loadPantryImageElement(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to load image"));
+    image.src = src;
+  });
+}
+
+function capturePantryVideoFrame(video: HTMLVideoElement) {
+  return scalePantryImageToDataUrl(video);
+}
+
+function scalePantryImageToDataUrl(source: CanvasImageSource) {
+  const sourceWidth =
+    "videoWidth" in source && typeof source.videoWidth === "number"
+      ? source.videoWidth
+      : "naturalWidth" in source && typeof source.naturalWidth === "number"
+        ? source.naturalWidth
+        : "width" in source && typeof source.width === "number"
+          ? source.width
+          : 1280;
+  const sourceHeight =
+    "videoHeight" in source && typeof source.videoHeight === "number"
+      ? source.videoHeight
+      : "naturalHeight" in source && typeof source.naturalHeight === "number"
+        ? source.naturalHeight
+        : "height" in source && typeof source.height === "number"
+          ? source.height
+          : 1280;
+  const maxSide = 1280;
+  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Could not prepare image");
+  }
+  context.drawImage(source, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.84);
 }

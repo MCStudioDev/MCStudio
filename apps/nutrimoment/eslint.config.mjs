@@ -13,6 +13,10 @@ const eslintConfig = defineConfig([
     "build/**",
     ".claude/**",
     "next-env.d.ts",
+    // Test sources use a different module system + dev-only deps; vitest
+    // handles type checking instead of next/eslint.
+    "src/__tests__/**",
+    "vitest.config.ts",
   ]),
 ]);
 

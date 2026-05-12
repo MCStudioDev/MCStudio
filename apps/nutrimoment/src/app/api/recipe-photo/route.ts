@@ -22,6 +22,10 @@ import {
 import { logger } from "@/lib/logger";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import {
+  isReplicateGenerationAllowedForUser,
+  recordReplicateGeneration
+} from "@/services/replicateCostCapService";
+import {
   translateIngredientToEnglish,
   translateRecipeTitleToEnglish
 } from "@/lib/arabicRecipeLocalization";
@@ -184,7 +188,23 @@ export async function GET(request: Request) {
     identities.some(isStrictVisualIdentity) ||
     replicateIdentities.some(isStrictVisualIdentity) ||
     isStrictVisualIdentity(identity);
-  const useReplicateGeneration = hasGeneratedRecipeImageAccess(accessCheck.access);
+
+  const hasGenerationTier = hasGeneratedRecipeImageAccess(accessCheck.access);
+  let replicateCapDecision: Awaited<ReturnType<typeof isReplicateGenerationAllowedForUser>> | null = null;
+  if (hasGenerationTier) {
+    replicateCapDecision = await isReplicateGenerationAllowedForUser(accessCheck.access);
+    if (!replicateCapDecision.allowed) {
+      logger.warn("Replicate cost cap denied generation; downgrading this request to search mode", {
+        uid: accessCheck.access.uid,
+        reason: replicateCapDecision.reason,
+        dailyLimit: replicateCapDecision.dailyLimit,
+        dailyUsed: replicateCapDecision.dailyUsed,
+        query
+      });
+    }
+  }
+  const useReplicateGeneration = hasGenerationTier && (replicateCapDecision?.allowed ?? false);
+  const replicateDailyLimit = replicateCapDecision?.dailyLimit ?? 0;
   const selectedReplicateQuery = useReplicateGeneration
     ? selectReplicateRecipePhotoQuery(replicateQueryCandidates, replicateIdentities, ingredientHints)
     : null;
@@ -438,6 +458,11 @@ export async function GET(request: Request) {
 
     const lookupPromise = performRecipePhotoLookup({
       accessAllowed: allowProviderPhotoSearch,
+      // Premium users who actually attempted generation are eligible for the
+      // search-mode fallback when Replicate fails on a canonical dish. This
+      // preserves "generated only for premium" under normal conditions while
+      // protecting them from outages and rate-limit spikes.
+      allowSearchFallbackOnReplicateFailure: useReplicateGeneration,
       failureCacheKey,
       imageMode,
       identities,
@@ -462,6 +487,17 @@ export async function GET(request: Request) {
     inFlightRecipePhotoLookups.set(failureCacheKey, lookupPromise);
 
     const result = await lookupPromise;
+    // Fire-and-forget: only bump the daily counter when this request paid for
+    // a fresh Replicate generation. Cache hits keep `imageSource` as "cache"
+    // (or "search"/"unsplash"/etc.) and do not consume budget.
+    if (
+      useReplicateGeneration &&
+      result.ok &&
+      result.photo.imageSource === "api" &&
+      result.photo.source === "generated"
+    ) {
+      void recordReplicateGeneration(accessCheck.access, replicateDailyLimit);
+    }
     return buildRecipePhotoLookupResponse(result, accessCheck.access);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to look up a recipe photo.";
@@ -758,6 +794,7 @@ function setRecipePhotoFailureCache(
 
 async function performRecipePhotoLookup({
   accessAllowed,
+  allowSearchFallbackOnReplicateFailure,
   failureCacheKey,
   imageMode,
   identities,
@@ -777,6 +814,7 @@ async function performRecipePhotoLookup({
   reason
 }: {
   accessAllowed: boolean;
+  allowSearchFallbackOnReplicateFailure: boolean;
   failureCacheKey: string;
   imageMode: "generated" | "search" | "disabled";
   identities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
@@ -795,6 +833,13 @@ async function performRecipePhotoLookup({
   useReplicateGeneration: boolean;
   reason?: string | null;
 }): Promise<RecipePhotoLookupResult> {
+  // When Replicate fails for a premium user *and* the dish is on the canonical
+  // catalog, we want the function to fall through to the existing search-mode
+  // pipeline so the user still gets a sensible photo. `effectiveAccessAllowed`
+  // tracks the gated state for Unsplash/Pexels lookups so we can flip it on
+  // post-failure without breaking the original `accessAllowed` contract.
+  let effectiveAccessAllowed = accessAllowed;
+  let replicateFailedWithFallback = false;
   const excludedUrls = new Set([
     ...getRecentlyUsedRecipeImageUrls([...generatedAliasCandidates, ...exactAliasCandidates, ...signatureCandidates], reuseKeyCandidates),
     ...explicitlyExcludedImageUrls
@@ -924,19 +969,44 @@ async function performRecipePhotoLookup({
       }
     }
 
-    const noReplicateFailure = createRecipePhotoFailure(
-      replicateFallbackReason
-        ? "Replicate image generation is temporarily unavailable. Retrying generated images shortly."
-        : "Premium recipe image generation is still working. Retrying generated images shortly.",
-      503,
-      PREMIUM_REPLICATE_RETRY_TTL_MS,
-      PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-    );
-    setRecipePhotoFailureCache(failureCacheKey, noReplicateFailure);
-    return {
-      failure: noReplicateFailure,
-      ok: false
-    };
+    // Fallback path: when Replicate failed for a recognized canonical dish,
+    // try search-mode (Wikimedia allow-list / Unsplash / Pexels) before giving
+    // up. The dish must be on the canonical catalog so the strict scoring
+    // gates can find a known-good photo; for non-canonical recipes we keep
+    // the existing fast 503 retry response because search-mode would only
+    // return weak matches anyway.
+    const canonicalFallbackEligible =
+      allowSearchFallbackOnReplicateFailure &&
+      Boolean(replicateFallbackReason) &&
+      Boolean(baseIdentity.canonicalDishKey);
+
+    if (!canonicalFallbackEligible) {
+      const noReplicateFailure = createRecipePhotoFailure(
+        replicateFallbackReason
+          ? "Replicate image generation is temporarily unavailable. Retrying generated images shortly."
+          : "Premium recipe image generation is still working. Retrying generated images shortly.",
+        503,
+        PREMIUM_REPLICATE_RETRY_TTL_MS,
+        PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
+      );
+      setRecipePhotoFailureCache(failureCacheKey, noReplicateFailure);
+      return {
+        failure: noReplicateFailure,
+        ok: false
+      };
+    }
+
+    // Allow search-mode providers for the rest of this lookup. Premium users
+    // never reach this branch unless Replicate genuinely failed; we trust the
+    // existing identity gate + minimum-score thresholds to reject bad matches.
+    effectiveAccessAllowed = true;
+    replicateFailedWithFallback = true;
+    logger.info("Replicate failed for a canonical dish; falling through to search-mode fallback", {
+      query,
+      canonicalDishKey: baseIdentity.canonicalDishKey,
+      replicateFallbackReason,
+      signature: baseIdentity.signature
+    });
   }
 
   if (preferWikimediaFirst && WIKIMEDIA_ENABLED) {
@@ -962,7 +1032,7 @@ async function performRecipePhotoLookup({
     }
   }
 
-  if (accessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
+  if (effectiveAccessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
     const unsplashResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
@@ -990,7 +1060,7 @@ async function performRecipePhotoLookup({
     }
   }
 
-  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && accessAllowed && isPexelsRecipePhotoSearchConfigured()) {
+  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && effectiveAccessAllowed && isPexelsRecipePhotoSearchConfigured()) {
     const pexelsResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
       const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
@@ -1063,6 +1133,7 @@ async function performRecipePhotoLookup({
       imageMode,
       reason,
       replicateFallbackReason,
+      replicateFailedWithFallback,
       score: bestMatch.score,
       cached: false,
       cachePolicy: "replicate_generated_only",
@@ -1099,6 +1170,7 @@ async function performRecipePhotoLookup({
     imageMode,
     reason,
     replicateFallbackReason,
+    replicateFailedWithFallback,
     signature: identities[0]?.signature ?? "unknown"
   });
 

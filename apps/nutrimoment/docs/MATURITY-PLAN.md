@@ -1,7 +1,7 @@
 # NutriMoment - Maturity Plan
-**Version:** 1.3  
-**Date:** 2026-04-24  
-**Current State:** v0.6.x style application with a working offline-first core  
+**Version:** 1.4  
+**Date:** 2026-05-11  
+**Current State:** v0.6.x style application with a working offline-first core, entering production testing  
 **Target State:** production-ready, observable, and test-backed SaaS
 
 ## Current State Assessment
@@ -16,10 +16,11 @@
 | Gemini text fallback | Working | used only when catalog output is weak or unavailable |
 | Pantry CRUD | Working | Firestore-backed |
 | Pantry scan review | Working | editable quantities before save |
-| Weekly meal plans | Working | premium-only, persisted current plan |
+| Weekly meal plans | Working | premium/admin unmetered; free users 3 lifetime plans |
 | Shopping-list pantry subtraction | Working | quantity-aware reconciliation |
-| History persistence | Working | recipes and images persist in history |
-| Recipe photo lookup | Working | cache -> Unsplash -> Pexels -> unavailable |
+| History persistence | Working | recipes and images persist in history; `/api/history` route serves the latest 50 |
+| Recipe photo lookup (free) | Working | cache -> shared cache -> Unsplash -> Pexels -> Wikimedia allow-list -> unavailable |
+| Recipe photo lookup (premium) | Working | cache -> shared cache -> Replicate (`flux-schnell`) -> unavailable |
 | Unsplash attribution | Working | preserved and shown in UI |
 | Arabic UI and RTL shell | Working | translated UI available |
 | Legal / safety layer | Working | disclaimer, terms, privacy, result notices |
@@ -28,14 +29,16 @@
 ### What Is Still Incomplete
 | Feature | Current Gap |
 |---|---|
-| automated tests | ranking, pantry math, and photo matching need coverage |
-| route consolidation | legacy overlaps still exist |
-| rate limiting | no formal protection layer yet |
+| automated tests | ranking, pantry math, photo matching, auth-guard, and rate limiter have no coverage |
+| route consolidation | `recipes` vs `generate-recipes`, `analyze-image` vs `scan` still overlap |
+| rate limiting | per-instance in-memory only — not safe across Vercel serverless instances |
 | pantry freshness | no expiry / freshness model yet |
 | advanced unit conversion | still limited for packaged goods |
 | favorites / saved recipe library | history exists, separate library does not |
 | nutrition tracking | not implemented |
-| observability | metrics exist in places, but no full monitoring stack |
+| observability | structured JSON logging works; no error tracker (Sentry) and no uptime monitor |
+| Replicate cost control | no in-app per-user/day generation cap or admin kill-switch |
+| env validation | `validate:prod-env` does not check `REPLICATE_API_TOKEN` even though premium photo flow depends on it |
 
 ## Current Maturity Level
 NutriMoment is currently between **Level 2: Core Product** and **Level 3: Full Feature**.
@@ -138,9 +141,11 @@ Definition of done:
 
 ### Security
 - [x] Active protected routes verify Firebase ID tokens
-- [ ] Route-level rate limiting
+- [x] In-memory rate limiting on AI / image / scan / mealplan routes
+- [ ] Distributed (Upstash/Redis or Vercel WAF) rate limiting for serverless
 - [ ] Full Firestore rule audit against current collections
-- [x] Debug route removed
+- [x] `/api/debug` route directory present but contains no handler (no exposed surface)
+- [ ] Admin kill-switch for Replicate generation to protect against billing abuse
 
 ### Quality
 - [x] ESLint clean

@@ -171,6 +171,14 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Global on/off + per-user daily cap flag for Replicate image generation.
+    // Authenticated clients may read so the UI can surface "premium photos
+    // temporarily paused" copy; only admins can flip the switch.
+    match /globalControls/{controlId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     match /recipeSources/{sourceId} {
       allow read: if isAuthenticated();
       allow write: if false;

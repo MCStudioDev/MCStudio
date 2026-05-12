@@ -1,6 +1,6 @@
 # NutriMoment - Product Description
-**Version:** 1.3  
-**Date:** 2026-04-24
+**Version:** 1.4  
+**Date:** 2026-05-11
 
 ## Tagline
 **"Scan what you have. Cook what fits."**
@@ -83,34 +83,34 @@ Current behavior:
 - Arabic UI and RTL layout are supported.
 
 ### 5. Weekly Meal Planning
-Weekly meal planning is a premium-only feature.
+Weekly meal planning is gated by a lifetime quota for free users and unlimited for premium/admin.
 
 Current behavior:
 - `POST /api/mealplan` is the active route.
-- The route requires a signed-in premium user.
+- Premium/admin users have unmetered access.
+- Free users get 3 lifetime weekly plans (`FREE_LIFETIME_WEEKLY_PLANS` in `src/services/authService.ts`).
 - The route first searches the offline catalog and then optionally uses Gemini text fallback if needed.
 - The current plan is stored at `users/{uid}/plans/currentWeekly`.
 - The shopping list is reconciled against pantry quantities.
 - The plan survives refresh until replaced.
 
 ### 6. Recipe Photos
-Recipe photos are now based on public image search rather than mandatory paid generation.
+Recipe photos use a two-mode pipeline, decided per request from caller tier.
 
 Current active behavior:
 - `GET /api/recipe-photo` is the active image lookup route.
 - The route is protected by Firebase ID token verification.
-- Current lookup order:
-  1. in-memory server cache
-  2. shared Firestore-backed photo cache
-  3. Unsplash
-  4. Pexels
-  5. `No exact photo`
-- Wikimedia is currently disabled in the live route.
-- Unsplash attribution is preserved and displayed.
-- Resolved image URLs are stored back into history and meal-plan records.
+- Mode is chosen by `hasGeneratedRecipeImageAccess()`:
+  - **Premium/admin → generated mode**: Replicate (`black-forest-labs/flux-schnell` by default, overridable via `REPLICATE_IMAGE_MODEL`) is the primary source. Recent product direction is to enforce generated images only for this tier and aggressively reuse them via shared cache.
+  - **Free / unauthenticated public hydration → search mode**: in-memory cache → shared Firestore photo cache → Unsplash → Pexels → Wikimedia (allow-listed canonical dishes only) → `unavailable`.
+- All modes consult the in-memory server cache and shared Firestore photo cache first; failures are negatively cached.
+- Unsplash attribution is preserved and displayed when an Unsplash photo is returned.
+- Resolved image URLs are persisted into history and meal-plan records.
+- `recipePhotoCache/{signature}` and exact-alias entries are shared across users to reduce regeneration cost.
 
-Important note:
-- `src/lib/googleImagen.ts` still exists in the codebase, but Gemini image generation is not the active production photo path right now.
+Important notes:
+- Replicate is now the **primary** photo path for premium users. The Replicate token must be present in production or premium photo generation will fall back to a `no exact photo` response.
+- `src/lib/googleImagen.ts` is still in the tree but is not used by the active route.
 
 ### 7. History
 Generated recipe sessions are saved and can be revisited later.
@@ -132,7 +132,10 @@ Current behavior:
   - API-assisted recipe generation
   - recipe photo search
   - weekly meal plans
-- Free users currently operate under a shared lifetime AI-credit model.
+- Free users currently operate under a lifetime AI-credit model:
+  - 10 lifetime AI-assisted feature credits (`FREE_LIFETIME_AI_CREDITS`).
+  - 3 lifetime weekly meal plans (`FREE_LIFETIME_WEEKLY_PLANS`).
+- Free users use search-mode (Unsplash/Pexels/Wikimedia) recipe photos; premium users get Replicate-generated photos.
 
 ### 9. Legal and Safety Layer
 The app positions itself as informational meal-planning support.
@@ -180,9 +183,10 @@ Current behavior:
 - Firebase Auth
 - Firestore
 - Firebase Storage
-- Gemini SDK for text and vision fallback flows
+- Gemini SDK (`@google/genai`) for text and vision fallback flows
 - offline recipe catalog and ingredient index
-- Unsplash and Pexels recipe-photo search pipeline
+- Unsplash, Pexels, and allow-listed Wikimedia recipe-photo search pipeline (free tier)
+- Replicate image generation for premium recipe photos (`flux-schnell` by default)
 
 ## Near-Term Product Priorities
 1. Add route-level rate limiting and abuse protection.

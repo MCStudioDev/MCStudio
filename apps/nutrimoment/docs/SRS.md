@@ -1,7 +1,7 @@
 # Software Requirements Specification
 ## NutriMoment - Current Application Baseline
-**Version:** 1.1  
-**Date:** 2026-04-24  
+**Version:** 1.2  
+**Date:** 2026-05-11  
 **Status:** Updated to match the current app, not the original broad vision draft
 
 ## 1. Purpose
@@ -16,7 +16,7 @@ NutriMoment is a Next.js 16 web application that helps authenticated users:
 - scan ingredients or pantry images
 - manage pantry inventory
 - generate ranked recipe suggestions
-- create premium weekly meal plans
+- create weekly meal plans (3 lifetime trial plans for free users; unmetered for premium/admin)
 - persist recipe history
 - resolve public recipe photos
 
@@ -47,8 +47,8 @@ Browser
 | FR-01.1 | Users shall sign in with Google OAuth through Firebase Auth. | Implemented |
 | FR-01.2 | Protected backend routes shall require a Firebase ID token. | Implemented |
 | FR-01.3 | Backend access state shall distinguish `free`, `premium`, and `admin`. | Implemented |
-| FR-01.4 | Free users shall be limited by server-enforced AI access rules. | Implemented |
-| FR-01.5 | Premium status shall be enforced server-side for weekly meal plans. | Implemented |
+| FR-01.4 | Free users shall be limited by server-enforced lifetime AI credit (10) and weekly-plan (3) quotas. | Implemented |
+| FR-01.5 | Premium/admin status shall bypass free-tier quotas server-side. | Implemented |
 
 ### FR-02 Scanning
 | ID | Requirement | Status |
@@ -85,7 +85,7 @@ Browser
 ### FR-05 Weekly Meal Planning
 | ID | Requirement | Status |
 |---|---|---|
-| FR-05.1 | `POST /api/mealplan` shall require a signed-in premium user. | Implemented |
+| FR-05.1 | `POST /api/mealplan` shall require a signed-in user. Premium/admin is unmetered; free users get 3 lifetime plans. | Implemented |
 | FR-05.2 | The route shall build a 7-day plan with breakfast, lunch, and dinner. | Implemented |
 | FR-05.3 | The route shall use offline catalog recipes first. | Implemented |
 | FR-05.4 | Gemini text fallback may be used when catalog-backed planning is weak or unavailable. | Implemented |
@@ -97,11 +97,19 @@ Browser
 | ID | Requirement | Status |
 |---|---|---|
 | FR-06.1 | `GET /api/recipe-photo` shall authenticate the caller. | Implemented |
-| FR-06.2 | The route shall reuse in-memory and shared cache entries when available. | Implemented |
-| FR-06.3 | Unsplash search shall be attempted before Pexels. | Implemented |
-| FR-06.4 | If no exact public match is found, the route shall return an unavailable state rather than a wrong fallback image. | Implemented |
-| FR-06.5 | Unsplash attribution shall be preserved and rendered in the UI. | Implemented |
-| FR-06.6 | Gemini image generation shall be the default photo path. | Not current |
+| FR-06.2 | The route shall reuse in-memory and shared cache entries (`recipePhotoCache` + exact aliases) before any provider call. | Implemented |
+| FR-06.3 | For premium/admin callers, Replicate (`flux-schnell` by default) shall be the primary image source. | Implemented |
+| FR-06.4 | For free callers, the route shall try Unsplash → Pexels → allow-listed Wikimedia, in that order. | Implemented |
+| FR-06.5 | If no acceptable match is found, the route shall return an unavailable state rather than a wrong fallback image. | Implemented |
+| FR-06.6 | Unsplash attribution shall be preserved and rendered in the UI when Unsplash served the image. | Implemented |
+| FR-06.7 | Wikimedia matches shall be restricted to the canonical dish allow-list (`getAllDishes()` + curated extras). | Implemented |
+| FR-06.8 | Gemini image generation shall be the default photo path. | Not current (replaced by Replicate) |
+
+### FR-09a History API
+| ID | Requirement | Status |
+|---|---|---|
+| FR-09a.1 | `GET /api/history` shall return the caller's history (max 50 entries) sorted by `createdAt`/`completedAt`/`timestamp`. | Implemented |
+| FR-09a.2 | The route shall require a Firebase ID token. | Implemented |
 
 ### FR-07 History
 | ID | Requirement | Status |
@@ -132,7 +140,7 @@ Browser
 | Protected backend routes must verify Firebase ID tokens. | Implemented on active access-gated routes |
 | Secrets must remain server-side. | Required / operational assumption |
 | Firestore rules must match the real data model. | Needs continued review |
-| Rate limiting should protect expensive or abuse-prone routes. | Not yet implemented |
+| Rate limiting should protect expensive or abuse-prone routes. | In-memory limiter implemented; not safe across Vercel instances — see PRODUCTION_READINESS weak points |
 
 ### NFR-02 Reliability
 | Requirement | Status |
@@ -180,8 +188,9 @@ Notes:
 | Recipe saving | history-backed sessions | dedicated saved-recipe library + favorites |
 | Nutrition tracking | not implemented | daily logs and summaries |
 | Pantry fidelity | quantity-aware, no freshness model | expiry, freshness, richer conversion |
-| Observability | console logging + basic metrics | structured monitoring and alerting |
-| Abuse protection | auth enforced, no rate limit | rate limiting and operational hardening |
+| Observability | structured JSON logger (`src/lib/logger.ts`) only; no error tracker | Sentry/equivalent + source maps + alerting |
+| Abuse protection | per-instance in-memory limiter | distributed limiter (Upstash Redis / Vercel WAF) |
+| Premium photo provider | single-vendor Replicate dependency | provider redundancy or graceful provider downgrade |
 
 ## 8. Acceptance Baseline for the Current App
 The current app should be considered functionally healthy when:

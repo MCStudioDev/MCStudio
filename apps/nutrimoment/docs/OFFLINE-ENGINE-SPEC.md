@@ -1,6 +1,6 @@
 # NutriMoment - Offline-First Recipe Engine Spec
-**Version:** 1.1  
-**Date:** 2026-04-24  
+**Version:** 1.2  
+**Date:** 2026-05-11  
 **Status:** Partially implemented and actively used by the current app
 
 ## Purpose
@@ -148,17 +148,29 @@ AI is still important, but its role is narrower:
 - routine recipe photo lookup
 
 ## Recipe Photos in the Offline-First World
-Photo resolution now follows a separate stack:
+Photo resolution is decoupled from recipe generation and runs in two modes depending on caller tier.
+
+Premium / admin (generated mode):
 
 ```text
-cache
--> shared cache
--> Unsplash
--> Pexels
+in-memory cache
+-> shared Firestore cache (exact alias + signature)
+-> Replicate (flux-schnell, configurable)
 -> unavailable
 ```
 
-This is important because photo lookup is now decoupled from recipe generation. Recipe retrieval can be deterministic even when no exact image exists.
+Free / public hydration (search mode):
+
+```text
+in-memory cache
+-> shared Firestore cache
+-> Unsplash
+-> Pexels
+-> Wikimedia (allow-listed canonical dishes only)
+-> unavailable
+```
+
+Recipe retrieval stays deterministic even when no exact image exists; the photo route never returns a wrong-image fallback.
 
 ## Recommended Next Steps
 1. Expand the offline recipe catalog.

@@ -44,7 +44,15 @@ const requiredEnv: RequiredEnv[] = [
 
 const optionalEnv = [
   { name: "PEXELS_API_KEY", description: "Pexels fallback recipe photo key" },
-  { name: "LOG_LEVEL", description: "Server log verbosity" }
+  { name: "LOG_LEVEL", description: "Server log verbosity" },
+  {
+    name: "REPLICATE_API_TOKEN",
+    description: "Replicate token for premium recipe-image generation; without it premium users fall through to 'no exact photo'"
+  },
+  {
+    name: "REPLICATE_IMAGE_MODEL",
+    description: "Replicate model id; defaults to black-forest-labs/flux-schnell when unset"
+  }
 ];
 
 function cleanEnvValue(value: string | undefined) {
@@ -63,6 +71,10 @@ function isPlaceholder(value: string) {
 }
 
 const failures: string[] = [];
+
+if (cleanEnvValue(process.env.USE_MOCK_API) === "true") {
+  failures.push("USE_MOCK_API=true is set; production deploys must use real providers, not mocks.");
+}
 
 for (const item of requiredEnv) {
   const value = cleanEnvValue(process.env[item.name]);

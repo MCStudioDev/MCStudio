@@ -67,11 +67,21 @@ function mapHistoryDoc(id: string, data: HistoryDocData): HistoryItem & { create
 export async function GET(request: Request) {
   try {
     const access = await getRequestAccess(request);
-    const snapshot = await getAdminDb()
+    const historyRef = getAdminDb()
       .collection("users")
       .doc(access.uid)
-      .collection("history")
-      .get();
+      .collection("history");
+
+    // Push ordering and the 50-doc cap into Firestore so long-lived users do
+    // not scan their entire history collection on every call.
+    let snapshot;
+    try {
+      snapshot = await historyRef.orderBy("createdAt", "desc").limit(MAX_HISTORY_ITEMS).get();
+    } catch {
+      // Older history docs may be missing `createdAt`; fall back to a full read
+      // and in-memory sort so they still appear until they are backfilled.
+      snapshot = await historyRef.get();
+    }
 
     const items = snapshot.docs
       .map((doc) => mapHistoryDoc(doc.id, doc.data() as HistoryDocData))

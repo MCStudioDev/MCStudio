@@ -77,12 +77,15 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
   const db = getAdminDb();
   let entitlementData: Record<string, unknown> | undefined;
 
+  let entitlementExists = false;
+
   try {
     const entitlementSnap = await withFirebaseTransientRetry(
       () => db.doc(`entitlements/${decoded.uid}`).get(),
       "read entitlement"
     );
     entitlementData = entitlementSnap.data();
+    entitlementExists = entitlementSnap.exists;
   } catch (error) {
     if (isFirebaseTransientError(error)) {
       const cached = getCachedAccess(decoded.uid);
@@ -115,6 +118,33 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
   const features = normalizeEntitlementFeatures(entitlementData?.features);
   const isAdmin = role === "admin";
   const isPremium = tier === "premium";
+
+  // First-touch onboarding: write a `tier: 'free'` entitlements stub so every
+  // authenticated user is auditable in one collection. Fire-and-forget so a
+  // Firestore hiccup never blocks the request — the next call will retry.
+  if (!entitlementExists) {
+    db.doc(`entitlements/${decoded.uid}`)
+      .set(
+        {
+          uid: decoded.uid,
+          email: decoded.email ?? null,
+          tier: "free",
+          role: "user",
+          status: "active",
+          features: {},
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          source: "auto_onboarding"
+        },
+        { merge: true }
+      )
+      .catch((error) => {
+        logger.warn("Auto entitlements stub write failed", {
+          uid: decoded.uid,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+      });
+  }
 
   if (isAdmin || isPremium) {
     return cacheAccess({

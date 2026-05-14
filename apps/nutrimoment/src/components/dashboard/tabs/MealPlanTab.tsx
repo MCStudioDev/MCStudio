@@ -276,6 +276,8 @@ export function MealPlanTab() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
+          allergens: health.allergens ?? [],
+          diets: health.diets,
           mealPlan: nextMealPlan,
           uiLanguage: settings.uiLanguage
         })
@@ -283,7 +285,7 @@ export function MealPlanTab() {
     } catch {
       // Recipe-cache persistence is a background convenience; the user plan is already saved.
     }
-  }, [getAuthHeaders, hasGeneratedImageAccess, settings.uiLanguage, user]);
+  }, [getAuthHeaders, hasGeneratedImageAccess, health.allergens, health.diets, settings.uiLanguage, user]);
 
   const resolveMealPlanImages = useCallback(async () => {
     void mealPlanImagePlanKey;

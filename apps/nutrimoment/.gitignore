@@ -33,6 +33,8 @@ firebase-debug.log*
 dev-server.log
 dev-server.err.log
 output/
+# Diagnostic / inspection artifacts containing PII or raw imports
+.generated/
 
 # env files (can opt-in for committing if needed)
 .env*

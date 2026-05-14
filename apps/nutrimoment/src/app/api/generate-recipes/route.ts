@@ -57,6 +57,10 @@ import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import {
+  filterRecipesByDiet,
+  type DietEnforcementContext
+} from "@/lib/dietEnforcement";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 10;
 const MIN_RECIPE_RESULT_COUNT = 1;
@@ -176,6 +180,10 @@ export async function POST(request: Request) {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
     const hasGeneratedImageAccess = hasGeneratedRecipeImageAccess(requestAccess);
+    // Free tier (no premium, no admin) is served entirely from the curated
+    // catalog / shared recipe pool. Premium and admin users continue to use
+    // Gemini as the primary recipe source.
+    const isFreeTier = !requestAccess.isPremium && !requestAccess.isAdmin;
     const rl = applyRateLimit({
       uid: requestAccess.uid,
       feature: "recipe_generation",
@@ -219,6 +227,25 @@ export async function POST(request: Request) {
       : normalizedPromptIngredients.map((item) => item.normalized);
     const expandedNormalizedIngredientNames = expandIngredientFamilies(normalizedIngredientNames);
     const scoringIngredients = Array.from(new Set([...ingredients, ...expandedNormalizedIngredientNames]));
+    // Server-side hard filter context for diet + allergens. Used to drop
+    // anything Gemini returns that violates the user's rules, regardless of
+    // how confidently the prompt asked Gemini to respect them.
+    const dietContext: DietEnforcementContext = {
+      diets: parsed.data.diets ?? [],
+      allergens: parsed.data.allergens ?? []
+    };
+    const enforceDietOnRecipes = (recipes: Recipe[], stage: string): Recipe[] => {
+      const result = filterRecipesByDiet(recipes, dietContext);
+      if (result.rejected.length) {
+        logger.warn("Diet/allergen filter dropped recipes", {
+          requestId,
+          stage,
+          droppedCount: result.rejected.length,
+          firstReason: result.rejected[0]?.reason
+        });
+      }
+      return result.allowed;
+    };
     const availableIngredients = buildAvailableIngredientSet(ingredients, expandedNormalizedIngredientNames);
     const aiTraceSummary = {
       requestId,
@@ -316,12 +343,15 @@ export async function POST(request: Request) {
         ? buildMockExactScanRecipe(availableIngredients)
         : null;
       const strictRecipes = rankStrictRecipes(
-        applyStrictIngredientOwnership(MOCK_RECIPES.recipes, availableIngredients, {
-          preferredCuisine: parsed.data.preferredCuisine,
-          diets: parsed.data.diets,
-          conditions: parsed.data.conditions,
-          allergens: parsed.data.allergens
-        }),
+        enforceDietOnRecipes(
+          applyStrictIngredientOwnership(MOCK_RECIPES.recipes, availableIngredients, {
+            preferredCuisine: parsed.data.preferredCuisine,
+            diets: parsed.data.diets,
+            conditions: parsed.data.conditions,
+            allergens: parsed.data.allergens
+          }),
+          "mock"
+        ),
         { ...parsed.data, ingredients: scoringIngredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
@@ -333,7 +363,8 @@ export async function POST(request: Request) {
       await queueRecipeCachePersist({
         uid: requestAccess.uid,
         recipeLanguage,
-        recipes: finalRecipes
+        recipes: finalRecipes,
+        dietContext
       });
       await persistRecipeGenerationHistoryEntry({
         historyEntryId,
@@ -370,18 +401,27 @@ export async function POST(request: Request) {
       uid: requestAccess.uid
     });
 
-    if (!accessCheck.allowed) {
-      logger.info("Recipe generation served from shared recipe pool because access is not allowed", {
-        reason: accessCheck.reason,
-        recipeCount: searchResult.recipes.length
+    // Free-tier users are served from the curated catalog / shared recipe
+    // pool exclusively. Gemini is only used for premium and admin callers.
+    // Credit-exhausted users (any tier) also fall through here.
+    if (!accessCheck.allowed || isFreeTier) {
+      const reasonKind = !accessCheck.allowed ? "credits_used_shared_pool" : "free_plan_shared_pool";
+      logger.info("Recipe generation served from shared recipe pool", {
+        reason: reasonKind,
+        accessReason: accessCheck.reason,
+        recipeCount: searchResult.recipes.length,
+        isFreeTier
       });
       const strictRecipes = rankStrictRecipes(
-        applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
-          preferredCuisine: parsed.data.preferredCuisine,
-          diets: parsed.data.diets,
-          conditions: parsed.data.conditions,
-          allergens: parsed.data.allergens
-        }),
+        enforceDietOnRecipes(
+          applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
+            preferredCuisine: parsed.data.preferredCuisine,
+            diets: parsed.data.diets,
+            conditions: parsed.data.conditions,
+            allergens: parsed.data.allergens
+          }),
+          "catalog_free_tier"
+        ),
         { ...parsed.data, ingredients: scoringIngredients, recipeCount }
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
@@ -393,7 +433,8 @@ export async function POST(request: Request) {
       await queueRecipeCachePersist({
         uid: requestAccess.uid,
         recipeLanguage,
-        recipes: finalRecipes
+        recipes: finalRecipes,
+        dietContext
       });
       await persistRecipeGenerationHistoryEntry({
         historyEntryId,
@@ -404,13 +445,14 @@ export async function POST(request: Request) {
       logger.info("Recipe generation request completed", {
         ...aiTraceSummary,
         servedFrom: searchResult.servedFrom,
-        recipeCountReturned: finalRecipes.length
+        recipeCountReturned: finalRecipes.length,
+        isFreeTier
       });
       return Response.json({
         result: JSON.stringify(finalRecipes),
         servedFrom: searchResult.servedFrom,
         canLoadMore: searchResult.canLoadMore,
-        fallbackNotice: buildRecipeFallbackNotice("credits_used_shared_pool", recipeLanguage),
+        fallbackNotice: buildRecipeFallbackNotice(reasonKind, recipeLanguage),
         access: accessPayload(requestAccess)
       });
     }
@@ -446,12 +488,24 @@ export async function POST(request: Request) {
       const recipes = parseAiJsonPayload(text, "recipe_generation");
       const normalizedRecipes = recipes.recipes ?? recipes;
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
-        const primaryOwnedRecipes = applyStrictIngredientOwnership(normalizedRecipes, availableIngredients, {
-          preferredCuisine: parsed.data.preferredCuisine,
-          diets: parsed.data.diets,
-          conditions: parsed.data.conditions,
-          allergens: parsed.data.allergens
-        });
+        const primaryOwnedRecipes = enforceAnyCuisineDiversity(
+          rejectNearDuplicateAiRecipes(
+            enforceDietOnRecipes(
+              applyStrictIngredientOwnership(normalizedRecipes, availableIngredients, {
+                preferredCuisine: parsed.data.preferredCuisine,
+                diets: parsed.data.diets,
+                conditions: parsed.data.conditions,
+                allergens: parsed.data.allergens
+              }),
+              "ai_primary"
+            ),
+            requestId,
+            "ai_primary"
+          ),
+          parsed.data.preferredCuisine,
+          recipeCount,
+          requestId
+        );
         let strictRecipes = rankStrictRecipes(primaryOwnedRecipes, { ...parsed.data, ingredients: scoringIngredients, recipeCount })
           .slice(0, recipeCount);
         logRecipeRankingSnapshot("gemini_primary_after_strict_ranking", primaryOwnedRecipes, strictRecipes, {
@@ -487,12 +541,24 @@ export async function POST(request: Request) {
           const retryNormalizedRecipes = retryRecipes.recipes ?? retryRecipes;
 
           if (Array.isArray(retryNormalizedRecipes) && retryNormalizedRecipes.length) {
-            const repairOwnedRecipes = applyStrictIngredientOwnership(retryNormalizedRecipes, availableIngredients, {
-              preferredCuisine: parsed.data.preferredCuisine,
-              diets: parsed.data.diets,
-              conditions: parsed.data.conditions,
-              allergens: parsed.data.allergens
-            });
+            const repairOwnedRecipes = enforceAnyCuisineDiversity(
+              rejectNearDuplicateAiRecipes(
+                enforceDietOnRecipes(
+                  applyStrictIngredientOwnership(retryNormalizedRecipes, availableIngredients, {
+                    preferredCuisine: parsed.data.preferredCuisine,
+                    diets: parsed.data.diets,
+                    conditions: parsed.data.conditions,
+                    allergens: parsed.data.allergens
+                  }),
+                  "ai_repair"
+                ),
+                requestId,
+                "ai_repair"
+              ),
+              parsed.data.preferredCuisine,
+              recipeCount,
+              requestId
+            );
             const repairRecipes = rankStrictRecipes(repairOwnedRecipes, { ...parsed.data, ingredients: scoringIngredients, recipeCount })
               .slice(0, recipeCount);
             logRecipeRankingSnapshot("gemini_repair_after_strict_ranking", repairOwnedRecipes, repairRecipes, {
@@ -513,7 +579,8 @@ export async function POST(request: Request) {
         await queueRecipeCachePersist({
           uid: requestAccess.uid,
           recipeLanguage,
-          recipes: finalRecipes
+          recipes: finalRecipes,
+          dietContext
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -552,12 +619,15 @@ export async function POST(request: Request) {
       canLoadMore: searchResult.canLoadMore
     });
     const strictRecipes = rankStrictRecipes(
-      applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
-        preferredCuisine: parsed.data.preferredCuisine,
-        diets: parsed.data.diets,
-        conditions: parsed.data.conditions,
-        allergens: parsed.data.allergens
-      }),
+      enforceDietOnRecipes(
+        applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
+          preferredCuisine: parsed.data.preferredCuisine,
+          diets: parsed.data.diets,
+          conditions: parsed.data.conditions,
+          allergens: parsed.data.allergens
+        }),
+        "ai_failed_fallback"
+      ),
       { ...parsed.data, ingredients: scoringIngredients, recipeCount }
     );
     const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
@@ -569,7 +639,8 @@ export async function POST(request: Request) {
     await queueRecipeCachePersist({
       uid: requestAccess.uid,
       recipeLanguage,
-      recipes: finalRecipes
+      recipes: finalRecipes,
+      dietContext
     });
     await persistRecipeGenerationHistoryEntry({
       historyEntryId,
@@ -1907,7 +1978,11 @@ function clampRecipeCount(value?: number, maxRecipeCount = MAX_SHARED_POOL_RECIP
 }
 
 function buildRecipeFallbackNotice(
-  kind: "credits_used_shared_pool" | "ai_unavailable_shared_pool" | "ai_busy_shared_pool",
+  kind:
+    | "credits_used_shared_pool"
+    | "ai_unavailable_shared_pool"
+    | "ai_busy_shared_pool"
+    | "free_plan_shared_pool",
   recipeLanguage: string
 ) {
   const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
@@ -1920,6 +1995,10 @@ function buildRecipeFallbackNotice(
       return "Your 10 free recipe generations are used. These recipes are from the shared recipe pool.";
     }
 
+    if (kind === "free_plan_shared_pool") {
+      return "Free plan: these recipes come from our curated kitchen library. Upgrade to premium for fresh AI-generated cards.";
+    }
+
     if (kind === "ai_busy_shared_pool") {
       return "AI recipe generation is busy right now, so we showed the best matches from the shared recipe pool.";
     }
@@ -1928,7 +2007,11 @@ function buildRecipeFallbackNotice(
   }
 
   if (kind === "credits_used_shared_pool") {
-      return "تم استهلاك 10 طلبات توليد وصفات مجانية. هذه الوصفات من مجموعة الوصفات المشتركة.";
+    return "تم استهلاك 10 طلبات توليد وصفات مجانية. هذه الوصفات من مجموعة الوصفات المشتركة.";
+  }
+
+  if (kind === "free_plan_shared_pool") {
+    return "الخطة المجانية: هذه الوصفات من مكتبتنا المختارة. ترقّى للبريميوم للحصول على وصفات جديدة توليدية.";
   }
 
   return "تعذر توليد الوصفات بالذكاء الاصطناعي، لذلك استخدمنا مطابقات من مجموعة الوصفات المشتركة.";
@@ -1970,6 +2053,7 @@ async function queueRecipeCachePersist(input: {
   recipeLanguage: string;
   recipes?: Recipe[];
   uid?: string | null;
+  dietContext?: DietEnforcementContext;
 }) {
   if (AWAIT_SHARED_POOL_CACHE_PERSISTENCE) {
     try {
@@ -2317,6 +2401,99 @@ function enforceHardRequestRecipes(
   }
 
   return merged;
+}
+
+/**
+ * Strip stop words / prepositions, sort the remaining tokens, and use the
+ * result as a duplicate fingerprint. Catches "X with Y" vs "Y with X" name
+ * swaps and "chicken with onion" vs "chicken onion plate" duplicates that
+ * the variety enforcer below considers structurally distinct because the
+ * dish_intent metadata differs.
+ */
+function buildNormalizedRecipeNameSignature(name: string | undefined): string {
+  if (!name) return "";
+  const cleaned = name
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(
+      /\b(with|and|in|over|on|by|the|a|an|of|to|for|من|مع|و|في|على|إلى|الى|الـ|بال|طبق|وصفة|recipe|plate|dish|food)\b/giu,
+      " "
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  const tokens = cleaned
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+  if (tokens.length < 2) return "";
+  return Array.from(new Set(tokens)).sort().join("|");
+}
+
+function rejectNearDuplicateAiRecipes(recipes: Recipe[], requestId: string, stage: string): Recipe[] {
+  if (recipes.length <= 1) return recipes;
+  const seen = new Set<string>();
+  const result: Recipe[] = [];
+  let dropped = 0;
+  for (const recipe of recipes) {
+    const signature = buildNormalizedRecipeNameSignature(recipe.name);
+    if (signature && seen.has(signature)) {
+      dropped += 1;
+      continue;
+    }
+    if (signature) seen.add(signature);
+    result.push(recipe);
+  }
+  if (dropped > 0) {
+    logger.warn("Near-duplicate AI recipes rejected by name-token signature", {
+      requestId,
+      stage,
+      droppedCount: dropped
+    });
+  }
+  return result;
+}
+
+/**
+ * Enforce that no single cuisine occupies more than `cap` proportion of the
+ * recipe list when the user did not pick a specific cuisine. Prevents the
+ * "all 10 cards Turkish" drift observed when Gemini latches onto a single
+ * regional family for an Any-cuisine request. When the limit is reached,
+ * additional recipes from that cuisine are simply trimmed; the response may
+ * end up shorter and the caller's count-padding logic decides what to do.
+ */
+function enforceAnyCuisineDiversity(
+  recipes: Recipe[],
+  preferredCuisine: string | undefined,
+  recipeCount: number,
+  requestId: string
+): Recipe[] {
+  if (preferredCuisine && preferredCuisine !== "Any") return recipes;
+  if (recipes.length <= 1) return recipes;
+
+  const cap = Math.max(1, Math.ceil(recipeCount * 0.6));
+  const seenCounts = new Map<string, number>();
+  const accepted: Recipe[] = [];
+  let dropped = 0;
+  for (const recipe of recipes) {
+    const cuisineKey = (recipe.cuisine ?? "").trim().toLowerCase() || "unknown";
+    const current = seenCounts.get(cuisineKey) ?? 0;
+    if (current >= cap) {
+      dropped += 1;
+      continue;
+    }
+    seenCounts.set(cuisineKey, current + 1);
+    accepted.push(recipe);
+  }
+  if (dropped > 0) {
+    logger.warn("Any-cuisine diversity cap trimmed recipes", {
+      requestId,
+      droppedCount: dropped,
+      cap,
+      cuisineCounts: Object.fromEntries(seenCounts.entries())
+    });
+  }
+  return accepted;
 }
 
 function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {

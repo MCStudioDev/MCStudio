@@ -9,6 +9,8 @@ import {
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 
+// Deprecated compatibility route. New image ingredient extraction should use
+// POST /api/scan or POST /api/scan/process.
 export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");

@@ -2,6 +2,10 @@ import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
 import { getCuisineDishReferenceText, getCuisinePantryAnchors } from "@/lib/cuisineDishCatalog";
 import { getCuisineVisualReferenceText } from "@/lib/cuisineVisualReferences";
 import { isPastaLikeIngredient } from "@/lib/ingredientFamilies";
+import {
+  buildPromptForbiddenIngredientsLine,
+  buildPromptForbiddenMealPlanLine
+} from "@/lib/dietEnforcement";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -543,9 +547,17 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
       ].join(" ")
     : "";
 
+  const forbiddenIngredientsLine = buildPromptForbiddenIngredientsLine({
+    diets: options.diets ?? [],
+    allergens: options.allergens ?? []
+  });
+
   return [
     "You are NutriMoment's recipe generation assistant.",
     arabicPromptPriorityBlock,
+    // Hard gate near the top so Gemini sees it before all the cuisine / dish-
+    // family guidance below.
+    forbiddenIngredientsLine,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     `Generate exactly ${recipeCount} practical recipes.`,
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
@@ -1215,9 +1227,15 @@ export function buildMealPlanPrompt({
       ].join(" ")
     : "";
 
+  const forbiddenMealPlanLine = buildPromptForbiddenMealPlanLine({
+    diets: diets ?? [],
+    allergens: allergens ?? []
+  });
+
   return [
     "You are NutriMoment's premium weekly meal planning assistant.",
     arabicMealPlanPromptBlock,
+    forbiddenMealPlanLine,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     "Generate a 7-day meal plan.",
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third use pantry ingredients and minimize extra shopping.",
@@ -1260,6 +1278,8 @@ export function buildMealPlanPrompt({
     "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
     "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"chicken shawarma wrap\",\"chicken shawarma\",\"shawarma plate\"], [\"beef shawarma wrap\",\"beef shawarma\",\"middle eastern shawarma\"], [\"baked white fish\",\"white fish vegetables\",\"roasted fish plate\"], [\"grilled chicken red sauce pasta\",\"chicken tomato pasta\",\"grilled chicken pasta\"].",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
+    "Never output a placeholder meal, flexible meal slot, TBD meal, or empty meal. If the pantry cannot support a safe real meal, create a real compatible meal using missing ingredients and list those missing ingredients in shoppingList.",
+    "It is acceptable to go beyond the pantry for diet safety, allergens, cuisine authenticity, and a complete usable weekly plan.",
     pantryLine,
     pantryQuantitiesLine,
     preferenceBrief,

@@ -23,7 +23,8 @@
     "prune:user-history": "tsx scripts/prune-user-history.ts",
     "cleanup:synthetic-recipes": "tsx scripts/cleanup-synthetic-recipes.ts",
     "import:real-recipes": "tsx scripts/import-real-recipes.ts",
-    "set:user-access": "tsx scripts/set-user-access.ts"
+    "set:user-access": "tsx scripts/set-user-access.ts",
+    "inspect:user-recipes": "tsx scripts/inspect-user-recipes.ts"
   },
   "dependencies": {
     "@google/genai": "^1.18.0",

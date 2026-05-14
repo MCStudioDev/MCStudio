@@ -13,7 +13,8 @@ import {
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { logger } from "@/lib/logger";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
-import { searchCatalogRecipes } from "@/services/recipeSearchService";
+import { mapCatalogRecipeToMeal, searchCatalogRecipes } from "@/services/recipeSearchService";
+import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
@@ -21,6 +22,10 @@ import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
+import {
+  findRecipeDietViolation,
+  type DietEnforcementContext
+} from "@/lib/dietEnforcement";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -121,9 +126,82 @@ export async function POST(request: Request) {
     const nextAccess = await consumeFreeAiCredit(access, "weekly_plan");
     const pantryItems = parsed.data.pantryItems ?? [];
     const pantry = parsed.data.pantry ?? (pantryItems.length ? pantryItems.map((item) => item.name) : extractPantryFromPrompt(parsed.data.prompt ?? ""));
+    // Server-side diet/allergen gate for meal-plan output. Any slot the AI
+    // returns that violates the user's diet or allergen settings is repaired
+    // into a real safe meal. Replacements may add missing ingredients to the
+    // shopping list; pantry-only planning is less important than not showing
+    // placeholders or unsafe meals.
+    const dietContext: DietEnforcementContext = {
+      diets: parsed.data.diets ?? [],
+      allergens: parsed.data.allergens ?? []
+    };
+    const repairMealPlanSlots = (plan: MealPlanData, stage: string, replacementRecipes: RecipeCatalogDoc[] = []): MealPlanData => {
+      let repairCount = 0;
+      let dietViolationCount = 0;
+      let cuisineRepairCount = 0;
+      let placeholderCount = 0;
+      let catalogReplacementCount = 0;
+      let defaultReplacementCount = 0;
+      const usedReplacementNames = new Set<string>();
+      const replacementMeals: MealPlanMeal[] = [];
+      const cuisineAlignedReplacements = getCuisineAlignedRecipes(replacementRecipes, parsed.data.preferredCuisine);
+      const cleaned = {
+        ...plan,
+        plan: plan.plan.map((day) => {
+          const dayWithCleanedSlots = { ...day };
+          for (const slot of ["breakfast", "lunch", "dinner"] as const) {
+            const meal = day[slot];
+            if (!meal) continue;
+            const violation = findRecipeDietViolation(meal, dietContext);
+            const placeholder = isPlaceholderMeal(meal);
+            const cuisineMismatch = !mealMatchesPreferredCuisine(meal, parsed.data.preferredCuisine);
+            if (violation || placeholder || cuisineMismatch) {
+              repairCount += 1;
+              if (violation) dietViolationCount += 1;
+              if (placeholder) placeholderCount += 1;
+              if (cuisineMismatch) cuisineRepairCount += 1;
+              const replacement = buildSafeMealReplacement({
+                dietContext,
+                recipeLanguage,
+                preferredCuisine: parsed.data.preferredCuisine,
+                replacementRecipes: cuisineAlignedReplacements.length ? cuisineAlignedReplacements : replacementRecipes,
+                slot,
+                usedReplacementNames
+              });
+              if (replacement.source === "catalog") catalogReplacementCount += 1;
+              if (replacement.source === "default") defaultReplacementCount += 1;
+              replacementMeals.push(replacement.meal);
+              dayWithCleanedSlots[slot] = replacement.meal;
+            }
+          }
+          return dayWithCleanedSlots;
+        })
+      };
+      if (repairCount > 0) {
+        const expandedShoppingList = addMealIngredientsToShoppingList(cleaned.shoppingList, replacementMeals);
+        logger.warn("Meal plan slot guard repaired meal slots", {
+          requestId,
+          stage,
+          repairCount,
+          dietViolationCount,
+          cuisineRepairCount,
+          placeholderCount,
+          catalogReplacementCount,
+          defaultReplacementCount
+        });
+        return {
+          ...cleaned,
+          shoppingList: expandedShoppingList
+        };
+      }
+      return cleaned;
+    };
 
     if (USE_MOCK) {
-      const mockPlan = { ...MOCK_MEAL_PLAN, servedFrom: "mock" as const };
+      const mockPlan = repairMealPlanSlots(
+        { ...MOCK_MEAL_PLAN, servedFrom: "mock" as const },
+        "mock"
+      );
       const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
       const outputMockPlan = ensureDetailedMealPlanSteps(
         wantsArabic ? localizeMealPlanForArabic(mockPlan) : mockPlan,
@@ -133,7 +211,8 @@ export async function POST(request: Request) {
         uid: access.uid,
         recipeLanguage,
         meals: outputMockPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
-        recipes: outputMockPlan.recommendedRecipes
+        recipes: outputMockPlan.recommendedRecipes,
+        dietContext
       });
       await persistMealPlanResultForUser({
         historyEntryId: parsed.data.historyEntryId,
@@ -163,9 +242,11 @@ export async function POST(request: Request) {
     const orderedRankedRecipes = searchResult.rankedRecipeIds
       .map((recipeId) => rankedRecipeMap.get(recipeId))
       .filter((recipe): recipe is RecipeCatalogDoc => Boolean(recipe));
-    const catalogRecipes = orderedRankedRecipes.length
+    const rankedCatalogRecipes = orderedRankedRecipes.length
       ? orderedRankedRecipes
       : searchResult.candidateRecipes;
+    const cuisineAlignedCatalogRecipes = getCuisineAlignedRecipes(rankedCatalogRecipes, parsed.data.preferredCuisine);
+    const catalogRecipes = cuisineAlignedCatalogRecipes.length ? cuisineAlignedCatalogRecipes : rankedCatalogRecipes;
 
     try {
       ensureAiAvailable();
@@ -187,7 +268,11 @@ export async function POST(request: Request) {
 
       if (aiMealPlan) {
         const reconciledShoppingList = reconcileShoppingListWithPantry(aiMealPlan.shoppingList, pantryStock);
-        const reconciledMealPlan = { ...aiMealPlan, shoppingList: reconciledShoppingList };
+        const reconciledMealPlan = repairMealPlanSlots(
+          { ...aiMealPlan, shoppingList: reconciledShoppingList },
+          "ai_mealplan",
+          catalogRecipes
+        );
         const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
         const outputMealPlan = ensureDetailedMealPlanSteps(
           wantsArabic ? localizeMealPlanForArabic(reconciledMealPlan) : reconciledMealPlan,
@@ -197,7 +282,8 @@ export async function POST(request: Request) {
           uid: access.uid,
           recipeLanguage,
           meals: outputMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
-          recipes: outputMealPlan.recommendedRecipes
+          recipes: outputMealPlan.recommendedRecipes,
+          dietContext
         });
         await persistMealPlanResultForUser({
           historyEntryId: parsed.data.historyEntryId,
@@ -238,10 +324,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const emergencyMealPlan = {
-      ...buildMealPlanData(catalogRecipes, pantryStock),
-      servedFrom: "shared_pool" as const
-    };
+    const emergencyMealPlan = repairMealPlanSlots(
+      {
+        ...buildMealPlanData(catalogRecipes, pantryStock),
+        servedFrom: "shared_pool" as const
+      },
+      "catalog_emergency",
+      catalogRecipes
+    );
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const outputEmergencyMealPlan = ensureDetailedMealPlanSteps(
       wantsArabic ? localizeMealPlanForArabic(emergencyMealPlan) : emergencyMealPlan,
@@ -251,7 +341,8 @@ export async function POST(request: Request) {
       uid: access.uid,
       recipeLanguage,
       meals: outputEmergencyMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
-      recipes: outputEmergencyMealPlan.recommendedRecipes
+      recipes: outputEmergencyMealPlan.recommendedRecipes,
+      dietContext
     });
     await persistMealPlanResultForUser({
       historyEntryId: parsed.data.historyEntryId,
@@ -296,6 +387,635 @@ function extractPantryFromPrompt(prompt: string): string[] {
   const match = prompt.match(/pantry items:\s*(.+?)\./i);
   if (!match?.[1]) return [];
   return match[1].split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function getCuisineAlignedRecipes(recipes: RecipeCatalogDoc[], preferredCuisine?: string) {
+  if (!preferredCuisine || preferredCuisine === "Any") return recipes;
+  return recipes.filter((recipe) => catalogRecipeMatchesPreferredCuisine(recipe, preferredCuisine));
+}
+
+function catalogRecipeMatchesPreferredCuisine(recipe: RecipeCatalogDoc, preferredCuisine: string) {
+  return (
+    cuisineMatchesPreference(recipe.cuisine, preferredCuisine) ||
+    (recipe.regionalCuisines ?? []).some((cuisine) => cuisineMatchesPreference(cuisine, preferredCuisine)) ||
+    cuisineMatchesPreference(recipe.localized?.English?.cuisine ?? "", preferredCuisine)
+  );
+}
+
+function mealMatchesPreferredCuisine(meal: MealPlanMeal, preferredCuisine?: string) {
+  if (!preferredCuisine || preferredCuisine === "Any") return true;
+  return cuisineMatchesPreference(meal.cuisine ?? "", preferredCuisine);
+}
+
+function buildSafeMealReplacement({
+  dietContext,
+  recipeLanguage,
+  preferredCuisine,
+  replacementRecipes,
+  slot,
+  usedReplacementNames
+}: {
+  dietContext: DietEnforcementContext;
+  recipeLanguage: string;
+  preferredCuisine?: string;
+  replacementRecipes: RecipeCatalogDoc[];
+  slot: "breakfast" | "lunch" | "dinner";
+  usedReplacementNames: Set<string>;
+}): { meal: MealPlanMeal; source: "catalog" | "default" } {
+  const selectedRecipe =
+    pickSafeReplacementRecipe(replacementRecipes, slot, dietContext, usedReplacementNames) ??
+    pickSafeReplacementRecipe(replacementRecipes, undefined, dietContext, usedReplacementNames);
+
+  if (selectedRecipe) {
+    usedReplacementNames.add(selectedRecipe.title.toLowerCase());
+    return {
+      meal: mapCatalogRecipeToMeal(selectedRecipe),
+      source: "catalog"
+    };
+  }
+
+  const meal = buildDefaultSafeMeal(slot, preferredCuisine, recipeLanguage, usedReplacementNames);
+  usedReplacementNames.add(meal.name.toLowerCase());
+  return { meal, source: "default" };
+}
+
+function isPlaceholderMeal(meal: MealPlanMeal) {
+  return /flexible meal slot|placeholder|tbd|to be decided|choose a meal/i.test(meal.name) || !meal.ingredients?.length;
+}
+
+function pickSafeReplacementRecipe(
+  recipes: RecipeCatalogDoc[],
+  slot: "breakfast" | "lunch" | "dinner" | undefined,
+  dietContext: DietEnforcementContext,
+  usedReplacementNames: Set<string>
+) {
+  return recipes.find((recipe) => {
+    if (slot && recipe.mealType !== slot) return false;
+    if (usedReplacementNames.has(recipe.title.toLowerCase())) return false;
+    return !findRecipeDietViolation(recipe, dietContext);
+  });
+}
+
+function buildDefaultSafeMeal(
+  slot: "breakfast" | "lunch" | "dinner",
+  preferredCuisine: string | undefined,
+  recipeLanguage: string,
+  usedReplacementNames: Set<string>
+): MealPlanMeal {
+  const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
+  const cuisine = wantsArabic
+    ? getArabicCuisineLabel(preferredCuisine)
+    : preferredCuisine && preferredCuisine !== "Any"
+      ? preferredCuisine
+      : "Mediterranean";
+  const cuisineKey = (preferredCuisine ?? "").toLowerCase();
+
+  if (cuisineKey.includes("asian") || cuisineKey.includes("thai")) {
+    return buildDefaultAsianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames);
+  }
+
+  if (slot === "breakfast") {
+    return wantsArabic ? {
+      name: "وعاء كينوا بالتوت",
+      cuisine,
+      calories: 390,
+      protein: "12غ",
+      carbs: "68غ",
+      fat: "9غ",
+      ingredients: ["كينوا", "توت مشكل", "بذور شيا", "قرفة", "شراب القيقب"],
+      steps: [
+        "اطه الكينوا حتى تصبح طرية ومفلفلة.",
+        "ضعها في وعاء مع التوت المشكل.",
+        "أضف بذور الشيا والقرفة ورشة صغيرة من شراب القيقب."
+      ]
+    } : {
+      name: "Berry quinoa breakfast bowl",
+      cuisine,
+      calories: 390,
+      protein: "12g",
+      carbs: "68g",
+      fat: "9g",
+      ingredients: ["quinoa", "mixed berries", "chia seeds", "cinnamon", "maple syrup"],
+      steps: [
+        "Cook quinoa until tender and fluffy.",
+        "Spoon it into a bowl with mixed berries.",
+        "Top with chia seeds, cinnamon, and a small drizzle of maple syrup."
+      ]
+    };
+  }
+
+  if (slot === "lunch") {
+    return wantsArabic ? {
+      name: "سلطة أرز بالحمص",
+      cuisine,
+      calories: 520,
+      protein: "18غ",
+      carbs: "82غ",
+      fat: "14غ",
+      ingredients: ["حمص", "أرز", "خيار", "طماطم", "بقدونس", "زيت زيتون", "ليمون"],
+      steps: [
+        "اطه الأرز واتركه يهدأ قليلاً.",
+        "اخلط الحمص مع الخيار والطماطم والبقدونس وزيت الزيتون والليمون.",
+        "قدّم سلطة الحمص فوق الأرز."
+      ]
+    } : {
+      name: "Chickpea rice salad",
+      cuisine,
+      calories: 520,
+      protein: "18g",
+      carbs: "82g",
+      fat: "14g",
+      ingredients: ["chickpeas", "rice", "cucumber", "tomato", "parsley", "olive oil", "lemon"],
+      steps: [
+        "Cook rice and let it cool slightly.",
+        "Toss chickpeas with cucumber, tomato, parsley, olive oil, and lemon.",
+        "Serve the chickpea salad over rice."
+      ]
+    };
+  }
+
+  return wantsArabic ? {
+    name: "يخنة عدس بالخضار مع الأرز",
+    cuisine,
+    calories: 560,
+    protein: "24غ",
+    carbs: "92غ",
+    fat: "10غ",
+    ingredients: ["عدس", "أرز", "جزر", "طماطم", "بصل", "ثوم", "زيت زيتون"],
+    steps: [
+      "اسلق العدس مع الطماطم والبصل والثوم والجزر حتى يطرى.",
+      "اطه الأرز بشكل منفصل حتى يصبح مفلفلاً.",
+      "قدّم يخنة العدس بالخضار فوق الأرز مع رشة صغيرة من زيت الزيتون."
+    ]
+  } : {
+    name: "Lentil vegetable stew with rice",
+    cuisine,
+    calories: 560,
+    protein: "24g",
+    carbs: "92g",
+    fat: "10g",
+    ingredients: ["lentils", "rice", "carrot", "tomato", "onion", "garlic", "olive oil"],
+    steps: [
+      "Simmer lentils with tomato, onion, garlic, and carrot until tender.",
+      "Cook rice separately until fluffy.",
+      "Serve the lentil vegetable stew over rice with a small drizzle of olive oil."
+    ]
+  };
+}
+
+type DefaultMealVariant = Omit<MealPlanMeal, "cuisine">;
+
+function selectDefaultMealVariant(variants: DefaultMealVariant[], usedReplacementNames: Set<string>) {
+  return (
+    variants.find((meal) => !usedReplacementNames.has(meal.name.toLowerCase())) ??
+    variants[usedReplacementNames.size % variants.length]
+  );
+}
+
+function withCuisine(variant: DefaultMealVariant | undefined, cuisine: string): MealPlanMeal | undefined {
+  if (!variant) return undefined;
+  return {
+    ...variant,
+    cuisine
+  };
+}
+
+function getDefaultAsianMealVariants(slot: "breakfast" | "lunch" | "dinner", wantsArabic: boolean): DefaultMealVariant[] {
+  const sharedArabicSteps = [
+    "اطه قاعدة الأرز أو النودلز حتى تصبح طرية.",
+    "شوّح الخضار مع الزنجبيل والثوم حتى تظهر الرائحة.",
+    "اخلط المكونات وقدّم الطبق دافئاً مع الليمون الأخضر."
+  ];
+  const sharedEnglishSteps = [
+    "Cook the rice or noodles until tender.",
+    "Stir-fry the vegetables with ginger and garlic until fragrant.",
+    "Toss everything together and serve warm with lime."
+  ];
+
+  if (wantsArabic) {
+    const bySlot: Record<"breakfast" | "lunch" | "dinner", DefaultMealVariant[]> = {
+      breakfast: [
+        {
+          name: "كونجي أرز بالزنجبيل والفطر",
+          calories: 380,
+          protein: "10غ",
+          carbs: "72غ",
+          fat: "6غ",
+          ingredients: ["أرز", "فطر", "زنجبيل", "بصل أخضر", "خيار"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger mushroom rice congee"
+        },
+        {
+          name: "أرز صباحي بالبصل الأخضر والخيار",
+          calories: 395,
+          protein: "11غ",
+          carbs: "75غ",
+          fat: "7غ",
+          ingredients: ["أرز", "بصل أخضر", "خيار", "جزر", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "scallion cucumber breakfast rice bowl"
+        },
+        {
+          name: "وعاء أرز بالخضار والزنجبيل",
+          calories: 410,
+          protein: "12غ",
+          carbs: "78غ",
+          fat: "7غ",
+          ingredients: ["أرز", "كرنب", "جزر", "زنجبيل", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger vegetable rice bowl"
+        },
+        {
+          name: "عصيدة أرز بالليمون والفطر",
+          calories: 385,
+          protein: "10غ",
+          carbs: "74غ",
+          fat: "6غ",
+          ingredients: ["أرز", "فطر", "ليمون أخضر", "بصل أخضر", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "lime mushroom rice porridge"
+        },
+        {
+          name: "أرز بالريحان والخضار",
+          calories: 420,
+          protein: "12غ",
+          carbs: "80غ",
+          fat: "8غ",
+          ingredients: ["أرز", "ريحان", "فلفل رومي", "جزر", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "thai basil vegetable rice"
+        },
+        {
+          name: "وعاء أرز بالخيار والجزر",
+          calories: 390,
+          protein: "10غ",
+          carbs: "76غ",
+          fat: "6غ",
+          ingredients: ["أرز", "خيار", "جزر", "بصل أخضر", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "cucumber carrot rice bowl"
+        },
+        {
+          name: "أرز بالبوك تشوي والزنجبيل",
+          calories: 405,
+          protein: "12غ",
+          carbs: "77غ",
+          fat: "7غ",
+          ingredients: ["أرز", "بوك تشوي", "زنجبيل", "ثوم", "فطر"],
+          steps: sharedArabicSteps,
+          image_search_index: "bok choy ginger rice bowl"
+        }
+      ],
+      lunch: [
+        {
+          name: "وعاء نودلز أرز بالخضار",
+          calories: 510,
+          protein: "14غ",
+          carbs: "88غ",
+          fat: "11غ",
+          ingredients: ["نودلز أرز", "كرنب", "جزر", "خيار", "زنجبيل", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "vegetable rice noodle bowl"
+        },
+        {
+          name: "نودلز أرز بالزنجبيل والحمص",
+          calories: 535,
+          protein: "18غ",
+          carbs: "90غ",
+          fat: "12غ",
+          ingredients: ["نودلز أرز", "حمص", "جزر", "زنجبيل", "بصل أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger chickpea rice noodles"
+        },
+        {
+          name: "أرز بالخضار والليمون الأخضر",
+          calories: 520,
+          protein: "15غ",
+          carbs: "86غ",
+          fat: "13غ",
+          ingredients: ["أرز", "فلفل رومي", "كرنب", "جزر", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "lime vegetable rice bowl"
+        },
+        {
+          name: "وعاء أرز بالفطر والكرنب",
+          calories: 525,
+          protein: "16غ",
+          carbs: "84غ",
+          fat: "13غ",
+          ingredients: ["أرز", "فطر", "كرنب", "ثوم", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "mushroom cabbage rice bowl"
+        },
+        {
+          name: "نودلز أرز بالحمص والفلفل",
+          calories: 545,
+          protein: "19غ",
+          carbs: "92غ",
+          fat: "12غ",
+          ingredients: ["نودلز أرز", "حمص", "فلفل رومي", "جزر", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "chickpea pepper rice noodles"
+        },
+        {
+          name: "أرز بالبوك تشوي والثوم",
+          calories: 500,
+          protein: "14غ",
+          carbs: "82غ",
+          fat: "12غ",
+          ingredients: ["أرز", "بوك تشوي", "فطر", "ثوم", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "garlic bok choy rice bowl"
+        },
+        {
+          name: "كاري خضار بجوز الهند مع الأرز",
+          calories: 560,
+          protein: "15غ",
+          carbs: "86غ",
+          fat: "18غ",
+          ingredients: ["أرز", "حليب جوز الهند", "جزر", "كرنب", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "coconut vegetable curry rice"
+        }
+      ],
+      dinner: [
+        {
+          name: "أرز مقلي بالزنجبيل والحمص",
+          calories: 560,
+          protein: "20غ",
+          carbs: "90غ",
+          fat: "12غ",
+          ingredients: ["أرز", "حمص", "فلفل رومي", "جزر", "زنجبيل", "ثوم", "بصل أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger chickpea fried rice"
+        },
+        {
+          name: "أرز بالخضار والفطر المقلي",
+          calories: 555,
+          protein: "17غ",
+          carbs: "88غ",
+          fat: "14غ",
+          ingredients: ["أرز", "فطر", "كرنب", "جزر", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "mushroom vegetable stir fry rice"
+        },
+        {
+          name: "كاري خضار بجوز الهند مع الأرز",
+          calories: 590,
+          protein: "16غ",
+          carbs: "88غ",
+          fat: "20غ",
+          ingredients: ["أرز", "حليب جوز الهند", "فلفل رومي", "جزر", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "coconut vegetable curry with rice"
+        },
+        {
+          name: "نودلز أرز بالكرنب والثوم",
+          calories: 540,
+          protein: "15غ",
+          carbs: "92غ",
+          fat: "11غ",
+          ingredients: ["نودلز أرز", "كرنب", "جزر", "ثوم", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "garlic cabbage rice noodles"
+        },
+        {
+          name: "أرز بالريحان والحمص",
+          calories: 575,
+          protein: "21غ",
+          carbs: "90غ",
+          fat: "13غ",
+          ingredients: ["أرز", "حمص", "ريحان", "فلفل رومي", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "thai basil chickpea rice"
+        },
+        {
+          name: "أرز بالبوك تشوي والفطر",
+          calories: 550,
+          protein: "17غ",
+          carbs: "86غ",
+          fat: "14غ",
+          ingredients: ["أرز", "بوك تشوي", "فطر", "زنجبيل", "بصل أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "bok choy mushroom rice skillet"
+        },
+        {
+          name: "نودلز أرز بالجزر والزنجبيل",
+          calories: 535,
+          protein: "14غ",
+          carbs: "94غ",
+          fat: "10غ",
+          ingredients: ["نودلز أرز", "جزر", "كرنب", "زنجبيل", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger carrot rice noodle stir fry"
+        }
+      ]
+    };
+
+    return bySlot[slot];
+  }
+
+  const bySlot: Record<"breakfast" | "lunch" | "dinner", DefaultMealVariant[]> = {
+    breakfast: [
+      ["Ginger mushroom rice congee", 380, "10g", "72g", "6g", ["rice", "mushrooms", "ginger", "scallions", "cucumber"]],
+      ["Scallion cucumber breakfast rice", 395, "11g", "75g", "7g", ["rice", "scallions", "cucumber", "carrot", "ginger"]],
+      ["Ginger vegetable rice bowl", 410, "12g", "78g", "7g", ["rice", "cabbage", "carrot", "ginger", "lime"]],
+      ["Lime mushroom rice porridge", 385, "10g", "74g", "6g", ["rice", "mushrooms", "lime", "scallions", "ginger"]],
+      ["Thai basil vegetable rice", 420, "12g", "80g", "8g", ["rice", "basil", "bell pepper", "carrot", "garlic"]],
+      ["Cucumber carrot rice bowl", 390, "10g", "76g", "6g", ["rice", "cucumber", "carrot", "scallions", "lime"]],
+      ["Bok choy ginger rice bowl", 405, "12g", "77g", "7g", ["rice", "bok choy", "ginger", "garlic", "mushrooms"]]
+    ].map(([name, calories, protein, carbs, fat, ingredients]) => ({
+      name: name as string,
+      calories: calories as number,
+      protein: protein as string,
+      carbs: carbs as string,
+      fat: fat as string,
+      ingredients: ingredients as string[],
+      steps: sharedEnglishSteps,
+      image_search_index: name as string
+    })),
+    lunch: [
+      ["Vegetable rice noodle bowl", 510, "14g", "88g", "11g", ["rice noodles", "cabbage", "carrot", "cucumber", "ginger", "lime"]],
+      ["Ginger chickpea rice noodles", 535, "18g", "90g", "12g", ["rice noodles", "chickpeas", "carrot", "ginger", "scallions"]],
+      ["Lime vegetable rice bowl", 520, "15g", "86g", "13g", ["rice", "bell pepper", "cabbage", "carrot", "lime"]],
+      ["Mushroom cabbage rice bowl", 525, "16g", "84g", "13g", ["rice", "mushrooms", "cabbage", "garlic", "ginger"]],
+      ["Chickpea pepper rice noodles", 545, "19g", "92g", "12g", ["rice noodles", "chickpeas", "bell pepper", "carrot", "garlic"]],
+      ["Garlic bok choy rice bowl", 500, "14g", "82g", "12g", ["rice", "bok choy", "mushrooms", "garlic", "lime"]],
+      ["Coconut vegetable curry rice", 560, "15g", "86g", "18g", ["rice", "coconut milk", "carrot", "cabbage", "ginger"]]
+    ].map(([name, calories, protein, carbs, fat, ingredients]) => ({
+      name: name as string,
+      calories: calories as number,
+      protein: protein as string,
+      carbs: carbs as string,
+      fat: fat as string,
+      ingredients: ingredients as string[],
+      steps: sharedEnglishSteps,
+      image_search_index: name as string
+    })),
+    dinner: [
+      ["Ginger chickpea fried rice", 560, "20g", "90g", "12g", ["rice", "chickpeas", "bell pepper", "carrot", "ginger", "garlic", "scallions"]],
+      ["Mushroom vegetable stir-fry rice", 555, "17g", "88g", "14g", ["rice", "mushrooms", "cabbage", "carrot", "garlic"]],
+      ["Coconut vegetable curry with rice", 590, "16g", "88g", "20g", ["rice", "coconut milk", "bell pepper", "carrot", "ginger"]],
+      ["Garlic cabbage rice noodles", 540, "15g", "92g", "11g", ["rice noodles", "cabbage", "carrot", "garlic", "lime"]],
+      ["Thai basil chickpea rice", 575, "21g", "90g", "13g", ["rice", "chickpeas", "basil", "bell pepper", "garlic"]],
+      ["Bok choy mushroom rice skillet", 550, "17g", "86g", "14g", ["rice", "bok choy", "mushrooms", "ginger", "scallions"]],
+      ["Ginger carrot rice noodle stir-fry", 535, "14g", "94g", "10g", ["rice noodles", "carrot", "cabbage", "ginger", "lime"]]
+    ].map(([name, calories, protein, carbs, fat, ingredients]) => ({
+      name: name as string,
+      calories: calories as number,
+      protein: protein as string,
+      carbs: carbs as string,
+      fat: fat as string,
+      ingredients: ingredients as string[],
+      steps: sharedEnglishSteps,
+      image_search_index: name as string
+    }))
+  };
+
+  return bySlot[slot];
+}
+
+function buildDefaultAsianSafeMeal(
+  slot: "breakfast" | "lunch" | "dinner",
+  cuisine: string,
+  wantsArabic: boolean,
+  usedReplacementNames: Set<string>
+): MealPlanMeal {
+  const selectedVariant = withCuisine(
+    selectDefaultMealVariant(getDefaultAsianMealVariants(slot, wantsArabic), usedReplacementNames),
+    cuisine
+  );
+  if (selectedVariant) {
+    return selectedVariant;
+  }
+
+  if (slot === "breakfast") {
+    return wantsArabic ? {
+      name: "كونجي أرز بالزنجبيل والفطر",
+      cuisine,
+      calories: 380,
+      protein: "10غ",
+      carbs: "72غ",
+      fat: "6غ",
+      ingredients: ["أرز", "فطر", "زنجبيل", "بصل أخضر", "خيار"],
+      steps: [
+        "اطه الأرز مع ماء إضافي حتى يصبح قوامه ناعماً مثل الكونجي.",
+        "أضف الفطر والزنجبيل واتركه يغلي برفق حتى يطرى الفطر.",
+        "قدّمه مع البصل الأخضر والخيار."
+      ]
+    } : {
+      name: "Ginger mushroom rice congee",
+      cuisine,
+      calories: 380,
+      protein: "10g",
+      carbs: "72g",
+      fat: "6g",
+      ingredients: ["rice", "mushrooms", "ginger", "scallions", "cucumber"],
+      steps: [
+        "Cook rice with extra water until it softens into a congee texture.",
+        "Add mushrooms and ginger, then simmer until the mushrooms are tender.",
+        "Serve with scallions and cucumber."
+      ]
+    };
+  }
+
+  if (slot === "lunch") {
+    return wantsArabic ? {
+      name: "وعاء نودلز أرز بالخضار",
+      cuisine,
+      calories: 510,
+      protein: "14غ",
+      carbs: "88غ",
+      fat: "11غ",
+      ingredients: ["نودلز أرز", "كرنب", "جزر", "خيار", "زنجبيل", "ليمون أخضر"],
+      steps: [
+        "اسلق نودلز الأرز حتى تطرى ثم صفّها.",
+        "شوّح الكرنب والجزر مع الزنجبيل حتى يلينان قليلاً.",
+        "قدّم النودلز مع الخضار والخيار وعصرة ليمون أخضر."
+      ]
+    } : {
+      name: "Vegetable rice noodle bowl",
+      cuisine,
+      calories: 510,
+      protein: "14g",
+      carbs: "88g",
+      fat: "11g",
+      ingredients: ["rice noodles", "cabbage", "carrot", "cucumber", "ginger", "lime"],
+      steps: [
+        "Boil rice noodles until tender, then drain them.",
+        "Stir-fry cabbage and carrot with ginger until just softened.",
+        "Serve the noodles with vegetables, cucumber, and lime."
+      ]
+    };
+  }
+
+  return wantsArabic ? {
+    name: "أرز مقلي بالزنجبيل والحمص",
+    cuisine,
+    calories: 560,
+    protein: "20غ",
+    carbs: "90غ",
+    fat: "12غ",
+    ingredients: ["أرز", "حمص", "فلفل رومي", "جزر", "زنجبيل", "ثوم", "بصل أخضر"],
+    steps: [
+      "اطه الأرز حتى يصبح مفلفلاً واتركه يبرد قليلاً.",
+      "شوّح الزنجبيل والثوم مع الجزر والفلفل الرومي حتى تظهر الرائحة.",
+      "أضف الحمص والأرز وقلّب حتى يصبح الطبق ساخناً ومتماسكاً."
+    ]
+  } : {
+    name: "Ginger chickpea fried rice",
+    cuisine,
+    calories: 560,
+    protein: "20g",
+    carbs: "90g",
+    fat: "12g",
+    ingredients: ["rice", "chickpeas", "bell pepper", "carrot", "ginger", "garlic", "scallions"],
+    steps: [
+      "Cook rice until fluffy, then let it cool slightly.",
+      "Stir-fry ginger and garlic with carrot and bell pepper until fragrant.",
+      "Add chickpeas and rice, then toss until hot and evenly mixed."
+    ]
+  };
+}
+
+function getArabicCuisineLabel(preferredCuisine?: string) {
+  if (!preferredCuisine || preferredCuisine === "Any") return "متوسطي";
+  const normalized = preferredCuisine.toLowerCase();
+  if (normalized.includes("egypt")) return "مصري";
+  if (normalized.includes("middle")) return "شرق أوسطي";
+  if (normalized.includes("mediterranean")) return "متوسطي";
+  if (normalized.includes("turkish")) return "تركي";
+  if (normalized.includes("italian")) return "إيطالي";
+  if (normalized.includes("indian")) return "هندي";
+  if (normalized.includes("mexican")) return "مكسيكي";
+  if (normalized.includes("asian")) return "آسيوي";
+  if (normalized.includes("american")) return "أمريكي";
+  return preferredCuisine;
+}
+
+function addMealIngredientsToShoppingList(shoppingList: string[], meals: MealPlanMeal[]) {
+  const existingItems = new Set(shoppingList.map(getShoppingListItemKey).filter(Boolean));
+  const additions: string[] = [];
+
+  meals
+    .flatMap((meal) => meal.ingredients ?? [])
+    .map((ingredient) => ingredient.trim())
+    .filter(Boolean)
+    .forEach((ingredient) => {
+      const key = getShoppingListItemKey(ingredient);
+      if (!key || existingItems.has(key)) return;
+      existingItems.add(key);
+      additions.push(`${ingredient} - 1 item`);
+    });
+
+  return [...shoppingList, ...additions];
+}
+
+function getShoppingListItemKey(value: string) {
+  return value
+    .split(" - ")[0]
+    .trim()
+    .toLowerCase();
 }
 
 async function persistMealPlanResultForUser({
@@ -409,6 +1129,7 @@ function queueMealPlanCachePersist(input: {
   meals?: MealPlanMeal[];
   recipes?: Recipe[];
   uid?: string | null;
+  dietContext?: DietEnforcementContext;
 }) {
   void persistGeneratedRecipeCache(input).catch((error) => {
     logger.warn("Meal-plan cache persistence failed", {

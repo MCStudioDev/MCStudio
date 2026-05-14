@@ -17,13 +17,21 @@ import {
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { logger } from "@/lib/logger";
+import { enforceAuthenticCuisineRecipeSet } from "@/lib/cuisineAuthenticityResolver";
+import type { Recipe } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+// Legacy compatibility route. New recipe generation should use
+// POST /api/generate-recipes, which has the complete diet/cuisine pipeline.
 const requestSchema = z.object({
+  ingredients: z.array(z.string()).optional(),
   prompt: z.string().min(20),
-  image: z.string().optional()
+  image: z.string().optional(),
+  preferredCuisine: z.string().optional(),
+  recipeCount: z.number().int().min(1).max(10).optional(),
+  recipeLanguage: z.string().optional()
 });
 
 const MOCK_RECIPES = [
@@ -126,9 +134,19 @@ export async function POST(request: Request) {
     }
 
     const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
+    const availableIngredients = buildLegacyAvailableIngredients(parsed.data.prompt, parsed.data.ingredients);
+    const preferredCuisine = parsed.data.preferredCuisine;
+    const recipeLanguage = parsed.data.recipeLanguage;
+    const recipeCount = parsed.data.recipeCount;
 
     if (USE_MOCK) {
-      return Response.json({ result: JSON.stringify(MOCK_RECIPES), access: accessPayload(nextAccess) });
+      const guardedMockRecipes = enforceLegacyCuisineGuard(MOCK_RECIPES, {
+        availableIngredients,
+        preferredCuisine,
+        recipeCount,
+        recipeLanguage
+      });
+      return Response.json({ result: JSON.stringify(guardedMockRecipes), access: accessPayload(nextAccess) });
     }
 
     ensureAiAvailable();
@@ -137,7 +155,14 @@ export async function POST(request: Request) {
       : await callOpenAIText(prompt);
 
     const json = extractJson(text);
-    return Response.json({ result: json, access: accessPayload(nextAccess) });
+    const guardedJson = enforceLegacyRecipePayloadCuisineGuard(json, {
+      availableIngredients,
+      preferredCuisine,
+      recipeCount,
+      recipeLanguage,
+      requestId
+    });
+    return Response.json({ result: guardedJson, access: accessPayload(nextAccess) });
   } catch (err) {
     if (
       isFirebaseTransientError(err) ||
@@ -157,4 +182,74 @@ export async function POST(request: Request) {
     logger.error("Basic recipe generation failed", err, { requestId });
     return Response.json({ error: safeMessage, result: "[]" }, { status });
   }
+}
+
+function enforceLegacyRecipePayloadCuisineGuard(
+  json: string,
+  options: {
+    availableIngredients: string[];
+    preferredCuisine?: string;
+    recipeCount?: number;
+    recipeLanguage?: string;
+    requestId: string;
+  }
+) {
+  try {
+    const payload = JSON.parse(json) as unknown;
+    if (Array.isArray(payload)) {
+      return JSON.stringify(enforceLegacyCuisineGuard(payload, options));
+    }
+
+    if (payload && typeof payload === "object" && Array.isArray((payload as { recipes?: unknown }).recipes)) {
+      const nextPayload = {
+        ...payload,
+        recipes: enforceLegacyCuisineGuard((payload as { recipes: Recipe[] }).recipes, options)
+      };
+      return JSON.stringify(nextPayload);
+    }
+  } catch (error) {
+    logger.warn("Legacy recipe cuisine guard could not parse AI payload", {
+      requestId: options.requestId,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  }
+
+  return json;
+}
+
+function enforceLegacyCuisineGuard(
+  recipes: Recipe[],
+  options: {
+    availableIngredients: string[];
+    preferredCuisine?: string;
+    recipeCount?: number;
+    recipeLanguage?: string;
+  }
+) {
+  const availableIngredients = options.availableIngredients.length
+    ? options.availableIngredients
+    : recipes.flatMap((recipe) => recipe.ingredients ?? []);
+
+  return enforceAuthenticCuisineRecipeSet(recipes, {
+    availableIngredients,
+    preferredCuisine: options.preferredCuisine,
+    recipeCount: options.recipeCount ?? recipes.length,
+    recipeLanguage: options.recipeLanguage
+  });
+}
+
+function buildLegacyAvailableIngredients(prompt: string, explicitIngredients?: string[]) {
+  if (explicitIngredients?.length) return explicitIngredients;
+
+  const pantryMatch = prompt.match(/(?:ingredients|pantry items|items available|available ingredients)\s*:\s*([^.:\n]+)/i);
+  const source = pantryMatch?.[1] ?? prompt;
+  return Array.from(
+    new Set(
+      source
+        .split(/[,;\n]/)
+        .map((item) => item.replace(/\b(generate|create|recipe|recipes|with|using|make|cook|for|and)\b/gi, "").trim())
+        .filter((item) => item.length > 1 && item.length <= 48)
+        .slice(0, 24)
+    )
+  );
 }

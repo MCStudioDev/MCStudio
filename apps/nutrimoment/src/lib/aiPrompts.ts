@@ -2,6 +2,10 @@ import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
 import { getCuisineDishReferenceText, getCuisinePantryAnchors } from "@/lib/cuisineDishCatalog";
 import { getCuisineVisualReferenceText } from "@/lib/cuisineVisualReferences";
 import { isPastaLikeIngredient } from "@/lib/ingredientFamilies";
+import {
+  buildPromptForbiddenIngredientsLine,
+  buildPromptForbiddenMealPlanLine
+} from "@/lib/dietEnforcement";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -543,9 +547,17 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
       ].join(" ")
     : "";
 
+  const forbiddenIngredientsLine = buildPromptForbiddenIngredientsLine({
+    diets: options.diets ?? [],
+    allergens: options.allergens ?? []
+  });
+
   return [
     "You are NutriMoment's recipe generation assistant.",
     arabicPromptPriorityBlock,
+    // Hard gate near the top so Gemini sees it before all the cuisine / dish-
+    // family guidance below.
+    forbiddenIngredientsLine,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     `Generate exactly ${recipeCount} practical recipes.`,
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
@@ -1215,9 +1227,15 @@ export function buildMealPlanPrompt({
       ].join(" ")
     : "";
 
+  const forbiddenMealPlanLine = buildPromptForbiddenMealPlanLine({
+    diets: diets ?? [],
+    allergens: allergens ?? []
+  });
+
   return [
     "You are NutriMoment's premium weekly meal planning assistant.",
     arabicMealPlanPromptBlock,
+    forbiddenMealPlanLine,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     "Generate a 7-day meal plan.",
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third use pantry ingredients and minimize extra shopping.",
@@ -1226,7 +1244,9 @@ export function buildMealPlanPrompt({
     deepMealPlanCuisineGuidance,
     realRecipeGuardrails,
     namedPlatePolicy,
-    "When a preferred cuisine is provided, breakfast, lunch, and dinner should mostly stay within that cuisine or its direct regional family unless pantry constraints make that impossible.",
+    preferredCuisine === "Any"
+      ? "Because preferred cuisine is Any, choose the best-fitting authentic cuisine for each meal and vary the week intentionally."
+      : `Closed cuisine rule: every breakfast, lunch, and dinner must belong to ${preferredCuisine} or a direct regional substyle inside ${preferredCuisine}. Do not output Egyptian, Mediterranean, American, Italian, Turkish, or any other off-cuisine meal when ${preferredCuisine} is selected; add missing ingredients instead of drifting off-cuisine.`,
     "Every breakfast, lunch, and dinner object must include a cuisine field. Use the precise cuisine or regional substyle for that specific meal, not only the user's broad preference. Examples: Egyptian, Alexandrian Egyptian, Turkish, Levantine, North Indian, Thai, Italian-American, Mediterranean.",
     "Deep cuisine rule for every meal slot: choose a real breakfast/lunch/dinner tradition from that cuisine, then make the ingredients, steps, aromatics, spice base, starch, sauce, garnish, and plating match that tradition. Do not make a generic protein bowl and label it Egyptian, Turkish, Italian, Indian, Asian, or Mediterranean.",
     "Breakfast should be cuisine-native, not a generic Western breakfast unless that cuisine or user preference supports it. Lunch and dinner should use distinct cuisine-native structures such as stew, rice plate, stuffed bread, grilled plate, baked casserole, curry, soup, pasta, pilaf, bean dish, or skillet only when that structure belongs to the meal's cuisine.",
@@ -1260,6 +1280,8 @@ export function buildMealPlanPrompt({
     "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
     "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"chicken shawarma wrap\",\"chicken shawarma\",\"shawarma plate\"], [\"beef shawarma wrap\",\"beef shawarma\",\"middle eastern shawarma\"], [\"baked white fish\",\"white fish vegetables\",\"roasted fish plate\"], [\"grilled chicken red sauce pasta\",\"chicken tomato pasta\",\"grilled chicken pasta\"].",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
+    "Never output a placeholder meal, flexible meal slot, TBD meal, or empty meal. If the pantry cannot support a safe real meal, create a real compatible meal using missing ingredients and list those missing ingredients in shoppingList.",
+    "It is acceptable to go beyond the pantry for diet safety, allergens, cuisine authenticity, and a complete usable weekly plan.",
     pantryLine,
     pantryQuantitiesLine,
     preferenceBrief,
@@ -1600,6 +1622,10 @@ function buildMealTypeRoutingGuidance(
 
   if (normalizedCuisine === "turkish") {
     return `${mealBias} For Turkish cuisine, breakfast should lean toward menemen or egg-and-cheese plates, while lunch and dinner should lean toward kofte, adana kebab, lentil soup, pilaf plates, or eggplant-based mains.`;
+  }
+
+  if (normalizedCuisine === "asian") {
+    return `${mealBias} For Asian cuisine, choose clear Asian substyles such as Chinese, Japanese, Korean, Thai, Vietnamese, or broader East/Southeast Asian meals. Breakfast can lean toward congee, rice bowls, noodle soup, or vegetable rice plates; lunch and dinner should lean toward rice bowls, rice noodle dishes, stir-fries, brothy soups, curries, or fried rice with Asian aromatics. Do not use Egyptian, Mediterranean, American, Italian, or generic Western meal families.`;
   }
 
   return mealBias;

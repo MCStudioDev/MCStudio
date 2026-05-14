@@ -259,7 +259,7 @@ export async function GET(request: Request) {
       selectedReplicateQuery,
       useReplicateGeneration
     }) &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(exactCached.imageUrl, exactCacheLookupCandidates, reuseKeyCandidates))
+    (!isRecipePhotoRecentlyUsedForDifferentSignature(exactCached.imageUrl, exactCacheLookupCandidates, reuseKeyCandidates))
   ) {
     await persistExactAliasesForLegacyPhoto(exactCached, exactAliasCandidates);
     rememberRecipePhotoSelection(exactCached.imageUrl, exactCached.signature, getRecipePhotoReuseKeyForEntry(exactCached, reuseKeyCandidates));
@@ -295,7 +295,7 @@ export async function GET(request: Request) {
       useReplicateGeneration
     }) &&
     (WIKIMEDIA_ENABLED || sharedExactCached.source !== "wikimedia") &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates, reuseKeyCandidates))
+    (!isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates, reuseKeyCandidates))
   ) {
     const sharedPhoto = {
       imageAttributionName: sharedExactCached.imageAttributionName,
@@ -345,7 +345,7 @@ export async function GET(request: Request) {
       selectedReplicateQuery,
       useReplicateGeneration
     }) &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates, reuseKeyCandidates))
+    (!isRecipePhotoRecentlyUsedForDifferentSignature(cached.imageUrl, signatureCandidates, reuseKeyCandidates))
   ) {
     rememberRecipePhotoSelection(cached.imageUrl, cached.signature, getRecipePhotoReuseKeyForEntry(cached, reuseKeyCandidates));
     logger.info("Recipe photo served", {
@@ -384,7 +384,7 @@ export async function GET(request: Request) {
       useReplicateGeneration
     }) &&
     (WIKIMEDIA_ENABLED || sharedCached.source !== "wikimedia") &&
-    (!accessCheck.allowed || !isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates, reuseKeyCandidates))
+    (!isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates, reuseKeyCandidates))
   ) {
     const sharedPhoto = {
       imageAttributionName: sharedCached.imageAttributionName,

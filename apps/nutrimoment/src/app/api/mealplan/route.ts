@@ -434,7 +434,7 @@ function buildSafeMealReplacement({
     };
   }
 
-  const meal = buildDefaultSafeMeal(slot, preferredCuisine, recipeLanguage);
+  const meal = buildDefaultSafeMeal(slot, preferredCuisine, recipeLanguage, usedReplacementNames);
   usedReplacementNames.add(meal.name.toLowerCase());
   return { meal, source: "default" };
 }
@@ -456,7 +456,12 @@ function pickSafeReplacementRecipe(
   });
 }
 
-function buildDefaultSafeMeal(slot: "breakfast" | "lunch" | "dinner", preferredCuisine: string | undefined, recipeLanguage: string): MealPlanMeal {
+function buildDefaultSafeMeal(
+  slot: "breakfast" | "lunch" | "dinner",
+  preferredCuisine: string | undefined,
+  recipeLanguage: string,
+  usedReplacementNames: Set<string>
+): MealPlanMeal {
   const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
   const cuisine = wantsArabic
     ? getArabicCuisineLabel(preferredCuisine)
@@ -466,7 +471,7 @@ function buildDefaultSafeMeal(slot: "breakfast" | "lunch" | "dinner", preferredC
   const cuisineKey = (preferredCuisine ?? "").toLowerCase();
 
   if (cuisineKey.includes("asian") || cuisineKey.includes("thai")) {
-    return buildDefaultAsianSafeMeal(slot, cuisine, wantsArabic);
+    return buildDefaultAsianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames);
   }
 
   if (slot === "breakfast") {
@@ -558,7 +563,332 @@ function buildDefaultSafeMeal(slot: "breakfast" | "lunch" | "dinner", preferredC
   };
 }
 
-function buildDefaultAsianSafeMeal(slot: "breakfast" | "lunch" | "dinner", cuisine: string, wantsArabic: boolean): MealPlanMeal {
+type DefaultMealVariant = Omit<MealPlanMeal, "cuisine">;
+
+function selectDefaultMealVariant(variants: DefaultMealVariant[], usedReplacementNames: Set<string>) {
+  return (
+    variants.find((meal) => !usedReplacementNames.has(meal.name.toLowerCase())) ??
+    variants[usedReplacementNames.size % variants.length]
+  );
+}
+
+function withCuisine(variant: DefaultMealVariant | undefined, cuisine: string): MealPlanMeal | undefined {
+  if (!variant) return undefined;
+  return {
+    ...variant,
+    cuisine
+  };
+}
+
+function getDefaultAsianMealVariants(slot: "breakfast" | "lunch" | "dinner", wantsArabic: boolean): DefaultMealVariant[] {
+  const sharedArabicSteps = [
+    "اطه قاعدة الأرز أو النودلز حتى تصبح طرية.",
+    "شوّح الخضار مع الزنجبيل والثوم حتى تظهر الرائحة.",
+    "اخلط المكونات وقدّم الطبق دافئاً مع الليمون الأخضر."
+  ];
+  const sharedEnglishSteps = [
+    "Cook the rice or noodles until tender.",
+    "Stir-fry the vegetables with ginger and garlic until fragrant.",
+    "Toss everything together and serve warm with lime."
+  ];
+
+  if (wantsArabic) {
+    const bySlot: Record<"breakfast" | "lunch" | "dinner", DefaultMealVariant[]> = {
+      breakfast: [
+        {
+          name: "كونجي أرز بالزنجبيل والفطر",
+          calories: 380,
+          protein: "10غ",
+          carbs: "72غ",
+          fat: "6غ",
+          ingredients: ["أرز", "فطر", "زنجبيل", "بصل أخضر", "خيار"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger mushroom rice congee"
+        },
+        {
+          name: "أرز صباحي بالبصل الأخضر والخيار",
+          calories: 395,
+          protein: "11غ",
+          carbs: "75غ",
+          fat: "7غ",
+          ingredients: ["أرز", "بصل أخضر", "خيار", "جزر", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "scallion cucumber breakfast rice bowl"
+        },
+        {
+          name: "وعاء أرز بالخضار والزنجبيل",
+          calories: 410,
+          protein: "12غ",
+          carbs: "78غ",
+          fat: "7غ",
+          ingredients: ["أرز", "كرنب", "جزر", "زنجبيل", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger vegetable rice bowl"
+        },
+        {
+          name: "عصيدة أرز بالليمون والفطر",
+          calories: 385,
+          protein: "10غ",
+          carbs: "74غ",
+          fat: "6غ",
+          ingredients: ["أرز", "فطر", "ليمون أخضر", "بصل أخضر", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "lime mushroom rice porridge"
+        },
+        {
+          name: "أرز بالريحان والخضار",
+          calories: 420,
+          protein: "12غ",
+          carbs: "80غ",
+          fat: "8غ",
+          ingredients: ["أرز", "ريحان", "فلفل رومي", "جزر", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "thai basil vegetable rice"
+        },
+        {
+          name: "وعاء أرز بالخيار والجزر",
+          calories: 390,
+          protein: "10غ",
+          carbs: "76غ",
+          fat: "6غ",
+          ingredients: ["أرز", "خيار", "جزر", "بصل أخضر", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "cucumber carrot rice bowl"
+        },
+        {
+          name: "أرز بالبوك تشوي والزنجبيل",
+          calories: 405,
+          protein: "12غ",
+          carbs: "77غ",
+          fat: "7غ",
+          ingredients: ["أرز", "بوك تشوي", "زنجبيل", "ثوم", "فطر"],
+          steps: sharedArabicSteps,
+          image_search_index: "bok choy ginger rice bowl"
+        }
+      ],
+      lunch: [
+        {
+          name: "وعاء نودلز أرز بالخضار",
+          calories: 510,
+          protein: "14غ",
+          carbs: "88غ",
+          fat: "11غ",
+          ingredients: ["نودلز أرز", "كرنب", "جزر", "خيار", "زنجبيل", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "vegetable rice noodle bowl"
+        },
+        {
+          name: "نودلز أرز بالزنجبيل والحمص",
+          calories: 535,
+          protein: "18غ",
+          carbs: "90غ",
+          fat: "12غ",
+          ingredients: ["نودلز أرز", "حمص", "جزر", "زنجبيل", "بصل أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger chickpea rice noodles"
+        },
+        {
+          name: "أرز بالخضار والليمون الأخضر",
+          calories: 520,
+          protein: "15غ",
+          carbs: "86غ",
+          fat: "13غ",
+          ingredients: ["أرز", "فلفل رومي", "كرنب", "جزر", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "lime vegetable rice bowl"
+        },
+        {
+          name: "وعاء أرز بالفطر والكرنب",
+          calories: 525,
+          protein: "16غ",
+          carbs: "84غ",
+          fat: "13غ",
+          ingredients: ["أرز", "فطر", "كرنب", "ثوم", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "mushroom cabbage rice bowl"
+        },
+        {
+          name: "نودلز أرز بالحمص والفلفل",
+          calories: 545,
+          protein: "19غ",
+          carbs: "92غ",
+          fat: "12غ",
+          ingredients: ["نودلز أرز", "حمص", "فلفل رومي", "جزر", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "chickpea pepper rice noodles"
+        },
+        {
+          name: "أرز بالبوك تشوي والثوم",
+          calories: 500,
+          protein: "14غ",
+          carbs: "82غ",
+          fat: "12غ",
+          ingredients: ["أرز", "بوك تشوي", "فطر", "ثوم", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "garlic bok choy rice bowl"
+        },
+        {
+          name: "كاري خضار بجوز الهند مع الأرز",
+          calories: 560,
+          protein: "15غ",
+          carbs: "86غ",
+          fat: "18غ",
+          ingredients: ["أرز", "حليب جوز الهند", "جزر", "كرنب", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "coconut vegetable curry rice"
+        }
+      ],
+      dinner: [
+        {
+          name: "أرز مقلي بالزنجبيل والحمص",
+          calories: 560,
+          protein: "20غ",
+          carbs: "90غ",
+          fat: "12غ",
+          ingredients: ["أرز", "حمص", "فلفل رومي", "جزر", "زنجبيل", "ثوم", "بصل أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger chickpea fried rice"
+        },
+        {
+          name: "أرز بالخضار والفطر المقلي",
+          calories: 555,
+          protein: "17غ",
+          carbs: "88غ",
+          fat: "14غ",
+          ingredients: ["أرز", "فطر", "كرنب", "جزر", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "mushroom vegetable stir fry rice"
+        },
+        {
+          name: "كاري خضار بجوز الهند مع الأرز",
+          calories: 590,
+          protein: "16غ",
+          carbs: "88غ",
+          fat: "20غ",
+          ingredients: ["أرز", "حليب جوز الهند", "فلفل رومي", "جزر", "زنجبيل"],
+          steps: sharedArabicSteps,
+          image_search_index: "coconut vegetable curry with rice"
+        },
+        {
+          name: "نودلز أرز بالكرنب والثوم",
+          calories: 540,
+          protein: "15غ",
+          carbs: "92غ",
+          fat: "11غ",
+          ingredients: ["نودلز أرز", "كرنب", "جزر", "ثوم", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "garlic cabbage rice noodles"
+        },
+        {
+          name: "أرز بالريحان والحمص",
+          calories: 575,
+          protein: "21غ",
+          carbs: "90غ",
+          fat: "13غ",
+          ingredients: ["أرز", "حمص", "ريحان", "فلفل رومي", "ثوم"],
+          steps: sharedArabicSteps,
+          image_search_index: "thai basil chickpea rice"
+        },
+        {
+          name: "أرز بالبوك تشوي والفطر",
+          calories: 550,
+          protein: "17غ",
+          carbs: "86غ",
+          fat: "14غ",
+          ingredients: ["أرز", "بوك تشوي", "فطر", "زنجبيل", "بصل أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "bok choy mushroom rice skillet"
+        },
+        {
+          name: "نودلز أرز بالجزر والزنجبيل",
+          calories: 535,
+          protein: "14غ",
+          carbs: "94غ",
+          fat: "10غ",
+          ingredients: ["نودلز أرز", "جزر", "كرنب", "زنجبيل", "ليمون أخضر"],
+          steps: sharedArabicSteps,
+          image_search_index: "ginger carrot rice noodle stir fry"
+        }
+      ]
+    };
+
+    return bySlot[slot];
+  }
+
+  const bySlot: Record<"breakfast" | "lunch" | "dinner", DefaultMealVariant[]> = {
+    breakfast: [
+      ["Ginger mushroom rice congee", 380, "10g", "72g", "6g", ["rice", "mushrooms", "ginger", "scallions", "cucumber"]],
+      ["Scallion cucumber breakfast rice", 395, "11g", "75g", "7g", ["rice", "scallions", "cucumber", "carrot", "ginger"]],
+      ["Ginger vegetable rice bowl", 410, "12g", "78g", "7g", ["rice", "cabbage", "carrot", "ginger", "lime"]],
+      ["Lime mushroom rice porridge", 385, "10g", "74g", "6g", ["rice", "mushrooms", "lime", "scallions", "ginger"]],
+      ["Thai basil vegetable rice", 420, "12g", "80g", "8g", ["rice", "basil", "bell pepper", "carrot", "garlic"]],
+      ["Cucumber carrot rice bowl", 390, "10g", "76g", "6g", ["rice", "cucumber", "carrot", "scallions", "lime"]],
+      ["Bok choy ginger rice bowl", 405, "12g", "77g", "7g", ["rice", "bok choy", "ginger", "garlic", "mushrooms"]]
+    ].map(([name, calories, protein, carbs, fat, ingredients]) => ({
+      name: name as string,
+      calories: calories as number,
+      protein: protein as string,
+      carbs: carbs as string,
+      fat: fat as string,
+      ingredients: ingredients as string[],
+      steps: sharedEnglishSteps,
+      image_search_index: name as string
+    })),
+    lunch: [
+      ["Vegetable rice noodle bowl", 510, "14g", "88g", "11g", ["rice noodles", "cabbage", "carrot", "cucumber", "ginger", "lime"]],
+      ["Ginger chickpea rice noodles", 535, "18g", "90g", "12g", ["rice noodles", "chickpeas", "carrot", "ginger", "scallions"]],
+      ["Lime vegetable rice bowl", 520, "15g", "86g", "13g", ["rice", "bell pepper", "cabbage", "carrot", "lime"]],
+      ["Mushroom cabbage rice bowl", 525, "16g", "84g", "13g", ["rice", "mushrooms", "cabbage", "garlic", "ginger"]],
+      ["Chickpea pepper rice noodles", 545, "19g", "92g", "12g", ["rice noodles", "chickpeas", "bell pepper", "carrot", "garlic"]],
+      ["Garlic bok choy rice bowl", 500, "14g", "82g", "12g", ["rice", "bok choy", "mushrooms", "garlic", "lime"]],
+      ["Coconut vegetable curry rice", 560, "15g", "86g", "18g", ["rice", "coconut milk", "carrot", "cabbage", "ginger"]]
+    ].map(([name, calories, protein, carbs, fat, ingredients]) => ({
+      name: name as string,
+      calories: calories as number,
+      protein: protein as string,
+      carbs: carbs as string,
+      fat: fat as string,
+      ingredients: ingredients as string[],
+      steps: sharedEnglishSteps,
+      image_search_index: name as string
+    })),
+    dinner: [
+      ["Ginger chickpea fried rice", 560, "20g", "90g", "12g", ["rice", "chickpeas", "bell pepper", "carrot", "ginger", "garlic", "scallions"]],
+      ["Mushroom vegetable stir-fry rice", 555, "17g", "88g", "14g", ["rice", "mushrooms", "cabbage", "carrot", "garlic"]],
+      ["Coconut vegetable curry with rice", 590, "16g", "88g", "20g", ["rice", "coconut milk", "bell pepper", "carrot", "ginger"]],
+      ["Garlic cabbage rice noodles", 540, "15g", "92g", "11g", ["rice noodles", "cabbage", "carrot", "garlic", "lime"]],
+      ["Thai basil chickpea rice", 575, "21g", "90g", "13g", ["rice", "chickpeas", "basil", "bell pepper", "garlic"]],
+      ["Bok choy mushroom rice skillet", 550, "17g", "86g", "14g", ["rice", "bok choy", "mushrooms", "ginger", "scallions"]],
+      ["Ginger carrot rice noodle stir-fry", 535, "14g", "94g", "10g", ["rice noodles", "carrot", "cabbage", "ginger", "lime"]]
+    ].map(([name, calories, protein, carbs, fat, ingredients]) => ({
+      name: name as string,
+      calories: calories as number,
+      protein: protein as string,
+      carbs: carbs as string,
+      fat: fat as string,
+      ingredients: ingredients as string[],
+      steps: sharedEnglishSteps,
+      image_search_index: name as string
+    }))
+  };
+
+  return bySlot[slot];
+}
+
+function buildDefaultAsianSafeMeal(
+  slot: "breakfast" | "lunch" | "dinner",
+  cuisine: string,
+  wantsArabic: boolean,
+  usedReplacementNames: Set<string>
+): MealPlanMeal {
+  const selectedVariant = withCuisine(
+    selectDefaultMealVariant(getDefaultAsianMealVariants(slot, wantsArabic), usedReplacementNames),
+    cuisine
+  );
+  if (selectedVariant) {
+    return selectedVariant;
+  }
+
   if (slot === "breakfast") {
     return wantsArabic ? {
       name: "كونجي أرز بالزنجبيل والفطر",

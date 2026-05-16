@@ -115,6 +115,16 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
       "condensed milk"
     ],
     arabic: [
+      "بيض",
+      "بيضة",
+      "بيضات",
+      "بياض البيض",
+      "صفار البيض",
+      "أومليت",
+      "أوملت",
+      "شكشوكة",
+      "عجة",
+      "مايونيز",
       "لحم",
       "لحمة",
       "لحمه",
@@ -273,9 +283,31 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
       "milk solids",
       "ice cream",
       "kashk",
-      "smen"
+      "smen",
+      "egg",
+      "eggs",
+      "egg white",
+      "egg yolk",
+      "omelette",
+      "omelet",
+      "frittata",
+      "shakshuka",
+      "eggah",
+      "meringue",
+      "mayonnaise",
+      "mayo"
     ],
     arabic: [
+      "بيض",
+      "بيضة",
+      "بيضات",
+      "بياض البيض",
+      "صفار البيض",
+      "أومليت",
+      "أوملت",
+      "شكشوكة",
+      "عجة",
+      "مايونيز",
       "حليب",
       "لبن",
       "زبدة",
@@ -371,6 +403,58 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
     // dropping otherwise reasonable recipes.
     english: [],
     arabic: []
+  },
+  pescatarian: {
+    // Pescatarian: allows fish and seafood, forbids only meat and poultry.
+    english: [
+      "meat",
+      "beef",
+      "veal",
+      "lamb",
+      "mutton",
+      "pork",
+      "bacon",
+      "ham",
+      "sausage",
+      "salami",
+      "chorizo",
+      "prosciutto",
+      "pepperoni",
+      "chicken",
+      "turkey",
+      "duck",
+      "goose",
+      "quail",
+      "rabbit",
+      "liver",
+      "kebda",
+      "kidney",
+      "tripe",
+      "shawarma",
+      "kofta",
+      "kebab",
+      "gelatin",
+      "lard",
+      "tallow"
+    ],
+    arabic: [
+      "لحم",
+      "لحمة",
+      "لحمه",
+      "لحوم",
+      "بقري",
+      "ضاني",
+      "خروف",
+      "كبدة",
+      "كباب",
+      "كفتة",
+      "شاورما",
+      "دجاج",
+      "فراخ",
+      "ديك",
+      "بط",
+      "جيلاتين"
+    ]
   },
   keto: {
     // Keto enforcement is calorie/macro-based, not ingredient-based, so leave
@@ -500,11 +584,52 @@ function matchesEnglishPattern(text: string, patterns: string[]): string | null 
 }
 
 function matchesArabicPattern(text: string, patterns: string[]): string | null {
+  const normalizedText = normalizeArabicForMatch(text);
+  const tokens = extractArabicTokens(normalizedText);
   for (const pattern of patterns) {
     if (!pattern) continue;
-    if (text.includes(pattern)) return pattern;
+    const normalizedPattern = normalizeArabicForMatch(pattern);
+    if (!normalizedPattern) continue;
+    if (normalizedPattern.includes(" ")) {
+      const escaped = normalizedPattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`(^|[^\\p{Script=Arabic}\\p{L}\\p{N}])${escaped}($|[^\\p{Script=Arabic}\\p{L}\\p{N}])`, "u");
+      if (regex.test(normalizedText)) return pattern;
+      continue;
+    }
+    if (tokens.some((token) => arabicTokenVariants(token).has(normalizedPattern))) return pattern;
   }
   return null;
+}
+
+function normalizeArabicForMatch(value: string): string {
+  return value
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[إأآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractArabicTokens(value: string): string[] {
+  return value.match(/[\p{Script=Arabic}]+/gu) ?? [];
+}
+
+function arabicTokenVariants(token: string): Set<string> {
+  const variants = new Set<string>([token]);
+  const prefixes = ["وال", "بال", "كال", "فال", "لل", "ال", "و", "ب", "ك", "ف", "ل"];
+
+  for (const prefix of prefixes) {
+    if (token.startsWith(prefix) && token.length > prefix.length + 1) {
+      const stripped = token.slice(prefix.length);
+      variants.add(stripped);
+      if (stripped.startsWith("ال") && stripped.length > 3) {
+        variants.add(stripped.slice(2));
+      }
+    }
+  }
+
+  return variants;
 }
 
 interface RecipeLike {
@@ -536,6 +661,7 @@ function collectInspectionStrings(recipe: RecipeLike): string[] {
   if (recipe.dishIntent?.dish_name) parts.push(recipe.dishIntent.dish_name);
   parts.push(...collectIngredientStrings(recipe.ingredients));
   parts.push(...collectIngredientStrings(recipe.missing_ingredients));
+  if (Array.isArray(recipe.steps)) parts.push(...recipe.steps.filter((s): s is string => Boolean(s)));
   if (Array.isArray(recipe.dish_intent?.visual_keywords)) parts.push(...(recipe.dish_intent?.visual_keywords ?? []));
   if (Array.isArray(recipe.dishIntent?.visual_keywords)) parts.push(...(recipe.dishIntent?.visual_keywords ?? []));
   return parts.filter((value): value is string => Boolean(value && value.trim()));
@@ -620,13 +746,13 @@ export function buildPromptForbiddenIngredientsLine(ctx: DietEnforcementContext)
   for (const diet of ctx.diets) {
     const patterns = DIET_FORBIDDEN_PATTERNS[diet];
     if (!patterns || (!patterns.english.length && !patterns.arabic.length)) continue;
-    const sample = patterns.english.slice(0, 18).join(", ");
+    const sample = patterns.english.join(", ");
     lines.push(`Diet "${diet}" forbids: ${sample}.`);
   }
   for (const allergen of ctx.allergens) {
     const patterns = ALLERGEN_FORBIDDEN_PATTERNS[allergen];
     if (!patterns) continue;
-    const sample = patterns.english.slice(0, 12).join(", ");
+    const sample = patterns.english.join(", ");
     lines.push(`Allergen "${allergen}" forbids: ${sample}.`);
   }
 
@@ -650,13 +776,13 @@ export function buildPromptForbiddenMealPlanLine(ctx: DietEnforcementContext): s
   for (const diet of ctx.diets) {
     const patterns = DIET_FORBIDDEN_PATTERNS[diet];
     if (!patterns || (!patterns.english.length && !patterns.arabic.length)) continue;
-    const sample = patterns.english.slice(0, 18).join(", ");
+    const sample = patterns.english.join(", ");
     lines.push(`Diet "${diet}" forbids: ${sample}.`);
   }
   for (const allergen of ctx.allergens) {
     const patterns = ALLERGEN_FORBIDDEN_PATTERNS[allergen];
     if (!patterns) continue;
-    const sample = patterns.english.slice(0, 12).join(", ");
+    const sample = patterns.english.join(", ");
     lines.push(`Allergen "${allergen}" forbids: ${sample}.`);
   }
 

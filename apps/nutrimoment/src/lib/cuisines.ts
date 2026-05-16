@@ -32,17 +32,68 @@ const ARABIC_CUISINE_LABELS: Record<string, string> = {
 
 const CUISINE_GROUPS: Record<string, string[]> = {
   any: ["any"],
-  egyptian: ["egyptian", "middleeastern", "middle eastern", "mediterranean", "arabic"],
+  egyptian: ["egyptian", "middleeastern", "mediterranean", "arabic"],
   italian: ["italian"],
-  middleeastern: ["middleeastern", "middle eastern", "egyptian", "mediterranean", "levantine", "arabic", "turkish"],
-  mediterranean: ["mediterranean", "middleeastern", "middle eastern", "egyptian", "greek", "levantine", "turkish"],
+  middleeastern: ["middleeastern", "egyptian", "mediterranean", "levantine", "arabic", "turkish"],
+  mediterranean: ["mediterranean", "middleeastern", "egyptian", "greek", "levantine", "turkish"],
   indian: ["indian"],
   mexican: ["mexican"],
   american: ["american"],
   asian: ["asian", "thai", "japanese", "chinese", "korean", "vietnamese"],
   thai: ["thai", "asian"],
-  turkish: ["turkish", "middleeastern", "middle eastern", "mediterranean"]
+  turkish: ["turkish", "middleeastern", "mediterranean"]
 };
+
+const CUISINE_LABELS_BY_KEY: Record<string, string> = {
+  american: "American",
+  any: "Any",
+  arabic: "Middle Eastern",
+  asian: "Asian",
+  chinese: "Asian",
+  egyptian: "Egyptian",
+  global: "Global",
+  greek: "Mediterranean",
+  indian: "Indian",
+  italian: "Italian",
+  japanese: "Asian",
+  korean: "Asian",
+  levantine: "Middle Eastern",
+  mediterranean: "Mediterranean",
+  mexican: "Mexican",
+  middleeastern: "Middle Eastern",
+  thai: "Thai",
+  turkish: "Turkish",
+  vietnamese: "Asian"
+};
+
+const CUISINE_ALIASES: Record<string, string[]> = {
+  american: ["american", "usa", "u.s.", "us", "أمريكي", "امريكي", "أمريكية", "امريكية"],
+  any: ["any", "any cuisine", "أي مطبخ", "اي مطبخ", "أي", "اي"],
+  arabic: ["arabic", "arab", "عربي", "عربية"],
+  asian: ["asian", "asia", "آسيوي", "اسيوي", "آسيوية", "اسيوية", "شرق آسيوي", "شرق اسيوي"],
+  chinese: ["chinese", "china", "صيني", "صينية", "الصين"],
+  egyptian: ["egyptian", "egypt", "alexandrian egyptian", "alexandrian", "مصري", "مصرية", "مصر", "إسكندراني", "اسكندراني", "إسكندرية", "اسكندرية"],
+  global: ["global", "world", "international", "عالمي", "عالمية"],
+  greek: ["greek", "greece", "يوناني", "يونانية"],
+  indian: ["indian", "india", "هندي", "هندية", "الهند"],
+  italian: ["italian", "italy", "إيطالي", "ايطالي", "إيطالية", "ايطالية"],
+  japanese: ["japanese", "japan", "ياباني", "يابانية", "اليابان"],
+  korean: ["korean", "korea", "كوري", "كورية", "كوريا"],
+  levantine: ["levantine", "levant", "shami", "شامي", "شامية", "لبناني", "لبنانية", "سوري", "سورية", "سوريه"],
+  mediterranean: ["mediterranean", "med", "متوسطي", "متوسطية", "البحر المتوسط", "بحر متوسط"],
+  mexican: ["mexican", "mexico", "مكسيكي", "مكسيكية"],
+  middleeastern: ["middle eastern", "middle-east", "middleeast", "شرق أوسطي", "شرق اوسطى", "شرق اوسطي", "الشرق الأوسط", "الشرق الاوسط"],
+  thai: ["thai", "thailand", "تايلندي", "تايلندية", "تايلاند"],
+  turkish: ["turkish", "turkey", "تركي", "تركية", "تركيا"],
+  vietnamese: ["vietnamese", "vietnam", "فيتنامي", "فيتنامية", "فيتنام"]
+};
+
+const CUISINE_ALIAS_ENTRIES = Object.entries(CUISINE_ALIASES)
+  .flatMap(([key, aliases]) => [key, ...aliases].map((alias) => ({ key, aliasKey: normalizeAliasKey(alias) })))
+  .filter((entry) => entry.aliasKey)
+  .sort((a, b) => b.aliasKey.length - a.aliasKey.length);
+
+const CUISINE_ALIAS_LOOKUP = new Map(CUISINE_ALIAS_ENTRIES.map((entry) => [entry.aliasKey, entry.key]));
 
 export function cuisineMatchesPreference(recipeCuisine: string, preferredCuisine: string) {
   if (!preferredCuisine || preferredCuisine === "Any") return true;
@@ -57,31 +108,7 @@ export function cuisineMatchesPreference(recipeCuisine: string, preferredCuisine
 export function normalizeCuisineLabel(value: string) {
   if (!value) return "Any";
   const normalized = normalizeCuisineKey(value);
-
-  switch (normalized) {
-    case "egyptian":
-      return "Egyptian";
-    case "middleeastern":
-      return "Middle Eastern";
-    case "mediterranean":
-      return "Mediterranean";
-    case "italian":
-      return "Italian";
-    case "indian":
-      return "Indian";
-    case "mexican":
-      return "Mexican";
-    case "american":
-      return "American";
-    case "asian":
-      return "Asian";
-    case "thai":
-      return "Thai";
-    case "turkish":
-      return "Turkish";
-    default:
-      return value;
-  }
+  return CUISINE_LABELS_BY_KEY[normalized] ?? value;
 }
 
 export function getCuisineDisplayLabel(value: string | undefined | null, language?: string) {
@@ -91,5 +118,26 @@ export function getCuisineDisplayLabel(value: string | undefined | null, languag
 }
 
 function normalizeCuisineKey(value: string) {
-  return value.toLowerCase().replace(/[^a-z]/g, "");
+  const aliasKey = normalizeAliasKey(value);
+  const exactMatch = CUISINE_ALIAS_LOOKUP.get(aliasKey);
+  if (exactMatch) return exactMatch;
+
+  const fuzzyMatch = CUISINE_ALIAS_ENTRIES.find((entry) => {
+    if (entry.aliasKey.length < 4) return false;
+    return aliasKey.includes(entry.aliasKey);
+  });
+
+  return fuzzyMatch?.key ?? aliasKey.replace(/[^a-z]/g, "");
+}
+
+function normalizeAliasKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[\u0622\u0623\u0625]/g, "\u0627")
+    .replace(/\u0649/g, "\u064A")
+    .replace(/\u0629/g, "\u0647")
+    .replace(/[^a-z\u0600-\u06FF]+/g, "");
 }

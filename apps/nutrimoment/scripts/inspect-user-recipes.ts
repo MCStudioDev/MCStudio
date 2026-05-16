@@ -28,6 +28,7 @@ import {
   type DietEnforcementContext,
   type ForbiddenReason
 } from "../src/lib/dietEnforcement";
+import { normalizeMealPlanData } from "../src/lib/mealPlan";
 
 interface InspectionEntry {
   id: string;
@@ -104,9 +105,8 @@ function analyzeHistoryEntry(
 
 function analyzeMealPlan(mealPlan: Record<string, unknown> | null, dietCtx: DietEnforcementContext) {
   if (!mealPlan) return null;
-  const plan = Array.isArray((mealPlan as { plan?: unknown }).plan)
-    ? ((mealPlan as { plan: Array<Record<string, unknown>> }).plan)
-    : [];
+  const normalized = normalizeMealPlanData((mealPlan as { mealPlan?: unknown }).mealPlan ?? mealPlan);
+  const plan = normalized?.plan ?? [];
   const violations: Array<{ day: string; slot: string; name?: string; reason: ForbiddenReason }> = [];
 
   for (const day of plan) {
@@ -141,9 +141,10 @@ async function main() {
   const { uid, email } = await resolveUid(input);
   console.log(`Resolved ${input} -> uid=${uid}${email ? ` email=${email}` : ""}`);
 
-  const [profile, settings, entitlement, weeklyPlan, history, pantry, usage] = await Promise.all([
+  const [profile, settings, healthProfile, entitlement, weeklyPlan, history, pantry, usage] = await Promise.all([
     readDocSafe(`users/${uid}`),
     readDocSafe(`users/${uid}/profile/settings`),
+    readDocSafe(`users/${uid}/profile/health`),
     readDocSafe(`entitlements/${uid}`),
     readDocSafe(`users/${uid}/plans/currentWeekly`),
     readCollectionSafe(`users/${uid}/history`, 50),
@@ -151,9 +152,9 @@ async function main() {
     readDocSafe(`users/${uid}/usage/aiCredits`)
   ]);
 
-  const profileDiets = (profile?.diets as string[] | undefined) ?? [];
+  const profileDiets = (healthProfile?.diets as string[] | undefined) ?? [];
   const settingsDiets = (settings?.diets as string[] | undefined) ?? [];
-  const profileAllergens = (profile?.allergens as string[] | undefined) ?? [];
+  const profileAllergens = (healthProfile?.allergens as string[] | undefined) ?? [];
   const settingsAllergens = (settings?.allergens as string[] | undefined) ?? [];
   const diets = Array.from(new Set([...profileDiets, ...settingsDiets]));
   const allergens = Array.from(new Set([...profileAllergens, ...settingsAllergens]));
@@ -174,6 +175,7 @@ async function main() {
     email,
     profile,
     settings,
+    healthProfile,
     entitlement,
     usage,
     pantrySize: pantry.length,

@@ -70,36 +70,84 @@ export function enrichOfflineRecipe(recipe: RecipeCatalogDoc): RecipeCatalogDoc 
 }
 
 export function normalizeCachedRecipeCatalogDoc(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
-  const english = buildStrictEnglishRecipeVariant(recipe);
-  const arabic = buildStrictArabicRecipeVariant(recipe, english);
+  const safeRecipe = normalizeRecipeCatalogRuntimeShape(recipe);
+  const english = buildStrictEnglishRecipeVariant(safeRecipe);
+  const arabic = buildStrictArabicRecipeVariant(safeRecipe, english);
 
   return enrichOfflineRecipe(
     stripUndefinedDeep({
-      ...recipe,
-      title: english.name || recipe.title,
-      description: english.name || recipe.description,
-      cuisine: normalizeCuisineLabel(english.cuisine || recipe.cuisine),
-      difficulty: normalizeDifficultyKey(english.difficulty, recipe.difficulty),
+      ...safeRecipe,
+      title: english.name || safeRecipe.title,
+      description: english.name || safeRecipe.description,
+      cuisine: normalizeCuisineLabel(english.cuisine || safeRecipe.cuisine),
+      difficulty: normalizeDifficultyKey(english.difficulty, safeRecipe.difficulty),
       steps: english.steps,
-      ingredients: recipe.ingredients.map((ingredient) => ({
+      ingredients: safeRecipe.ingredients.map((ingredient) => ({
         ...ingredient,
         name: translateIngredientToEnglish(ingredient.canonical || ingredient.name)
       })),
       image: {
-        ...recipe.image,
+        ...safeRecipe.image,
         sourceQuery:
           english.image_search_index ??
           english.image_search_indices?.[0] ??
-          recipe.image.sourceQuery
+          safeRecipe.image.sourceQuery
       },
-      dishIntent: english.dish_intent ?? recipe.dishIntent,
+      dishIntent: english.dish_intent ?? safeRecipe.dishIntent,
       localized: {
-        ...(recipe.localized ?? {}),
+        ...(safeRecipe.localized ?? {}),
         English: english,
         Arabic: arabic
       }
     })
   );
+}
+
+function normalizeRecipeCatalogRuntimeShape(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
+  const ingredientCanonicals = normalizeStringArray(recipe.ingredientCanonicals);
+  const ingredients = Array.isArray(recipe.ingredients)
+    ? recipe.ingredients
+        .filter((ingredient) => ingredient && typeof ingredient === "object")
+        .map((ingredient) => ({
+          ...ingredient,
+          name: String(ingredient.name ?? ingredient.canonical ?? "").trim(),
+          canonical: String(ingredient.canonical ?? ingredient.name ?? "").trim(),
+          required: Boolean(ingredient.required)
+        }))
+        .filter((ingredient) => ingredient.name || ingredient.canonical)
+    : ingredientCanonicals.map((canonical) => ({
+        name: translateIngredientToEnglish(canonical),
+        canonical,
+        required: true
+      }));
+
+  return {
+    ...recipe,
+    title: typeof recipe.title === "string" ? recipe.title : "",
+    description: typeof recipe.description === "string" ? recipe.description : "",
+    ingredients,
+    ingredientCanonicals,
+    requiredCanonicals: normalizeStringArray(recipe.requiredCanonicals),
+    optionalCanonicals: normalizeStringArray(recipe.optionalCanonicals),
+    dietTags: normalizeStringArray(recipe.dietTags),
+    allergenTags: normalizeStringArray(recipe.allergenTags),
+    steps: normalizeStringArray(recipe.steps),
+    image: {
+      storagePath: recipe.image?.storagePath ?? "",
+      thumbPath: recipe.image?.thumbPath,
+      signature: recipe.image?.signature,
+      sharedCacheKey: recipe.image?.sharedCacheKey,
+      sourceQuery: recipe.image?.sourceQuery
+    },
+    regionalCuisines: normalizeStringArray(recipe.regionalCuisines),
+    styleTags: normalizeStringArray(recipe.styleTags),
+    searchTokens: normalizeStringArray(recipe.searchTokens),
+    popularityScore: Number.isFinite(recipe.popularityScore) ? recipe.popularityScore : 60,
+    qualityScore: Number.isFinite(recipe.qualityScore) ? recipe.qualityScore : 70,
+    isActive: recipe.isActive !== false,
+    createdAt: Number.isFinite(recipe.createdAt) ? recipe.createdAt : Date.now(),
+    updatedAt: Number.isFinite(recipe.updatedAt) ? recipe.updatedAt : Date.now()
+  };
 }
 
 export function ensureBilingualRecipeCatalogDoc(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
@@ -171,6 +219,8 @@ export function buildRecipeHealthMetadata(recipe: RecipeCatalogDoc): RecipeHealt
   const conditionTags = new Set<string>();
   const cautionFlags = new Set<string>();
   const nutritionClaims = new Set<string>();
+  const allergenTags = normalizeStringArray(recipe.allergenTags);
+  const ingredientCanonicals = normalizeStringArray(recipe.ingredientCanonicals);
 
   if (recipe.sodium != null && recipe.sodium <= 300) {
     conditionTags.add("low-sodium");
@@ -207,28 +257,28 @@ export function buildRecipeHealthMetadata(recipe: RecipeCatalogDoc): RecipeHealt
     recipe.sodium != null &&
     recipe.sodium <= 350 &&
     recipe.protein <= 25 &&
-    !recipe.ingredientCanonicals.some((canonical) => HIGH_POTASSIUM_CANONICALS.has(canonical))
+    !ingredientCanonicals.some((canonical) => HIGH_POTASSIUM_CANONICALS.has(canonical))
   ) {
     conditionTags.add("renal-friendly");
   }
 
-  if (recipe.ingredientCanonicals.some((canonical) => HIGH_POTASSIUM_CANONICALS.has(canonical))) {
+  if (ingredientCanonicals.some((canonical) => HIGH_POTASSIUM_CANONICALS.has(canonical))) {
     cautionFlags.add("high-potassium");
   }
 
-  if (recipe.ingredientCanonicals.some((canonical) => HIGH_PURINE_CANONICALS.has(canonical))) {
+  if (ingredientCanonicals.some((canonical) => HIGH_PURINE_CANONICALS.has(canonical))) {
     cautionFlags.add("high-purine");
   }
 
-  if (recipe.allergenTags.includes("dairy")) {
+  if (allergenTags.includes("dairy")) {
     cautionFlags.add("contains-dairy");
   }
 
-  if (recipe.allergenTags.includes("gluten")) {
+  if (allergenTags.includes("gluten")) {
     cautionFlags.add("contains-gluten");
   }
 
-  if (recipe.allergenTags.includes("egg")) {
+  if (allergenTags.includes("egg")) {
     cautionFlags.add("contains-egg");
   }
 

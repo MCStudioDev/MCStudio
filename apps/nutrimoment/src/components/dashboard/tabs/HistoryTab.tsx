@@ -90,11 +90,12 @@ export function HistoryTab() {
           recipe.cuisine,
           recipe.image_search_index,
           ...(recipe.image_search_indices ?? []),
-          ...(recipe.ingredients ?? []),
-          ...(recipe.missing_ingredients ?? []),
-          ...(recipe.steps ?? [])
+          ...(recipe.ingredients ?? []).map(getRecipeIngredientLabel),
+          ...(recipe.missing_ingredients ?? []).map(getRecipeIngredientLabel),
+          ...(recipe.steps ?? []).map((step) => (typeof step === "string" ? step : String(step)))
         ])
       ]
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
         .join(" ")
         .toLowerCase();
 

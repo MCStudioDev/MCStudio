@@ -97,6 +97,32 @@ const RECIPE_TITLES: Record<string, string> = {
   "Mediterranean Yogurt Cucumber Toast": "توست زبادي وخيار متوسطي",
   "Middle Eastern Lentil Rice Pilaf": "أرز بعدس على الطريقة الشرقية",
   "Egyptian Chickpea Tomato Stew": "طاجن حمص وطماطم مصري",
+  "Huevos rancheros with black beans": "بيض رانشيروس مع فاصوليا سوداء",
+  "Black bean breakfast tacos": "تاكوس إفطار بالفاصوليا السوداء",
+  "Black bean avocado breakfast tacos": "تاكوس إفطار بالفاصوليا السوداء والأفوكادو",
+  "Avocado corn tostada with scrambled eggs": "توستادا ذرة بالأفوكادو والبيض المخفوق",
+  "Avocado corn tostada with tomato salsa": "توستادا ذرة بالأفوكادو وسالسا الطماطم",
+  "Mexican quinoa breakfast bowl": "وعاء كينوا مكسيكي للإفطار",
+  "Egg and nopales breakfast tacos": "تاكوس إفطار بالبيض والنوبال",
+  "Nopales black bean breakfast tacos": "تاكوس إفطار بالنوبال والفاصوليا السوداء",
+  "Sweet potato black bean hash": "هاش بطاطا حلوة وفاصوليا سوداء",
+  "Chilaquiles verdes with eggs no crema": "تشيلاكويليس أخضر بالبيض بدون كريمة",
+  "Chilaquiles verdes with black beans": "تشيلاكويليس أخضر بالفاصوليا السوداء",
+  "Breakfast rice and black bean bowl": "وعاء إفطار بالأرز والفاصوليا السوداء",
+  "Grilled fish tacos with cabbage salsa": "تاكوس سمك مشوي مع سالسا الكرنب",
+  "Shrimp fajita bowl": "وعاء فاهيتا جمبري",
+  "Tuna tostadas with avocado salsa": "توستادا تونة مع سالسا أفوكادو",
+  "Ceviche tostadas with black beans": "توستادا سيفيتشي مع فاصوليا سوداء",
+  "Grilled tilapia taco salad": "سلطة تاكو بلطي مشوي",
+  "Shrimp black bean tacos": "تاكوس جمبري وفاصوليا سوداء",
+  "Salmon rice bowl with corn salsa": "وعاء أرز بالسلمون وسالسا الذرة",
+  "Baked tilapia Veracruz": "بلطي فيراكروز مخبوز",
+  "Shrimp caldo with vegetables": "حساء جمبري مكسيكي بالخضار",
+  "Salmon with roasted corn salsa": "سلمون مع سالسا ذرة مشوية",
+  "Fish burrito bowl no dairy": "وعاء بوريتو سمك بدون ألبان",
+  "Shrimp enchilada skillet with salsa roja": "مقلاة إنشيلادا جمبري بصلصة روجا",
+  "Seafood pozole verde": "بوزولي أخضر بالمأكولات البحرية",
+  "Tuna stuffed poblano peppers": "فلفل بوبلانو محشي بالتونة",
   "Flexible meal slot": "وجبة مرنة"
 };
 
@@ -161,6 +187,34 @@ const INGREDIENTS: Record<string, string> = {
   greens: "خضار ورقية",
   "salmon fillets": "شرائح سلمون",
   "sweet potato": "بطاطا حلوة",
+  eggs: "بيض",
+  "black beans": "فاصوليا سوداء",
+  "corn tortilla": "تورتيلا ذرة",
+  "corn tortillas": "تورتيلا ذرة",
+  salsa: "سالسا",
+  "tomato salsa": "سالسا طماطم",
+  "salsa verde": "سالسا خضراء",
+  "pico de gallo": "بيكو دي جايو",
+  cabbage: "كرنب",
+  "white fish": "سمك أبيض",
+  tilapia: "بلطي",
+  tuna: "تونة",
+  "corn tostadas": "توستادا ذرة",
+  "corn tostada": "توستادا ذرة",
+  "brown rice": "أرز بني",
+  corn: "ذرة",
+  "corn salsa": "سالسا ذرة",
+  hominy: "ذرة هوميني",
+  tomatillo: "توماتيو",
+  "tomatillo salsa": "سالسا توماتيو",
+  "poblano peppers": "فلفل بوبلانو",
+  nopales: "نوبال",
+  "baked tortilla chips": "رقائق تورتيلا مخبوزة",
+  "tomato enchilada sauce": "صلصة إنشيلادا بالطماطم",
+  "bell pepper": "فلفل رومي",
+  "bell peppers": "فلفل رومي",
+  carrot: "جزر",
+  zucchini: "كوسا",
   lemon: "ليمون"
 };
 
@@ -383,10 +437,13 @@ export function localizeRecipeForEnglish(recipe: Recipe): Recipe {
 export function localizeMealForArabic(meal: MealPlanMeal): MealPlanMeal {
   return {
     ...meal,
-    name: translateRecipeTitle(meal.name),
-    cuisine: meal.cuisine ? translateCuisine(meal.cuisine) : meal.cuisine,
-    ingredients: meal.ingredients?.map(translateIngredient),
-    steps: meal.steps?.map(translateStep)
+    name: ensureArabicDisplayText(translateRecipeTitle(meal.name)),
+    cuisine: meal.cuisine ? ensureArabicDisplayText(translateCuisine(meal.cuisine)) : meal.cuisine,
+    protein: translateMacroTextToArabic(meal.protein),
+    carbs: translateMacroTextToArabic(meal.carbs),
+    fat: translateMacroTextToArabic(meal.fat),
+    ingredients: meal.ingredients?.map((ingredient) => ensureArabicDisplayText(translateIngredient(ingredient))),
+    steps: meal.steps?.map((step) => ensureArabicDisplayText(translateStep(step)))
   };
 }
 
@@ -410,8 +467,8 @@ export function localizeMealPlanForArabic(mealPlan: MealPlanData): MealPlanData 
       lunch: localizeMealForArabic(day.lunch),
       dinner: localizeMealForArabic(day.dinner)
     })),
-    shoppingList: mealPlan.shoppingList.map(translateShoppingItem),
-    recommendedRecipes: mealPlan.recommendedRecipes?.map(localizeRecipeForArabic)
+    shoppingList: mealPlan.shoppingList.map((item) => ensureArabicDisplayText(translateShoppingItem(item))),
+    recommendedRecipes: mealPlan.recommendedRecipes?.map(ensureArabicRecipeLanguage)
   };
 }
 
@@ -428,7 +485,7 @@ function translateRecipeTitle(value: string) {
   const exact = RECIPE_TITLES[value];
   if (exact) return exact;
   if (!/[A-Za-z]/.test(value)) return value;
-  return translateEnglishRecipeTitle(value);
+  return ensureArabicDisplayText(translateEnglishRecipeTitle(value));
 }
 
 function ensureArabicTitleText(recipe: Pick<Recipe, "name" | "image_search_index" | "image_search_indices">, ingredients: string[], missingIngredients: string[]) {
@@ -780,6 +837,75 @@ function normalizeArabicPunctuation(value: string) {
   return value.replace(/,/g, "،").replace(/\s+/g, " ").trim();
 }
 
+function ensureArabicDisplayText(value: string) {
+  const normalized = normalizeArabicPunctuation(value);
+  if (!hasLatinText(normalized)) return normalized;
+
+  return normalizeArabicPunctuation(
+    normalized.replace(/[A-Za-z]+/g, (word) => transliterateLatinWordToArabic(word))
+  );
+}
+
+function transliterateLatinWordToArabic(value: string) {
+  let word = value.toLowerCase();
+  const phraseReplacements: Array<[RegExp, string]> = [
+    [/sh/g, "ش"],
+    [/ch/g, "تش"],
+    [/th/g, "ث"],
+    [/kh/g, "خ"],
+    [/gh/g, "غ"],
+    [/ph/g, "ف"],
+    [/oo/g, "و"],
+    [/ee/g, "ي"],
+    [/ea/g, "ي"],
+    [/ai/g, "اي"],
+    [/ay/g, "اي"],
+    [/ou/g, "او"],
+    [/ow/g, "او"]
+  ];
+
+  for (const [pattern, replacement] of phraseReplacements) {
+    word = word.replace(pattern, replacement);
+  }
+
+  const letters: Record<string, string> = {
+    a: "ا",
+    b: "ب",
+    c: "ك",
+    d: "د",
+    e: "ي",
+    f: "ف",
+    g: "ج",
+    h: "ه",
+    i: "ي",
+    j: "ج",
+    k: "ك",
+    l: "ل",
+    m: "م",
+    n: "ن",
+    o: "و",
+    p: "ب",
+    q: "ك",
+    r: "ر",
+    s: "س",
+    t: "ت",
+    u: "و",
+    v: "ف",
+    w: "و",
+    x: "كس",
+    y: "ي",
+    z: "ز"
+  };
+
+  return word
+    .split("")
+    .map((char) => letters[char] ?? char)
+    .join("")
+    .replace(/ا+/g, "ا")
+    .replace(/ي+/g, "ي")
+    .replace(/و+/g, "و");
+}
+
 function translateShoppingItem(value: string) {
   const [name, rest] = value.split(/\s+-\s+/, 2);
   const translatedName = translateIngredient(name);
@@ -801,6 +927,13 @@ function translateUnitText(value: string) {
     .replace(/\boz\b/g, "أونصة")
     .replace(/\bcan\b/g, "علبة")
     .replace(/\bfillet\b/g, "شريحة");
+}
+
+function translateMacroTextToArabic(value: string) {
+  return coerceTextValue(value)
+    .replace(/(\d)\s*g\b/gi, "$1غ")
+    .replace(/\bgrams?\b/gi, "غ")
+    .replace(/\bg\b/gi, "غ");
 }
 
 function coerceTextValue(value: unknown) {

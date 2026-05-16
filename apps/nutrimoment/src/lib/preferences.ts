@@ -28,6 +28,10 @@ const DIET_RULES: Record<
     label: "vegetarian",
     requiredDietTags: ["vegetarian"]
   },
+  pescatarian: {
+    label: "pescatarian",
+    preferredDietTags: ["vegetarian", "pescatarian"]
+  },
   vegan: {
     label: "vegan",
     requiredDietTags: ["vegan"]

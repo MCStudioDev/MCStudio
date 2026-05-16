@@ -23,6 +23,7 @@ import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipePhotoReuseKeyCandidates } from "@/lib/recipePhotoReuse";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
+import type { TranslationKey } from "@/lib/translations";
 import {
   forgetPendingRecipeHistoryId,
   isLikelyBackgroundFetchInterruption,
@@ -383,11 +384,14 @@ export function ScannerTab() {
             });
           }
         } catch {
-          resolved[index] = { ...recipe, image_loading: false, image_error: true };
+          resolved[index] = { ...recipe, image_loading: isPremium, image_error: !isPremium };
+          if (isPremium) {
+            pendingPremiumIndexes.add(index);
+          }
           if (requestVersion === recipeRequestVersionRef.current) {
             setRecipes([...resolved]);
           }
-          if (historyEntryId) {
+          if (historyEntryId && !isPremium) {
             await updateRecipeImage(historyEntryId, index, recipe.image_url ?? "", true, recipe.image_source, {
               name: recipe.image_attribution_name,
               url: recipe.image_attribution_url
@@ -410,12 +414,11 @@ export function ScannerTab() {
               if (!ok || !data || !hasStrictRenderableImage(data.imageUrl, isPremium)) {
                 resolved[index] = {
                   ...recipe,
-                  image_loading: !isLastRound,
+                  image_loading: true,
                   image_error: false
                 };
 
                 if (isLastRound) {
-                  pendingPremiumIndexes.delete(index);
                   if (historyEntryId) {
                     await updateRecipeImage(historyEntryId, index, recipe.image_url ?? "", false, recipe.image_source, {
                       name: recipe.image_attribution_name,
@@ -446,12 +449,9 @@ export function ScannerTab() {
             } catch {
               resolved[index] = {
                 ...recipe,
-                image_loading: !isLastRound,
+                image_loading: true,
                 image_error: false
               };
-              if (isLastRound) {
-                pendingPremiumIndexes.delete(index);
-              }
             }
 
             if (requestVersion === recipeRequestVersionRef.current) {
@@ -1115,6 +1115,47 @@ export function ScannerTab() {
                 </Card>
               </div>
 
+              {(health.diets.length > 0 || health.conditions.length > 0 || (health.allergens ?? []).length > 0) && (
+                <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-3.5 space-y-3">
+                  {health.diets.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("dietaryPrefs")}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {health.diets.map((diet) => (
+                          <span key={diet} className="rounded-full border border-emerald-200/22 bg-emerald-400/14 px-2.5 py-0.5 text-xs font-semibold text-emerald-50">
+                            {t(diet as TranslationKey)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {health.conditions.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("healthConditions")}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {health.conditions.map((condition) => (
+                          <span key={condition} className="rounded-full border border-amber-200/22 bg-amber-400/12 px-2.5 py-0.5 text-xs font-semibold text-amber-100">
+                            {t(condition as TranslationKey)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(health.allergens ?? []).length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("allergensTitle")}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {(health.allergens ?? []).map((allergen) => (
+                          <span key={allergen} className="rounded-full border border-red-200/20 bg-red-400/10 px-2.5 py-0.5 text-xs font-semibold text-red-100">
+                            {allergen}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <Button
                 fullWidth
                 size="lg"
@@ -1146,7 +1187,19 @@ export function ScannerTab() {
       </motion.div>
 
       <motion.div variants={itemVariants}>
-        {recipes.length ? (
+        {recipeLoading && !recipes.length ? (
+          <div className="space-y-4" aria-busy="true">
+            <ResultLegalNotice mode="recipes" />
+            <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+              {Array.from({ length: Math.min(Math.max(settings.recipeCount, 3), 6) }).map((_, index) => (
+                <div
+                  key={index}
+                  className="min-h-[26rem] animate-pulse rounded-[1.7rem] border border-cyan-200/14 bg-cyan-300/10"
+                />
+              ))}
+            </div>
+          </div>
+        ) : recipes.length ? (
           <div className="space-y-4">
             <ResultLegalNotice mode="recipes" />
             <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">

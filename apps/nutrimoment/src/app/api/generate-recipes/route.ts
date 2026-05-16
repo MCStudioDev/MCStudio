@@ -24,6 +24,7 @@ import {
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
+import { repairScanRecipesWithGuard } from "@/services/scanRecipeGuardService";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import {
@@ -298,10 +299,9 @@ export async function POST(request: Request) {
       (wantsArabic ? recipes.map(ensureArabicRecipeLanguage) : recipes).map((recipe) =>
         ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
       );
-    const finalizeRecipes = (recipes: Recipe[]) =>
-      prepareRecipes(
-        ensureRequestedRecipeCount(
-          enforceDistinctRecipeVariety(
+    const finalizeRecipes = (recipes: Recipe[]) => {
+      const finalized = ensureRequestedRecipeCount(
+        enforceDistinctRecipeVariety(
           prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceHardRequestRecipes(
               parsed.data.preferredCuisine === "Any"
                 ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
@@ -332,8 +332,22 @@ export async function POST(request: Request) {
             diets: parsed.data.diets ?? [],
             conditions: parsed.data.conditions ?? []
           }
-        )
-      );
+        );
+
+      const guarded = repairScanRecipesWithGuard(finalized, {
+        allergens: parsed.data.allergens ?? [],
+        calorieTarget: parsed.data.calorieTarget ?? 2000,
+        conditions: parsed.data.conditions ?? [],
+        diets: parsed.data.diets ?? [],
+        inputIngredients: ingredients,
+        preferredCuisine: parsed.data.preferredCuisine ?? "Any",
+        recipeCount,
+        recipeLanguage,
+        scoringIngredients
+      });
+
+      return prepareRecipes(guarded);
+    };
     const deliverRecipes = (recipes: Recipe[]) =>
       hasGeneratedImageAccess ? stripPremiumDeliveredImages(recipes) : recipes;
 
@@ -516,21 +530,27 @@ export async function POST(request: Request) {
         });
 
         const hasPantryBalancedRecipe = strictRecipes.some((recipe) => isPantryBalancedRecipe(recipe));
+        const uniqueRecipeCount = new Set(strictRecipes.map(getRecipeDuplicateCardKey).filter(Boolean)).size;
+        const minimumUniqueRecipes = Math.min(recipeCount, recipeCount >= 8 ? 7 : recipeCount);
+        const missingRecipeCount = Math.max(
+          0,
+          recipeCount - strictRecipes.length,
+          minimumUniqueRecipes - uniqueRecipeCount,
+          ingredients.length > 0 && !hasPantryBalancedRecipe ? 1 : 0
+        );
         const shouldRunRepairPass =
-          ingredients.length >= 3 &&
-          strictRecipes.length < recipeCount &&
-          !hasPantryBalancedRecipe;
+          missingRecipeCount > 0 &&
+          (strictRecipes.length < recipeCount || uniqueRecipeCount < minimumUniqueRecipes || !hasPantryBalancedRecipe);
 
         if (shouldRunRepairPass) {
           aiTraceSummary.repairPassTriggered = true;
-          const repairRecipeCount = Math.min(
-            recipeCount,
-            Math.max(1, Math.min(5, normalizedIngredientNames.length || ingredients.length || 1))
-          );
+          const repairRecipeCount = Math.min(recipeCount, Math.max(1, missingRecipeCount));
           logger.info("Retrying scanner recipe generation with strict pantry-balance repair prompt", {
             ingredientCount: ingredients.length,
             recipeCount,
-            repairRecipeCount
+            repairRecipeCount,
+            selectedCount: strictRecipes.length,
+            uniqueRecipeCount
           });
 
           const retryText = await generateRecipesWithTransientRetry(

@@ -6,6 +6,7 @@ import {
   buildPromptForbiddenIngredientsLine,
   buildPromptForbiddenMealPlanLine
 } from "@/lib/dietEnforcement";
+import type { MealPlanData } from "@/lib/types";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -473,6 +474,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
   const organMeatGuidance = buildOrganMeatGuidance(ingredients, recipeCount, options.preferredCuisine);
   const dietVarietyGuidance = buildDietVarietyGuidance(options.diets, options.conditions, recipeCount);
+  const vegetarianVarietyGuidance = buildVegetarianVarietyGuidance(options.diets, recipeCount);
+  const allowedProteinRotationGuidance = buildAllowedProteinRotationGuidance(options.diets, options.conditions, recipeCount);
+  const pescatarianFishGate = buildPescatarianFishGate(options.diets, options.conditions, recipeCount);
   const groundMeatDistinctCardGuidance = buildGroundMeatDistinctCardGuidance(
     ingredients,
     recipeCount,
@@ -558,6 +562,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     // Hard gate near the top so Gemini sees it before all the cuisine / dish-
     // family guidance below.
     forbiddenIngredientsLine,
+    pescatarianFishGate,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     `Generate exactly ${recipeCount} practical recipes.`,
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
@@ -621,6 +626,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     mealTypeRoutingGuidance,
     ingredientDrivenCuisineGuidance,
     dietVarietyGuidance,
+    allowedProteinRotationGuidance,
+    vegetarianVarietyGuidance,
     healthyPlateGuidance,
     organMeatGuidance,
     groundMeatDistinctCardGuidance,
@@ -713,6 +720,193 @@ function buildOrganMeatGuidance(
     "For liver exclude_keywords, include beef steak, beef cubes, beef strips, ground beef, kofta, kebab, meatballs, burger, chicken, fish, egg, pate, bread balls, and generic meat.",
     "Do not output vague names like beef skillet, meat plate, protein bowl, or grilled meat when liver is the pantry protein."
   ].join(" ");
+}
+
+function buildVegetarianVarietyGuidance(diets: string[], recipeCount: number): string {
+  const isVegetarian = diets.includes("vegetarian");
+  const isPescatarian = diets.includes("pescatarian");
+  if (!isVegetarian && !isPescatarian) return "";
+
+  const minimumDistinctForms = Math.min(recipeCount, recipeCount >= 7 ? 6 : Math.max(recipeCount - 1, 3));
+
+  if (isPescatarian) {
+    const isDairyFree = diets.includes("dairyFree");
+    const isMealPlan = recipeCount >= 14;
+    const fishFrequencyRule = isMealPlan
+      ? "Pescatarian weekly meal plan fish quota: across the 7-day plan, fish or seafood MUST be the primary protein in at least 6 of the 21 meal slots — ideally 1 to 2 fish or seafood lunches and 1 to 2 fish or seafood dinners across the week. Do NOT fill the week with vegetarian or legume-based meals and add only one token fish dish. The plan should feel like a pescatarian plan, not a vegetarian plan with a single fish card."
+      : isDairyFree
+      ? "Include at least one legume-based dish and at least one seafood-other-than-shrimp dish when generating four or more cards. Do not use eggs or dairy."
+        : "Include at least one egg dish, at least one legume-based dish, and at least one seafood-other-than-shrimp dish when generating four or more cards.";
+    const preferredTagClarification = isMealPlan
+      ? "CRITICAL clarification: the system profile lists 'preferredDietTags: vegetarian' alongside 'pescatarian'. This does NOT mean the meal plan should be vegetarian-dominant. It means vegetarian options are compatible with the diet — fish and seafood are the primary animal proteins for pescatarian users and must appear prominently throughout the week."
+      : "";
+    const healthConditionClarification = isMealPlan
+      ? "Health condition note for pescatarian: baked, grilled, and steamed fish is naturally low in saturated fat and sodium — it is ideal for users with high blood pressure or high cholesterol. Do NOT avoid fish and seafood because of these health conditions. Fish such as tilapia, white fish, salmon, tuna, and shrimp prepared without heavy salt or cream are fully compatible with low-fat and low-sodium nutrition targets. Choosing a grilled fish fillet or baked tilapia is safer than a high-sodium legume stew when the sodium limit is tight."
+      : "";
+    return [
+      isDairyFree
+        ? "Pescatarian distinct-variety mode is active. Fish and seafood are fully allowed; eggs, dairy, meat, and poultry are forbidden by the combined strict diet rules."
+        : "Pescatarian distinct-variety mode is active. Fish, seafood, eggs, and dairy are fully allowed; all meat and poultry are forbidden.",
+      `Produce at least ${minimumDistinctForms} visibly different dish forms across the set.`,
+      preferredTagClarification,
+      healthConditionClarification,
+      fishFrequencyRule,
+      isDairyFree
+        ? "Strong pescatarian dish families to draw from: grilled or baked salmon fillet, baked tilapia with herbs and lemon, tuna pasta or tuna salad without mayonnaise, shrimp stir-fry, fish tacos or fish burrito bowl without dairy sauce, grilled tilapia with herbs, calamari with tomato sauce, pasta with shrimp or clam sauce, fish soup or chowder without cream, prawn curry without dairy, crab rice or crab pasta, mujadara lentils with caramelised onion, smoked salmon rice bowl, fish with roasted vegetables, seafood paella, Mediterranean stuffed peppers with shrimp, Egyptian sayadeya fish rice, samak singari grilled fish, Egyptian fish tagine."
+        : "Strong pescatarian dish families to draw from: grilled or baked salmon fillet, baked tilapia with herbs and lemon, tuna pasta or tuna salad, shrimp stir-fry or shrimp garlic butter, fish tacos or fish burrito bowl, shakshuka with eggs, omelette or frittata with vegetables, grilled tilapia with herbs, calamari with tomato sauce, pasta with shrimp or clam sauce, fish soup or chowder, prawn curry, crab rice or crab pasta, mujadara lentils with caramelised onion, smoked salmon rice bowl, fish with roasted vegetables, seafood paella, Mediterranean stuffed peppers with shrimp, Egyptian sayadeya fish rice, samak singari grilled fish, Egyptian fish tagine.",
+      isDairyFree
+        ? "Do not make the set mostly fried battered fish. Vary the protein form, cooking method, and sauce base across fish, shrimp, calamari, legumes, and vegetables. Do not use eggs or dairy."
+        : "Do not make the set mostly fried battered fish. Vary the protein form, cooking method, and sauce base across fish, shrimp, calamari, and eggs.",
+      "Do not output any dish that contains chicken, beef, lamb, pork, turkey, or any other land animal meat."
+    ].filter(Boolean).join(" ");
+  }
+
+  return [
+    `Vegetarian distinct-variety mode is active. No meat, no poultry, no fish, no seafood. Eggs and dairy are allowed.`,
+    `Produce at least ${minimumDistinctForms} visibly different dish forms across the set.`,
+    "Strong vegetarian dish families to draw from: shakshuka eggs in tomato sauce, cheese omelette or vegetable frittata, lentil soup or mujadara, chickpea curry or chana masala, falafel with tahini, stuffed bell peppers with rice and vegetables, caprese or Greek salad, pasta primavera or pasta with tomato basil sauce, margherita pizza or flatbread, mushroom risotto, vegetable tagine with couscous, palak paneer or paneer tikka, moussaka with lentils, stuffed vine leaves with rice, vegetable stir-fry with tofu or egg, lentil dal, baba ghanoush with pita, vegetable soup, bean tacos or burritos, macaroni and cheese, spinach and cheese pie, bean stew.",
+    "Do not default to plain rice and lentils for every card. Vary the protein source (eggs, legumes, cheese, tofu), cooking form (soup, baked, grilled, stir-fried, stuffed), and cuisine region across the list.",
+    "Do not output any dish that contains chicken, beef, lamb, pork, turkey, fish, shrimp, seafood, or any other animal meat."
+  ].join(" ");
+}
+
+function buildPescatarianFishGate(diets: string[], conditions: string[], recipeCount: number): string {
+  if (!diets.includes("pescatarian")) return "";
+
+  const hasHeartConditions = conditions.includes("cholesterol") || conditions.includes("highBloodPressure");
+  const isDairyFree = diets.includes("dairyFree");
+
+  const heartNote = hasHeartConditions
+    ? "CRITICAL health clarification: high blood pressure and high cholesterol do NOT make fish or seafood unsafe or forbidden. Baked, grilled, and steamed fish is naturally low in saturated fat and low in sodium — nutritionists and cardiologists actively recommend fish for both conditions. Do NOT use heart-health conditions as a justification to avoid fish. Instead choose heart-safe fish preparations: bake or grill without heavy cream or excess salt, and the fish will satisfy all fat and sodium targets."
+    : "";
+
+  const dairyFreeNote = isDairyFree
+    ? "DAIRY-FREE + PESCATARIAN clarification: these two diets do NOT conflict. Plain baked, grilled, or steamed fish and seafood contain zero dairy by default — they are fully compatible with dairy-free. The user does NOT need dairy-based fish preparations. Use tomato sauce, lemon-herb, olive oil, garlic, or spice-based preparations for fish. Do NOT avoid fish because you cannot add cream or cheese — simply use dairy-free preparations."
+    : "";
+
+  const isMealPlan = recipeCount >= 14;
+
+  if (isMealPlan) {
+    return [
+      "PESCATARIAN FISH INCLUSION GATE — this rule overrides cuisine defaults, health-condition safe-food bias, and any other variety guidance below.",
+      "The user has selected a PESCATARIAN diet. Fish and seafood are the defining proteins of this diet and MUST appear prominently in the weekly plan.",
+      "HARD REQUIREMENT: fish or seafood must be the primary protein in a MINIMUM of 6 of the 21 meal slots across the 7-day plan. Distribute fish and seafood across at least 4 different days, using a variety of types and preparations (e.g., baked tilapia, grilled salmon, shrimp tagine, fish soup, sayadeya fish rice, samak singari, calamari, shrimp stir-fry).",
+      "DO NOT fill the weekly plan primarily with legume-based meals (ful, lentils, chickpeas, beans) and add only 1 or 2 token seafood cards. A plan that is 80% vegetarian is NOT a pescatarian plan. Legumes are one valid option among several — not the default.",
+      "Preferring vegetarian options is ALLOWED in addition to fish — but the plan must still contain fish and seafood in multiple visible meal slots.",
+      dairyFreeNote,
+      isDairyFree ? "STRICT dairy-free rule: do not use eggs, egg whites, egg yolks, omelette, frittata, shakshuka, eggah, mayonnaise, milk, cream, cheese, butter, yogurt, labneh, ghee, whey, casein, or any dairy." : "",
+      heartNote
+    ].filter(Boolean).join(" ");
+  }
+
+  return [
+    "PESCATARIAN FISH INCLUSION NOTE: the user is pescatarian. Fish and seafood are primary proteins and must appear in multiple recipe cards, not just 1 card surrounded by vegetarian options.",
+    dairyFreeNote,
+    isDairyFree ? "STRICT dairy-free rule: do not use eggs, egg whites, egg yolks, omelette, frittata, shakshuka, eggah, mayonnaise, milk, cream, cheese, butter, yogurt, labneh, ghee, whey, casein, or any dairy." : "",
+    heartNote
+  ].filter(Boolean).join(" ");
+}
+
+function buildAllowedProteinRotationGuidance(
+  diets: string[],
+  conditions: string[],
+  recipeCount: number
+): string {
+  const totalConstraints = diets.length + conditions.length;
+  if (totalConstraints < 2) return "";
+
+  const isPescatarian = diets.includes("pescatarian");
+  const isVegetarian = diets.includes("vegetarian");
+  const isVegan = diets.includes("vegan");
+  const isDairyFree = diets.includes("dairyFree");
+
+  const hasHeartConditions = conditions.includes("cholesterol") || conditions.includes("highBloodPressure");
+  const hasDiabetes = conditions.includes("diabetes");
+  const hasWeightCondition = conditions.includes("weightLoss") || conditions.includes("weightGain");
+
+  const allowedProteins: string[] = [];
+
+  if (isVegan) {
+    allowedProteins.push(
+      "legumes (lentils, chickpeas, black beans, fava beans) — vary the legume type and cooking form each time",
+      "tofu or tempeh in stir-fries, curries, or baked forms",
+      "nuts and seeds as a protein boost in salads or grain bowls"
+    );
+  } else if (isPescatarian) {
+    allowedProteins.push(
+      "fish (baked salmon, grilled tilapia, baked white fish, tuna salad, fish soup) — use fish as the primary protein in multiple meal slots",
+      "seafood (shrimp stir-fry, calamari, prawn curry, shrimp rice) — vary the seafood type and method",
+      "eggs (shakshuka, omelette, frittata, poached eggs) — great for breakfast and light meals"
+    );
+    if (!isDairyFree) {
+      allowedProteins.push("dairy-based dishes (yogurt bowls, cheese frittata, labne plates) — use for breakfast or sides");
+    }
+    allowedProteins.push("legumes (lentil soup, mujadara, chickpea salad) — include in some meals but NOT dominant");
+  } else if (isVegetarian) {
+    allowedProteins.push("eggs (shakshuka, omelette, frittata, egg curry)");
+    if (!isDairyFree) {
+      allowedProteins.push("dairy (paneer curry, cheese pie, yogurt bowls, labne plates)");
+    }
+    allowedProteins.push(
+      "legumes (lentil soup, mujadara, chickpea curry, bean stew)",
+      "tofu in stir-fries or curries when cuisine fits"
+    );
+  } else {
+    // Omnivore — only add rotation note when health conditions are active
+    if (hasHeartConditions) {
+      allowedProteins.push(
+        "fish and seafood — STRONGLY RECOMMENDED for heart health",
+        "poultry (chicken, turkey) — lean protein, heart-friendly",
+        "lean beef or lamb — occasional, low-fat preparations",
+        "eggs — compatible with heart health when not fried in excess fat",
+        "legumes — high fiber, heart-healthy"
+      );
+    } else if (hasDiabetes || hasWeightCondition) {
+      allowedProteins.push(
+        "lean proteins: chicken, fish, eggs, legumes — rotate across all",
+        "beef or lamb in lean cuts"
+      );
+    }
+  }
+
+  if (!allowedProteins.length) return "";
+  const strictAllowedProteins = isDairyFree
+    ? allowedProteins.filter((protein) => !/\begg|eggs|omelette|omelet|frittata|shakshuka|poached eggs/i.test(protein))
+    : allowedProteins;
+  if (!strictAllowedProteins.length) return "";
+
+  const isMealPlan = recipeCount >= 14;
+  const contextLabel = isMealPlan ? "the 7-day weekly meal plan" : `this ${recipeCount}-recipe set`;
+  const rotationInstruction = isMealPlan
+    ? "Across the 21 meal slots, each allowed protein source MUST appear in multiple meals. No single protein source should dominate more than 8 of the 21 slots. Distribute fish, seafood, eggs, and other allowed proteins visibly throughout the week."
+    : `Across the ${recipeCount} recipes, rotate through as many of the allowed protein/food sources as possible. Do not generate multiple recipes using the same protein group when other allowed options exist.`;
+  const strictRotationInstruction = isDairyFree
+    ? rotationInstruction.replace("fish, seafood, eggs, and other", "fish, seafood, legumes, and other") + " Do not use eggs."
+    : rotationInstruction;
+
+  const heartNote = hasHeartConditions
+    ? "Heart-health preparation rule: high blood pressure and high cholesterol restrict fat and sodium LIMITS — they do NOT ban fish, eggs, or any food category. Fish is medically recommended for both conditions. Choose baked, grilled, or steamed preparations; avoid heavy cream, excessive oil, or excess salt. A grilled fish fillet is safer and more heart-healthy than a high-fiber legume stew that exceeds sodium limits from seasoning."
+    : "";
+
+  const strictHeartNote = isDairyFree
+    ? heartNote
+        .replace("fish, eggs, or any food category", "fish or seafood")
+        .replace("avoid heavy cream", "avoid eggs, heavy cream")
+    : heartNote;
+
+  const diabetesNote = hasDiabetes
+    ? "Diabetes carb rule: the carb limit restricts starch portions and sugar — it does NOT limit protein variety. Include high-protein dishes across different protein sources and keep portions controlled."
+    : "";
+
+  const collapseWarning = `ANTI-COLLAPSE RULE: when multiple dietary preferences and health conditions are active simultaneously, the AI must NOT find the single food type that satisfies every constraint at once and repeat it throughout the output. This produces a plan that feels monotonous and ignores half of the user's allowed diet. Instead: identify ALL food groups that are compatible with the combined constraints, then ROTATE across every allowed group within ${contextLabel}.`;
+
+  return [
+    collapseWarning,
+    `Allowed protein and food sources for this combined preference profile (${[...diets, ...conditions].join(", ")}): ${strictAllowedProteins.join("; ")}.`,
+    strictRotationInstruction,
+    strictHeartNote,
+    diabetesNote
+  ].filter(Boolean).join(" ");
 }
 
 function buildDietVarietyGuidance(diets: string[], conditions: string[], recipeCount: number) {
@@ -1176,6 +1370,9 @@ export function buildMealPlanPrompt({
   const imageGuidance = buildCuisineImageGuidance(preferredCuisine);
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(preferredCuisine, pantryIngredients);
   const seafoodDistinctCardGuidance = buildSeafoodDistinctCardGuidance(pantryIngredients, 21, preferredCuisine);
+  const vegetarianVarietyGuidance = buildVegetarianVarietyGuidance(diets, 21);
+  const allowedProteinRotationGuidance = buildAllowedProteinRotationGuidance(diets, conditions, 21);
+  const pescatarianFishGate = buildPescatarianFishGate(diets, conditions, 21);
   const beefFormPriorityGuidance = buildBeefFormPriorityGuidance(pantryIngredients, 21, preferredCuisine);
   const shawarmaDishGuidance = buildShawarmaDishGuidance(pantryIngredients, 21, preferredCuisine);
   const stuffedDishGuidance = buildStuffedDishGuidance(pantryIngredients, 21, preferredCuisine);
@@ -1236,6 +1433,7 @@ export function buildMealPlanPrompt({
     "You are NutriMoment's premium weekly meal planning assistant.",
     arabicMealPlanPromptBlock,
     forbiddenMealPlanLine,
+    pescatarianFishGate,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
     "Generate a 7-day meal plan.",
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third use pantry ingredients and minimize extra shopping.",
@@ -1270,6 +1468,8 @@ export function buildMealPlanPrompt({
     beefFormPriorityGuidance,
     shawarmaDishGuidance,
     seafoodDistinctCardGuidance,
+    allowedProteinRotationGuidance,
+    vegetarianVarietyGuidance,
     stuffedDishGuidance,
     dessertCatalogGuidance,
     ingredientPrepFormGuidance,
@@ -1290,6 +1490,7 @@ export function buildMealPlanPrompt({
     languageOutputGuidance,
     "Bilingual cache rule: the app stores full English and Arabic variants locally after generation. Output one stable canonical meal identity per slot in the requested language, not two bilingual copies.",
     `Daily calorie target: ${calorieTarget}; make breakfast about 25%, lunch about 35%, and dinner about 40% of the target, with the day total within about 10% unless the health profile requires tighter limits.`,
+    `Calorie distribution authority: the user's explicit daily calorie target of ${calorieTarget} kcal controls per-meal calorie budgets via the 25/35/40 split above. If the nutrition targets derived from health conditions specify a per-meal maximum (e.g., maxCalories: 450), treat that as a guideline for choosing lower-calorie-density foods within the correct portion — NOT as a hard cap that overrides the calorie distribution. For example, at ${calorieTarget} kcal/day, dinner should be around ${Math.round(calorieTarget * 0.4)} kcal; use lighter preparations and controlled portions to hit this target rather than serving only salads or soups to stay under an arbitrary 450 kcal cap.`,
     "Every meal must be compatible with the diet and health-condition targets, not just one meal per day.",
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Return an object with exactly these top-level keys: plan, shoppingList.",
@@ -1305,6 +1506,48 @@ export function buildMealPlanPrompt({
     "Include image_search_index and image_search_indices in English inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
     "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used. In Arabic mode, write shoppingList in Arabic.",
     "Every shoppingList item must include summed quantity and unit. In English mode use examples like \"rice - 4 cup\" or \"tomato - 8 whole\"; in Arabic mode use Arabic item names and Arabic-readable quantities."
+  ].join(" ");
+}
+
+export function buildMealPlanRepairPrompt({
+  allergens = [],
+  calorieTarget = 2000,
+  conditions,
+  diets,
+  issues,
+  mealPlan,
+  pantry,
+  pantryItems = [],
+  preferredCuisine = "Any",
+  recipeLanguage = "English"
+}: MealPlanPromptOptions & {
+  issues: unknown[];
+  mealPlan: MealPlanData;
+}) {
+  const basePrompt = buildMealPlanPrompt({
+    allergens,
+    calorieTarget,
+    conditions,
+    diets,
+    pantry,
+    pantryItems,
+    preferredCuisine,
+    recipeLanguage
+  });
+
+  return [
+    basePrompt,
+    "",
+    "Backend repair pass: the previous meal plan failed validation after strict diet, cuisine, repetition, and variety checks.",
+    "Return a complete replacement 7-day meal plan, not only the broken slots.",
+    "You may reuse safe, unique meals from the previous plan, but replace every meal related to the validation issues.",
+    "Do not include any forbidden ingredient even in meal names, ingredients, steps, image_search_index, or image_search_indices.",
+    "Avoid repeated dish families and avoid fallback-style generic bowls unless that is the authentic dish family.",
+    "Validation issues to fix:",
+    JSON.stringify(issues, null, 2),
+    "Previous plan to repair:",
+    JSON.stringify(mealPlan, null, 2),
+    "Return ONLY valid JSON with exactly the same schema requested above."
   ].join(" ");
 }
 
@@ -1401,6 +1644,12 @@ function buildPromptPreferenceBrief(snapshot: {
   const allergens = resolved.allergens?.length ? resolved.allergens.join(", ") : "none";
   const nutritionTargets = formatNutritionGoals(resolved.nutritionGoals);
 
+  const pescatarianTagNote = snapshot.diets.includes("pescatarian")
+    ? snapshot.diets.includes("dairyFree")
+      ? "Note on preferredDietTags: the 'vegetarian' tag in the preferred list indicates that vegetarian options are compatible with the pescatarian diet — it does NOT mean fish and seafood should be deprioritized or that the output should be mostly vegetarian. For this dairy-free pescatarian profile, fish and seafood are the primary proteins; eggs and dairy are forbidden."
+      : "Note on preferredDietTags: the 'vegetarian' tag in the preferred list indicates that vegetarian options are compatible with the pescatarian diet — it does NOT mean fish and seafood should be deprioritized or that the output should be mostly vegetarian. Fish, seafood, eggs, and dairy are the primary protein sources for a pescatarian and must appear prominently."
+    : "";
+
   return [
     `Selected diet setting IDs: ${selectedDiets}.`,
     `Selected health condition setting IDs: ${selectedConditions}.`,
@@ -1408,9 +1657,10 @@ function buildPromptPreferenceBrief(snapshot: {
     `Health conditions to respect: ${conditionLabels}.`,
     `Required diet compatibility: ${requiredDietTags}.`,
     `Preferred diet compatibility: ${preferredDietTags}.`,
+    pescatarianTagNote,
     `Known allergens to avoid: ${allergens}.`,
     `Nutrition targets derived from the profile: ${nutritionTargets}.`
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 }
 
 function buildNamedPlateGenerationPolicy({

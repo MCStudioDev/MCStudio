@@ -18,6 +18,7 @@ import { repairMealPlanWithGuard, summarizeMealPlanIssues, validateMealPlan } fr
 import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
+import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
 import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
 import { getAdminDb } from "@/lib/firebaseAdmin";
@@ -94,6 +95,8 @@ const MOCK_MEAL_PLAN = {
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
+  let failureHistoryEntryId: string | undefined;
+  let failureUid: string | undefined;
   logger.info("Meal plan HTTP request received", { requestId });
   try {
     const accessCheck = await canUseApiFeature(request, "weekly_plan");
@@ -112,6 +115,8 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return Response.json({ error: "Invalid request" }, { status: 400 });
     }
+    failureHistoryEntryId = parsed.data.historyEntryId;
+    failureUid = access.uid;
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
 
     if (!accessCheck.allowed) {
@@ -465,6 +470,11 @@ export async function POST(request: Request) {
       ? getClientFacingAiErrorMessage(err, "Meal plan generation is temporarily unavailable. Please try again in a few minutes.")
       : message;
     logger.error("Meal plan generation failed", err, { requestId });
+    await persistMealPlanFailureForUser({
+      errorMessage: safeMessage,
+      historyEntryId: failureHistoryEntryId,
+      uid: failureUid
+    });
     return Response.json({ error: safeMessage }, { status });
   }
 }
@@ -555,15 +565,21 @@ function buildDefaultSafeMeal(
       ? preferredCuisine
       : "Mediterranean";
   const cuisineKey = (preferredCuisine ?? "").toLowerCase();
+  const attach = (meal: MealPlanMeal): MealPlanMeal => {
+    if (meal.photo_identity) return meal;
+    const synthesized = synthesizeDefaultMealPhotoIdentity(meal, cuisine);
+    return synthesized ? { ...meal, photo_identity: synthesized } : meal;
+  };
 
   if (cuisineKey.includes("asian") || cuisineKey.includes("thai")) {
-    return buildDefaultAsianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames);
+    return attach(buildDefaultAsianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames));
   }
 
   if (slot === "breakfast") {
-    return wantsArabic ? {
+    return attach(wantsArabic ? {
       name: "وعاء كينوا بالتوت",
       cuisine,
+      image_search_index: "berry quinoa breakfast bowl",
       calories: 390,
       protein: "12غ",
       carbs: "68غ",
@@ -587,13 +603,14 @@ function buildDefaultSafeMeal(
         "Spoon it into a bowl with mixed berries.",
         "Top with chia seeds, cinnamon, and a small drizzle of maple syrup."
       ]
-    };
+    });
   }
 
   if (slot === "lunch") {
-    return wantsArabic ? {
+    return attach(wantsArabic ? {
       name: "سلطة أرز بالحمص",
       cuisine,
+      image_search_index: "chickpea rice salad",
       calories: 520,
       protein: "18غ",
       carbs: "82غ",
@@ -617,12 +634,13 @@ function buildDefaultSafeMeal(
         "Toss chickpeas with cucumber, tomato, parsley, olive oil, and lemon.",
         "Serve the chickpea salad over rice."
       ]
-    };
+    });
   }
 
-  return wantsArabic ? {
+  return attach(wantsArabic ? {
     name: "يخنة عدس بالخضار مع الأرز",
     cuisine,
+    image_search_index: "lentil vegetable stew with rice",
     calories: 560,
     protein: "24غ",
     carbs: "92غ",
@@ -646,7 +664,7 @@ function buildDefaultSafeMeal(
       "Cook rice separately until fluffy.",
       "Serve the lentil vegetable stew over rice with a small drizzle of olive oil."
     ]
-  };
+  });
 }
 
 type DefaultMealVariant = Omit<MealPlanMeal, "cuisine">;
@@ -660,10 +678,27 @@ function selectDefaultMealVariant(variants: DefaultMealVariant[], usedReplacemen
 
 function withCuisine(variant: DefaultMealVariant | undefined, cuisine: string): MealPlanMeal | undefined {
   if (!variant) return undefined;
-  return {
+  const meal: MealPlanMeal = {
     ...variant,
     cuisine
   };
+  if (!meal.photo_identity) {
+    const synthesized = synthesizeDefaultMealPhotoIdentity(meal, cuisine);
+    if (synthesized) meal.photo_identity = synthesized;
+  }
+  return meal;
+}
+
+function synthesizeDefaultMealPhotoIdentity(meal: MealPlanMeal, cuisine: string | undefined) {
+  const nameIsEnglish = meal.name && !/[؀-ۿ]/.test(meal.name);
+  const englishSource = meal.image_search_index?.trim() || (nameIsEnglish ? meal.name.trim() : "");
+  const dishSlug = toIdentityKey(englishSource);
+  if (!dishSlug) return undefined;
+  return normalizePhotoIdentity({
+    dish_slug: dishSlug,
+    english_name: englishSource,
+    cuisine_key: toIdentityKey(cuisine)
+  });
 }
 
 function getDefaultAsianMealVariants(slot: "breakfast" | "lunch" | "dinner", wantsArabic: boolean): DefaultMealVariant[] {
@@ -1151,6 +1186,36 @@ async function persistMealPlanResultForUser({
   } catch (error) {
     logger.warn("Server-side meal plan persistence failed after generation", {
       historyEntryId: historyEntryId ?? null,
+      uid,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function persistMealPlanFailureForUser({
+  errorMessage,
+  historyEntryId,
+  uid
+}: {
+  errorMessage: string;
+  historyEntryId?: string;
+  uid?: string;
+}) {
+  if (!uid || !historyEntryId) return;
+
+  try {
+    await getAdminDb().doc(`users/${uid}/history/${historyEntryId}`).set(
+      {
+        generationMessage: errorMessage,
+        generationStatus: "failed",
+        sessionType: "weekly_meal_plan",
+        updatedAt: FieldValue.serverTimestamp()
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    logger.warn("Server-side meal plan failure persistence failed", {
+      historyEntryId,
       uid,
       errorMessage: error instanceof Error ? error.message : String(error)
     });

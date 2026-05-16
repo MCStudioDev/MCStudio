@@ -175,26 +175,30 @@ function sanitizeHistoryRecipes(recipes: Recipe[]) {
 }
 
 function suppressRepeatedHistoryImages(recipes: Recipe[]) {
-  const identitiesByImageUrl = new Map<string, Set<string>>();
+  const firstIdentityByImageUrl = new Map<string, string>();
+  const repeatedRecipeIndexes = new Set<number>();
 
-  for (const recipe of recipes) {
-    if (!isRenderableImage(recipe.image_url)) continue;
+  recipes.forEach((recipe, index) => {
+    const imageUrl = recipe.image_url;
+    if (!isRenderableImage(imageUrl)) return;
     const identity = getRecipeImageIdentity(recipe);
-    if (!identity) continue;
-    const identities = identitiesByImageUrl.get(recipe.image_url) ?? new Set<string>();
-    identities.add(identity);
-    identitiesByImageUrl.set(recipe.image_url, identities);
-  }
+    if (!identity) return;
 
-  const suspectImageUrls = new Set(
-    Array.from(identitiesByImageUrl.entries())
-      .filter(([, identities]) => identities.size > 1)
-      .map(([imageUrl]) => imageUrl)
-  );
-  if (!suspectImageUrls.size) return recipes;
+    const firstIdentity = firstIdentityByImageUrl.get(imageUrl);
+    if (!firstIdentity) {
+      firstIdentityByImageUrl.set(imageUrl, identity);
+      return;
+    }
 
-  return recipes.map((recipe) => {
-    if (!recipe.image_url || !suspectImageUrls.has(recipe.image_url)) return recipe;
+    if (firstIdentity !== identity) {
+      repeatedRecipeIndexes.add(index);
+    }
+  });
+
+  if (!repeatedRecipeIndexes.size) return recipes;
+
+  return recipes.map((recipe, index) => {
+    if (!repeatedRecipeIndexes.has(index)) return recipe;
 
     return stripUndefined({
       ...recipe,

@@ -1727,18 +1727,32 @@ const CORE_TOKEN_STOP_WORDS = new Set([
   "with"
 ]);
 
-export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
+export interface RecipePhotoIdentityOverride {
+  dishSlug?: string;
+  cuisineKey?: string;
+  protein?: string;
+  starch?: string;
+  sauce?: string;
+  method?: string;
+}
+
+export function buildRecipePhotoIdentity(
+  query: string,
+  override?: RecipePhotoIdentityOverride
+): RecipePhotoIdentity {
   const cleanQuery = normalizeRecipePhotoQuery(query);
   const knownDish = findKnownDish(cleanQuery);
-  const cuisineKey = knownDish?.cuisineKey ?? detectCuisine(cleanQuery);
-  const mainIngredientKey = detectMainIngredient(cleanQuery);
+  const overrideDishKey = override?.dishSlug?.trim() || undefined;
+  const canonicalDishKey = overrideDishKey ?? knownDish?.key;
+  const cuisineKey = override?.cuisineKey?.trim() || knownDish?.cuisineKey || detectCuisine(cleanQuery);
+  const mainIngredientKey = override?.protein?.trim() || detectMainIngredient(cleanQuery);
   const beanTypeKey = detectBeanType(cleanQuery);
-  const sauceKey = detectSauce(cleanQuery);
-  const starchKey = detectStarch(cleanQuery);
-  const cookingMethodKey = detectCookingMethod(cleanQuery);
+  const sauceKey = override?.sauce?.trim() || detectSauce(cleanQuery);
+  const starchKey = override?.starch?.trim() || detectStarch(cleanQuery);
+  const cookingMethodKey = override?.method?.trim() || detectCookingMethod(cleanQuery);
   const mealTypeKey = detectMealType(cleanQuery);
   const familyKey =
-    knownDish?.key ??
+    canonicalDishKey ??
     detectRecipePhotoFamily(cleanQuery, {
       beanTypeKey,
       cuisineKey,
@@ -1759,7 +1773,7 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
     starchKey
   });
   const signature = buildRecipePhotoSignature({
-    canonicalDishKey: knownDish?.key,
+    canonicalDishKey,
     cookingMethodKey,
     coreTokens,
     cuisineKey,
@@ -1771,7 +1785,7 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
   });
   const alternateSignatures = buildAlternateRecipePhotoSignatures({
     beanTypeKey,
-    canonicalDishKey: knownDish?.key,
+    canonicalDishKey,
     cookingMethodKey,
     cuisineKey,
     familyKey,
@@ -1784,7 +1798,7 @@ export function buildRecipePhotoIdentity(query: string): RecipePhotoIdentity {
   return {
     alternateSignatures,
     beanTypeKey,
-    canonicalDishKey: knownDish?.key,
+    canonicalDishKey,
     cleanQuery,
     cookingMethodKey,
     coreTokens,

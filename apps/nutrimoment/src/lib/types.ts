@@ -24,6 +24,16 @@ export interface RecipeDishIntent {
   candidate_hits?: string[];
 }
 
+export interface PhotoIdentity {
+  dish_slug: string;
+  english_name: string;
+  protein?: string;
+  starch?: string;
+  sauce?: string;
+  method?: string;
+  cuisine_key?: string;
+}
+
 export interface PantryItem {
   id?: string;
   name: string;
@@ -97,6 +107,7 @@ export interface Recipe {
   matched_optional_count?: number;
   preference_hits?: string[];
   visual_match_label?: string;
+  photo_identity?: PhotoIdentity;
   localized?: Partial<Record<"English" | "Arabic", LocalizedRecipeVariant>>;
 }
 
@@ -115,6 +126,7 @@ export interface MealPlanMeal {
   image_source?: RecipeImageSource;
   image_attribution_name?: string;
   image_attribution_url?: string;
+  photo_identity?: PhotoIdentity;
 }
 
 export interface MealPlanDay {

@@ -267,7 +267,8 @@ export function ScannerTab() {
               getUsedImageUrlsForDifferentReuseKey(usedImageUrls, getRecipePhotoReuseKey(recipe)),
               {
                 cuisine: buildRecipePhotoCuisine(recipe),
-                exactNames: buildRecipePhotoExactNames(recipe)
+                exactNames: buildRecipePhotoExactNames(recipe),
+                photoIdentity: recipe.photo_identity
               }
             ),
             {
@@ -343,7 +344,12 @@ export function ScannerTab() {
         try {
           const { data, ok } = await resolveRecipePhoto(recipe);
 
-          if (!ok || !data || !hasStrictRenderableImage(data.imageUrl, isPremium)) {
+          if (
+            !ok ||
+            !data ||
+            !hasStrictRenderableImage(data.imageUrl, isPremium) ||
+            !canUseImageUrlForReuseKey(usedImageUrls, data.imageUrl, getRecipePhotoReuseKey(recipe))
+          ) {
             resolved[index] = {
               ...recipe,
               image_loading: isPremium,
@@ -411,7 +417,12 @@ export function ScannerTab() {
             const recipe = resolved[index];
             try {
               const { data, ok } = await resolveRecipePhoto(recipe);
-              if (!ok || !data || !hasStrictRenderableImage(data.imageUrl, isPremium)) {
+              if (
+                !ok ||
+                !data ||
+                !hasStrictRenderableImage(data.imageUrl, isPremium) ||
+                !canUseImageUrlForReuseKey(usedImageUrls, data.imageUrl, getRecipePhotoReuseKey(recipe))
+              ) {
                 resolved[index] = {
                   ...recipe,
                   image_loading: true,
@@ -1224,6 +1235,7 @@ export function ScannerTab() {
                   imageQuery={buildRecipePhotoQuery(recipe)}
                   imageExactNames={buildRecipePhotoExactNames(recipe)}
                   imageCuisine={buildRecipePhotoCuisine(recipe)}
+                  imagePhotoIdentity={recipe.photo_identity}
                   imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                   onImageResolved={
                     user && historyEntryId
@@ -1372,7 +1384,7 @@ function buildRecipePhotoRequestUrl(
   queries: string[],
   ingredients: string[] = [],
   excludeUrls: string[] = [],
-  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+  exactContext: { cuisine?: string; exactNames?: string[]; photoIdentity?: Recipe["photo_identity"] } = {}
 ) {
   const params = new URLSearchParams();
   queries.slice(0, 5).forEach((query, index) => {
@@ -1395,9 +1407,20 @@ function buildRecipePhotoRequestUrl(
   if (exactContext.cuisine?.trim()) {
     params.set("cuisine", exactContext.cuisine.trim());
   }
+  appendPhotoIdentityParams(params, exactContext.photoIdentity);
   excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
+}
+
+function appendPhotoIdentityParams(params: URLSearchParams, identity: Recipe["photo_identity"]) {
+  if (!identity?.dish_slug) return;
+  params.set("photoSlug", identity.dish_slug);
+  if (identity.cuisine_key) params.set("photoCuisineKey", identity.cuisine_key);
+  if (identity.protein) params.set("photoProtein", identity.protein);
+  if (identity.starch) params.set("photoStarch", identity.starch);
+  if (identity.sauce) params.set("photoSauce", identity.sauce);
+  if (identity.method) params.set("photoMethod", identity.method);
 }
 
 function serializeRecipePhotoQuery(queries: string[]) {

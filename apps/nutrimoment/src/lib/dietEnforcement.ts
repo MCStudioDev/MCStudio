@@ -464,9 +464,67 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
   }
 };
 
+const MILK_ALLERGEN_FORBIDDEN_PATTERNS: ForbiddenPatternSet = {
+  english: [
+    "milk",
+    "buttermilk",
+    "cream",
+    "heavy cream",
+    "sour cream",
+    "whipping cream",
+    "butter",
+    "ghee",
+    "yogurt",
+    "yoghurt",
+    "labneh",
+    "cheese",
+    "feta",
+    "halloumi",
+    "ricotta",
+    "mozzarella",
+    "parmesan",
+    "cheddar",
+    "paneer",
+    "kunafa cheese",
+    "whey",
+    "casein",
+    "evaporated milk",
+    "condensed milk",
+    "milk powder",
+    "milk solids",
+    "ice cream",
+    "kashk",
+    "smen"
+  ],
+  arabic: [
+    "حليب",
+    "لبن",
+    "زبدة",
+    "سمنة",
+    "قشطة",
+    "كريمة",
+    "زبادي",
+    "لبنة",
+    "جبنة",
+    "جبن",
+    "فيتا",
+    "حلوم",
+    "موتزاريلا",
+    "بارميزان",
+    "شيدر",
+    "آيس كريم",
+    "بوظة"
+  ]
+};
+
 const ALLERGEN_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
-  dairy: DIET_FORBIDDEN_PATTERNS.dairyFree,
+  dairy: MILK_ALLERGEN_FORBIDDEN_PATTERNS,
+  milk: MILK_ALLERGEN_FORBIDDEN_PATTERNS,
   gluten: DIET_FORBIDDEN_PATTERNS.glutenFree,
+  tomato: {
+    english: ["tomato", "tomatoes", "tomato sauce", "tomato paste", "tomato puree"],
+    arabic: ["طماطم", "الطماطم", "بندورة", "البندورة", "صلصة طماطم", "معجون طماطم"]
+  },
   eggs: {
     english: ["egg", "eggs", "omelette", "omelet", "frittata", "shakshuka", "meringue"],
     arabic: ["بيض", "بيضة", "بيضات", "أومليت", "أوملت", "شكشوكة"]
@@ -544,14 +602,62 @@ const ALLERGEN_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
   }
 };
 
+const ALLERGEN_KEY_ALIASES: Record<string, string> = {
+  "الحليب": "milk",
+  "حليب": "milk",
+  "اللبن": "milk",
+  "لبن": "milk",
+  "زبادي": "milk",
+  "الزبادي": "milk",
+  "ديري": "dairy",
+  "ألبان": "dairy",
+  "البان": "dairy",
+  "الالبان": "dairy",
+  "منتجات الألبان": "dairy",
+  "منتجات الالبان": "dairy",
+  "الطماطم": "tomato",
+  "طماطم": "tomato",
+  "بندورة": "tomato",
+  "البندورة": "tomato",
+  "بيض": "eggs",
+  "البيض": "eggs",
+  "سمك": "fish",
+  "السمك": "fish",
+  "جمبري": "shellfish",
+  "روبيان": "shellfish",
+  "مأكولات بحرية": "shellfish",
+  "مأكولات بحريه": "shellfish",
+  "sea food": "shellfish",
+  "seafood": "shellfish",
+  "milk": "milk",
+  "dairy": "dairy",
+  "tomatoes": "tomato",
+  "egg": "eggs",
+  "shell fish": "shellfish"
+};
+
 export interface DietEnforcementContext {
   diets: string[];
   allergens: string[];
 }
 
+function resolveAllergenForbiddenPatterns(allergen: string): ForbiddenPatternSet | null {
+  const normalized = normalizeForMatch(allergen);
+  const normalizedArabic = normalizeArabicForMatch(allergen);
+  const key = ALLERGEN_KEY_ALIASES[normalized] ?? ALLERGEN_KEY_ALIASES[normalizedArabic] ?? normalized;
+  const known = ALLERGEN_FORBIDDEN_PATTERNS[key];
+  if (known) return known;
+
+  const arabic = normalizedArabic && /[\u0600-\u06FF]/.test(normalizedArabic) ? [allergen, normalizedArabic] : [];
+  const english = normalized && !/[\u0600-\u06FF]/.test(normalized) ? [normalized] : [];
+  if (!arabic.length && !english.length) return null;
+
+  return { english, arabic };
+}
+
 export function hasActiveDietConstraints(ctx: DietEnforcementContext): boolean {
   return ctx.diets.some((diet) => DIET_FORBIDDEN_PATTERNS[diet]?.english.length || DIET_FORBIDDEN_PATTERNS[diet]?.arabic.length)
-    || ctx.allergens.some((allergen) => ALLERGEN_FORBIDDEN_PATTERNS[allergen]);
+    || ctx.allergens.some((allergen) => Boolean(resolveAllergenForbiddenPatterns(allergen)));
 }
 
 /**
@@ -696,7 +802,7 @@ export function findRecipeDietViolation(
   }
 
   for (const allergen of ctx.allergens) {
-    const patterns = ALLERGEN_FORBIDDEN_PATTERNS[allergen];
+    const patterns = resolveAllergenForbiddenPatterns(allergen);
     if (!patterns) continue;
     const englishHit = matchesEnglishPattern(englishHaystack, patterns.english);
     if (englishHit) return { kind: "allergen", allergen, match: englishHit };
@@ -750,7 +856,7 @@ export function buildPromptForbiddenIngredientsLine(ctx: DietEnforcementContext)
     lines.push(`Diet "${diet}" forbids: ${sample}.`);
   }
   for (const allergen of ctx.allergens) {
-    const patterns = ALLERGEN_FORBIDDEN_PATTERNS[allergen];
+    const patterns = resolveAllergenForbiddenPatterns(allergen);
     if (!patterns) continue;
     const sample = patterns.english.join(", ");
     lines.push(`Allergen "${allergen}" forbids: ${sample}.`);
@@ -780,7 +886,7 @@ export function buildPromptForbiddenMealPlanLine(ctx: DietEnforcementContext): s
     lines.push(`Diet "${diet}" forbids: ${sample}.`);
   }
   for (const allergen of ctx.allergens) {
-    const patterns = ALLERGEN_FORBIDDEN_PATTERNS[allergen];
+    const patterns = resolveAllergenForbiddenPatterns(allergen);
     if (!patterns) continue;
     const sample = patterns.english.join(", ");
     lines.push(`Allergen "${allergen}" forbids: ${sample}.`);

@@ -1,8 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { localizeMealForArabic, localizeMealPlanForArabic } from "../lib/arabicRecipeLocalization";
+import {
+  localizeMealForArabic,
+  localizeMealPlanForArabic
+} from "../lib/arabicRecipeLocalization";
 import type { MealPlanData } from "../lib/types";
 
 describe("Arabic meal localization", () => {
+  it("carries photo_identity through Arabic localization without mutation", () => {
+    const identity = {
+      dish_slug: "lemon-herb-seafood-soup",
+      english_name: "Lemon Herb Seafood Soup",
+      protein: "seafood",
+      sauce: "lemon-herb",
+      method: "soup",
+      cuisine_key: "mediterranean"
+    } as const;
+    const localized = localizeMealForArabic({
+      name: "\u062d\u0633\u0627\u0621 \u0627\u0644\u0633\u064a \u0641\u0648\u062f \u0628\u0627\u0644\u0644\u064a\u0645\u0648\u0646 \u0648\u0627\u0644\u0623\u0639\u0634\u0627\u0628",
+      cuisine: "Mediterranean",
+      calories: 480,
+      protein: "32g",
+      carbs: "44g",
+      fat: "16g",
+      ingredients: ["seafood mix", "lemon", "herbs"],
+      steps: ["Simmer."],
+      photo_identity: identity
+    });
+
+    expect(localized.photo_identity).toEqual(identity);
+  });
+
   it("translates guarded Mexican pescatarian fallback meals into Arabic", () => {
     const localized = localizeMealForArabic({
       name: "Grilled fish tacos with cabbage salsa",

@@ -26,6 +26,7 @@ const INITIAL_STATE: MealPlanState = {
   error: null
 };
 
+const MEAL_PLAN_SYNC_TIMEOUT_MS = 10_000;
 const mealPlanMemoryCache = new Map<string, MealPlanData>();
 
 function isFirestoreQuotaError(error: unknown) {
@@ -38,10 +39,22 @@ function isFirestoreQuotaError(error: unknown) {
 function isTransientSyncError(error: unknown) {
   return (
     error instanceof Error &&
-    /resource-exhausted|quota exceeded|too many requests|unavailable|network-request-failed|load failed|failed to fetch|offline/i.test(
+    /resource-exhausted|quota exceeded|too many requests|unavailable|network-request-failed|load failed|failed to fetch|offline|timed?\s*out|timeout/i.test(
       error.message
     )
   );
+}
+
+function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      reject(new Error(`${label} timed out`));
+    }, timeoutMs);
+
+    promise
+      .then(resolve, reject)
+      .finally(() => globalThis.clearTimeout(timeoutId));
+  });
 }
 
 function isRenderableImage(imageUrl?: string) {
@@ -148,7 +161,7 @@ export function useMealPlan() {
     const loadStartedAtMutationVersion = localMutationVersionRef.current;
 
     try {
-      const snapshot = await getDoc(planRef);
+      const snapshot = await withClientTimeout(getDoc(planRef), MEAL_PLAN_SYNC_TIMEOUT_MS, "Meal plan sync read");
       if (localMutationVersionRef.current !== loadStartedAtMutationVersion) {
         return;
       }
@@ -205,13 +218,17 @@ export function useMealPlan() {
     const planRef = doc(db, "users", user.uid, "plans", "currentWeekly");
     try {
       const sanitized = sanitizeMealPlanForFirestore(normalized);
-      await setDoc(
-        planRef,
-        {
-          mealPlan: sanitized,
-          updatedAt: serverTimestamp()
-        },
-        { merge: true }
+      await withClientTimeout(
+        setDoc(
+          planRef,
+          {
+            mealPlan: sanitized,
+            updatedAt: serverTimestamp()
+          },
+          { merge: true }
+        ),
+        MEAL_PLAN_SYNC_TIMEOUT_MS,
+        "Meal plan sync write"
       );
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error("Generated plan displayed locally, but saving failed.");

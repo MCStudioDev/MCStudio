@@ -24,6 +24,7 @@ import {
   translateIngredientToEnglish
 } from "@/lib/arabicRecipeLocalization";
 import { enrichRecipeWithDishIntent } from "@/lib/recipeDishIntelligence";
+import { buildPhotoIdentityFromCatalog } from "@/lib/photoIdentityBuilders";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { rankRecipes } from "@/services/rankingService";
 import {
@@ -145,6 +146,7 @@ export function mapCatalogRecipeToUiRecipe(
   const cleanedEnglishName = buildSharedRecipeEnglishTitle(recipeTitleSource);
   const cleanedEnglishCuisine = normalizeEnglishCuisineLabel(normalizedRecipe.localized?.English?.cuisine ?? normalizedRecipe.cuisine);
   const cleanedArabicCuisine = translateCuisineLabelToArabic(normalizedRecipe.localized?.Arabic?.cuisine ?? normalizedRecipe.cuisine);
+  const photoIdentity = buildPhotoIdentityFromCatalog(normalizedRecipe);
   const englishImageUrl =
     normalizeRecipeImageUrl(normalizedRecipe.localized?.English?.image_url) ??
     normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath);
@@ -181,6 +183,7 @@ export function mapCatalogRecipeToUiRecipe(
       normalizedRecipe.localized?.English?.dish_intent ??
       normalizedRecipe.localized?.Arabic?.dish_intent ??
       normalizedRecipe.dishIntent,
+    ...(photoIdentity ? { photo_identity: photoIdentity } : {}),
     preference_hits: normalizeStringArray(normalizedRecipe.localized?.English?.preference_hits).length
       ? normalizeStringArray(normalizedRecipe.localized?.English?.preference_hits)
       : preferenceHits
@@ -249,6 +252,8 @@ export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): Me
     };
   }
 
+  const photoIdentity = buildPhotoIdentityFromCatalog(recipe);
+
   return {
     name: recipe.title,
     cuisine: recipe.cuisine,
@@ -257,7 +262,8 @@ export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): Me
     carbs: `${recipe.carbs}g`,
     fat: `${recipe.fat}g`,
     ingredients: recipe.ingredientCanonicals,
-    steps: recipe.steps
+    steps: recipe.steps,
+    ...(photoIdentity ? { photo_identity: photoIdentity } : {})
   };
 }
 

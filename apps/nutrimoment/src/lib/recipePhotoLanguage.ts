@@ -17,19 +17,23 @@ export interface EnglishRecipePhotoContext {
 
 export function buildEnglishRecipePhotoContext(recipe: Recipe): EnglishRecipePhotoContext {
   const englishLocalized = normalizeEnglishLocalizedRecipeVariant(recipe.localized?.English);
+  const identityEnglishName = recipe.photo_identity?.english_name?.trim();
+  const identityCuisine = recipe.photo_identity?.cuisine_key?.replace(/-/g, " ");
   const fallbackName = firstEnglishText([
+    identityEnglishName,
     recipe.dish_intent?.dish_name,
     recipe.image_search_index,
     ...toStringArray(recipe.image_search_indices),
     recipe.name
   ]);
-  const name = cleanEnglishTitle(englishLocalized?.name ?? recipe.name, fallbackName);
+  const name = identityEnglishName || cleanEnglishTitle(englishLocalized?.name ?? recipe.name, fallbackName);
   const dishIntent = normalizeDishIntentForPhoto(
     recipe.dish_intent ?? englishLocalized?.dish_intent,
     name,
     recipe.image_search_index ?? englishLocalized?.image_search_index
   );
   const imageSearchIndices = normalizeEnglishSearchIndices([
+    identityEnglishName,
     recipe.image_search_index,
     ...toStringArray(recipe.image_search_indices),
     englishLocalized?.image_search_index,
@@ -39,7 +43,7 @@ export function buildEnglishRecipePhotoContext(recipe: Recipe): EnglishRecipePho
   ]);
 
   return {
-    cuisine: cleanEnglishCuisine(recipe.cuisine || englishLocalized?.cuisine || dishIntent?.cuisine || "Unknown"),
+    cuisine: cleanEnglishCuisine(identityCuisine || recipe.cuisine || englishLocalized?.cuisine || dishIntent?.cuisine || "Unknown"),
     dishIntent,
     imageSearchIndex: imageSearchIndices[0],
     imageSearchIndices,

@@ -1,5 +1,6 @@
-import type { MealPlanData, MealPlanDay } from "@/lib/types";
+import type { MealPlanData, MealPlanDay, PhotoIdentity } from "@/lib/types";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { normalizePhotoIdentity } from "@/lib/photoIdentityBuilders";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -124,6 +125,7 @@ function normalizeMeal(value: unknown) {
   const steps = readStringList(value, ["steps", "instructions", "prep_steps", "preparation"]);
   const imageUrl = readString(value, ["image_url", "imageUrl", "photo_url", "photoUrl"]);
   const hasDurableImage = isDurableRecipeImageUrl(imageUrl);
+  const photoIdentity = readPhotoIdentity(value);
 
   return {
     ...value,
@@ -140,8 +142,31 @@ function normalizeMeal(value: unknown) {
     image_url: hasDurableImage ? imageUrl : undefined,
     image_source: hasDurableImage ? readString(value, ["image_source", "imageSource"]) : undefined,
     image_attribution_name: hasDurableImage ? readString(value, ["image_attribution_name", "imageAttributionName"]) : undefined,
-    image_attribution_url: hasDurableImage ? readString(value, ["image_attribution_url", "imageAttributionUrl"]) : undefined
+    image_attribution_url: hasDurableImage ? readString(value, ["image_attribution_url", "imageAttributionUrl"]) : undefined,
+    photo_identity: photoIdentity
   };
+}
+
+function readPhotoIdentity(record: UnknownRecord): PhotoIdentity | undefined {
+  const raw = record["photo_identity"] ?? record["photoIdentity"];
+  if (!isRecord(raw)) return undefined;
+  return normalizePhotoIdentity({
+    dish_slug: pickString(raw, ["dish_slug", "dishSlug", "slug"]),
+    english_name: pickString(raw, ["english_name", "englishName", "name"]),
+    cuisine_key: pickString(raw, ["cuisine_key", "cuisineKey", "cuisine"]),
+    protein: pickString(raw, ["protein"]),
+    starch: pickString(raw, ["starch", "carb"]),
+    sauce: pickString(raw, ["sauce"]),
+    method: pickString(raw, ["method", "cooking_method", "cookingMethod"])
+  } as PhotoIdentity);
+}
+
+function pickString(record: UnknownRecord, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
 }
 
 function isRecord(value: unknown): value is UnknownRecord {

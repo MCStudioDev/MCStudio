@@ -32,7 +32,9 @@ const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
 const MEAL_PLAN_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const MEAL_PLAN_HISTORY_ENTRY_STORAGE_KEY = "nutrimoment-meal-plan-history-entry";
 const PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY = "nutrimoment.pendingMealPlanGenerationIds";
-const MEAL_PLAN_GENERATION_TIMEOUT_MS = 120_000;
+const MEAL_PLAN_GENERATION_TIMEOUT_MS = 85_000;
+const MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS = 3 * 60 * 1000;
+const MEAL_PLAN_HISTORY_ENTRY_TIMEOUT_MS = 8_000;
 const MEAL_PLAN_IMAGE_APPLY_CONCURRENCY = 4;
 const MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY = 2;
 type MealSlotType = "breakfast" | "lunch" | "dinner";
@@ -66,6 +68,18 @@ function safeJsonParse<T>(value: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      reject(new Error(`${label} timed out`));
+    }, timeoutMs);
+
+    promise
+      .then(resolve, reject)
+      .finally(() => globalThis.clearTimeout(timeoutId));
+  });
 }
 
 export function MealPlanTab() {
@@ -108,15 +122,19 @@ export function MealPlanTab() {
     let pendingHistoryEntryId: string | null = null;
     try {
       const historyIngredients = items.map((item) => item.name);
-      pendingHistoryEntryId = await addHistoryEntry({
-        timestamp: new Date().toISOString(),
-        title: t("mealPlanTitle"),
-        sessionType: "weekly_meal_plan",
-        ingredients: historyIngredients,
-        recipes: [],
-        generationStatus: "pending",
-        generationMessage: t("craftingMenu")
-      });
+      pendingHistoryEntryId = await withClientTimeout(
+        addHistoryEntry({
+          timestamp: new Date().toISOString(),
+          title: t("mealPlanTitle"),
+          sessionType: "weekly_meal_plan",
+          ingredients: historyIngredients,
+          recipes: [],
+          generationStatus: "pending",
+          generationMessage: t("craftingMenu")
+        }),
+        MEAL_PLAN_HISTORY_ENTRY_TIMEOUT_MS,
+        "Meal plan history entry"
+      ).catch(() => null);
       if (pendingHistoryEntryId) {
         rememberPendingMealPlanGeneration(pendingHistoryEntryId);
         mealPlanHistoryEntryIdRef.current = pendingHistoryEntryId;
@@ -231,18 +249,20 @@ export function MealPlanTab() {
   useEffect(() => {
     if (!user || !readPendingMealPlanGenerationIds().length) return;
     let lastReloadAt = 0;
-    const startedAt = Date.now();
-    const MAX_RECOVERY_MS = 3 * 60 * 1000;
 
     const recoverPendingMealPlan = () => {
-      const pendingIds = readPendingMealPlanGenerationIds();
+      const pendingEntries = readPendingMealPlanGenerationEntries();
+      const pendingIds = pendingEntries.map((entry) => entry.id);
       if (!pendingIds.length) {
         setLoading(false);
         return;
       }
-      // Give up after 3 minutes — server likely failed to persist the plan
-      if (Date.now() - startedAt > MAX_RECOVERY_MS) {
-        pendingIds.forEach((id) => {
+      const now = Date.now();
+      const expiredIds = pendingEntries
+        .filter((entry) => now - entry.startedAt > MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS)
+        .map((entry) => entry.id);
+      if (expiredIds.length) {
+        expiredIds.forEach((id) => {
           void updateEntryStatusRef.current(
             id,
             "failed",
@@ -251,11 +271,10 @@ export function MealPlanTab() {
           forgetPendingMealPlanGeneration(id);
         });
         void reloadMealPlan();
-        setLoading(false);
+        setLoading(readPendingMealPlanGenerationIds().length > 0);
         return;
       }
       if (document.visibilityState === "hidden") return;
-      const now = Date.now();
       if (now - lastReloadAt < 3000) return;
       lastReloadAt = now;
       setLoading(true);
@@ -351,6 +370,7 @@ export function MealPlanTab() {
         body: JSON.stringify({
           items: lookupSlots.map((slot) => {
             const queries = buildMealPlanPhotoQuery(slot.meal);
+            const identityParams = buildMealPlanPhotoIdentityParams(slot.meal);
             return {
               alt: queries.slice(1),
               cacheOnly: true,
@@ -359,7 +379,8 @@ export function MealPlanTab() {
               exclude: Array.from(usedImageUrls),
               ingredient: buildEnglishMealIngredients(slot.meal.ingredients).slice(0, 10),
               query: queries[0] ?? slot.meal.name,
-              queryKey: slot.key
+              queryKey: slot.key,
+              ...identityParams
             };
           })
         })
@@ -377,7 +398,8 @@ export function MealPlanTab() {
           Array.from(usedImageUrls),
           {
             cuisine: slot.meal.cuisine,
-            exactNames: buildMealPlanPhotoExactNames(slot.meal)
+            exactNames: buildMealPlanPhotoExactNames(slot.meal),
+            identity: buildMealPlanPhotoIdentityParams(slot.meal)
           }
         ),
         {
@@ -1001,10 +1023,27 @@ function rememberMealPlanHistoryEntry(
 }
 
 function readPendingMealPlanGenerationIds() {
+  return readPendingMealPlanGenerationEntries().map((entry) => entry.id);
+}
+
+function readPendingMealPlanGenerationEntries(): Array<{ id: string; startedAt: number }> {
   if (typeof window === "undefined") return [];
   try {
     const parsed = JSON.parse(window.localStorage.getItem(PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    if (!Array.isArray(parsed)) return [];
+    const now = Date.now();
+    return parsed
+      .map((item): { id: string; startedAt: number } | null => {
+        if (typeof item === "string") return { id: item, startedAt: now - MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS - 1 };
+        if (!item || typeof item !== "object") return null;
+        const id = typeof item.id === "string" ? item.id : "";
+        if (!id) return null;
+        const startedAt = typeof item.startedAt === "number" && Number.isFinite(item.startedAt)
+          ? item.startedAt
+          : now - MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS - 1;
+        return { id, startedAt };
+      })
+      .filter((item): item is { id: string; startedAt: number } => Boolean(item));
   } catch {
     return [];
   }
@@ -1012,13 +1051,14 @@ function readPendingMealPlanGenerationIds() {
 
 function rememberPendingMealPlanGeneration(entryId: string) {
   if (typeof window === "undefined") return;
-  const next = Array.from(new Set([...readPendingMealPlanGenerationIds(), entryId]));
+  const existing = readPendingMealPlanGenerationEntries().filter((entry) => entry.id !== entryId);
+  const next = [...existing, { id: entryId, startedAt: Date.now() }];
   window.localStorage.setItem(PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY, JSON.stringify(next.slice(-20)));
 }
 
 function forgetPendingMealPlanGeneration(entryId: string) {
   if (typeof window === "undefined") return;
-  const next = readPendingMealPlanGenerationIds().filter((item) => item !== entryId);
+  const next = readPendingMealPlanGenerationEntries().filter((item) => item.id !== entryId);
   window.localStorage.setItem(PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY, JSON.stringify(next));
 }
 
@@ -1084,7 +1124,8 @@ function buildMealSummary(
 
 function buildMealPlanPhotoQuery(meal: MealPlanMeal) {
   const translatedIngredients = buildEnglishMealIngredients(meal.ingredients);
-  const englishMealName = translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
+  const identityEnglishName = meal.photo_identity?.english_name?.trim();
+  const englishMealName = identityEnglishName || translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
   const imageSearchIndices = Array.from(
     new Set(
       [
@@ -1109,11 +1150,13 @@ function serializeRecipePhotoQuery(queries: string[]) {
 }
 
 function buildMealPlanPhotoExactNames(meal: MealPlanMeal) {
-  const englishMealName = translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
+  const identityEnglishName = meal.photo_identity?.english_name?.trim();
+  const englishMealName = identityEnglishName || translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
   return Array.from(
     new Set(
       [
         meal.name,
+        identityEnglishName,
         englishMealName,
         meal.image_search_index,
         ...(meal.image_search_indices ?? [])
@@ -1124,11 +1167,33 @@ function buildMealPlanPhotoExactNames(meal: MealPlanMeal) {
   ).slice(0, 8);
 }
 
+type MealPlanPhotoIdentityParams = {
+  photoSlug?: string;
+  photoCuisineKey?: string;
+  photoProtein?: string;
+  photoStarch?: string;
+  photoSauce?: string;
+  photoMethod?: string;
+};
+
+function buildMealPlanPhotoIdentityParams(meal: MealPlanMeal): MealPlanPhotoIdentityParams {
+  const identity = meal.photo_identity;
+  if (!identity?.dish_slug) return {};
+  return {
+    photoSlug: identity.dish_slug,
+    photoCuisineKey: identity.cuisine_key,
+    photoProtein: identity.protein,
+    photoStarch: identity.starch,
+    photoSauce: identity.sauce,
+    photoMethod: identity.method
+  };
+}
+
 function buildMealPlanRecipePhotoRequestUrl(
   queries: string[],
   ingredients: string[] = [],
   excludeUrls: string[] = [],
-  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+  exactContext: { cuisine?: string; exactNames?: string[]; identity?: MealPlanPhotoIdentityParams } = {}
 ) {
   const params = new URLSearchParams();
   queries.forEach((query, index) => {
@@ -1150,6 +1215,15 @@ function buildMealPlanRecipePhotoRequestUrl(
     .forEach((name) => params.append("exact", name));
   if (exactContext.cuisine?.trim()) {
     params.set("cuisine", exactContext.cuisine.trim());
+  }
+  if (exactContext.identity) {
+    const { photoSlug, photoCuisineKey, photoProtein, photoStarch, photoSauce, photoMethod } = exactContext.identity;
+    if (photoSlug) params.set("photoSlug", photoSlug);
+    if (photoCuisineKey) params.set("photoCuisineKey", photoCuisineKey);
+    if (photoProtein) params.set("photoProtein", photoProtein);
+    if (photoStarch) params.set("photoStarch", photoStarch);
+    if (photoSauce) params.set("photoSauce", photoSauce);
+    if (photoMethod) params.set("photoMethod", photoMethod);
   }
   excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
   return `/api/recipe-photo?${params.toString()}`;

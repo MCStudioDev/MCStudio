@@ -27,6 +27,26 @@ describe("diet enforcement", () => {
     ).toEqual({ kind: "allergen", allergen: "eggs", match: "egg" });
   });
 
+  it("normalizes Arabic custom allergens before checking generated recipes", () => {
+    expect(
+      findRecipeDietViolation(
+        {
+          name: "\u0645\u0643\u0631\u0648\u0646\u0629 \u0628\u0635\u0644\u0635\u0629 \u0627\u0644\u0637\u0645\u0627\u0637\u0645",
+          ingredients: ["\u0645\u0643\u0631\u0648\u0646\u0629"],
+          missing_ingredients: ["\u0635\u0644\u0635\u0629 \u0637\u0645\u0627\u0637\u0645", "\u062b\u0648\u0645"]
+        },
+        { diets: [], allergens: ["\u0627\u0644\u0637\u0645\u0627\u0637\u0645"] }
+      )
+    ).toEqual({ kind: "allergen", allergen: "\u0627\u0644\u0637\u0645\u0627\u0637\u0645", match: "\u0637\u0645\u0627\u0637\u0645" });
+
+    expect(
+      findRecipeDietViolation(
+        { name: "Greek yogurt bowl", ingredients: ["yogurt", "berries"] },
+        { diets: [], allergens: ["\u0627\u0644\u0644\u0628\u0646"] }
+      )
+    ).toEqual({ kind: "allergen", allergen: "\u0627\u0644\u0644\u0628\u0646", match: "yogurt" });
+  });
+
   it("does not false-positive Arabic pescatarian terms inside safe words", () => {
     const ctx = { diets: ["pescatarian"], allergens: [] };
 

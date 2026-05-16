@@ -8,7 +8,7 @@ import { useApp } from "@/contexts/AppContext";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
 import { buildRecipePhotoReuseKeyFromQuery } from "@/lib/recipePhotoReuse";
-import type { RecipeImageSource } from "@/lib/types";
+import type { PhotoIdentity, RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const recipePhotoSuccessCache = new Map<
@@ -56,6 +56,7 @@ interface MealRevealCardProps {
   imageQuery?: string | string[];
   imageExactNames?: string[];
   imageCuisine?: string;
+  imagePhotoIdentity?: PhotoIdentity;
   imagePromptIngredients?: string[];
   onImageResolved?: (payload: {
     imageAttributionName?: string;
@@ -84,6 +85,7 @@ export function MealRevealCard({
   imageQuery,
   imageExactNames,
   imageCuisine,
+  imagePhotoIdentity,
   imagePromptIngredients,
   onImageResolved,
   eyebrow,
@@ -137,7 +139,8 @@ export function MealRevealCard({
   const queryKey = [
     queryCandidates.join(" || "),
     exactNamesForLookup.join(" || "),
-    imageCuisine?.trim() ?? ""
+    imageCuisine?.trim() ?? "",
+    imagePhotoIdentity?.dish_slug ?? ""
   ]
     .filter(Boolean)
     .join(" ## ");
@@ -345,7 +348,8 @@ export function MealRevealCard({
         .then((headers) =>
           fetch(buildRecipePhotoRequestUrl(queryCandidates, imagePromptIngredients ?? [], excludedImageUrls, {
             cuisine: imageCuisine,
-            exactNames: exactNamesForLookup
+            exactNames: exactNamesForLookup,
+            photoIdentity: imagePhotoIdentity
           }), {
             headers
           })
@@ -473,6 +477,7 @@ export function MealRevealCard({
     getAuthHeaders,
     imageLoading,
     imageCuisine,
+    imagePhotoIdentity,
     exactNamesForLookup,
     imagePromptIngredients,
     lookupEnabled,
@@ -544,11 +549,17 @@ export function MealRevealCard({
         >
           <div
             className={cn(
-              "relative h-full w-full transition-transform duration-500 [transform-style:preserve-3d] md:group-hover:[transform:rotateY(180deg)] md:group-focus-within:[transform:rotateY(180deg)]",
+              "relative h-full w-full transition-transform duration-500 [transform-style:preserve-3d] [-webkit-transform-style:preserve-3d] md:group-hover:[transform:rotateY(180deg)] md:group-focus-within:[transform:rotateY(180deg)]",
               (isFlipped || isOpen) && "[transform:rotateY(180deg)]"
             )}
           >
-            <div className="absolute inset-0 [backface-visibility:hidden]" dir={rtl ? "rtl" : "ltr"}>
+            <div
+              className={cn(
+                "absolute inset-0 [backface-visibility:hidden] [-webkit-backface-visibility:hidden] [transform:rotateY(0deg)]",
+                (isFlipped || isOpen) && "pointer-events-none"
+              )}
+              dir={rtl ? "rtl" : "ltr"}
+            >
               <RecipeFrontFace
                 eyebrow={eyebrow}
                 visualMatchLabel={visualMatchLabel}
@@ -566,7 +577,10 @@ export function MealRevealCard({
               />
             </div>
 
-            <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)]" dir={rtl ? "rtl" : "ltr"}>
+            <div
+              className="absolute inset-0 [backface-visibility:hidden] [-webkit-backface-visibility:hidden] [transform:rotateY(180deg)]"
+              dir={rtl ? "rtl" : "ltr"}
+            >
               <RecipeBackFace
                 eyebrow={eyebrow}
                 name={name}
@@ -910,7 +924,7 @@ function buildRecipePhotoRequestUrl(
   queries: string[],
   ingredients: string[] = [],
   excludeUrls: string[] = [],
-  exactContext: { cuisine?: string; exactNames?: string[] } = {}
+  exactContext: { cuisine?: string; exactNames?: string[]; photoIdentity?: PhotoIdentity } = {}
 ) {
   const params = new URLSearchParams();
   queries.forEach((query, index) => {
@@ -933,9 +947,20 @@ function buildRecipePhotoRequestUrl(
   if (exactContext.cuisine?.trim()) {
     params.set("cuisine", exactContext.cuisine.trim());
   }
+  appendPhotoIdentityParams(params, exactContext.photoIdentity);
   excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
+}
+
+function appendPhotoIdentityParams(params: URLSearchParams, identity: PhotoIdentity | undefined) {
+  if (!identity?.dish_slug) return;
+  params.set("photoSlug", identity.dish_slug);
+  if (identity.cuisine_key) params.set("photoCuisineKey", identity.cuisine_key);
+  if (identity.protein) params.set("photoProtein", identity.protein);
+  if (identity.starch) params.set("photoStarch", identity.starch);
+  if (identity.sauce) params.set("photoSauce", identity.sauce);
+  if (identity.method) params.set("photoMethod", identity.method);
 }
 
 function buildRecipePlaceholderStyle(seed: string): CSSProperties {

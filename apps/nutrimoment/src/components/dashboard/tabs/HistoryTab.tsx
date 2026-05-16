@@ -206,6 +206,7 @@ export function HistoryTab() {
                 cuisine: buildRecipePhotoCuisine(candidate.recipe),
                 exact: buildRecipePhotoExactNames(candidate.recipe),
                 ingredient: buildRecipePhotoPromptIngredients(candidate.recipe).slice(0, 10),
+                ...buildRecipePhotoIdentityBatchParams(candidate.recipe),
                 query: candidate.queries[0] ?? candidate.recipe.name,
                 queryKey: candidate.queryKey
               }))
@@ -376,6 +377,7 @@ export function HistoryTab() {
                       imageQuery={buildRecipePhotoQuery(recipe)}
                       imageExactNames={buildRecipePhotoExactNames(recipe)}
                       imageCuisine={buildRecipePhotoCuisine(recipe)}
+                      imagePhotoIdentity={recipe.photo_identity}
                       imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                       onImageResolved={
                         user
@@ -535,6 +537,7 @@ function buildHistoryPhotoRepairKey(entryId: string, recipeIndex: number, recipe
   return [
     entryId,
     recipeIndex,
+    recipe.photo_identity?.dish_slug,
     buildRecipePhotoExactNames(recipe).join("||"),
     buildRecipePhotoQuery(recipe).join("||")
   ]
@@ -572,6 +575,19 @@ function buildRecipePhotoExactNames(recipe: Recipe) {
 
 function buildRecipePhotoCuisine(recipe: Recipe) {
   return recipe.localized?.English?.cuisine ?? recipe.cuisine;
+}
+
+function buildRecipePhotoIdentityBatchParams(recipe: Recipe) {
+  const identity = recipe.photo_identity;
+  if (!identity?.dish_slug) return {};
+  return {
+    photoSlug: identity.dish_slug,
+    photoCuisineKey: identity.cuisine_key,
+    photoProtein: identity.protein,
+    photoStarch: identity.starch,
+    photoSauce: identity.sauce,
+    photoMethod: identity.method
+  };
 }
 
 function buildRecipeStats(recipe: Recipe) {

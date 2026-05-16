@@ -13,6 +13,12 @@ const batchItemSchema = z.object({
   exact: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
   ingredient: z.array(z.string()).optional(),
+  photoSlug: z.string().optional(),
+  photoCuisineKey: z.string().optional(),
+  photoProtein: z.string().optional(),
+  photoStarch: z.string().optional(),
+  photoSauce: z.string().optional(),
+  photoMethod: z.string().optional(),
   query: z.string().min(3),
   queryKey: z.string().min(1).max(500)
 });
@@ -120,8 +126,19 @@ function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   if (item.cuisine?.trim()) {
     params.set("cuisine", item.cuisine.trim());
   }
+  setIfPresent(params, "photoSlug", item.photoSlug);
+  setIfPresent(params, "photoCuisineKey", item.photoCuisineKey);
+  setIfPresent(params, "photoProtein", item.photoProtein);
+  setIfPresent(params, "photoStarch", item.photoStarch);
+  setIfPresent(params, "photoSauce", item.photoSauce);
+  setIfPresent(params, "photoMethod", item.photoMethod);
 
   return `${origin}/api/recipe-photo?${params.toString()}`;
+}
+
+function setIfPresent(params: URLSearchParams, key: string, value: string | undefined) {
+  const trimmed = value?.trim();
+  if (trimmed) params.set(key, trimmed);
 }
 
 function appendValues(params: URLSearchParams, key: string, values: string[] | undefined, limit: number) {

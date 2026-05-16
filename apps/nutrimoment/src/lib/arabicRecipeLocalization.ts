@@ -296,6 +296,11 @@ const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
   "سمكة": "fish",
   "أسماك": "fish",
   "اسماك": "fish",
+  "سي فود": "seafood",
+  "مأكولات بحرية": "seafood",
+  "مأكولات بحريه": "seafood",
+  "المأكولات البحرية": "seafood",
+  "روبيان": "shrimp",
   "ملح": "salt",
   "بشاميل": "bechamel",
   "سباجيتي": "spaghetti",
@@ -546,10 +551,47 @@ export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: str
   if (/سمك\s+سنجاري|سنجاري/.test(normalized)) return "Samak Singari";
   if (/طاجن\s+سمك/.test(normalized)) return "Egyptian Fish Tagine";
   if (/جمبري\s+إسكندراني|جمبري\s+اسكندراني|اسكندراني/.test(normalized)) return "Alexandrian Shrimp";
+  if (/سي\s*فود|مأكولات\s+بحري(?:ة|ه)|بحري(?:ة|ه)|seafood/.test(normalized)) {
+    if (/باستا|مكرونة|مكرونه|سباجيتي|لينجويني/.test(normalized)) {
+      if (/طماطم|صلصة/.test(normalized)) return "Seafood Pasta with Tomato Sauce";
+      return "Seafood Pasta";
+    }
+    if (/شوربة|حساء/.test(normalized)) {
+      if (/خضار|خضروات/.test(normalized)) return "Seafood Vegetable Soup";
+      if (/ليمون|أعشاب|اعشاب/.test(normalized)) return "Lemon Herb Seafood Soup";
+      return "Seafood Soup";
+    }
+    if (/سلطة/.test(normalized)) {
+      if (/ليمون|كزبرة/.test(normalized)) return "Lemon Cilantro Seafood Salad";
+      return "Seafood Salad";
+    }
+    if (/كينوا/.test(normalized)) return "Seafood Quinoa Bowl";
+    if (/مشوي|مشوية/.test(normalized)) return "Grilled Seafood Plate";
+    return "Seafood Plate";
+  }
+  if (/جمبري|روبيان/.test(normalized)) {
+    if (/(?:ال)?كاري\s+(?:ال)?(?:أخضر|اخضر)/.test(normalized)) return "Green Curry Shrimp";
+    if (/مشوي|مشوية/.test(normalized)) {
+      if (/أعشاب|اعشاب/.test(normalized)) return "Grilled Herb Shrimp";
+      return "Grilled Shrimp";
+    }
+    if (/بقسماط|مقرمش|مقرمشة|مقلي|مقلية/.test(normalized)) return "Fried Shrimp Plate";
+    if (/ثوم.*زيت\s+زيتون|زيت\s+زيتون.*ثوم/.test(normalized)) return "Garlic Olive Oil Shrimp";
+    if (/ليمون.*كزبرة|كزبرة.*ليمون/.test(normalized)) return "Lemon Cilantro Shrimp";
+    if (/ثوم.*ليمون|ليمون.*ثوم/.test(normalized)) return "Lemon Garlic Shrimp";
+  }
   if (/كبدة\s+إسكندراني|كبدة\s+اسكندراني|كبده\s+إسكندراني|كبده\s+اسكندراني/.test(normalized)) {
     return "Alexandrian Liver";
   }
   if (/كبدة|كبده/.test(normalized)) {
+    if (/ساندويتش|سندويتش/.test(normalized)) return "Egyptian Kebda Sandwiches";
+    if (/بقدونس.*ثوم|ثوم.*بقدونس/.test(normalized)) return "Liver with Parsley and Garlic";
+    if (/ليمون.*ثوم|ثوم.*ليمون/.test(normalized)) return "Garlic Lemon Liver";
+    if (/مشروم|فطر/.test(normalized)) return "Liver with Mushrooms";
+    if (/بصل\s+مكرمل|المكرمل/.test(normalized)) return "Liver with Caramelized Onions";
+    if (/فلفل\s+حار|شطة|حار/.test(normalized)) return "Spicy Garlic Liver";
+    if (/كمون/.test(normalized)) return "Cumin Fried Liver";
+    if (/مطهوة|مطبوخة|ا?عشاب|أعشاب/.test(normalized)) return "Herb Stewed Liver";
     if (/مقرمشة|مقرمش|مقلية|مقلي|تحمير/.test(normalized)) return "Fried Liver";
     if (/شاورما/.test(normalized)) return "Liver Shawarma";
     if (/بهارات|متبلة|متبل/.test(normalized)) return "Spiced Liver";
@@ -561,6 +603,15 @@ export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: str
   if (/طعمية|طعميه/.test(normalized)) return "Taameya";
   if (/فول\s+مدمس|فول/.test(normalized)) return "Ful Medames";
   if (/شكشوكة|شكشوكه/.test(normalized)) return "Shakshuka";
+  if (/شوربة.*عدس|عدس.*شوربة/.test(normalized)) {
+    if (/طماطم|مصري|مصرية/.test(normalized)) return "Egyptian Lentil Tomato Soup";
+    return "Lentil Soup";
+  }
+  if (/(أرز|ارز|رز).*عدس|عدس.*(أرز|ارز|رز)/.test(normalized)) {
+    return /كشري/.test(normalized) ? "Koshary" : "Mujadara";
+  }
+  if (/عدس.*مقلاة|مقلاة.*عدس/.test(normalized)) return "Lentil Skillet";
+  if (/حمص.*طماطم|طماطم.*حمص/.test(normalized)) return "Chickpea Tomato Stew";
   if (/دجاج\s+بالزبدة|دجاج\s+بالزبده/.test(normalized)) return "Butter Chicken";
   if (/دجاج\s+تندوري/.test(normalized)) return "Tandoori Chicken";
   if (/كاري\s+سمك/.test(normalized)) return "Fish Curry";
@@ -620,9 +671,13 @@ function detectArabicRecipeProtein(normalized: string) {
   if (/لحم\s+مفروم|لحمة\s+مفرومة|اللحم\s+المفروم/.test(normalized)) return "Ground Meat";
   if (/لحم|لحمة|لحمه/.test(normalized)) return "Meat";
   if (/دجاج|فراخ/.test(normalized)) return "Chicken";
+  if (/سي\s*فود|مأكولات\s+بحري(?:ة|ه)|بحري(?:ة|ه)/.test(normalized)) return "Seafood";
   if (/سمك|سمكة|اسماك|أسماك/.test(normalized)) return "Fish";
   if (/جمبري|روبيان/.test(normalized)) return "Shrimp";
   if (/كبدة|كبده/.test(normalized)) return "Liver";
+  if (/عدس/.test(normalized)) return "Lentils";
+  if (/حمص/.test(normalized)) return "Chickpeas";
+  if (/فول|فاصوليا|لوبياء|لوبيا/.test(normalized)) return "Beans";
   return null;
 }
 
@@ -656,6 +711,7 @@ function detectArabicRecipeMethod(normalized: string) {
   if (/مقلي|مقلية/.test(normalized)) return "Fried";
   if (/مسلوق|مسلوقة/.test(normalized)) return "Boiled";
   if (/مطهو|مطبوخ/.test(normalized)) return "Cooked";
+  if (/مقلاة/.test(normalized)) return "Skillet";
   return null;
 }
 
@@ -674,8 +730,14 @@ function translateWeakArabicIngredientTitleToEnglish(normalized: string) {
     const hasRice = /أرز|ارز|رز/.test(normalized);
     const hasOliveOil = /زيت\s+زيتون/.test(normalized);
     const hasFried = /مقلي|مقلية|تحمير/.test(normalized);
+    const hasGreenCurry = /(?:ال)?كاري\s+(?:ال)?(?:أخضر|اخضر)/.test(normalized);
+    const hasGrilled = /مشوي|مشوية/.test(normalized);
+    const hasHerbs = /أعشاب|اعشاب/.test(normalized);
 
     if (hasHoney && hasGarlic) return "Garlic Honey Shrimp";
+    if (hasGreenCurry) return "Green Curry Shrimp";
+    if (hasGrilled && hasHerbs) return "Grilled Herb Shrimp";
+    if (hasGrilled) return "Grilled Shrimp";
     if (hasRice) return "Shrimp Rice Plate";
     if (hasFried) return "Fried Shrimp Plate";
     if (hasLime) return "Lime Shrimp Plate";

@@ -21,6 +21,8 @@ import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildNormalizedShoppingList } from "@/lib/shoppingListNormalizer";
 import { isLikelyBackgroundFetchInterruption } from "@/lib/backgroundRecipeJobs";
+import { getCuisineDisplayLabel } from "@/lib/cuisines";
+import type { TranslationKey } from "@/lib/translations";
 import type { MealPlanMeal } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
@@ -30,6 +32,7 @@ const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
 const MEAL_PLAN_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const MEAL_PLAN_HISTORY_ENTRY_STORAGE_KEY = "nutrimoment-meal-plan-history-entry";
 const PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY = "nutrimoment.pendingMealPlanGenerationIds";
+const MEAL_PLAN_GENERATION_TIMEOUT_MS = 120_000;
 const MEAL_PLAN_IMAGE_APPLY_CONCURRENCY = 4;
 const MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY = 2;
 type MealSlotType = "breakfast" | "lunch" | "dinner";
@@ -85,6 +88,7 @@ export function MealPlanTab() {
   const imageErrorSlotsRef = useRef(imageErrorSlots);
   const mealPlanHistoryEntryIdRef = useRef<string | null>(null);
   const updateMealImageRef = useRef(updateMealImage);
+  const updateEntryStatusRef = useRef(updateEntryStatus);
   const updateHistoryRecipeImageRef = useRef(updateHistoryRecipeImage);
   const canGenerateMealPlan = access.tier === "premium" || access.weeklyPlanRemaining > 0;
 
@@ -118,9 +122,12 @@ export function MealPlanTab() {
         mealPlanHistoryEntryIdRef.current = pendingHistoryEntryId;
       }
 
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), MEAL_PLAN_GENERATION_TIMEOUT_MS);
       const response = await fetch("/api/mealplan", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+        signal: controller.signal,
         body: JSON.stringify({
           pantry: historyIngredients,
           pantryItems: items.map((item) => ({ name: item.name, quantity: item.quantity })),
@@ -135,7 +142,7 @@ export function MealPlanTab() {
           historyTitle: t("mealPlanTitle"),
           persistResult: true
         })
-      });
+      }).finally(() => window.clearTimeout(timeoutId));
       const data = (await response.json()) as { result?: string; error?: string; fallbackNotice?: string };
       await refreshAccess();
       if (!response.ok) {
@@ -157,11 +164,10 @@ export function MealPlanTab() {
         forgetPendingMealPlanGeneration(pendingHistoryEntryId);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to generate meal plan";
-      if (pendingHistoryEntryId && isLikelyBackgroundFetchInterruption(error)) {
-        setError(t("backgroundMealPlanContinuing"));
-        return;
-      }
+      const interrupted = pendingHistoryEntryId && isLikelyBackgroundFetchInterruption(error);
+      const message = interrupted
+        ? "Meal plan generation was interrupted before it finished. Please try again."
+        : error instanceof Error ? error.message : "Failed to generate meal plan";
       if (pendingHistoryEntryId) {
         await updateEntryStatus(pendingHistoryEntryId, "failed", message).catch(() => undefined);
         forgetPendingMealPlanGeneration(pendingHistoryEntryId);
@@ -215,15 +221,36 @@ export function MealPlanTab() {
   }, [updateMealImage]);
 
   useEffect(() => {
+    updateEntryStatusRef.current = updateEntryStatus;
+  }, [updateEntryStatus]);
+
+  useEffect(() => {
     updateHistoryRecipeImageRef.current = updateHistoryRecipeImage;
   }, [updateHistoryRecipeImage]);
 
   useEffect(() => {
     if (!user || !readPendingMealPlanGenerationIds().length) return;
     let lastReloadAt = 0;
+    const startedAt = Date.now();
+    const MAX_RECOVERY_MS = 3 * 60 * 1000;
 
     const recoverPendingMealPlan = () => {
-      if (!readPendingMealPlanGenerationIds().length) {
+      const pendingIds = readPendingMealPlanGenerationIds();
+      if (!pendingIds.length) {
+        setLoading(false);
+        return;
+      }
+      // Give up after 3 minutes — server likely failed to persist the plan
+      if (Date.now() - startedAt > MAX_RECOVERY_MS) {
+        pendingIds.forEach((id) => {
+          void updateEntryStatusRef.current(
+            id,
+            "failed",
+            "Meal plan generation timed out before it finished. Please try again."
+          ).catch(() => undefined);
+          forgetPendingMealPlanGeneration(id);
+        });
+        void reloadMealPlan();
         setLoading(false);
         return;
       }
@@ -493,14 +520,10 @@ export function MealPlanTab() {
         }
 
         if (isLastRound) {
-          pendingPremiumKeys.delete(slot.key);
-          setImageLoadingSlots((current) => {
+          setImageLoadingSlots((current) => new Set([...Array.from(current), slot.key]));
+          setImageErrorSlots((current) => {
             const next = new Set(current);
             next.delete(slot.key);
-            return next;
-          });
-          setImageErrorSlots((current) => {
-            const next = new Set(current).add(slot.key);
             return next;
           });
         }
@@ -562,26 +585,89 @@ export function MealPlanTab() {
         }
       />
 
-      <motion.div variants={itemVariants} className="flex justify-start">
-        <div className="space-y-3">
-          {access.tier !== "premium" ? (
-            <div className="rounded-[1.5rem] border border-amber-200/16 bg-amber-400/10 px-5 py-4 text-sm text-amber-50/88">
-              {t("freeMealPlanNotice")
-                .replace("{remaining}", String(access.weeklyPlanRemaining))
-                .replace("{limit}", String(access.weeklyPlanLimit))}
+      <motion.div variants={itemVariants}>
+        <Card className="rounded-[1.6rem] space-y-4 sm:rounded-[2rem]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("preferences")}</p>
+            <h3 className="mt-1.5 text-xl font-display font-bold text-white sm:text-2xl">{t("healthProfile")}</h3>
+          </div>
+
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-3.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("preferredCuisine")}</p>
+              <p className="mt-1.5 text-base font-semibold text-white">
+                {getCuisineDisplayLabel(settings.preferredCuisine, settings.uiLanguage)}
+              </p>
             </div>
-          ) : (
-            <div className="rounded-[1.5rem] border border-emerald-200/16 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-50/88">
-              {t("premiumMealPlanNotice")}
+            <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-3.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("dailyCalorieTarget")}</p>
+              <p className="mt-1.5 text-base font-semibold text-white">{settings.calorieTarget} kcal</p>
+            </div>
+          </div>
+
+          {(health.diets.length > 0 || health.conditions.length > 0 || (health.allergens ?? []).length > 0) && (
+            <div className="space-y-3">
+              {health.diets.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("dietaryPrefs")}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {health.diets.map((diet) => (
+                      <span key={diet} className="rounded-full border border-emerald-200/22 bg-emerald-400/14 px-2.5 py-0.5 text-xs font-semibold text-emerald-50">
+                        {t(diet as TranslationKey)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {health.conditions.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("healthConditions")}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {health.conditions.map((condition) => (
+                      <span key={condition} className="rounded-full border border-amber-200/22 bg-amber-400/12 px-2.5 py-0.5 text-xs font-semibold text-amber-100">
+                        {t(condition as TranslationKey)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(health.allergens ?? []).length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/52">{t("allergensTitle")}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(health.allergens ?? []).map((allergen) => (
+                      <span key={allergen} className="rounded-full border border-red-200/20 bg-red-400/10 px-2.5 py-0.5 text-xs font-semibold text-red-100">
+                        {allergen}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
-          <Button size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan}>
-            {!canGenerateMealPlan ? t("freePlansUsed") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
-          </Button>
-        </div>
+
+          <div className="h-px bg-white/[0.07]" />
+
+          <div className="space-y-3">
+            {access.tier !== "premium" ? (
+              <div className="rounded-[1.35rem] border border-amber-200/16 bg-amber-400/10 px-4 py-3 text-sm text-amber-50/88">
+                {t("freeMealPlanNotice")
+                  .replace("{remaining}", String(access.weeklyPlanRemaining))
+                  .replace("{limit}", String(access.weeklyPlanLimit))}
+              </div>
+            ) : (
+              <div className="rounded-[1.35rem] border border-emerald-200/16 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50/88">
+                {t("premiumMealPlanNotice")}
+              </div>
+            )}
+            <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan}>
+              {!canGenerateMealPlan ? t("freePlansUsed") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+            </Button>
+          </div>
+        </Card>
       </motion.div>
 
-      {savedPlanLoading ? (
+      {loading || savedPlanLoading ? (
         <motion.div variants={itemVariants}>
           <Card className="rounded-[2rem] space-y-4" aria-busy="true">
             <p className="text-sm font-semibold text-emerald-50/72">{t("craftingMenu")}</p>
@@ -806,7 +892,7 @@ function MealPlanRevealCard({
       summary={buildMealSummary(ingredients, haveIngredients, needIngredients, t)}
       previewLabel={t("pantryNutritionPreview")}
       previewItems={[...haveIngredients, ...needIngredients].slice(0, 5)}
-      imageUrl={hasStrictRenderableImage(meal.image_url, Boolean(strictGeneratedImages)) ? meal.image_url : undefined}
+      imageUrl={hasStrictRenderableImage(meal.image_url, false) ? meal.image_url : undefined}
       imageSource={meal.image_source}
       imageAttributionName={meal.image_attribution_name}
       imageAttributionUrl={meal.image_attribution_url}
@@ -1065,7 +1151,7 @@ function buildMealPlanRecipePhotoRequestUrl(
   if (exactContext.cuisine?.trim()) {
     params.set("cuisine", exactContext.cuisine.trim());
   }
-  excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
+  excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
   return `/api/recipe-photo?${params.toString()}`;
 }
 

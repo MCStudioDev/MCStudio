@@ -6,7 +6,7 @@ import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
-import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
+import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
 import { buildRecipePhotoReuseKeyFromQuery } from "@/lib/recipePhotoReuse";
 import type { RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -29,8 +29,7 @@ const inFlightRecipePhotoRequests = new Map<
 const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKey: string; reuseKey: string }>();
 const DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS = 10 * 60 * 1000;
 const RECENT_RECIPE_PHOTO_SELECTION_TTL_MS = 10 * 60 * 1000;
-const PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES = 8;
-const PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS = 10 * 1000;
+const PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS = 18 * 1000;
 
 export interface MealRevealSection {
   title: string;
@@ -96,7 +95,7 @@ export function MealRevealCard({
   sections = [],
   className
 }: MealRevealCardProps) {
-  const { t } = useApp();
+  const { t, rtl } = useApp();
   const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const bypassClientCache = false;
@@ -420,7 +419,7 @@ export function MealRevealCard({
         const retryAfterSeconds = Number(error instanceof Error ? error.message : "0") || 0;
         const retryUntil = now + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS);
         const premiumRetryCount = premiumRetryCountsRef.current.get(queryKey) ?? 0;
-        if (hasGeneratedImageAccess && premiumRetryCount < PREMIUM_RECIPE_PHOTO_CLIENT_RETRIES) {
+        if (hasGeneratedImageAccess) {
           premiumRetryCountsRef.current.set(queryKey, premiumRetryCount + 1);
           setLookupState({
             failed: false,
@@ -438,7 +437,7 @@ export function MealRevealCard({
           retryTimeoutRef.current = globalThis.setTimeout(
             () => setLookupRetryToken((value) => value + 1),
             Math.min(
-              retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 5000,
+              retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 5000 + Math.min(premiumRetryCount, 4) * 2500,
               PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS
             )
           );
@@ -539,6 +538,7 @@ export function MealRevealCard({
     >
       <div className="relative">
         <div
+          dir="ltr"
           className="relative h-[34rem] [perspective:1600px] sm:h-[27rem] lg:h-[25rem]"
           onClick={handleSurfaceClick}
         >
@@ -548,7 +548,7 @@ export function MealRevealCard({
               (isFlipped || isOpen) && "[transform:rotateY(180deg)]"
             )}
           >
-            <div className="absolute inset-0 [backface-visibility:hidden]">
+            <div className="absolute inset-0 [backface-visibility:hidden]" dir={rtl ? "rtl" : "ltr"}>
               <RecipeFrontFace
                 eyebrow={eyebrow}
                 visualMatchLabel={visualMatchLabel}
@@ -566,7 +566,7 @@ export function MealRevealCard({
               />
             </div>
 
-            <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+            <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)]" dir={rtl ? "rtl" : "ltr"}>
               <RecipeBackFace
                 eyebrow={eyebrow}
                 name={name}
@@ -933,7 +933,7 @@ function buildRecipePhotoRequestUrl(
   if (exactContext.cuisine?.trim()) {
     params.set("cuisine", exactContext.cuisine.trim());
   }
-  excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
+  excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
 }
@@ -965,9 +965,12 @@ function isInternetImageUrl(imageUrl?: string): imageUrl is string {
   return isDurableRecipeImageUrl(imageUrl);
 }
 
-function isUsableRecipeCardImageUrl(imageUrl: string | undefined, hasGeneratedImageAccess: boolean): imageUrl is string {
+function isUsableRecipeCardImageUrl(imageUrl: string | undefined, _hasGeneratedImageAccess: boolean): imageUrl is string {
   if (!isInternetImageUrl(imageUrl)) return false;
-  return isUsableRecipeImageForAccess(imageUrl, hasGeneratedImageAccess);
+  // Accept any durable non-weak image for display regardless of access tier.
+  // Premium Replicate generation is orchestrated by MealPlanTab; this gate
+  // only controls what the card renders — not what triggers generation.
+  return !isKnownWeakRecipeProviderImageUrl(imageUrl);
 }
 
 function isRecipePhotoFailureCached(queryKey: string) {
@@ -1019,4 +1022,3 @@ function isRecipePhotoRecentlyAssignedToDifferentQuery(imageUrl: string, queryKe
 
   return existing.queryKey !== queryKey && existing.reuseKey !== reuseKey;
 }
-

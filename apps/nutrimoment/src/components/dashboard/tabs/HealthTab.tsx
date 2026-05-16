@@ -13,6 +13,7 @@ import { SectionHero } from "./shared";
 
 const DIETS = [
   { id: "vegetarian", key: "vegetarian", desc: "vegetarianDesc" },
+  { id: "pescatarian", key: "pescatarian", desc: "pescatarianDesc" },
   { id: "vegan", key: "vegan", desc: "veganDesc" },
   { id: "keto", key: "keto", desc: "ketoDesc" },
   { id: "paleo", key: "paleo", desc: "paleoDesc" },

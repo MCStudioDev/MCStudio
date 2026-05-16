@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
-import { buildMealPlanPrompt } from "@/lib/aiPrompts";
+import { buildMealPlanPrompt, buildMealPlanRepairPrompt } from "@/lib/aiPrompts";
 import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson, getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/openai";
 import { normalizeMealPlanData, sanitizeMealPlanForFirestore } from "@/lib/mealPlan";
 import {
@@ -14,6 +14,7 @@ import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService
 import { logger } from "@/lib/logger";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { mapCatalogRecipeToMeal, searchCatalogRecipes } from "@/services/recipeSearchService";
+import { repairMealPlanWithGuard, summarizeMealPlanIssues, validateMealPlan } from "@/services/mealPlanGuardService";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
@@ -28,7 +29,7 @@ import {
 } from "@/lib/dietEnforcement";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 const requestSchema = z.object({
   prompt: z.string().min(20).optional(),
@@ -135,6 +136,13 @@ export async function POST(request: Request) {
       diets: parsed.data.diets ?? [],
       allergens: parsed.data.allergens ?? []
     };
+    const mealPlanGuardPreferences = {
+      dietContext,
+      preferredCuisine: parsed.data.preferredCuisine,
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15,
+      minPescatarianSeafoodSlots: 6
+    };
     const repairMealPlanSlots = (plan: MealPlanData, stage: string, replacementRecipes: RecipeCatalogDoc[] = []): MealPlanData => {
       let repairCount = 0;
       let dietViolationCount = 0;
@@ -196,15 +204,87 @@ export async function POST(request: Request) {
       }
       return cleaned;
     };
+    const applyFinalMealPlanGuard = (plan: MealPlanData, stage: string): MealPlanData => {
+      const result = repairMealPlanWithGuard(plan, mealPlanGuardPreferences);
+
+      if (result.initialIssues.length || result.finalIssues.length) {
+        logger.warn("Meal plan final guard evaluated generated plan", {
+          requestId,
+          stage,
+          repairedSlots: result.repairedSlots,
+          initialIssueSummary: summarizeMealPlanIssues(result.initialIssues),
+          finalIssueSummary: summarizeMealPlanIssues(result.finalIssues)
+        });
+      }
+
+      return result.mealPlan;
+    };
+    const repairMealPlanWithAiIfNeeded = async (plan: MealPlanData): Promise<MealPlanData> => {
+      const issues = validateMealPlan(plan, mealPlanGuardPreferences);
+      if (!issues.length) return plan;
+
+      logger.info("Meal plan needs AI repair pass before fallback guard", {
+        requestId,
+        issueSummary: summarizeMealPlanIssues(issues)
+      });
+
+      try {
+        const repairText = await callOpenAIText(
+          buildMealPlanRepairPrompt({
+            pantry,
+            pantryItems: pantryStock,
+            diets: parsed.data.diets ?? [],
+            conditions: parsed.data.conditions ?? [],
+            recipeLanguage,
+            preferredCuisine: parsed.data.preferredCuisine,
+            calorieTarget: parsed.data.calorieTarget,
+            allergens: parsed.data.allergens ?? [],
+            mealPlan: plan,
+            issues
+          })
+        );
+        const repairJson = extractJson(repairText);
+        const rawRepairPlan = JSON.parse(repairJson);
+        const normalizedRepairPlan = normalizeMealPlanData(rawRepairPlan);
+        if (!normalizedRepairPlan) {
+          logger.warn("Meal plan AI repair response was not a usable plan", {
+            requestId,
+            preview: repairJson.slice(0, 600)
+          });
+          return plan;
+        }
+
+        const repairedWithShoppingList = {
+          ...normalizedRepairPlan,
+          shoppingList: reconcileShoppingListWithPantry(normalizedRepairPlan.shoppingList, pantryStock)
+        };
+        const repairedIssues = validateMealPlan(repairedWithShoppingList, mealPlanGuardPreferences);
+        logger.info("Meal plan AI repair pass completed", {
+          requestId,
+          beforeIssueSummary: summarizeMealPlanIssues(issues),
+          afterIssueSummary: summarizeMealPlanIssues(repairedIssues)
+        });
+
+        return repairedIssues.length <= issues.length ? repairedWithShoppingList : plan;
+      } catch (repairError) {
+        logger.warn("Meal plan AI repair pass failed; continuing to fallback guard", {
+          requestId,
+          errorMessage: repairError instanceof Error ? repairError.message : String(repairError),
+          issueSummary: summarizeMealPlanIssues(issues)
+        });
+        return plan;
+      }
+    };
 
     if (USE_MOCK) {
       const mockPlan = repairMealPlanSlots(
         { ...MOCK_MEAL_PLAN, servedFrom: "mock" as const },
         "mock"
       );
+      const guardedMockPlan = applyFinalMealPlanGuard(mockPlan, "mock_final");
       const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
       const outputMockPlan = ensureDetailedMealPlanSteps(
-        wantsArabic ? localizeMealPlanForArabic(mockPlan) : mockPlan,
+        wantsArabic ? localizeMealPlanForArabic(guardedMockPlan) : guardedMockPlan,
         wantsArabic ? "Arabic" : "English"
       );
       queueMealPlanCachePersist({
@@ -268,14 +348,19 @@ export async function POST(request: Request) {
 
       if (aiMealPlan) {
         const reconciledShoppingList = reconcileShoppingListWithPantry(aiMealPlan.shoppingList, pantryStock);
+        const aiRepairedMealPlan = await repairMealPlanWithAiIfNeeded({
+          ...aiMealPlan,
+          shoppingList: reconciledShoppingList
+        });
         const reconciledMealPlan = repairMealPlanSlots(
-          { ...aiMealPlan, shoppingList: reconciledShoppingList },
+          aiRepairedMealPlan,
           "ai_mealplan",
           catalogRecipes
         );
+        const guardedMealPlan = applyFinalMealPlanGuard(reconciledMealPlan, "ai_mealplan_final");
         const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
         const outputMealPlan = ensureDetailedMealPlanSteps(
-          wantsArabic ? localizeMealPlanForArabic(reconciledMealPlan) : reconciledMealPlan,
+          wantsArabic ? localizeMealPlanForArabic(guardedMealPlan) : guardedMealPlan,
           wantsArabic ? "Arabic" : "English"
         );
         queueMealPlanCachePersist({
@@ -332,9 +417,10 @@ export async function POST(request: Request) {
       "catalog_emergency",
       catalogRecipes
     );
+    const guardedEmergencyMealPlan = applyFinalMealPlanGuard(emergencyMealPlan, "catalog_emergency_final");
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const outputEmergencyMealPlan = ensureDetailedMealPlanSteps(
-      wantsArabic ? localizeMealPlanForArabic(emergencyMealPlan) : emergencyMealPlan,
+      wantsArabic ? localizeMealPlanForArabic(guardedEmergencyMealPlan) : guardedEmergencyMealPlan,
       wantsArabic ? "Arabic" : "English"
     );
     queueMealPlanCachePersist({

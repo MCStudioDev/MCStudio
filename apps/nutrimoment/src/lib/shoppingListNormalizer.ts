@@ -17,34 +17,37 @@ interface ShoppingAmount {
 }
 
 const ARABIC_UNIT_ALIASES: Record<string, string> = {
-  حبة: "whole",
-  حبات: "whole",
-  قطعة: "whole",
-  قطع: "whole",
-  كوب: "cup",
-  اكواب: "cup",
-  أكواب: "cup",
-  علبة: "can",
-  علب: "can",
-  فص: "clove",
-  فصوص: "clove",
-  شريحة: "slice",
-  شرائح: "slice",
-  ملعقة: "tbsp",
+  "حبة": "whole",
+  "حبات": "whole",
+  "قطعة": "whole",
+  "قطع": "whole",
+  "عنصر": "whole",
+  "عناصر": "whole",
+  "كوب": "cup",
+  "اكواب": "cup",
+  "أكواب": "cup",
+  "علبة": "can",
+  "علب": "can",
+  "فص": "clove",
+  "فصوص": "clove",
+  "شريحة": "slice",
+  "شرائح": "slice",
+  "ملعقة": "tbsp",
   "ملعقة كبيرة": "tbsp",
-  ملاعق: "tbsp",
+  "ملاعق": "tbsp",
   "ملعقة صغيرة": "tsp",
-  رطل: "lb",
-  اوقية: "oz",
-  أوقية: "oz",
-  باقة: "bunch",
-  حزمة: "bunch",
-  فيليه: "fillet",
-  جرام: "g",
-  غرام: "g",
-  جم: "g",
-  كجم: "kg",
-  كيلو: "kg"
+  "رطل": "lb",
+  "أوقية": "oz",
+  "اوقية": "oz",
+  "باقة": "bunch",
+  "حزمة": "bunch",
+  "فيليه": "fillet",
+  "جرام": "g",
+  "غرام": "g",
+  "جم": "g",
+  "كج": "kg",
+  "كجم": "kg",
+  "كيلو": "kg"
 };
 
 const ENGLISH_DESCRIPTOR_PATTERN =
@@ -101,6 +104,12 @@ function reconcileShoppingEntries(entries: string[], pantryItems: ShoppingListPa
       continue;
     }
 
+    const compatible = findCompatibleShoppingAmount(needed, canonical, unit);
+    if (compatible) {
+      mergeCompatibleShoppingAmount(needed, compatible, { canonical, quantity: parsed.quantity, unit });
+      continue;
+    }
+
     needed.set(key, {
       canonical,
       quantity: parsed.quantity,
@@ -118,6 +127,48 @@ function reconcileShoppingEntries(entries: string[], pantryItems: ShoppingListPa
     .filter((item) => item.quantity > 0)
     .sort((left, right) => localizeIngredientLabel(left.canonical, displayLanguage).localeCompare(localizeIngredientLabel(right.canonical, displayLanguage)))
     .map((item) => formatShoppingAmount(item, displayLanguage));
+}
+
+function findCompatibleShoppingAmount(needed: Map<string, ShoppingAmount>, canonical: string, unit: string) {
+  return Array.from(needed.values()).find((item) => {
+    if (item.canonical !== canonical) return false;
+    return unitsMatch(item.unit, unit) || isVagueItemUnit(item.unit) || isVagueItemUnit(unit);
+  });
+}
+
+function mergeCompatibleShoppingAmount(
+  needed: Map<string, ShoppingAmount>,
+  current: ShoppingAmount,
+  next: ShoppingAmount
+) {
+  const currentKey = `${current.canonical}::${current.unit}`;
+  const preferredUnit = choosePreferredShoppingUnit(current.unit, next.unit);
+  current.quantity += shouldAddCompatibleQuantity(current.unit, next.unit) ? next.quantity : 0;
+  current.unit = preferredUnit;
+
+  const preferredKey = `${current.canonical}::${preferredUnit}`;
+  if (preferredKey !== currentKey) {
+    needed.delete(currentKey);
+    const existing = needed.get(preferredKey);
+    if (existing) {
+      existing.quantity += current.quantity;
+    } else {
+      needed.set(preferredKey, current);
+    }
+  }
+}
+
+function choosePreferredShoppingUnit(left: string, right: string) {
+  if (isVagueItemUnit(left) && !isVagueItemUnit(right)) return right;
+  return left;
+}
+
+function shouldAddCompatibleQuantity(left: string, right: string) {
+  return unitsMatch(left, right) || (isVagueItemUnit(left) && isVagueItemUnit(right));
+}
+
+function isVagueItemUnit(unit: string) {
+  return normalizeShoppingUnit(unit) === "whole";
 }
 
 function buildPantryStock(items: ShoppingListPantryItem[]) {

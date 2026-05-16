@@ -403,6 +403,7 @@ export async function POST(request: Request) {
         })
       : null;
 
+    const catalogSearchLimit = Math.max(recipeCount, Math.min(MAX_SHARED_POOL_RECIPE_RESULT_COUNT * 3, recipeCount * 3));
     const searchResult = await searchCatalogRecipes({
       ingredients,
       preferredCuisine: parsed.data.preferredCuisine,
@@ -410,7 +411,7 @@ export async function POST(request: Request) {
       diets: parsed.data.diets,
       conditions: parsed.data.conditions,
       allergens: parsed.data.allergens,
-      maxResults: recipeCount,
+      maxResults: catalogSearchLimit,
       recipeLanguage,
       uid: requestAccess.uid
     });

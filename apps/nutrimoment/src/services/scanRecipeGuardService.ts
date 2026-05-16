@@ -44,18 +44,26 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
     : 0;
   const seafoodCount = cuisineMatchedRecipes.filter(recipeContainsSeafood).length;
   const cuisineGap = prefersSpecificCuisine ? Math.max(0, context.recipeCount - cuisineMatchedRecipes.length) : 0;
-  const fallbackCount = Math.max(seafoodMinimum - seafoodCount, cuisineGap);
+  const fallbackCount = Math.max(0, seafoodMinimum - seafoodCount, cuisineGap);
   const fallbackRecipes =
     requestedSeafood && fallbackCount > 0
       ? buildSeafoodFallbackRecipes(context, fallbackCount, wantsArabic)
       : [];
 
-  const merged = dedupeRecipes([
+  let merged = dedupeRecipes(orderDiverseRecipes([
     ...cuisineMatchedRecipes.filter(recipeContainsSeafood),
+    ...repaired.filter((recipe) => recipeContainsSeafood(recipe) && !cuisineMatchedRecipes.includes(recipe)),
     ...fallbackRecipes,
     ...cuisineMatchedRecipes.filter((recipe) => !recipeContainsSeafood(recipe)),
     ...repaired.filter((recipe) => !cuisineMatchedRecipes.includes(recipe))
-  ]);
+  ]));
+
+  if (requestedSeafood && merged.length < context.recipeCount) {
+    merged = dedupeRecipes(orderDiverseRecipes([
+      ...merged,
+      ...buildSeafoodFallbackRecipes(context, context.recipeCount - merged.length, wantsArabic)
+    ]));
+  }
 
   return merged.slice(0, context.recipeCount);
 }
@@ -249,7 +257,12 @@ function buildSeafoodFallbackRecipes(context: ScanRecipeGuardContext, count: num
         }
       ];
 
-  return templates.slice(0, Math.max(0, count)).map((template, index) => ({
+  const diversifiedTemplates = diversifySeafoodFallbackTemplates(templates, rice);
+
+  return diversifiedTemplates.slice(0, Math.max(0, count)).map((template, index) => {
+    const templateOwned = "ingredients" in template && Array.isArray(template.ingredients) ? template.ingredients : owned;
+
+    return {
     name: template.name,
     cuisine,
     recipe_origin: "similar_ingredients",
@@ -264,7 +277,7 @@ function buildSeafoodFallbackRecipes(context: ScanRecipeGuardContext, count: num
     },
     image_search_index: template.searches[0],
     image_search_indices: template.searches,
-    ingredients: owned,
+    ingredients: templateOwned,
     missing_ingredients: template.missing,
     steps: buildFallbackSteps(wantsArabic, template.name),
     calories: targetCalories + index * 15,
@@ -280,7 +293,46 @@ function buildSeafoodFallbackRecipes(context: ScanRecipeGuardContext, count: num
     preference_hits: wantsArabic
       ? ["يستخدم الجمبري والأرز من مكونات المسح.", "مناسب لنظام بيسكاتاريان وخال من الألبان."]
       : ["Uses the scanned shrimp and rice.", "Fits pescatarian and dairy-free."]
-  }));
+    };
+  });
+}
+
+function diversifySeafoodFallbackTemplates<T extends { dishName: string; missing: string[]; name: string; searches: string[] }>(
+  templates: T[],
+  rice: string
+): Array<T | (T & { ingredients: string[] })> {
+  const seafoodVariety = [
+    {
+      name: "Salmon Rice Plate With Tomato Cucumber",
+      dishName: "salmon rice plate",
+      ingredients: [rice],
+      missing: ["salmon", "cucumber", "tomato", "lemon", "olive oil"],
+      searches: ["salmon rice plate", "salmon cucumber tomato rice", "mediterranean salmon rice"]
+    },
+    {
+      name: "Baked Tilapia Rice Tray",
+      dishName: "baked tilapia rice tray",
+      ingredients: [rice],
+      missing: ["tilapia", "tomato", "onion", "garlic", "lemon"],
+      searches: ["baked tilapia rice", "tilapia tomato tray", "egyptian baked fish tray"]
+    },
+    {
+      name: "Sayadeya Fish Rice",
+      dishName: "sayadeya fish rice",
+      ingredients: [rice],
+      missing: ["white fish", "onion", "cumin", "lemon", "parsley"],
+      searches: ["sayadeya fish rice", "egyptian fish rice", "fish sayadeya"]
+    },
+    {
+      name: "Salmon Chickpea Rice Bowl",
+      dishName: "salmon chickpea rice bowl",
+      ingredients: [rice],
+      missing: ["salmon", "chickpeas", "cucumber", "tomato", "tahini"],
+      searches: ["salmon chickpea rice bowl", "salmon rice bowl", "healthy salmon chickpea bowl"]
+    }
+  ] as Array<T & { ingredients: string[] }>;
+
+  return [...templates.slice(0, 4), ...seafoodVariety, ...templates.slice(4)];
 }
 
 function buildFallbackSteps(wantsArabic: boolean, recipeName: string) {
@@ -315,6 +367,57 @@ function dedupeRecipes(recipes: Recipe[]) {
   }
 
   return deduped;
+}
+
+function orderDiverseRecipes(recipes: Recipe[]) {
+  const remaining = [...recipes];
+  const ordered: Recipe[] = [];
+  const seenVisual = new Set<string>();
+  const seenSeafood = new Set<string>();
+
+  const takePass = (strict: boolean) => {
+    for (let index = 0; index < remaining.length;) {
+      const recipe = remaining[index];
+      const visualKey = getRecipeVisualKey(recipe);
+      const seafoodKey = getSeafoodProteinKey(recipe);
+      if (
+        strict &&
+        ((visualKey && seenVisual.has(visualKey)) || (seafoodKey && seenSeafood.has(seafoodKey)))
+      ) {
+        index += 1;
+        continue;
+      }
+
+      ordered.push(recipe);
+      if (visualKey) seenVisual.add(visualKey);
+      if (seafoodKey) seenSeafood.add(seafoodKey);
+      remaining.splice(index, 1);
+    }
+  };
+
+  takePass(true);
+  takePass(false);
+  return ordered;
+}
+
+function getRecipeVisualKey(recipe: Recipe) {
+  return normalizeText(recipe.image_search_index || recipe.dish_intent?.dish_name || recipe.name);
+}
+
+function getSeafoodProteinKey(recipe: Recipe) {
+  const source = [
+    recipe.name,
+    recipe.dish_intent?.dish_name,
+    ...(recipe.ingredients ?? []),
+    ...(recipe.missing_ingredients ?? []),
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? [])
+  ].join(" ");
+  const normalized = normalizeIngredientSignal(source);
+  if (/\bsalmon\b/.test(normalized)) return "salmon";
+  if (/\b(shrimp|prawn)\b/.test(normalized)) return "shrimp";
+  if (/\b(tilapia|cod|white fish|fish|sea bass|tuna)\b/.test(normalized)) return "fish";
+  return "";
 }
 
 function dedupeByNormalizedIngredient(ingredients: string[]) {

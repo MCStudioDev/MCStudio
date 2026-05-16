@@ -19,6 +19,8 @@ describe("scan recipe guard service", () => {
 
     expect(repaired).toHaveLength(10);
     expect(repaired.filter((recipe) => /جمبري|shrimp/i.test(JSON.stringify(recipe))).length).toBeGreaterThanOrEqual(4);
+    expect(repaired.some((recipe) => /salmon|fish|tilapia|سلمون|سمك|بلطي/i.test(JSON.stringify(recipe)))).toBe(true);
+    expect(new Set(repaired.map((recipe) => recipe.image_search_index)).size).toBeGreaterThanOrEqual(8);
     expect(JSON.stringify(repaired)).not.toMatch(/\beggs?\b|بيض|omelette|shakshuka|cheese|cream|butter|yogurt/i);
     expect(repaired.map((recipe) => findRecipeDietViolation(recipe, { diets: ["pescatarian", "dairyFree"], allergens: [] }))).toEqual(
       Array(10).fill(null)

@@ -54,6 +54,7 @@ export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
 export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Promise<CatalogRecipeSearchResult> {
   const normalized = await normalizeIngredients(input.ingredients);
   const expandedNormalizedIngredients = expandIngredientFamilies(normalized.normalized);
+  const cacheDiscoveryIngredients = expandSeafoodCacheDiscoveryIngredients(expandedNormalizedIngredients);
   const preferences = buildPreferenceProfile({
     preferredCuisine: input.preferredCuisine ?? "Any",
     calorieTarget: input.calorieTarget ?? 2000,
@@ -64,7 +65,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
 
   const [userCachedRecipes, ingredientSharedCachedRecipes] = await Promise.all([
     listUserCachedRecipes(input.uid),
-    listSharedCachedRecipesForIngredients(expandedNormalizedIngredients)
+    listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients)
   ]);
   const sharedCachedRecipes = ingredientSharedCachedRecipes.length
     ? ingredientSharedCachedRecipes
@@ -114,6 +115,19 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     rankedRecipeIds: topRanked.map((item) => item.recipeId),
     candidateRecipes: rankedRecipePool
   };
+}
+
+function expandSeafoodCacheDiscoveryIngredients(ingredients: string[]) {
+  const expanded = new Set(ingredients);
+  const hasSeafood = ingredients.some((ingredient) =>
+    /\b(shrimp|prawn|prawns|fish|white fish|seafood|salmon|tilapia|cod|tuna|sea bass)\b/i.test(ingredient)
+  );
+
+  if (hasSeafood) {
+    ["seafood", "fish", "white fish", "salmon", "tilapia", "shrimp"].forEach((ingredient) => expanded.add(ingredient));
+  }
+
+  return Array.from(expanded);
 }
 
 export function mapCatalogRecipeToUiRecipe(

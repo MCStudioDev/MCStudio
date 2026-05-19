@@ -515,6 +515,11 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const vegetarianVarietyGuidance = buildVegetarianVarietyGuidance(options.diets, recipeCount);
   const allowedProteinRotationGuidance = buildAllowedProteinRotationGuidance(options.diets, options.conditions, recipeCount);
   const pescatarianFishGate = buildPescatarianFishGate(options.diets, options.conditions, recipeCount);
+  const chickenDistinctCardGuidance = buildChickenDistinctCardGuidance(
+    ingredients,
+    recipeCount,
+    options.preferredCuisine
+  );
   const groundMeatDistinctCardGuidance = buildGroundMeatDistinctCardGuidance(
     ingredients,
     recipeCount,
@@ -641,8 +646,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Accuracy plus creativity rule: be creative inside real cuisine boundaries. Prefer a spread of different authentic forms such as grilled plate, stuffed bread, stew, baked casserole, rice dish, pasta dish, soup, salad, skillet, or sandwich only when that form is genuinely correct for the cuisine and ingredients.",
     beefFormPriorityGuidance,
     shawarmaDishGuidance,
+    chickenDistinctCardGuidance,
     options.preferredCuisine === "Any"
-      ? "Chicken variety examples for Any cuisine: when chicken is the main pantry ingredient, build a Google-recipes-style spread of distinct recognizable dishes such as roast chicken, butter chicken, garlic butter chicken, kung pao chicken, southern buttermilk fried chicken, cilantro lime chicken, creamy spinach chicken or chicken Florentine, sumac chicken, desi gravy chicken, Korean fried chicken, soy garlic chicken, chicken and rice skillet, shish tawook, chicken shawarma wrap, chicken shawarma plate, chicken piccata, chicken negresco pasta, chicken alfredo pasta, teriyaki chicken, chicken biryani, or arroz con pollo. Pick only those that fit the available pantry, diet, and missing-ingredient budget."
+      ? "Chicken variety examples for Any cuisine: when chicken is the main pantry ingredient, build a Google-recipes-style spread of distinct recognizable dishes such as grilled chicken salad, grilled chicken fettuccine, chicken Alfredo fettuccine, crispy fried chicken with sauce, honey garlic chicken, sweet chili chicken, sweet and sour chicken, BBQ chicken, stuffed fried chicken cutlet, chicken cordon bleu style when dairy is allowed, roast chicken, butter chicken, garlic butter chicken, kung pao chicken, southern buttermilk fried chicken, cilantro lime chicken, creamy spinach chicken or chicken Florentine, creamy chicken soup, sumac chicken, desi gravy chicken, Korean fried chicken, soy garlic chicken, chicken and rice skillet, shish tawook, chicken shawarma wrap, chicken shawarma plate, chicken piccata, chicken negresco pasta, chicken Alfredo pasta, teriyaki chicken, chicken biryani, or arroz con pollo. Pick only those that fit the available pantry, diet, and missing-ingredient budget."
       : `Chicken rule for selected cuisine: if chicken is the main pantry ingredient, choose chicken dishes that genuinely belong to ${options.preferredCuisine} or its closest traditional regional family. Do not use global chicken ideas like honey garlic chicken, tenders, alfredo, teriyaki, piccata, or arroz con pollo unless ${options.preferredCuisine} is Any or that cuisine truly owns the dish.`,
     options.preferredCuisine === "Any"
       ? "Beef variety examples for Any cuisine: when beef is the main pantry ingredient and the user did not explicitly say ground/minced, build a Google-recipes-style spread of distinct intact-beef dishes such as Mongolian beef, Chinese beef and onion stir-fry, beef bourguignon, classic beef stew, beef and broccoli, roast beef or beef tenderloin, black pepper beef, garlic butter steak bites, French onion braised beef, crispy ginger beef, beef shawarma wrap or beef shawarma bowl, beef stroganoff, pepper steak, shredded Italian-style beef, beef tacos with sliced steak, beef soup, crispy fried beef strips, steak bites over potatoes, or braised beef over rice. Pick forms that fit steak, cubes, roast, strips, slices, chunks, thin shawarma slices, or shredded braised beef. Reserve Korean ground beef bowl, kofta, meatballs, hamburger stew, ground beef pasta, and minced fillings only for explicit ground/minced beef input."
@@ -720,7 +726,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Egyptian fish priority: when preferred cuisine is Egyptian and the input is fish/سمك/tilapia/bouri/sea bass/snapper, generate distinct Egyptian fish cards first. Good Egyptian forms include sayadeya fish rice, samak singari, grilled Egyptian fish, samak bel radah, smoked fish, fried tilapia or Barboon Maklee, Egyptian baked fish tray, Egyptian fish tagine with tomato sauce, roasted whole fish with Egyptian spices, and Egyptian fried fish sandwich. Do not replace these with generic Mediterranean baked fish until the Egyptian forms have been used or ruled out.",
     "Egyptian shrimp priority: when preferred cuisine is Egyptian and the input is shrimp/جمبري/prawn/seafood, generate distinct Egyptian shrimp cards first. Good Egyptian forms include Alexandrian shrimp, seafood sayadeya, shrimp rice with browned onion, Egyptian shrimp tagine with tomato sauce, grilled shrimp skewers with cumin and coriander, garlic-lemon shrimp, shrimp with tahini-lemon sauce, spicy shrimp stew, seafood soup, and fried shrimp. Do not replace these with generic Mediterranean garlic shrimp until the Egyptian forms have been used or ruled out.",
     "General shrimp variety priority: if the input is shrimp, prawns, روبيان, قريدس, or جمبري and the user asks for many recipes or Any cuisine, avoid repeating garlic/cumin/lemon shrimp. Use a broad shrimp menu with visibly different dishes: fried shrimp, butterfly shrimp, honey garlic shrimp, sweet chili shrimp, shrimp tacos, shrimp fajitas, shrimp rice bowl, shrimp noodle bowl, shrimp soup, shrimp chowder, shrimp curry, shrimp linguine, shrimp stir-fry, Chinese shrimp and broccoli, Kung Pao shrimp, salt and pepper shrimp, Cajun shrimp boil, coconut shrimp, shrimp cakes, shrimp toast, and shrimp po' boy when diet rules allow.",
-    "Chicken visual reference set: for chicken choose named families such as roast chicken, butter chicken, garlic butter chicken, kung pao chicken, southern buttermilk fried chicken, cilantro lime chicken, creamy spinach chicken, chicken Florentine, sumac chicken, desi gravy chicken, Korean fried chicken, soy garlic chicken, chicken and rice skillet, shish tawook, chicken shawarma wrap, chicken shawarma plate, chicken shawarma bowl, chicken piccata, chicken negresco, chicken Alfredo pasta, teriyaki chicken, chicken biryani, arroz con pollo, farakh meshwi, chicken molokhia, or chicken fattah when pantry and cuisine fit.",
+    "Chicken visual reference set: for chicken choose named families such as grilled chicken salad, grilled chicken fettuccine, chicken Alfredo fettuccine, chicken negresco pasta, chicken bechamel casserole, crispy fried chicken with sauce, stuffed fried chicken cutlet, sweet and sour chicken, honey garlic chicken, sweet chili chicken, BBQ chicken, roast chicken, butter chicken, garlic butter chicken, kung pao chicken, sesame chicken, orange chicken, southern buttermilk fried chicken, cilantro lime chicken, creamy spinach chicken, chicken Florentine, creamy chicken soup, chicken noodle soup, sumac chicken, desi gravy chicken, Korean fried chicken, soy garlic chicken, chicken and rice skillet, shish tawook, chicken shawarma wrap, chicken shawarma plate, chicken shawarma bowl, chicken piccata, chicken cacciatore, teriyaki chicken, chicken biryani, arroz con pollo, farakh meshwi, chicken molokhia, or chicken fattah when pantry and cuisine fit.",
     "For all chicken cards, image_search_index must name the same exact family chosen in the recipe name; do not use generic phrases like chicken recipe, chicken bowl, chicken plate, chicken rice, or healthy chicken unless no named family fits.",
     "Beef visual reference set: for plain beef choose named intact-beef families such as Mongolian beef, Chinese beef and onion stir-fry, beef bourguignon, classic beef stew, beef and broccoli, roast beef, beef tenderloin roast, black pepper beef, garlic butter steak bites, French onion braised beef, crispy ginger beef, beef stroganoff, pepper steak, shredded Italian beef, sliced steak tacos, beef soup, crispy ginger beef strips, beef stir-fry, beef goulash, or braised beef over rice when pantry, beef cut, and cuisine fit.",
     "Ground beef visual reference set applies only when the user explicitly wrote ground beef, minced beef, minced meat, mince, or Arabic minced meat: Korean ground beef bowl, beef kofta, beef kebab, hamburger stew, ground beef pasta, ground beef penne, meatballs, hawawshi, lahmacun, or Adana kebab.",
@@ -1023,6 +1029,40 @@ function buildGroundMeatDistinctCardGuidance(
   ].join(" ");
 }
 
+function buildChickenDistinctCardGuidance(
+  ingredients: RecipePromptIngredient[],
+  recipeCount: number,
+  preferredCuisine: string
+) {
+  const pantry = buildNormalizedPantrySet(ingredients);
+  const source = ingredients.map((ingredient) => `${ingredient.name} ${ingredient.quantity ?? ""}`).join(" ").toLowerCase();
+  const hasChicken =
+    hasAny(pantry, ["chicken", "chicken breast", "chicken thigh", "whole chicken"]) ||
+    /\b(chicken|chicken breast|chicken thigh|whole chicken)\b/i.test(source) ||
+    /(?:\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e|\u0641\u0631\u0627\u062e\u0629|\u0641\u0631\u062e\u0629|\u0635\u062f\u0648\u0631?\s*\u062f\u062c\u0627\u062c|\u0635\u062f\u0648\u0631?\s*\u0641\u0631\u0627\u062e)/iu.test(source);
+
+  if (!hasChicken) return "";
+
+  const cuisineKey = normalizeCuisinePromptKey(preferredCuisine);
+  const anyCuisine = cuisineKey === "any";
+  const minimumDistinctForms = Math.min(recipeCount, recipeCount >= 8 ? 7 : 4);
+  const cuisineScope = anyCuisine
+    ? "Use Any cuisine freedom to spread chicken cards across American, Italian, Egyptian, Middle Eastern, Mexican, Indian, Thai, Chinese, Korean, Mediterranean, and global home-cooking forms when pantry and missing ingredients allow."
+    : `Keep most chicken cards rooted in ${preferredCuisine}, but still vary the named chicken forms inside that cuisine and use directly related regional forms when needed.`;
+
+  return [
+    "Chicken distinct-card mode is active. Do not stop at grilled chicken, lemon chicken, garlic chicken, or plain chicken breast.",
+    `Across this ${recipeCount}-card request, produce at least ${minimumDistinctForms} visibly different chicken dish forms when that many cards are requested.`,
+    cuisineScope,
+    recipeCount >= 8
+      ? "For a 10-card chicken request, use at most ONE plain grilled, lemon herb, garlic butter, or simple pan-seared chicken card. The rest must use different visible forms, sauces, starches, or serving structures."
+      : "For smaller chicken sets, include at most one plain grilled/lemon/garlic chicken card when other real forms fit.",
+    "Chicken form universe: grilled chicken salad, grilled chicken fettuccine, chicken Alfredo fettuccine, chicken negresco pasta, chicken bechamel casserole, stuffed fried chicken cutlet, crispy fried chicken with sauce, sweet and sour chicken, honey garlic chicken, sweet chili chicken, BBQ chicken, chicken shawarma wrap, chicken shawarma plate, shish tawook, chicken fajitas, chicken tacos, chicken enchilada bake, chicken burrito bowl, chicken biryani, butter chicken, chicken curry, desi gravy chicken, kung pao chicken, sesame chicken, orange chicken, Korean fried chicken, soy garlic chicken, teriyaki chicken, creamy chicken soup, chicken noodle soup, chicken Florentine, creamy spinach chicken, chicken piccata, chicken cacciatore, roast chicken, chicken and rice skillet, chicken pot pie, chicken salad sandwich, farakh meshwi, chicken molokhia, chicken fattah, and chicken soup with vegetables.",
+    "Chicken image identity rule: image_search_index and dish_intent.dish_name must encode the actual form, not only the protein. Good examples: grilled chicken salad, chicken Alfredo fettuccine, chicken negresco pasta, crispy sweet chili chicken, honey garlic chicken, BBQ chicken, chicken shawarma wrap, creamy chicken soup, chicken biryani, butter chicken, kung pao chicken, or chicken cacciatore.",
+    "If the only pantry ingredient is chicken, list missing support items for real dish families instead of repeating plain grilled chicken with small seasoning changes."
+  ].join(" ");
+}
+
 function buildSeafoodDistinctCardGuidance(
   ingredients: RecipePromptIngredient[],
   recipeCount: number,
@@ -1306,7 +1346,7 @@ function buildIngredientPrepFormGuidance(
 
   if (hasAny(pantry, ["chicken", "chicken breast", "chicken thigh", "whole chicken"]) || /دجاج|فراخ|فراخة|صدور?\s*دجاج|صدور?\s*فراخ/u.test(source)) {
     guidance.push(
-      "Chicken prep ladder: chicken breast or chicken can become whole cutlets, thin escalopes, strips, cubes, shredded cooked chicken, minced/chopped chicken patties, skewers, stir-fry pieces, rice pieces, soup pieces, stuffed filling, or casserole slices when the dish calls for it. Do not make every card a whole grilled chicken breast."
+      "Chicken prep ladder: chicken breast or chicken can become whole cutlets, thin escalopes, strips, cubes, shredded cooked chicken, minced/chopped chicken patties, skewers, stir-fry pieces, rice pieces, soup pieces, stuffed filling, fried cutlets, sauced crispy pieces, pasta topping, salad topping, shawarma slices, BBQ pieces, or casserole slices when the dish calls for it. Do not make every card a whole grilled chicken breast. Rotate forms such as grilled chicken salad, fettuccine chicken pasta, chicken negresco, fried chicken with sauce, stuffed fried chicken, shawarma, sweet and sour chicken, honey garlic chicken, sweet chili chicken, creamy chicken soup, BBQ chicken, curry, biryani, and roast chicken when pantry and cuisine fit."
     );
   }
 
@@ -1454,6 +1494,7 @@ export function buildMealPlanPrompt({
   const pescatarianFishGate = buildPescatarianFishGate(diets, conditions, 21);
   const beefFormPriorityGuidance = buildBeefFormPriorityGuidance(pantryIngredients, 21, preferredCuisine);
   const shawarmaDishGuidance = buildShawarmaDishGuidance(pantryIngredients, 21, preferredCuisine);
+  const chickenDistinctCardGuidance = buildChickenDistinctCardGuidance(pantryIngredients, 21, preferredCuisine);
   const stuffedDishGuidance = buildStuffedDishGuidance(pantryIngredients, 21, preferredCuisine);
   const dessertCatalogGuidance = buildDessertCatalogGuidance(pantryIngredients, 21, preferredCuisine);
   const healthyPlateGuidance = buildHealthyPlateVarietyGuidance(
@@ -1551,6 +1592,7 @@ export function buildMealPlanPrompt({
     healthyPlateGuidance,
     beefFormPriorityGuidance,
     shawarmaDishGuidance,
+    chickenDistinctCardGuidance,
     seafoodDistinctCardGuidance,
     allowedProteinRotationGuidance,
     vegetarianVarietyGuidance,

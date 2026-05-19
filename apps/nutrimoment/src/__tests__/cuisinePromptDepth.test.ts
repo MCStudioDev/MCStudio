@@ -200,4 +200,30 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("eggplant bechamel casserole");
     expect(prompt).toContain("stuffed eggplant with rice and vegetables");
   });
+
+  it("prevents chicken recipes from clustering around plain grilled chicken", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [{ name: "chicken", quantity: "1 kg" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 10,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Chicken distinct-card mode is active");
+    expect(prompt).toContain("at most ONE plain grilled");
+    expect(prompt).toContain("chicken negresco pasta");
+    expect(prompt).toContain("stuffed fried chicken cutlet");
+    expect(prompt).toContain("sweet and sour chicken");
+    expect(prompt).toContain("honey garlic chicken");
+    expect(prompt).toContain("sweet chili chicken");
+    expect(prompt).toContain("creamy chicken soup");
+    expect(prompt).toContain("BBQ chicken");
+  });
 });

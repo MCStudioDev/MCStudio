@@ -117,4 +117,33 @@ describe("cuisine prompt depth", () => {
     expect(mealPlanPrompt).toContain("Any-cuisine rotation rule");
     expect(mealPlanPrompt).toContain("Do not let Egyptian + Turkish + Mediterranean together");
   });
+
+  it("adds broad named vegetarian dinner families and respects dairy-free egg bans", () => {
+    const vegetarianPrompt = buildRecipeGenerationPrompt(
+      [
+        { name: "black beans", quantity: "2 cups" },
+        { name: "sweet potato", quantity: "2 whole" },
+        { name: "mushrooms", quantity: "300g" },
+        { name: "pasta", quantity: "300g" }
+      ],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 4,
+        recipeCount: 10,
+        diets: ["vegetarian", "dairyFree"],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(vegetarianPrompt).toContain("Southern-inspired vegetarian dinner variety");
+    expect(vegetarianPrompt).toContain("Good Food-inspired vegetarian dinner variety");
+    expect(vegetarianPrompt).toContain("Everyday vegetarian dinner variety");
+    expect(vegetarianPrompt).toContain("black bean enchiladas");
+    expect(vegetarianPrompt).toContain("chickpea shawarma bowls");
+    expect(vegetarianPrompt).toContain("no eggs, and no dairy");
+    expect(vegetarianPrompt).toContain("Do not use eggs or dairy as shortcuts");
+  });
 });

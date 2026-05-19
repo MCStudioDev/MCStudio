@@ -75,6 +75,27 @@ describe("meal plan guard service", () => {
     expect(result.finalIssues).toEqual([]);
     expect(JSON.stringify(result.mealPlan)).not.toMatch(/fish|shrimp|salmon|tuna|tilapia|سمك|جمبري/i);
   });
+  it("repairs Arabic vegan dairy-free plans containing chicken, ground meat, and eggs", () => {
+    const preferences = {
+      dietContext: {
+        diets: ["vegan", "vegetarian", "dairyFree"],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15,
+      minPescatarianSeafoodSlots: 6
+    };
+    const initialIssues = validateMealPlan(buildUnsafeArabicVeganPlan(), preferences);
+
+    expect(initialIssues.some((issue) => issue.kind === "diet")).toBe(true);
+
+    const result = repairMealPlanWithGuard(buildUnsafeArabicVeganPlan(), preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(result.finalIssues).toEqual([]);
+    expect(JSON.stringify(result.mealPlan)).not.toMatch(/دجاج|لحم|مفروم|بيض|فريتاتا|\b(chicken|beef|meat|eggs?)\b/i);
+  });
 });
 
 function buildBadMinaStylePlan(): MealPlanData {
@@ -110,6 +131,25 @@ function buildFishyVeganPlan(): MealPlanData {
         index < 2
           ? meal(`Shrimp dinner ${index + 1}`, "Middle Eastern", ["shrimp", "rice", "zucchini", "tomato"])
           : meal(`Chickpea stew dinner ${index + 1}`, "Middle Eastern", ["chickpeas", "rice", "onion", "garlic"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildUnsafeArabicVeganPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast:
+        index % 2 === 0
+          ? meal("\u0641\u0631\u064a\u062a\u0627\u062a\u0627 \u0628\u0627\u0644\u0633\u0628\u0627\u0646\u062e \u0648\u0627\u0644\u0628\u064a\u0636", "Italian", ["\u0628\u064a\u0636", "\u0633\u0628\u0627\u0646\u062e", "\u0632\u064a\u062a \u0632\u064a\u062a\u0648\u0646"])
+          : meal("\u0641\u0648\u0644 \u0645\u062f\u0645\u0633 \u0628\u0627\u0644\u0637\u0645\u0627\u0637\u0645", "Egyptian", ["\u0641\u0648\u0644", "\u0637\u0645\u0627\u0637\u0645", "\u0628\u0635\u0644"]),
+      lunch:
+        index % 2 === 0
+          ? meal("\u0633\u0644\u0637\u0629 \u062f\u062c\u0627\u062c \u0645\u0634\u0648\u064a \u0628\u0627\u0644\u0644\u064a\u0645\u0648\u0646", "Mediterranean", ["\u062f\u062c\u0627\u062c", "\u0644\u064a\u0645\u0648\u0646", "\u062e\u0633"])
+          : meal("\u0645\u0643\u0631\u0648\u0646\u0629 \u0628\u0627\u0644\u0644\u062d\u0645 \u0627\u0644\u0645\u0641\u0631\u0648\u0645", "Italian", ["\u0644\u062d\u0645 \u0645\u0641\u0631\u0648\u0645", "\u0645\u0643\u0631\u0648\u0646\u0629", "\u0637\u0645\u0627\u0637\u0645"]),
+      dinner: meal(`\u064a\u062e\u0646\u0629 \u0639\u062f\u0633 \u0628\u0627\u0644\u062e\u0636\u0627\u0631 ${index + 1}`, "Middle Eastern", ["\u0639\u062f\u0633", "\u062e\u0636\u0627\u0631", "\u0623\u0631\u0632"])
     })),
     shoppingList: []
   };

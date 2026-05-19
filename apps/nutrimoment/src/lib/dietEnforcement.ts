@@ -636,6 +636,181 @@ const ALLERGEN_KEY_ALIASES: Record<string, string> = {
   "shell fish": "shellfish"
 };
 
+const ARABIC_MEAT_POULTRY_TERMS = [
+  "لحم",
+  "لحمة",
+  "لحمه",
+  "لحوم",
+  "لحم مفروم",
+  "لحمة مفرومة",
+  "بقري",
+  "بقرى",
+  "ضاني",
+  "ضانى",
+  "خروف",
+  "كبدة",
+  "كبده",
+  "كباب",
+  "كفتة",
+  "كفته",
+  "شاورما",
+  "دجاج",
+  "فراخ",
+  "ديك",
+  "بط",
+  "بطة"
+];
+
+const ARABIC_SEAFOOD_TERMS = [
+  "سمك",
+  "تونة",
+  "تونه",
+  "سلمون",
+  "جمبري",
+  "جمبرى",
+  "روبيان",
+  "قريدس",
+  "كابوريا",
+  "حبار",
+  "أخطبوط",
+  "اخطبوط",
+  "محار",
+  "مأكولات بحرية"
+];
+
+const ARABIC_DAIRY_EGG_TERMS = [
+  "بيض",
+  "بيضة",
+  "بيضات",
+  "بياض البيض",
+  "صفار البيض",
+  "أومليت",
+  "اومليت",
+  "أوملت",
+  "اوملت",
+  "فريتاتا",
+  "شكشوكة",
+  "عجة",
+  "مايونيز",
+  "حليب",
+  "لبن",
+  "زبادي",
+  "زبدة",
+  "سمنة",
+  "قشطة",
+  "كريمة",
+  "لبنة",
+  "جبنة",
+  "جبن",
+  "فيتا",
+  "حلومي",
+  "موتزاريلا",
+  "بارميزان",
+  "شيدر"
+];
+
+const ARABIC_DIET_FORBIDDEN_ALIASES: Partial<Record<string, string[]>> = {
+  vegan: [
+    ...ARABIC_MEAT_POULTRY_TERMS,
+    ...ARABIC_SEAFOOD_TERMS,
+    ...ARABIC_DAIRY_EGG_TERMS,
+    "عسل",
+    "جيلاتين"
+  ],
+  vegetarian: [...ARABIC_MEAT_POULTRY_TERMS, ...ARABIC_SEAFOOD_TERMS, "جيلاتين"],
+  dairyFree: ARABIC_DAIRY_EGG_TERMS,
+  pescatarian: [...ARABIC_MEAT_POULTRY_TERMS, "جيلاتين"],
+  glutenFree: [
+    "قمح",
+    "دقيق",
+    "طحين",
+    "سميد",
+    "كسكس",
+    "برغل",
+    "فريك",
+    "شعير",
+    "خبز",
+    "عيش",
+    "خبز بلدي",
+    "خبز عربي",
+    "بيتا",
+    "نان",
+    "تورتيلا",
+    "مكرونة",
+    "معكرونة",
+    "اسباجتي",
+    "اسباغيتي",
+    "لازانيا",
+    "نودلز",
+    "فيلو",
+    "فطير"
+  ]
+};
+
+const ARABIC_ALLERGEN_FORBIDDEN_ALIASES: Record<string, string[]> = {
+  dairy: ARABIC_DAIRY_EGG_TERMS.filter((term) => !/بيض|أوم|اوم|فريتاتا|شكشوكة|عجة|مايونيز/.test(term)),
+  milk: ARABIC_DAIRY_EGG_TERMS.filter((term) => !/بيض|أوم|اوم|فريتاتا|شكشوكة|عجة|مايونيز/.test(term)),
+  eggs: ARABIC_DAIRY_EGG_TERMS.filter((term) => /بيض|أوم|اوم|فريتاتا|شكشوكة|عجة|مايونيز/.test(term)),
+  fish: ["سمك", "تونة", "تونه", "سلمون", "بوري", "بورى", "بلطي", "بلطى", "قاروص", "ماكريل", "سردين"],
+  shellfish: ["جمبري", "جمبرى", "روبيان", "قريدس", "كابوريا", "حبار", "أخطبوط", "اخطبوط", "محار"],
+  tomato: ["طماطم", "بندورة", "بندوره", "صلصة طماطم", "معجون طماطم"],
+  gluten: ARABIC_DIET_FORBIDDEN_ALIASES.glutenFree ?? [],
+  nuts: ["لوز", "جوز", "بقان", "كاجو", "فستق", "بندق", "صنوبر", "فول سوداني"],
+  soy: ["صويا", "توفو", "تمبيه"],
+  sesame: ["سمسم", "طحينة", "طحينه", "حلاوة", "حلاوه"]
+};
+
+const ARABIC_ALLERGEN_KEY_ALIASES: Record<string, string> = {
+  الحليب: "milk",
+  حليب: "milk",
+  اللبن: "milk",
+  لبن: "milk",
+  زبادي: "milk",
+  الزبادي: "milk",
+  البان: "dairy",
+  الالبان: "dairy",
+  "منتجات الالبان": "dairy",
+  الطماطم: "tomato",
+  طماطم: "tomato",
+  بندوره: "tomato",
+  بندورة: "tomato",
+  البيض: "eggs",
+  بيض: "eggs",
+  السمك: "fish",
+  سمك: "fish",
+  جمبري: "shellfish",
+  جمبرى: "shellfish",
+  روبيان: "shellfish",
+  "ماكولات بحريه": "shellfish",
+  "مأكولات بحرية": "shellfish",
+  قمح: "gluten",
+  جلوتين: "gluten",
+  سمسم: "sesame",
+  صويا: "soy"
+};
+
+const ADAPTABLE_DISH_FAMILY_BLOCKLIST_TERMS = new Set(["shawarma", "kofta", "kebab"]);
+const ARABIC_ADAPTABLE_DISH_FAMILY_BLOCKLIST_TERMS = new Set(["شاورما", "كفتة", "كفته", "كباب"]);
+
+function mergeForbiddenPatterns(base: ForbiddenPatternSet, extraArabic: string[] = []): ForbiddenPatternSet {
+  return {
+    english: base.english,
+    arabic: Array.from(new Set([...base.arabic, ...extraArabic]))
+  };
+}
+
+function resolveDietForbiddenPatterns(diet: string): ForbiddenPatternSet | null {
+  const base = DIET_FORBIDDEN_PATTERNS[diet];
+  if (!base) return null;
+  const merged = mergeForbiddenPatterns(base, ARABIC_DIET_FORBIDDEN_ALIASES[diet]);
+  if (!["vegan", "vegetarian", "pescatarian"].includes(diet)) return merged;
+
+  return {
+    english: merged.english.filter((term) => !ADAPTABLE_DISH_FAMILY_BLOCKLIST_TERMS.has(term)),
+    arabic: merged.arabic.filter((term) => !ARABIC_ADAPTABLE_DISH_FAMILY_BLOCKLIST_TERMS.has(term))
+  };
+}
+
 export interface DietEnforcementContext {
   diets: string[];
   allergens: string[];
@@ -643,10 +818,14 @@ export interface DietEnforcementContext {
 
 function resolveAllergenForbiddenPatterns(allergen: string): ForbiddenPatternSet | null {
   const normalized = normalizeForMatch(allergen);
-  const normalizedArabic = normalizeArabicForMatch(allergen);
-  const key = ALLERGEN_KEY_ALIASES[normalized] ?? ALLERGEN_KEY_ALIASES[normalizedArabic] ?? normalized;
+  const normalizedArabic = normalizeArabicForMatchSafe(allergen);
+  const key =
+    ALLERGEN_KEY_ALIASES[normalized] ??
+    ARABIC_ALLERGEN_KEY_ALIASES[normalizedArabic] ??
+    ALLERGEN_KEY_ALIASES[normalizedArabic] ??
+    normalized;
   const known = ALLERGEN_FORBIDDEN_PATTERNS[key];
-  if (known) return known;
+  if (known) return mergeForbiddenPatterns(known, ARABIC_ALLERGEN_FORBIDDEN_ALIASES[key]);
 
   const arabic = normalizedArabic && /[\u0600-\u06FF]/.test(normalizedArabic) ? [allergen, normalizedArabic] : [];
   const english = normalized && !/[\u0600-\u06FF]/.test(normalized) ? [normalized] : [];
@@ -656,7 +835,10 @@ function resolveAllergenForbiddenPatterns(allergen: string): ForbiddenPatternSet
 }
 
 export function hasActiveDietConstraints(ctx: DietEnforcementContext): boolean {
-  return ctx.diets.some((diet) => DIET_FORBIDDEN_PATTERNS[diet]?.english.length || DIET_FORBIDDEN_PATTERNS[diet]?.arabic.length)
+  return ctx.diets.some((diet) => {
+    const patterns = resolveDietForbiddenPatterns(diet);
+    return Boolean(patterns?.english.length || patterns?.arabic.length);
+  })
     || ctx.allergens.some((allergen) => Boolean(resolveAllergenForbiddenPatterns(allergen)));
 }
 
@@ -690,11 +872,11 @@ function matchesEnglishPattern(text: string, patterns: string[]): string | null 
 }
 
 function matchesArabicPattern(text: string, patterns: string[]): string | null {
-  const normalizedText = normalizeArabicForMatch(text);
+  const normalizedText = normalizeArabicForMatchSafe(text);
   const tokens = extractArabicTokens(normalizedText);
   for (const pattern of patterns) {
     if (!pattern) continue;
-    const normalizedPattern = normalizeArabicForMatch(pattern);
+    const normalizedPattern = normalizeArabicForMatchSafe(pattern);
     if (!normalizedPattern) continue;
     if (normalizedPattern.includes(" ")) {
       const escaped = normalizedPattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -702,11 +884,12 @@ function matchesArabicPattern(text: string, patterns: string[]): string | null {
       if (regex.test(normalizedText)) return pattern;
       continue;
     }
-    if (tokens.some((token) => arabicTokenVariants(token).has(normalizedPattern))) return pattern;
+    if (tokens.some((token) => arabicTokenVariantsSafe(token).has(normalizedPattern))) return pattern;
   }
   return null;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function normalizeArabicForMatch(value: string): string {
   return value
     .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
@@ -721,7 +904,35 @@ function extractArabicTokens(value: string): string[] {
   return value.match(/[\p{Script=Arabic}]+/gu) ?? [];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function arabicTokenVariants(token: string): Set<string> {
+  const variants = new Set<string>([token]);
+  const prefixes = ["وال", "بال", "كال", "فال", "لل", "ال", "و", "ب", "ك", "ف", "ل"];
+
+  for (const prefix of prefixes) {
+    if (token.startsWith(prefix) && token.length > prefix.length + 1) {
+      const stripped = token.slice(prefix.length);
+      variants.add(stripped);
+      if (stripped.startsWith("ال") && stripped.length > 3) {
+        variants.add(stripped.slice(2));
+      }
+    }
+  }
+
+  return variants;
+}
+
+function normalizeArabicForMatchSafe(value: string): string {
+  return value
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function arabicTokenVariantsSafe(token: string): Set<string> {
   const variants = new Set<string>([token]);
   const prefixes = ["وال", "بال", "كال", "فال", "لل", "ال", "و", "ب", "ك", "ف", "ل"];
 
@@ -793,7 +1004,7 @@ export function findRecipeDietViolation(
   const arabicHaystack = parts.join(" | ");
 
   for (const diet of ctx.diets) {
-    const patterns = DIET_FORBIDDEN_PATTERNS[diet];
+    const patterns = resolveDietForbiddenPatterns(diet);
     if (!patterns) continue;
     const englishHit = matchesEnglishPattern(englishHaystack, patterns.english);
     if (englishHit) return { kind: "diet", diet, match: englishHit };
@@ -850,7 +1061,7 @@ export function buildPromptForbiddenIngredientsLine(ctx: DietEnforcementContext)
 
   const lines: string[] = [];
   for (const diet of ctx.diets) {
-    const patterns = DIET_FORBIDDEN_PATTERNS[diet];
+    const patterns = resolveDietForbiddenPatterns(diet);
     if (!patterns || (!patterns.english.length && !patterns.arabic.length)) continue;
     const sample = patterns.english.join(", ");
     lines.push(`Diet "${diet}" forbids: ${sample}.`);
@@ -880,7 +1091,7 @@ export function buildPromptForbiddenMealPlanLine(ctx: DietEnforcementContext): s
 
   const lines: string[] = [];
   for (const diet of ctx.diets) {
-    const patterns = DIET_FORBIDDEN_PATTERNS[diet];
+    const patterns = resolveDietForbiddenPatterns(diet);
     if (!patterns || (!patterns.english.length && !patterns.arabic.length)) continue;
     const sample = patterns.english.join(", ");
     lines.push(`Diet "${diet}" forbids: ${sample}.`);

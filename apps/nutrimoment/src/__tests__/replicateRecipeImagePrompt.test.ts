@@ -78,4 +78,39 @@ describe("replicate recipe image prompts", () => {
     expect(prompt).toContain("No toppings should sit on top");
     expect(prompt).toContain("random flatbread with toppings");
   });
+
+  it("translates Arabic stew terms before prompting Replicate", () => {
+    const prompt = buildRecipeImagePromptForTest(
+      "يخنة عدس بالخضار",
+      ["عدس", "خضار", "مرقة"],
+      { exactRecipeName: "يخنة عدس بالخضار" }
+    );
+    const negativePrompt = buildRecipeImageNegativePromptForTest("يخنة عدس بالخضار", ["عدس", "خضار", "مرقة"]);
+    const identity = buildRecipePhotoIdentity("يخنة عدس بالخضار");
+
+    expect(identity.mealTypeKey).toBe("stew");
+    expect(prompt).toContain("يخنة / يخنه / yakhna means a savory stew or soup-like dish");
+    expect(prompt).toContain("never a dessert");
+    expect(prompt).toContain("served in a bowl with visible liquid");
+    expect(prompt).toContain("lentils suspended in the soup");
+    expect(negativePrompt).toContain("dessert");
+    expect(negativePrompt).toContain("sweet pudding");
+  });
+
+  it("translates Arabic macaroni terms as pasta", () => {
+    const prompt = buildRecipeImagePromptForTest(
+      "معكرونة بالصلصة",
+      ["معكرونة", "صلصة طماطم"],
+      { exactRecipeName: "معكرونة بالصلصة" }
+    );
+    const negativePrompt = buildRecipeImageNegativePromptForTest("معكرونة بالصلصة", ["معكرونة", "صلصة طماطم"]);
+    const identity = buildRecipePhotoIdentity("معكرونة بالصلصة");
+
+    expect(identity.mealTypeKey).toBe("pasta");
+    expect(identity.starchKey).toBe("pasta");
+    expect(prompt).toContain("معكرونة / مكرونة / makarona means pasta or macaroni");
+    expect(prompt).toContain("Present it as a pasta dish");
+    expect(prompt).toContain("pasta/macaroni (arabic: makarona)");
+    expect(negativePrompt).not.toContain("pasta, spaghetti, noodles, macaroni");
+  });
 });

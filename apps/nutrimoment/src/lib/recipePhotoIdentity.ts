@@ -41,8 +41,11 @@ const ARABIC = {
   lentil: "\u0639\u062f\u0633",
   liver: "\u0643\u0628\u062f\u0629",
   liverAlt: "\u0643\u0628\u062f\u0647",
+  pasta: "\u0645\u0639?\u0643\u0631\u0648\u0646(?:\u0629|\u0647)?",
   rice: "\u0631\u0632",
   shakshuka: "\u0634\u0643\u0634\u0648\u0643\u0629",
+  soup: "\u0634\u0648\u0631\u0628(?:\u0629|\u0647)|\u062d\u0633\u0627\u0621|\u0645\u0631\u0642(?:\u0629|\u0647)?",
+  stew: "\u064a\u062e\u0646(?:\u0629|\u0647|\u064a)",
   yogurt: "\u0632\u0628\u0627\u062f\u064a"
 } as const;
 
@@ -1666,7 +1669,7 @@ const SAUCE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 const STARCH_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
-  { key: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/iu },
+  { key: "pasta", pattern: new RegExp(`\\bpasta|spaghetti|penne|fettuccine|macaroni\\b|${ARABIC.pasta}`, "iu") },
   { key: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/iu },
   { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") },
   { key: "bulgur", pattern: /\bbulgur|burghul|borghol\b/iu },
@@ -1684,11 +1687,11 @@ const COOKING_METHOD_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 const MEAL_TYPE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
-  { key: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/iu },
+  { key: "pasta", pattern: new RegExp(`\\bpasta|spaghetti|penne|fettuccine|macaroni\\b|${ARABIC.pasta}`, "iu") },
   { key: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/iu },
   { key: "salad", pattern: /\bsalad\b/iu },
-  { key: "soup", pattern: /\bsoup\b/iu },
-  { key: "stew", pattern: /\bstew\b/iu },
+  { key: "soup", pattern: new RegExp(`\\bsoup\\b|${ARABIC.soup}`, "iu") },
+  { key: "stew", pattern: new RegExp(`\\bstew\\b|${ARABIC.stew}`, "iu") },
   { key: "skillet", pattern: /\bskillet\b/iu },
   { key: "stir-fry", pattern: /\bstir[- ]?fry\b/iu },
   { key: "chili", pattern: /\bchili\b/iu },

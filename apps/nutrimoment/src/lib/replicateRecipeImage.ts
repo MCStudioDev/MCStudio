@@ -34,6 +34,40 @@ interface DishVisualPrompt {
   cuisineStyle?: string;
 }
 
+const ARABIC_FOOD_MEANINGS: Array<{ pattern: RegExp; promptMeaning: string; keywords: string[] }> = [
+  {
+    pattern: /\u064a\u062e\u0646(?:\u0629|\u0647|\u064a)/iu,
+    promptMeaning:
+      "يخنة / يخنه / yakhna means a savory stew or soup-like dish with broth or sauce and visible solids; it is never a dessert, sweet pudding, cake, custard, or candy",
+    keywords: ["stew", "soup", "broth", "savory"]
+  },
+  {
+    pattern: /\u0634\u0648\u0631\u0628(?:\u0629|\u0647)|\u062d\u0633\u0627\u0621|\u0645\u0631\u0642(?:\u0629|\u0647)?/iu,
+    promptMeaning: "شوربة / حساء / مرقة means soup or broth served in a bowl with visible liquid",
+    keywords: ["soup", "broth"]
+  },
+  {
+    pattern: /\u0645\u0639?\u0643\u0631\u0648\u0646(?:\u0629|\u0647)?/iu,
+    promptMeaning: "معكرونة / مكرونة / makarona means pasta or macaroni, usually short pasta or spaghetti depending on the recipe",
+    keywords: ["pasta", "macaroni", "spaghetti"]
+  }
+];
+
+const ARABIC_PROMPT_INGREDIENT_ALIASES: Array<{ pattern: RegExp; english: string }> = [
+  { pattern: /\u0639\u062f\u0633/iu, english: "lentils" },
+  { pattern: /\u062e\u0636(?:\u0627\u0631|\u0631\u0648\u0627\u062a)|\u062e\u0636\u0631/iu, english: "vegetables" },
+  { pattern: /\u062c\u0632\u0631/iu, english: "carrot" },
+  { pattern: /\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)/iu, english: "tomato" },
+  { pattern: /\u0635\u0644\u0635(?:\u0629|\u0647)/iu, english: "sauce" },
+  { pattern: /\u0628\u0635\u0644/iu, english: "onion" },
+  { pattern: /\u062b\u0648\u0645/iu, english: "garlic" },
+  { pattern: /\u0623?\u0631\u0632|\u0631\u0632/iu, english: "rice" },
+  { pattern: /\u0628\u0637\u0627\u0637(?:\u0633|\u0627)/iu, english: "potato" },
+  { pattern: /\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e/iu, english: "chicken" },
+  { pattern: /\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646/iu, english: "shrimp" },
+  { pattern: /\u0633\u0645\u0643/iu, english: "fish" }
+];
+
 const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   hawawshi: {
     englishName: "Egyptian hawawshi",
@@ -1329,12 +1363,21 @@ function buildRecipeImagePrompt(
   const alternateDishNames = normalizeAlternateDishNames(options.alternateDishNames ?? []);
   const alternateDishNameClause = buildAlternateDishNameClause(alternateDishNames);
   const exactCardIdentityClause = buildExactCardIdentityClause(options.exactRecipeName, dish || query);
-  const curatedPrompt = buildCuratedDishImagePrompt(dish || query, ingredientList, identity, alternateDishNameClause, exactCardIdentityClause);
+  const languageMeaningClause = buildArabicFoodMeaningClause(dish || query, ingredientList);
+  const visualSource = buildVisualMeaningSource(dish || query, ingredientList);
+  const curatedPrompt = buildCuratedDishImagePrompt(
+    dish || query,
+    ingredientList,
+    identity,
+    alternateDishNameClause,
+    exactCardIdentityClause,
+    languageMeaningClause
+  );
   if (curatedPrompt) {
     return curatedPrompt;
   }
 
-  const primarySubject = inferPrimaryVisualSubject(dish || query, ingredientList, identity);
+  const primarySubject = inferPrimaryVisualSubject(visualSource, ingredientList, identity);
   const supportStarches = ingredientList.filter((ingredient) =>
     /\b(rice|pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|bulgur|bread|pita|bun|potato|potatoes)\b/i.test(
       ingredient
@@ -1361,6 +1404,7 @@ function buildRecipeImagePrompt(
     exactCardIdentityClause,
     "The image must match this exact meal name and cuisine as closely as possible.",
     alternateDishNameClause,
+    languageMeaningClause,
     anchorClause,
     cuisineClause,
     servingClause,
@@ -1394,7 +1438,8 @@ function buildCuratedDishImagePrompt(
   ingredients: string[],
   identity: ReturnType<typeof buildRecipePhotoIdentity>,
   alternateDishNameClause = "",
-  exactCardIdentityClause = ""
+  exactCardIdentityClause = "",
+  languageMeaningClause = ""
 ) {
   const visualPrompt = findDishVisualPrompt(identity, query, ingredients);
   if (!visualPrompt) return null;
@@ -1414,6 +1459,7 @@ function buildCuratedDishImagePrompt(
     exactCardIdentityClause,
     exactNameClause,
     alternateDishNameClause,
+    languageMeaningClause,
     `Visual description: ${visualPrompt.visualDescription}.`,
     `Plating: ${visualPrompt.plating}.`,
     `Style: ${cuisineStyle}, realistic food photography, natural restaurant lighting, appetizing but not exaggerated.`,
@@ -1428,9 +1474,9 @@ function buildCuratedDishImagePrompt(
 }
 
 function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIdentity>, ingredients: string[]) {
-  const source = `${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const source = buildVisualMeaningSource(identity.cleanQuery, ingredients);
   const allowsRice = /\b(rice|pilaf|couscous|bulgur)\b/.test(source);
-  const allowsPasta = /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(source);
+  const allowsPasta = hasPastaSource(source);
   const forbiddenStarches = [
     allowsRice ? "" : "rice, rice grains, pilaf, couscous, bulgur",
     allowsPasta ? "" : "pasta, spaghetti, noodles, macaroni, vermicelli"
@@ -1811,7 +1857,7 @@ function buildFishCuisineVisualCues(source: string) {
 }
 
 function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
-  const source = `${query} ${ingredients.join(" ")}`.toLowerCase();
+  const source = buildVisualMeaningSource(query, ingredients);
   const allow = (pattern: RegExp) => pattern.test(source);
   const isLiverDish = allow(/\b(liver|kebda|kibda|ciger|cigeri)\b/i);
   const isGroundMeatDish = isGroundMeatSource(source);
@@ -1820,7 +1866,7 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
   const isPlantBasedOrEggFree = /\b(vegan|plant[- ]?based|egg[- ]?free|without eggs?|no eggs?)\b/iu.test(source);
   const isDairyFree = /\b(vegan|plant[- ]?based|dairy[- ]?free|without dairy|no dairy)\b/iu.test(source);
   const excludedFoods = [
-    allow(/\b(pasta|spaghetti|linguine|fettuccine|macaroni|penne|noodle|noodles|vermicelli|ramen|udon|soba)\b/i)
+    hasPastaSource(source) || allow(/\b(penne|ramen|udon|soba)\b/i)
       ? ""
       : "pasta, spaghetti, noodles, macaroni, penne, vermicelli, ramen, udon",
     allow(/\b(rice|pilaf|couscous|bulgur|burghul|quinoa)\b/i)
@@ -1851,7 +1897,8 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
     isPlantBasedOrEggFree
       ? "eggs, egg yolks, egg whites, poached egg, fried egg, boiled egg, omelette, mayonnaise, chicken, beef, lamb, fish, shrimp, seafood, meat"
       : "",
-    isDairyFree ? "cheese, feta, mozzarella, parmesan, cream, yogurt, labneh, butter, ghee, dairy sauce" : ""
+    isDairyFree ? "cheese, feta, mozzarella, parmesan, cream, yogurt, labneh, butter, ghee, dairy sauce" : "",
+    isArabicStewSource(source) ? "dessert, sweets, sweet pudding, custard, cake, candy, pastry" : ""
   ].filter(Boolean);
 
   return [
@@ -1924,8 +1971,29 @@ function normalizePromptIngredients(ingredients: string[]) {
 }
 
 function normalizePromptIngredientAlias(value: string) {
+  if (/\(arabic:/i.test(value)) {
+    return value;
+  }
+
   if (isArabicGroundMeatIngredient(value)) {
     return "ground/minced meat (Arabic: lahma mafrouma)";
+  }
+
+  if (isArabicPastaSource(value)) {
+    return "pasta/macaroni (Arabic: makarona)";
+  }
+
+  if (isArabicSoupOrBrothSource(value)) {
+    return "soup/broth base (Arabic: shorba or maraq)";
+  }
+
+  if (isArabicStewSource(value)) {
+    return "savory stew/soup (Arabic: yakhna)";
+  }
+
+  const arabicIngredientAlias = translateArabicPromptIngredientAlias(value);
+  if (arabicIngredientAlias) {
+    return arabicIngredientAlias;
   }
 
   if (/\b(mince|minced|ground)\b/i.test(value) && /\b(meat|beef|lamb|veal)\b/i.test(value)) {
@@ -1933,6 +2001,34 @@ function normalizePromptIngredientAlias(value: string) {
   }
 
   return value;
+}
+
+function buildArabicFoodMeaningClause(query: string, ingredients: string[]) {
+  const meanings = getArabicFoodMeanings(`${query} ${ingredients.join(" ")}`);
+  if (!meanings.length) return "";
+
+  return `Language meaning guardrail for Arabic food terms: ${meanings.map((entry) => entry.promptMeaning).join("; ")}. Use these meanings to choose the correct visual form before generating the image.`;
+}
+
+function buildVisualMeaningSource(query: string, ingredients: string[]) {
+  const source = `${query} ${ingredients.join(" ")}`.toLowerCase();
+  const keywords = getArabicFoodMeanings(source).flatMap((entry) => entry.keywords);
+  return `${source} ${keywords.join(" ")}`.trim();
+}
+
+function getArabicFoodMeanings(source: string) {
+  return ARABIC_FOOD_MEANINGS.filter((entry) => entry.pattern.test(source));
+}
+
+function translateArabicPromptIngredientAlias(value: string) {
+  if (!/[\u0600-\u06FF]/.test(value)) return "";
+
+  const aliases = ARABIC_PROMPT_INGREDIENT_ALIASES.filter((entry) => entry.pattern.test(value)).map(
+    (entry) => entry.english
+  );
+  if (!aliases.length) return "";
+
+  return `${Array.from(new Set(aliases)).join(", ")} (Arabic: ${value})`;
 }
 
 function normalizeAlternateDishNames(values: string[]) {
@@ -2035,6 +2131,22 @@ function isArabicGroundMeatIngredient(value: string) {
   );
 }
 
+function isArabicPastaSource(source: string) {
+  return /\u0645\u0639?\u0643\u0631\u0648\u0646(?:\u0629|\u0647)?/iu.test(source);
+}
+
+function isArabicSoupOrBrothSource(source: string) {
+  return /\u0634\u0648\u0631\u0628(?:\u0629|\u0647)|\u062d\u0633\u0627\u0621|\u0645\u0631\u0642(?:\u0629|\u0647)?/iu.test(source);
+}
+
+function isArabicStewSource(source: string) {
+  return /\u064a\u062e\u0646(?:\u0629|\u0647|\u064a)/iu.test(source);
+}
+
+function hasPastaSource(source: string) {
+  return /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/iu.test(source) || isArabicPastaSource(source);
+}
+
 function isFlatbreadGroundMeatDishSource(source: string) {
   return /\b(lahmacun|lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|kiymali\s+pide|pide|hawawshi|baladi\s+hawawshi|alexandrian\s+hawawshi|stuffed\s+(?:bread|flatbread|pita))\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(
     source
@@ -2043,8 +2155,11 @@ function isFlatbreadGroundMeatDishSource(source: string) {
 
 function isSoupSource(source: string, identity?: ReturnType<typeof buildRecipePhotoIdentity>) {
   return (
-    /\b(soup|broth|chowder|bisque|consomme|ramen|pho|harira|chorba|corbasi|lentil soup|bean soup|vegetable soup|tomato soup)\b/iu.test(source) ||
-    identity?.mealTypeKey === "soup"
+    /\b(soup|broth|stew|chowder|bisque|consomme|ramen|pho|harira|chorba|corbasi|lentil soup|bean soup|vegetable soup|tomato soup)\b/iu.test(source) ||
+    isArabicSoupOrBrothSource(source) ||
+    isArabicStewSource(source) ||
+    identity?.mealTypeKey === "soup" ||
+    identity?.mealTypeKey === "stew"
   );
 }
 
@@ -2127,7 +2242,7 @@ function buildSoupVisualClause(
     : "The liquid should read as broth or soup base, with visible spoonable liquid around the solids.";
   const visibleSolids = [
     /\b(mushroom|mushrooms)\b/iu.test(source) ? "mushroom pieces or slices" : "",
-    /\b(lentil|dal)\b/iu.test(source) ? "lentils suspended in the soup" : "",
+    /\b(lentils?|dal)\b/iu.test(source) ? "lentils suspended in the soup" : "",
     /\b(bean|beans|chickpea|chickpeas|fava)\b/iu.test(source) ? "beans or chickpeas in the soup" : "",
     /\b(tomato)\b/iu.test(source) ? "red tomato soup or tomato pieces" : "",
     /\b(vegetable|carrot|celery|zucchini|squash|cauliflower|broccoli)\b/iu.test(source) ? "listed vegetables visible in the broth" : "",
@@ -2204,11 +2319,15 @@ function buildForbiddenIngredientClause(
   ingredients: string[],
   supportStarches: string[]
 ) {
-  const source = `${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const source = buildVisualMeaningSource(identity.cleanQuery, ingredients);
   const forbiddenGroups: string[] = [];
   const allowsDishFlatbread = isFlatbreadGroundMeatDishSource(source);
 
-  if (!supportStarches.some((value) => /\b(pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|noodle|noodles)\b/i.test(value))) {
+  if (
+    !supportStarches.some((value) => hasPastaSource(value)) &&
+    identity.starchKey !== "pasta" &&
+    identity.mealTypeKey !== "pasta"
+  ) {
     forbiddenGroups.push("spaghetti, pasta, noodles, vermicelli");
   }
 
@@ -2220,7 +2339,7 @@ function buildForbiddenIngredientClause(
     forbiddenGroups.push("bread, toast, buns, pita");
   }
 
-  if (!/\bsoup|stew|broth\b/i.test(source) && identity.mealTypeKey !== "soup" && identity.mealTypeKey !== "stew") {
+  if (!/\bsoup|stew|broth\b/i.test(source) && !isArabicSoupOrBrothSource(source) && !isArabicStewSource(source) && identity.mealTypeKey !== "soup" && identity.mealTypeKey !== "stew") {
     forbiddenGroups.push("a soup bowl or stew presentation");
   }
 

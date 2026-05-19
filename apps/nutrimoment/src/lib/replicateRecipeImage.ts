@@ -1162,6 +1162,17 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   }
 };
 
+const VEGAN_SHAKSHUKA_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "vegan shakshuka",
+  visualDescription:
+    "a rustic red tomato, pepper, onion, and spice shakshuka-style skillet with visible vegetables, chickpeas, tofu pieces, beans, or other listed plant protein standing in for eggs. It must look like an eggless vegan tomato skillet, with no whole eggs, no egg whites, no egg yolks, and no dairy",
+  plating:
+    "served in a small skillet or shallow bowl as one finished tomato-based vegan shakshuka-style dish, with sauce and plant ingredients visible at the surface",
+  avoid:
+    "eggs, poached eggs, fried eggs, egg yolks, egg whites, omelette, cheese, yogurt, dairy, meat, chicken, beef, fish, shrimp, plain tomato soup, pasta, rice, pizza, burger",
+  cuisineStyle: "vegan Middle Eastern breakfast"
+};
+
 export function isReplicateConfigured() {
   return Boolean(replicateApiToken && replicateModel);
 }
@@ -1366,6 +1377,18 @@ function buildRecipeImagePrompt(
   ].join(" ");
 }
 
+export function buildRecipeImagePromptForTest(
+  query: string,
+  ingredients: string[] = [],
+  options: { alternateDishNames?: string[]; exactRecipeName?: string } = {}
+) {
+  return buildRecipeImagePrompt(query, normalizePromptIngredients(ingredients), options);
+}
+
+export function buildRecipeImageNegativePromptForTest(query: string, ingredients: string[] = []) {
+  return buildRecipeImageNegativePrompt(query, normalizePromptIngredients(ingredients));
+}
+
 function buildCuratedDishImagePrompt(
   query: string,
   ingredients: string[],
@@ -1373,7 +1396,7 @@ function buildCuratedDishImagePrompt(
   alternateDishNameClause = "",
   exactCardIdentityClause = ""
 ) {
-  const visualPrompt = findDishVisualPrompt(identity);
+  const visualPrompt = findDishVisualPrompt(identity, query, ingredients);
   if (!visualPrompt) return null;
 
   const ingredientClause = ingredients.length
@@ -1429,6 +1452,15 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
 
   if (isSeafoodSource(source)) {
     return buildSeafoodVisualClause(source, forbiddenStarches);
+  }
+
+  if (isSoupSource(source, identity)) {
+    return buildSoupVisualClause(source, identity, forbiddenStarches);
+  }
+
+  if (isVeganOrDairyFreeSource(source)) {
+    const constraints = buildPlantBasedVisualConstraint(source);
+    if (constraints) return constraints;
   }
 
   if (!isStrictRecipePhotoIdentity(identity)) return "";
@@ -1775,6 +1807,8 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
   const isGroundMeatDish = isGroundMeatSource(source);
   const isSeafoodDish = isSeafoodSource(source);
   const isFlatbreadDish = isFlatbreadGroundMeatDishSource(source);
+  const isPlantBasedOrEggFree = /\b(vegan|plant[- ]?based|egg[- ]?free|without eggs?|no eggs?)\b/iu.test(source);
+  const isDairyFree = /\b(vegan|plant[- ]?based|dairy[- ]?free|without dairy|no dairy)\b/iu.test(source);
   const excludedFoods = [
     allow(/\b(pasta|spaghetti|linguine|fettuccine|macaroni|penne|noodle|noodles|vermicelli|ramen|udon|soba)\b/i)
       ? ""
@@ -1800,7 +1834,11 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
       : "",
     isSeafoodDish
       ? "chicken, beef, lamb, steak, meatballs, burger, eggs, tofu, generic meat, vague mixed grill, unrecognizable seafood, fake seafood"
-      : ""
+      : "",
+    isPlantBasedOrEggFree
+      ? "eggs, egg yolks, egg whites, poached egg, fried egg, boiled egg, omelette, mayonnaise, chicken, beef, lamb, fish, shrimp, seafood, meat"
+      : "",
+    isDairyFree ? "cheese, feta, mozzarella, parmesan, cream, yogurt, labneh, butter, ghee, dairy sauce" : ""
   ].filter(Boolean);
 
   return [
@@ -1822,7 +1860,16 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
   ].join(", ");
 }
 
-function findDishVisualPrompt(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+function findDishVisualPrompt(
+  identity: ReturnType<typeof buildRecipePhotoIdentity>,
+  query = "",
+  ingredients: string[] = []
+) {
+  const source = `${query} ${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  if (/\bshakshuka\b|\u0634\u0643\u0634\u0648\u0643\u0629/iu.test(source) && isVeganOrDairyFreeSource(source)) {
+    return VEGAN_SHAKSHUKA_VISUAL_PROMPT;
+  }
+
   const keys = [
     identity.canonicalDishKey,
     identity.familyKey,
@@ -1973,6 +2020,76 @@ function isFlatbreadGroundMeatDishSource(source: string) {
   return /\b(lahmacun|lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|kiymali\s+pide|pide|hawawshi|stuffed\s+(?:bread|flatbread|pita))\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(
     source
   );
+}
+
+function isSoupSource(source: string, identity?: ReturnType<typeof buildRecipePhotoIdentity>) {
+  return (
+    /\b(soup|broth|chowder|bisque|consomme|ramen|pho|harira|chorba|corbasi|lentil soup|bean soup|vegetable soup|tomato soup)\b/iu.test(source) ||
+    identity?.mealTypeKey === "soup"
+  );
+}
+
+function buildSoupVisualClause(
+  source: string,
+  identity: ReturnType<typeof buildRecipePhotoIdentity>,
+  forbiddenStarches: string[]
+) {
+  const soupName = identity.canonicalDishKey?.replace(/-/g, " ") || identity.cleanQuery || "the named soup";
+  const textureCue = /\b(chowder|cream|creamy|bisque)\b/iu.test(source)
+    ? "The liquid should read as creamy soup or chowder only when cream or dairy is listed or the exact dish name requires it."
+    : /\b(lentil|dal|split pea|bean|fava|besara)\b/iu.test(source)
+    ? "The liquid should read as thick legume soup with spoonable body, not dry beans on a plate."
+    : /\b(noodle|ramen|pho)\b/iu.test(source)
+    ? "The bowl may include noodles only when named or listed, but the broth must remain clearly visible."
+    : "The liquid should read as broth or soup base, with visible spoonable liquid around the solids.";
+  const visibleSolids = [
+    /\b(mushroom|mushrooms)\b/iu.test(source) ? "mushroom pieces or slices" : "",
+    /\b(lentil|dal)\b/iu.test(source) ? "lentils suspended in the soup" : "",
+    /\b(bean|beans|chickpea|chickpeas|fava)\b/iu.test(source) ? "beans or chickpeas in the soup" : "",
+    /\b(tomato)\b/iu.test(source) ? "red tomato soup or tomato pieces" : "",
+    /\b(vegetable|carrot|celery|zucchini|squash|cauliflower|broccoli)\b/iu.test(source) ? "listed vegetables visible in the broth" : "",
+    /\b(chicken|beef|fish|shrimp|seafood)\b/iu.test(source) ? "the named protein visible in the soup liquid" : ""
+  ].filter(Boolean);
+
+  return [
+    `Strict visual identity: this is ${soupName}, a soup served in a bowl with visible liquid, not a dry plate of the main ingredient.`,
+    "The image must immediately read as soup: use a deep bowl or soup crock, spoonable liquid surface, and ingredients partly submerged in broth or soup base.",
+    textureCue,
+    visibleSolids.length
+      ? `Visible soup contents should match the recipe: ${visibleSolids.join(", ")}.`
+      : "Show the named ingredients as contents inside the soup liquid, not plated separately.",
+    "Hard negative: do not show dry sauteed vegetables, a salad, pasta plate, rice bowl, roasted tray, grilled plate, curry plate, or the main ingredient sitting alone without liquid.",
+    "Hard negative: do not show a sauce-coated plate and call it soup; the vessel and liquid must make it unmistakably soup.",
+    forbiddenStarches.length
+      ? `Hard negative: do not include ${forbiddenStarches.join("; ")} as side dishes unless listed; if a starch belongs in the soup, it must appear inside the bowl and not dominate.`
+      : ""
+  ].filter(Boolean).join(" ");
+}
+
+function isVeganOrDairyFreeSource(source: string) {
+  return /\b(vegan|dairy[- ]?free|egg[- ]?free|plant[- ]?based|without eggs?|no eggs?|no dairy)\b/iu.test(source);
+}
+
+function buildPlantBasedVisualConstraint(source: string) {
+  const constraints: string[] = [];
+  if (/\b(vegan|egg[- ]?free|plant[- ]?based|without eggs?|no eggs?)\b/iu.test(source)) {
+    constraints.push(
+      "Plant-based visual constraint: do not show eggs, egg yolks, egg whites, poached eggs, fried eggs, boiled eggs, omelette, mayonnaise, meat, poultry, fish, shrimp, or seafood."
+    );
+  }
+  if (/\b(vegan|dairy[- ]?free|plant[- ]?based|without dairy|no dairy)\b/iu.test(source)) {
+    constraints.push(
+      "Dairy-free visual constraint: do not show cheese, feta, mozzarella, parmesan, cream, yogurt, labneh, butter, ghee, creamy dairy sauce, or dairy garnish."
+    );
+  }
+
+  if (!constraints.length) return "";
+
+  return [
+    ...constraints,
+    "Use only plant-based visual substitutes that are named or implied by the exact recipe, such as chickpeas, beans, tofu, lentils, mushrooms, vegetables, nuts, seeds, tomato sauce, tahini, or herbs.",
+    "Hard negative: do not use the standard non-vegan version of the dish if it would add eggs, dairy, meat, fish, or seafood."
+  ].join(" ");
 }
 
 function isSeafoodSource(source: string) {

@@ -851,6 +851,34 @@ function normalizeForMatch(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+const PLANT_MILK_PREFIX_PATTERN =
+  "(?:almond|oat|oatmeal|coconut|soy|soya|cashew|rice|hemp|pea|macadamia|hazelnut|plant[- ]?based|non[- ]?dairy|dairy[- ]?free|vegan)";
+const PLANT_CREAM_PREFIX_PATTERN =
+  "(?:coconut|cashew|oat|soy|soya|almond|plant[- ]?based|non[- ]?dairy|dairy[- ]?free|vegan)";
+const PLANT_YOGURT_PREFIX_PATTERN =
+  "(?:coconut|almond|soy|soya|cashew|oat|plant[- ]?based|non[- ]?dairy|dairy[- ]?free|vegan)";
+const PLANT_BUTTER_PREFIX_PATTERN =
+  "(?:almond|peanut|cashew|sunflower|sesame|seed|nut|cocoa)";
+
+function isAllowedPlantDairyAlternative(text: string, pattern: string, matchStart: number): boolean {
+  const prefix = text.slice(Math.max(0, matchStart - 48), matchStart);
+
+  if (pattern === "milk") {
+    return new RegExp(`${PLANT_MILK_PREFIX_PATTERN}\\s+$`, "i").test(prefix);
+  }
+  if (pattern === "cream") {
+    return new RegExp(`${PLANT_CREAM_PREFIX_PATTERN}\\s+$`, "i").test(prefix);
+  }
+  if (pattern === "yogurt" || pattern === "yoghurt") {
+    return new RegExp(`${PLANT_YOGURT_PREFIX_PATTERN}\\s+$`, "i").test(prefix);
+  }
+  if (pattern === "butter") {
+    return new RegExp(`${PLANT_BUTTER_PREFIX_PATTERN}\\s+$`, "i").test(prefix);
+  }
+
+  return false;
+}
+
 /**
  * Check whether `text` contains a whole-word match for any of the english
  * patterns. We use a word-boundary regex so "ham" doesn't false-positive on
@@ -865,8 +893,10 @@ function matchesEnglishPattern(text: string, patterns: string[]): string | null 
       continue;
     }
     const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\b${escaped}s?\\b`, "i");
-    if (regex.test(text)) return pattern;
+    const regex = new RegExp(`\\b${escaped}s?\\b`, "gi");
+    const matches = [...text.matchAll(regex)];
+    if (!matches.length) continue;
+    if (matches.some((match) => !isAllowedPlantDairyAlternative(text, pattern, match.index ?? 0))) return pattern;
   }
   return null;
 }

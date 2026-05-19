@@ -144,6 +144,8 @@ describe("cuisine prompt depth", () => {
     expect(vegetarianPrompt).toContain("black bean enchiladas");
     expect(vegetarianPrompt).toContain("chickpea shawarma bowls");
     expect(vegetarianPrompt).toContain("no eggs, and no dairy");
+    expect(vegetarianPrompt).toContain("almond milk, oat milk, coconut milk");
+    expect(vegetarianPrompt).toContain("vegan pancakes");
     expect(vegetarianPrompt).toContain("Do not use eggs or dairy as shortcuts");
   });
 
@@ -199,6 +201,54 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("pickled eggplant");
     expect(prompt).toContain("eggplant bechamel casserole");
     expect(prompt).toContain("stuffed eggplant with rice and vegetables");
+  });
+
+  it("caps rice and legume clustering in vegan weekly meal plans", () => {
+    const prompt = buildMealPlanPrompt({
+      pantry: ["rice", "lentils", "chickpeas", "tomato", "eggplant", "potato", "mushroom"],
+      pantryItems: [
+        { name: "rice", quantity: "2 cups" },
+        { name: "lentils", quantity: "2 cups" },
+        { name: "chickpeas", quantity: "2 cans" },
+        { name: "eggplant", quantity: "2 whole" },
+        { name: "potato", quantity: "4 whole" },
+        { name: "mushroom", quantity: "300g" }
+      ],
+      diets: ["vegan", "vegetarian", "dairyFree"],
+      conditions: [],
+      allergens: [],
+      preferredCuisine: "Any"
+    });
+
+    expect(prompt).toContain("Plant-based weekly variety cap");
+    expect(prompt).toContain("do not let rice appear in more than about one-third");
+    expect(prompt).toContain("potatoes, pasta, noodles, quinoa");
+  });
+
+  it("teaches vegetarian mahshi and sarma as stuffed dish families", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [
+        { name: "grape leaves", quantity: "1 jar" },
+        { name: "cabbage", quantity: "1 head" },
+        { name: "rice", quantity: "2 cups" },
+        { name: "tomato", quantity: "4 whole" }
+      ],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 10,
+        diets: ["vegan", "vegetarian", "dairyFree"],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Vegetarian stuffed knowledge");
+    expect(prompt).toContain("mahshi, sarma, dolma");
+    expect(prompt).toContain("pickled stuffed eggplant");
+    expect(prompt).toContain("Do not add meat to mahshi, sarma, dolma");
   });
 
   it("prevents chicken recipes from clustering around plain grilled chicken", () => {

@@ -15,6 +15,7 @@ export type MealPlanGuardIssue =
   | { kind: "cuisine"; day: string; slot: MealSlot; name: string; cuisine?: string; preferredCuisine: string }
   | { kind: "seafoodQuota"; actual: number; expected: number }
   | { kind: "cuisineQuota"; actual: number; expected: number; preferredCuisine: string }
+  | { kind: "ingredientCluster"; ingredient: "rice" | "legume"; actual: number; allowed: number }
   | { kind: "repeat"; name: string; actual: number; allowed: number }
   | { kind: "unique"; actual: number; expected: number };
 
@@ -25,6 +26,8 @@ export interface MealPlanGuardPreferences {
   minUniqueMeals?: number;
   minPescatarianSeafoodSlots?: number;
   minPreferredCuisineSlots?: number;
+  maxPlantBasedRiceSlots?: number;
+  maxPlantBasedLegumeSlots?: number;
 }
 
 interface MealSlotEntry {
@@ -46,6 +49,8 @@ const PLAN_SLOTS = 21;
 const DEFAULT_MAX_REPEAT = 2;
 const DEFAULT_MIN_UNIQUE = 15;
 const DEFAULT_PESCATARIAN_SEAFOOD_SLOTS = 6;
+const DEFAULT_PLANT_BASED_RICE_SLOTS = 7;
+const DEFAULT_PLANT_BASED_LEGUME_SLOTS = 9;
 
 const SEAFOOD_TERMS = [
   "fish",
@@ -105,6 +110,27 @@ const MEXICAN_IDENTITY_TERMS = [
   "\u0628\u064a\u0643\u0648",
   "\u0641\u0627\u0635\u0648\u0644\u064a\u0627 \u0633\u0648\u062f\u0627\u0621",
   "\u0630\u0631\u0629"
+];
+
+const RICE_TERMS = ["rice", "\u0623\u0631\u0632", "\u0627\u0631\u0632", "رز"];
+const LEGUME_TERMS = [
+  "lentil",
+  "lentils",
+  "chickpea",
+  "chickpeas",
+  "garbanzo",
+  "fava",
+  "ful",
+  "bean",
+  "beans",
+  "hummus",
+  "falafel",
+  "\u0639\u062f\u0633",
+  "\u062d\u0645\u0635",
+  "\u0641\u0648\u0644",
+  "\u0641\u0627\u0635\u0648\u0644\u064a\u0627",
+  "\u0644\u0648\u0628\u064a\u0627",
+  "\u0628\u0635\u0627\u0631\u0629"
 ];
 
 export function validateMealPlan(
@@ -175,6 +201,19 @@ export function validateMealPlan(
     issues.push({ kind: "unique", actual: mealCounts.size, expected: minUnique });
   }
 
+  if (shouldEnforcePlantBasedVariety(preferences)) {
+    const riceSlots = slots.filter((entry) => isRiceHeavyMeal(entry.meal)).length;
+    const legumeSlots = slots.filter((entry) => isLegumeHeavyMeal(entry.meal)).length;
+    const maxRiceSlots = preferences.maxPlantBasedRiceSlots ?? DEFAULT_PLANT_BASED_RICE_SLOTS;
+    const maxLegumeSlots = preferences.maxPlantBasedLegumeSlots ?? DEFAULT_PLANT_BASED_LEGUME_SLOTS;
+    if (riceSlots > maxRiceSlots) {
+      issues.push({ kind: "ingredientCluster", ingredient: "rice", actual: riceSlots, allowed: maxRiceSlots });
+    }
+    if (legumeSlots > maxLegumeSlots) {
+      issues.push({ kind: "ingredientCluster", ingredient: "legume", actual: legumeSlots, allowed: maxLegumeSlots });
+    }
+  }
+
   return issues;
 }
 
@@ -202,6 +241,7 @@ export function repairMealPlanWithGuard(
   repairedSlots += repairSeafoodQuota(nextPlan, preferences, fallbackBank, usedFallbackNames);
   repairedSlots += repairCuisineQuota(nextPlan, preferences, fallbackBank, usedFallbackNames);
   repairedSlots += repairRepeatedMeals(nextPlan, preferences, fallbackBank, usedFallbackNames);
+  repairedSlots += repairPlantBasedIngredientClusters(nextPlan, preferences, fallbackBank, usedFallbackNames);
   nextPlan.shoppingList = mergeShoppingList(nextPlan.shoppingList, flattenMealPlanSlots(nextPlan).map((entry) => entry.meal));
 
   const finalIssues = validateMealPlan(nextPlan, preferences);
@@ -324,6 +364,62 @@ function repairRepeatedMeals(
   return repaired;
 }
 
+function repairPlantBasedIngredientClusters(
+  mealPlan: MealPlanData,
+  preferences: MealPlanGuardPreferences,
+  fallbackBank: Record<MealSlot, MealPlanMeal[]>,
+  usedFallbackNames: Set<string>
+) {
+  if (!shouldEnforcePlantBasedVariety(preferences)) return 0;
+
+  let repaired = 0;
+  const maxRiceSlots = preferences.maxPlantBasedRiceSlots ?? DEFAULT_PLANT_BASED_RICE_SLOTS;
+  const maxLegumeSlots = preferences.maxPlantBasedLegumeSlots ?? DEFAULT_PLANT_BASED_LEGUME_SLOTS;
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const repairedBeforePass = repaired;
+    repaired += repairIngredientCluster(mealPlan, fallbackBank, usedFallbackNames, isRiceHeavyMeal, maxRiceSlots);
+    repaired += repairIngredientCluster(mealPlan, fallbackBank, usedFallbackNames, isLegumeHeavyMeal, maxLegumeSlots);
+
+    const slots = flattenMealPlanSlots(mealPlan);
+    const riceSlots = slots.filter((entry) => isRiceHeavyMeal(entry.meal)).length;
+    const legumeSlots = slots.filter((entry) => isLegumeHeavyMeal(entry.meal)).length;
+    if (riceSlots <= maxRiceSlots && legumeSlots <= maxLegumeSlots) break;
+    if (repaired === repairedBeforePass) break;
+  }
+
+  return repaired;
+}
+
+function repairIngredientCluster(
+  mealPlan: MealPlanData,
+  fallbackBank: Record<MealSlot, MealPlanMeal[]>,
+  usedFallbackNames: Set<string>,
+  isClusterMeal: (meal: MealPlanMeal) => boolean,
+  allowed: number
+) {
+  let repaired = 0;
+  let clusterSlots = flattenMealPlanSlots(mealPlan).filter((entry) => isClusterMeal(entry.meal));
+  if (clusterSlots.length <= allowed) return 0;
+
+  const protectedSlots = new Set(clusterSlots.slice(0, allowed).map(slotKey));
+  const candidates = clusterSlots
+    .filter((entry) => !protectedSlots.has(slotKey(entry)))
+    .sort((a, b) => mealSlotPriority(b.slot) - mealSlotPriority(a.slot));
+
+  for (const entry of candidates) {
+    if (clusterSlots.length <= allowed) break;
+    const fallback = pickFallbackMeal(fallbackBank, entry.slot, usedFallbackNames, (meal) => !isClusterMeal(meal));
+    if (!fallback) break;
+
+    setMealAtSlot(mealPlan, entry, fallback);
+    repaired += 1;
+    clusterSlots = flattenMealPlanSlots(mealPlan).filter((item) => isClusterMeal(item.meal));
+  }
+
+  return repaired;
+}
+
 function buildFallbackBank(preferences: MealPlanGuardPreferences): Record<MealSlot, MealPlanMeal[]> {
   if (preferences.dietContext.diets.includes("vegan")) {
     return VEGAN_FALLBACKS;
@@ -361,6 +457,22 @@ function buildFallbackMealPlan(
 
 function shouldEnforcePescatarianSeafoodQuota(preferences: MealPlanGuardPreferences) {
   return preferences.dietContext.diets.includes("pescatarian") && !preferences.dietContext.diets.includes("vegan");
+}
+
+function shouldEnforcePlantBasedVariety(preferences: MealPlanGuardPreferences) {
+  return preferences.dietContext.diets.includes("vegan") || preferences.dietContext.diets.includes("vegetarian");
+}
+
+function isRiceHeavyMeal(meal: MealPlanMeal): boolean {
+  return includesAny(mealSearchText(meal), RICE_TERMS);
+}
+
+function isLegumeHeavyMeal(meal: MealPlanMeal): boolean {
+  return includesAny(mealSearchText(meal), LEGUME_TERMS);
+}
+
+function slotKey(entry: MealSlotEntry) {
+  return `${entry.dayIndex}:${entry.slot}`;
 }
 
 function pickFallbackMeal(
@@ -507,30 +619,34 @@ const MEXICAN_PESCATARIAN_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
 const VEGAN_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
   breakfast: [
     veganMeal("Ful medames with tomato cucumber salad", "breakfast", ["fava beans", "tomato", "cucumber", "parsley", "lemon", "olive oil"], 430, "19g", "ful medames tomato cucumber"),
-    veganMeal("Zaatar chickpea breakfast bowl", "breakfast", ["chickpeas", "cucumber", "tomato", "zaatar", "lemon", "olive oil"], 410, "18g", "zaatar chickpea bowl"),
-    veganMeal("Lentil breakfast rice bowl", "breakfast", ["lentils", "rice", "tomato", "parsley", "cumin", "lemon"], 440, "20g", "middle eastern lentil rice bowl"),
-    veganMeal("Hummus vegetable pita plate", "breakfast", ["hummus", "pita bread", "cucumber", "tomato", "mint", "olive oil"], 420, "16g", "hummus vegetable pita plate"),
-    veganMeal("Fava bean avocado toast", "breakfast", ["fava beans", "whole grain bread", "avocado", "tomato", "lemon"], 450, "18g", "fava bean avocado toast"),
+    veganMeal("Mushroom potato breakfast hash", "breakfast", ["potatoes", "mushrooms", "bell pepper", "onion", "parsley", "olive oil"], 430, "12g", "mushroom potato breakfast hash"),
+    veganMeal("Avocado tomato sourdough toast", "breakfast", ["whole grain bread", "avocado", "tomato", "cucumber", "lemon"], 420, "12g", "avocado tomato toast"),
+    veganMeal("Vegetable tofu breakfast scramble", "breakfast", ["tofu", "spinach", "mushrooms", "bell pepper", "turmeric", "olive oil"], 410, "24g", "vegan tofu scramble vegetables"),
+    veganMeal("Cinnamon apple oatmeal", "breakfast", ["oats", "apple", "cinnamon", "almond milk", "walnuts"], 395, "13g", "apple cinnamon oatmeal"),
     veganMeal("Date tahini oatmeal", "breakfast", ["oats", "dates", "tahini", "cinnamon", "almond milk"], 390, "13g", "date tahini oatmeal"),
-    veganMeal("Baladi bean salad bowl", "breakfast", ["white beans", "tomato", "cucumber", "parsley", "lemon", "olive oil"], 405, "17g", "middle eastern white bean salad")
+    veganMeal("Berry chia almond pudding", "breakfast", ["chia seeds", "almond milk", "berries", "pumpkin seeds", "cinnamon"], 380, "14g", "berry chia pudding")
   ],
   lunch: [
-    veganMeal("Mujadara with cucumber tomato salad", "lunch", ["lentils", "rice", "onion", "cucumber", "tomato", "parsley"], 540, "22g", "mujadara cucumber tomato salad"),
+    veganMeal("Pasta primavera with roasted vegetables", "lunch", ["pasta", "zucchini", "bell pepper", "tomato", "basil", "olive oil"], 545, "18g", "vegan pasta primavera"),
+    veganMeal("Mushroom shawarma pita with tahini", "lunch", ["mushrooms", "pita bread", "cucumber", "tomato", "tahini", "shawarma spices"], 535, "18g", "mushroom shawarma pita"),
+    veganMeal("Vegetable sushi rolls with edamame", "lunch", ["nori", "sushi rice", "cucumber", "avocado", "carrot", "edamame"], 520, "18g", "vegetable sushi rolls edamame"),
+    veganMeal("Tofu soba noodle salad", "lunch", ["tofu", "soba noodles", "cucumber", "carrot", "sesame", "ginger"], 540, "26g", "tofu soba noodle salad"),
+    veganMeal("Roasted eggplant tahini flatbread", "lunch", ["eggplant", "flatbread", "tahini", "tomato", "parsley", "lemon"], 550, "17g", "roasted eggplant tahini flatbread"),
+    veganMeal("Quinoa roasted vegetable bowl", "lunch", ["quinoa", "zucchini", "carrot", "bell pepper", "pumpkin seeds", "lemon"], 535, "19g", "quinoa roasted vegetable bowl"),
     veganMeal("Falafel chickpea salad bowl", "lunch", ["falafel", "chickpeas", "romaine", "tomato", "cucumber", "tahini"], 560, "23g", "falafel chickpea salad bowl"),
-    veganMeal("Stuffed grape leaves with lentil salad", "lunch", ["grape leaves", "rice", "lentils", "tomato", "parsley", "lemon"], 520, "18g", "stuffed grape leaves lentil salad"),
-    veganMeal("Hummus tabbouleh rice plate", "lunch", ["hummus", "parsley", "bulgur", "tomato", "rice", "lemon"], 535, "19g", "hummus tabbouleh rice plate"),
-    veganMeal("Chickpea shawarma bowl", "lunch", ["chickpeas", "rice", "cucumber", "tomato", "tahini", "shawarma spices"], 555, "21g", "chickpea shawarma rice bowl"),
-    veganMeal("Roasted eggplant lentil plate", "lunch", ["eggplant", "lentils", "tomato", "parsley", "rice", "lemon"], 545, "22g", "roasted eggplant lentil plate"),
-    veganMeal("Fasolya white bean stew with rice", "lunch", ["white beans", "tomato sauce", "onion", "garlic", "rice"], 550, "23g", "middle eastern white bean stew rice")
+    veganMeal("Stuffed grape leaves with cucumber salad", "lunch", ["grape leaves", "rice", "tomato", "parsley", "cucumber", "lemon"], 520, "12g", "stuffed grape leaves cucumber salad"),
+    veganMeal("Chickpea shawarma vegetable bowl", "lunch", ["chickpeas", "cucumber", "tomato", "tahini", "cabbage", "shawarma spices"], 545, "21g", "chickpea shawarma vegetable bowl")
   ],
   dinner: [
-    veganMeal("Lentil vegetable stew with rice", "dinner", ["lentils", "rice", "carrot", "tomato", "onion", "garlic", "olive oil"], 560, "24g", "lentil vegetable stew rice"),
-    veganMeal("Okra tomato stew with rice", "dinner", ["okra", "tomato sauce", "onion", "garlic", "rice", "coriander"], 525, "16g", "okra tomato stew rice"),
-    veganMeal("Eggplant chickpea tagine with rice", "dinner", ["eggplant", "chickpeas", "tomato", "rice", "cumin", "parsley"], 575, "22g", "eggplant chickpea tagine rice"),
-    veganMeal("Molokhia with chickpeas and rice", "dinner", ["molokhia", "chickpeas", "rice", "garlic", "coriander", "lemon"], 540, "20g", "vegan molokhia chickpeas rice"),
+    veganMeal("Eggplant tomato pasta bake", "dinner", ["eggplant", "pasta", "tomato sauce", "garlic", "basil", "olive oil"], 590, "19g", "vegan eggplant tomato pasta bake"),
+    veganMeal("Thai tofu vegetable curry", "dinner", ["tofu", "coconut milk", "zucchini", "bell pepper", "carrot", "basil"], 575, "25g", "thai tofu vegetable curry"),
+    veganMeal("Stuffed peppers with quinoa vegetables", "dinner", ["bell peppers", "quinoa", "zucchini", "tomato", "onion", "parsley"], 555, "18g", "quinoa stuffed peppers"),
+    veganMeal("Mushroom noodle stir fry", "dinner", ["noodles", "mushrooms", "broccoli", "carrot", "ginger", "soy sauce"], 560, "20g", "mushroom vegetable noodle stir fry"),
+    veganMeal("Okra tomato stew with potatoes", "dinner", ["okra", "potatoes", "tomato sauce", "onion", "garlic", "coriander"], 535, "14g", "okra tomato potato stew"),
+    veganMeal("Cauliflower shawarma tray with tahini", "dinner", ["cauliflower", "potatoes", "tahini", "tomato", "parsley", "shawarma spices"], 555, "17g", "cauliflower shawarma tray"),
+    veganMeal("Vegetable moussaka no dairy", "dinner", ["eggplant", "zucchini", "tomato sauce", "potatoes", "onion", "olive oil"], 570, "15g", "vegan vegetable moussaka"),
     veganMeal("Koshari-inspired lentil rice bowl", "dinner", ["rice", "lentils", "chickpeas", "tomato sauce", "onion"], 590, "24g", "vegan koshari lentil rice"),
-    veganMeal("Zucchini tomato stew with beans", "dinner", ["zucchini", "white beans", "tomato", "onion", "rice", "parsley"], 535, "21g", "zucchini tomato bean stew rice"),
-    veganMeal("Cauliflower chickpea rice tray", "dinner", ["cauliflower", "chickpeas", "rice", "tomato", "cumin", "tahini"], 555, "21g", "cauliflower chickpea rice tray")
+    veganMeal("Lentil vegetable stew with roasted potatoes", "dinner", ["lentils", "potatoes", "carrot", "tomato", "onion", "garlic", "olive oil"], 560, "24g", "lentil vegetable stew potatoes")
   ]
 };
 
@@ -555,9 +671,9 @@ function veganMeal(
     fat: slot === "breakfast" ? "13g" : "15g",
     ingredients,
     steps: [
-      "Prep the vegetables, grains, legumes, herbs, and lemon.",
-      "Cook the grains or legumes until tender, then season with cumin, garlic, herbs, and olive oil.",
-      "Assemble the meal with fresh vegetables and serve warm or at room temperature."
+      "Prep the vegetables, starch or plant protein, herbs, and sauce ingredients.",
+      "Cook the main vegetable, grain, noodle, potato, tofu, or legume component until tender and well seasoned.",
+      "Assemble the meal with contrasting texture, a fresh finish, and a clear plated form."
     ],
     image_search_index: imageSearchIndex ?? name.toLowerCase()
   };

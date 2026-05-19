@@ -96,6 +96,29 @@ describe("meal plan guard service", () => {
     expect(result.finalIssues).toEqual([]);
     expect(JSON.stringify(result.mealPlan)).not.toMatch(/دجاج|لحم|مفروم|بيض|فريتاتا|\b(chicken|beef|meat|eggs?)\b/i);
   });
+
+  it("repairs plant-based plans that over-repeat rice and legumes", () => {
+    const preferences = {
+      dietContext: {
+        diets: ["vegan", "vegetarian", "dairyFree"],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15,
+      minPescatarianSeafoodSlots: 6
+    };
+    const initialIssues = validateMealPlan(buildRiceLegumeClusterPlan(), preferences);
+
+    expect(initialIssues).toContainEqual({ kind: "ingredientCluster", ingredient: "rice", actual: 21, allowed: 7 });
+    expect(initialIssues).toContainEqual({ kind: "ingredientCluster", ingredient: "legume", actual: 21, allowed: 9 });
+
+    const result = repairMealPlanWithGuard(buildRiceLegumeClusterPlan(), preferences);
+    const finalIssues = validateMealPlan(result.mealPlan, preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(finalIssues.filter((issue) => issue.kind === "ingredientCluster")).toEqual([]);
+  });
 });
 
 function buildBadMinaStylePlan(): MealPlanData {
@@ -150,6 +173,19 @@ function buildUnsafeArabicVeganPlan(): MealPlanData {
           ? meal("\u0633\u0644\u0637\u0629 \u062f\u062c\u0627\u062c \u0645\u0634\u0648\u064a \u0628\u0627\u0644\u0644\u064a\u0645\u0648\u0646", "Mediterranean", ["\u062f\u062c\u0627\u062c", "\u0644\u064a\u0645\u0648\u0646", "\u062e\u0633"])
           : meal("\u0645\u0643\u0631\u0648\u0646\u0629 \u0628\u0627\u0644\u0644\u062d\u0645 \u0627\u0644\u0645\u0641\u0631\u0648\u0645", "Italian", ["\u0644\u062d\u0645 \u0645\u0641\u0631\u0648\u0645", "\u0645\u0643\u0631\u0648\u0646\u0629", "\u0637\u0645\u0627\u0637\u0645"]),
       dinner: meal(`\u064a\u062e\u0646\u0629 \u0639\u062f\u0633 \u0628\u0627\u0644\u062e\u0636\u0627\u0631 ${index + 1}`, "Middle Eastern", ["\u0639\u062f\u0633", "\u062e\u0636\u0627\u0631", "\u0623\u0631\u0632"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildRiceLegumeClusterPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: meal(`Lentil rice breakfast ${index + 1}`, "Middle Eastern", ["lentils", "rice", "tomato"]),
+      lunch: meal(`Chickpea rice lunch ${index + 1}`, "Middle Eastern", ["chickpeas", "rice", "cucumber"]),
+      dinner: meal(`Bean rice dinner ${index + 1}`, "Middle Eastern", ["white beans", "rice", "tomato"])
     })),
     shoppingList: []
   };

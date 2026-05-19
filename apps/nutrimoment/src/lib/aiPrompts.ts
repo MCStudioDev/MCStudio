@@ -774,8 +774,9 @@ function buildOrganMeatGuidance(
 
 function buildVegetarianVarietyGuidance(diets: string[], recipeCount: number): string {
   const isVegetarian = diets.includes("vegetarian");
+  const isVegan = diets.includes("vegan");
   const isPescatarian = diets.includes("pescatarian");
-  if (!isVegetarian && !isPescatarian) return "";
+  if (!isVegetarian && !isVegan && !isPescatarian) return "";
 
   const minimumDistinctForms = Math.min(recipeCount, recipeCount >= 7 ? 6 : Math.max(recipeCount - 1, 3));
 
@@ -812,11 +813,11 @@ function buildVegetarianVarietyGuidance(diets: string[], recipeCount: number): s
   }
 
   const isDairyFree = diets.includes("dairyFree");
-  const vegetarianProteinRule = isDairyFree
+  const vegetarianProteinRule = isDairyFree || isVegan
     ? "Vegetarian dairy-free distinct-variety mode is active. No meat, no poultry, no fish, no seafood, no eggs, and no dairy. Use legumes, beans, lentils, chickpeas, tofu, vegetables, grains, nuts, and seeds as the protein and texture base."
     : "Vegetarian distinct-variety mode is active. No meat, no poultry, no fish, no seafood. Eggs and dairy are allowed.";
-  const vegetarianForbiddenRule = isDairyFree
-    ? "Do not output any dish that contains chicken, beef, lamb, pork, turkey, fish, shrimp, seafood, egg, eggs, egg whites, egg yolks, mayonnaise, milk, cream, cheese, butter, yogurt, labneh, ghee, whey, casein, or any other animal meat or dairy."
+  const vegetarianForbiddenRule = isDairyFree || isVegan
+    ? "Do not output any dish that contains chicken, beef, lamb, pork, turkey, fish, shrimp, seafood, egg, eggs, egg whites, egg yolks, mayonnaise, dairy milk, dairy cream, cheese, dairy butter, yogurt, labneh, ghee, whey, casein, or any other animal meat or dairy. Plant milks and plant creams are allowed when explicitly plant-based."
     : "Do not output any dish that contains chicken, beef, lamb, pork, turkey, fish, shrimp, seafood, or any other animal meat.";
 
   return [
@@ -824,14 +825,20 @@ function buildVegetarianVarietyGuidance(diets: string[], recipeCount: number): s
     `Produce at least ${minimumDistinctForms} visibly different dish forms across the set.`,
     "Vegetarian lentil anti-clustering rule: do not default to mujadara for every lentil card. Mujadara is only one lentil family. Rotate lentils through lentil kofta or lentil patties, lentil salad, lentil soup, lentil dal, lentil curry, lentil bolognese, lentil moussaka, lentil shepherd's pie, lentil stuffed peppers, koshary with lentils/rice/pasta, lentil tacos, lentil loaf, lentil stew, lentil kibbeh or kofte, and lentil pasta bake when pantry and cuisine fit.",
     "Vegetarian eggplant anti-clustering rule: eggplant should not become only grilled eggplant or baba ghanoush. Rotate eggplant through fried eggplant, eggplant musakhan-style plates when culturally appropriate, Turkish musakka, Greek moussaka, eggplant parmesan, pasta alla norma, baba ghanoush, mutabbal, pickled eggplant, stuffed eggplant with rice or vegetables, sheikh el mahshi vegetarian style, eggplant bechamel casserole, eggplant chickpea tagine, eggplant curry, roasted eggplant salad, and eggplant sandwiches when diet rules allow.",
+    isDairyFree || isVegan
+      ? "Dairy-free cooking knowledge: almond milk, oat milk, coconut milk, soy milk, cashew milk, coconut cream, and cashew cream are allowed plant-based substitutes. Use them for broccoli soup, cauliflower chowder, creamy vegetable soup, vegan pancakes, oatmeal, chia pudding, dairy-free white sauce, and curry when they fit; do not treat them as dairy."
+      : "",
+    recipeCount >= 14
+      ? "Plant-based weekly variety cap: across the 21 weekly meal slots, do not let rice appear in more than about one-third of meals, and do not let lentils/chickpeas/beans/ful/hummus/falafel dominate more than about half the week. Use potatoes, pasta, noodles, quinoa, bulgur, bread/flatbread, oats, mushrooms, tofu, eggplant, zucchini, cauliflower, okra, squash, salads, soups, traybakes, sandwiches, and vegetable mains to create variety."
+      : "Plant-based variety cap: do not let rice plus lentils/chickpeas/beans dominate the set. Use potatoes, pasta, noodles, quinoa, bread/flatbread, mushrooms, tofu, eggplant, zucchini, cauliflower, squash, salads, traybakes, sandwiches, and vegetable mains.",
     "Southern-inspired vegetarian dinner variety: use this as a shape library, not as a fixed menu. Rotate through casseroles, skillet dinners, soups, stews, pot pies, hand pies, stuffed vegetables, pasta bakes, pizzas or flatbreads, sandwiches, grain bowls, bean mains, vegetable centerpiece mains, hearty salads, tacos, enchiladas, and sheet-pan meals.",
     "Good Food-inspired vegetarian dinner variety: also rotate through global meat-free family suppers such as vegetable lasagne, sweet potato peanut curry, veggie shepherd's pie with sweet potato mash, butternut squash risotto, coconut squash dhansak, vegetarian bolognese, mushroom curry, vegetarian chilli, pasta bake, warming stew, traybake, pie, and bean or lentil mains. Use these as real dish-family anchors instead of generic vegetable plates.",
     "Everyday vegetarian dinner variety: include practical named families such as black bean enchiladas, easy chickpea curry, pasta primavera, vegetarian taco skillet, lasagna stuffed mushrooms, vegetarian tikka masala, roasted cauliflower chickpea tacos, black bean soup, black bean quinoa enchilada bake, ratatouille, sesame noodles, white bean soup, stacked roasted vegetable enchiladas, butternut squash enchiladas, chickpea salad sandwich, roasted vegetable lasagne, white bean skillet, enchilada stuffed sweet potatoes, creamy lemon ravioli, butternut squash baked ziti, veggie pizza, skillet vegetarian enchiladas, Asian quinoa salad, bean and cheese burritos, spaghetti with chickpeas and kale, vegetarian fajitas, pasta pomodoro, cauliflower chowder, broccoli pasta, black bean taquitos, cottage cheese frittata, cauliflower bolognese, migas, sweet potato hash, roasted corn chowder, enchilada stuffed mushrooms, sweet potato refried bean tostadas, roasted vegetable quinoa bowls, butternut squash mac and cheese, vegetable soup, vegetarian chili mac, skillet vegetable lasagna, chickpea shawarma bowls, and broccoli cheese soup when diet rules allow them.",
-    isDairyFree
+    isDairyFree || isVegan
       ? "Strong vegetarian dairy-free dish families to draw from: lentil soup, lentil kofta, lentil patties, lentil salad, mujadara, koshary, chickpea curry or chana masala, falafel with tahini, stuffed bell peppers with rice and vegetables, tomato-basil pasta without cheese, marinara pizza or flatbread without cheese, mushroom risotto finished with olive oil, vegetable tagine with couscous, lentil moussaka without dairy, stuffed vine leaves with rice, tofu vegetable stir-fry, lentil dal, baba ghanoush with pita, mutabbal without yogurt, pickled eggplant, fried eggplant, stuffed eggplant with rice and vegetables, eggplant chickpea tagine, eggplant curry, roasted eggplant salad, vegetable soup, bean tacos or burritos, black bean enchiladas without cheese, tomato bean stew, vegetable pot pie with dairy-free crust, roasted cauliflower steak, sweet potato peanut curry, coconut squash dhansak, mushroom curry, vegetarian chilli, dairy-free vegetable lasagne, vegetable traybake, lentil shepherd's pie with olive-oil mash, black bean soup, ratatouille, sesame noodles, roasted cauliflower chickpea tacos without dairy sauce, chickpea shawarma bowls with tahini, sweet potato refried bean tostadas without dairy, roasted vegetable quinoa bowls, dairy-free vegetable chili mac, and white bean skillet."
       : "Strong vegetarian dish families to draw from: shakshuka eggs in tomato sauce, cheese omelette or vegetable frittata, lentil soup, lentil kofta, lentil patties, lentil salad, mujadara, lentil dal, koshary, chickpea curry or chana masala, falafel with tahini, stuffed bell peppers with rice and vegetables, caprese or Greek salad, pasta primavera or pasta with tomato basil sauce, margherita pizza or flatbread, mushroom risotto, vegetable tagine with couscous, palak paneer or paneer tikka, moussaka with lentils, stuffed vine leaves with rice, vegetable stir-fry with tofu or egg, baba ghanoush with pita, mutabbal, pickled eggplant, fried eggplant, Turkish musakka, Greek moussaka, eggplant parmesan, pasta alla norma, stuffed eggplant with rice and vegetables, sheikh el mahshi vegetarian style, eggplant bechamel casserole, vegetable soup, bean tacos or burritos, macaroni and cheese, spinach and cheese pie, bean stew, vegetable lasagne, black bean enchiladas, tomato pie, vegetable pot pie, roasted cauliflower steak, sweet potato peanut curry, coconut squash dhansak, mushroom curry, vegetarian chilli, vegetarian bolognese, butternut squash risotto, veggie shepherd's pie, vegetable traybake, and pasta bake.",
     "Do not default to plain rice and lentils for every card. Vary the protein source, cooking form, cuisine region, and plate architecture across the list.",
-    isDairyFree
+    isDairyFree || isVegan
       ? "For vegetarian dairy-free variety, rotate legumes, beans, lentils, chickpeas, tofu, mushrooms, eggplant, cauliflower, squash, grains, nuts, and seeds. Do not use eggs or dairy as shortcuts."
       : "For vegetarian variety, rotate eggs, legumes, cheese, yogurt, paneer, tofu, mushrooms, eggplant, cauliflower, squash, beans, lentils, chickpeas, grains, nuts, and seeds.",
     vegetarianForbiddenRule
@@ -1230,7 +1237,7 @@ function buildStuffedDishGuidance(
   const source = ingredients.map((ingredient) => ingredient.name).join(" ").toLowerCase();
   const cuisineKey = normalizeCuisinePromptKey(preferredCuisine);
   const explicitStuffedSignal =
-    /\b(stuffed|mahshi|dolma|dolmades)\b/i.test(source) ||
+    /\b(stuffed|mahshi|dolma|dolmades|sarma)\b/i.test(source) ||
     /Ù…Ø­Ø´ÙŠ/u.test(source);
   const hasStuffableVegetable =
     hasAny(pantry, [
@@ -1247,7 +1254,7 @@ function buildStuffedDishGuidance(
       "squash",
       "onion"
     ]) ||
-    /\b(zucchini|courgette|eggplant|aubergine|pepper|cabbage|grape leaves|vine leaves|tomato|squash|onion|stuffed|mahshi|dolma|dolmades)\b/i.test(source) ||
+    /\b(zucchini|courgette|eggplant|aubergine|pepper|cabbage|grape leaves|vine leaves|tomato|squash|onion|stuffed|mahshi|dolma|dolmades|sarma)\b/i.test(source) ||
     /محشي|كوسة|باذنجان|فلفل|كرنب|ملفوف|ورق\s*عنب|طماطم|بصل/u.test(source);
   const cuisineSupportsMahshi = ["egyptian", "middle eastern", "lebanese", "turkish", "mediterranean", "arabic", "any"].includes(cuisineKey);
 
@@ -1258,8 +1265,9 @@ function buildStuffedDishGuidance(
   if (!hasStuffableVegetable && !explicitStuffedSignal) return "";
 
   return [
-    `Stuffed-dish catalog rule: when pantry or cuisine supports stuffed food in this ${recipeCount}-card request, treat it as a real dish family, not a generic side. Use named families such as Egyptian mahshi, mixed mahshi, kousa mahshi, stuffed zucchini, stuffed eggplant, sheikh el mahshi, stuffed bell peppers, stuffed cabbage rolls, grape leaves or warak enab, tomato mahshi, stuffed onions, Lebanese kousa mahshi, malfouf mahshi, dolma, stuffed chicken with rice, stuffed lamb shoulder, hashweh with cooked cucumbers, or deconstructed kousa only when the pantry and cuisine fit.`,
-    "Stuffed cards must be visually distinct: hollowed vegetables packed with rice/herb/meat filling, rolls in tomato sauce, grape-leaf bundles, cabbage rolls, stuffed peppers standing upright, eggplant boats, zucchini cylinders, mixed mahshi platter, or sliced stuffed poultry/meat. The rice, meat, or herb filling must be inside the named stuffed item, not beside it. Do not show an unstuffed vegetable stew, a rice plate with vegetables on the side, or loose meat over rice for a stuffed dish.",
+    `Stuffed-dish catalog rule: when pantry or cuisine supports stuffed food in this ${recipeCount}-card request, treat it as a real dish family, not a generic side. Use named families such as Egyptian mahshi, mixed mahshi, kousa mahshi, stuffed zucchini, stuffed eggplant, sheikh el mahshi, stuffed bell peppers, stuffed cabbage rolls, grape leaves or warak enab, tomato mahshi, stuffed onions, Lebanese kousa mahshi, malfouf mahshi, sarma, dolma, stuffed chicken with rice, stuffed lamb shoulder, hashweh with cooked cucumbers, or deconstructed kousa only when the pantry and cuisine fit.`,
+    "Vegetarian stuffed knowledge: mahshi, sarma, dolma, warak enab, malfouf, stuffed peppers, stuffed zucchini, and stuffed eggplant can be fully vegetarian or vegan with rice, herbs, tomato, vegetables, olive oil, and lemon; pickled stuffed eggplant and other pickled stuffed vegetables are vegetarian when no meat, dairy, or egg is listed. Do not add meat to mahshi, sarma, dolma, or pickled stuffed dishes unless meat is explicitly allowed and listed.",
+    "Stuffed cards must be visually distinct: hollowed vegetables packed with rice/herb/vegetable or allowed meat filling, rolls in tomato sauce, grape-leaf bundles, cabbage rolls, stuffed peppers standing upright, eggplant boats, zucchini cylinders, mixed mahshi platter, or sliced stuffed poultry/meat. The rice, meat, vegetable, or herb filling must be inside the named stuffed item, not beside it. Do not show an unstuffed vegetable stew, a rice plate with vegetables on the side, or loose meat over rice for a stuffed dish.",
     "For stuffed dish image_search_index, use the exact named stuffed form such as kousa mahshi, stuffed cabbage rolls, warak enab, stuffed bell peppers, tomato mahshi, stuffed eggplant, sheikh el mahshi, or Egyptian mixed mahshi. Avoid generic search phrases like stuffed food, vegetable recipe, rice vegetables, tomato rice, meat rice, or healthy dinner.",
     "For stuffed dish_intent.visual_keywords, always include words like hollowed zucchini, stuffed pepper, cabbage roll, grape-leaf roll, open-topped tomato, split stuffed eggplant, visible filling inside, or cut-open stuffed piece. For stuffed dish_intent.exclude_keywords, include rice side, meat over rice, loose filling, unstuffed vegetables, stew, salad, and generic rice bowl.",
     "Only repeat mahshi/stuffed forms when the stuffed vegetable or filling genuinely changes, for example zucchini versus cabbage versus grape leaves, rice-only versus meat-rice filling, tomato sauce versus broth, or eggplant boats versus mixed platter."

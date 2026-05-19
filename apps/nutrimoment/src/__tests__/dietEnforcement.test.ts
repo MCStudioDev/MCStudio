@@ -18,6 +18,51 @@ describe("diet enforcement", () => {
     ).toEqual({ kind: "diet", diet: "dairyFree", match: "yogurt" });
   });
 
+  it("allows plant-based dairy alternatives for vegan and dairy-free users", () => {
+    const ctx = { diets: ["vegan", "dairyFree"], allergens: [] };
+
+    expect(
+      findRecipeDietViolation(
+        { name: "Broccoli soup", ingredients: ["broccoli", "almond milk", "potato", "garlic"] },
+        ctx
+      )
+    ).toBeNull();
+    expect(
+      findRecipeDietViolation(
+        { name: "Vegan pancakes", ingredients: ["flour", "oat milk", "banana", "cinnamon"] },
+        ctx
+      )
+    ).toBeNull();
+    expect(
+      findRecipeDietViolation(
+        { name: "Thai tofu curry", ingredients: ["tofu", "coconut milk", "vegetables", "basil"] },
+        ctx
+      )
+    ).toBeNull();
+    expect(
+      findRecipeDietViolation(
+        { name: "Mushroom soup", ingredients: ["mushrooms", "coconut cream", "thyme"] },
+        ctx
+      )
+    ).toBeNull();
+
+    expect(findRecipeDietViolation({ name: "Milk soup", ingredients: ["milk", "broccoli"] }, ctx)).toEqual({
+      kind: "diet",
+      diet: "vegan",
+      match: "milk"
+    });
+    expect(findRecipeDietViolation({ name: "Cream soup", ingredients: ["heavy cream", "broccoli"] }, ctx)).toEqual({
+      kind: "diet",
+      diet: "vegan",
+      match: "cream"
+    });
+    expect(findRecipeDietViolation({ name: "Yogurt bowl", ingredients: ["yogurt", "berries"] }, ctx)).toEqual({
+      kind: "diet",
+      diet: "vegan",
+      match: "yogurt"
+    });
+  });
+
   it("also blocks eggs when egg allergy is selected without dairy-free", () => {
     expect(
       findRecipeDietViolation(

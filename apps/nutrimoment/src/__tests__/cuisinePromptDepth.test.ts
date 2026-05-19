@@ -170,4 +170,34 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("shrimp tacos");
     expect(prompt).toContain("Cajun shrimp boil");
   });
+
+  it("prevents vegetarian lentil and eggplant plans from repeating mujadara only", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [
+        { name: "lentils", quantity: "2 cups" },
+        { name: "eggplant", quantity: "2 whole" },
+        { name: "rice", quantity: "2 cups" },
+        { name: "tomato sauce", quantity: "1 cup" }
+      ],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 10,
+        diets: ["vegetarian"],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Vegetarian lentil anti-clustering rule");
+    expect(prompt).toContain("Mujadara is only one lentil family");
+    expect(prompt).toContain("lentil kofta");
+    expect(prompt).toContain("koshary");
+    expect(prompt).toContain("Vegetarian eggplant anti-clustering rule");
+    expect(prompt).toContain("pickled eggplant");
+    expect(prompt).toContain("eggplant bechamel casserole");
+    expect(prompt).toContain("stuffed eggplant with rice and vegetables");
+  });
 });

@@ -1458,6 +1458,10 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
     return buildSoupVisualClause(source, identity, forbiddenStarches);
   }
 
+  if (isPotatoSource(source)) {
+    return buildPotatoVisualClause(source);
+  }
+
   if (isVeganOrDairyFreeSource(source)) {
     const constraints = buildPlantBasedVisualConstraint(source);
     if (constraints) return constraints;
@@ -1820,6 +1824,9 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
       ? ""
       : "bread, toast, pita, flatbread, bun, roll, wrap, tortilla",
     allow(/\b(potato|potatoes|fries)\b/i) ? "" : "potatoes, fries",
+    /\bpotato|potatoes|fries|kumpir|compir|kompir\b/i.test(source)
+      ? buildWrongPotatoFormNegativePrompt(source)
+      : "",
     allow(/\b(salad|lettuce|arugula|greens)\b/i) ? "" : "salad, lettuce, arugula, leafy greens",
     allow(/\b(cheese|feta|mozzarella|parmesan|cheddar)\b/i) ? "" : "cheese, feta, mozzarella, parmesan",
     allow(/\b(sauce|tomato sauce|cream|yogurt|tahini|pesto|gravy)\b/i) ? "" : "extra sauce, cream sauce, tomato sauce, gravy",
@@ -2027,6 +2034,70 @@ function isSoupSource(source: string, identity?: ReturnType<typeof buildRecipePh
     /\b(soup|broth|chowder|bisque|consomme|ramen|pho|harira|chorba|corbasi|lentil soup|bean soup|vegetable soup|tomato soup)\b/iu.test(source) ||
     identity?.mealTypeKey === "soup"
   );
+}
+
+function isPotatoSource(source: string) {
+  return /\b(potato|potatoes|fries|french fries|chips|wedges|smashed potatoes|mashed potatoes|baked potato|loaded potato|kumpir|compir|kompir|hash browns?|potato hash|potato salad|potato soup|potato casserole|potato gratin|scalloped potatoes)\b/iu.test(source);
+}
+
+function buildPotatoVisualClause(source: string) {
+  const forms = [
+    /\b(french fries|fries|chips)\b/iu.test(source)
+      ? "For fries: show long thin potato sticks, deep-fried golden with crisp browned edges, piled together like French fries; not wedges, cubes, mash, or roasted chunks."
+      : "",
+    /\b(smashed potatoes|smashed potato)\b/iu.test(source)
+      ? "For smashed potatoes: show small whole potatoes pressed flat into irregular discs, roasted until craggy and crisp at the edges with soft centers; not smooth mashed potatoes."
+      : "",
+    /\b(mashed potatoes|mashed potato|mash)\b/iu.test(source)
+      ? "For mashed potatoes: show a soft creamy mound or scoop of smooth mashed potato with swirls or spoon marks; not fries, wedges, or cubes."
+      : "",
+    /\b(baked potato|loaded potato|jacket potato)\b/iu.test(source)
+      ? "For baked potato: show a whole potato split open lengthwise with fluffy white interior visible and toppings placed inside the cut, not potato cubes or fries."
+      : "",
+    /\b(kumpir|compir|kompir)\b/iu.test(source)
+      ? "For Turkish kumpir: show a very large baked potato split open and mashed inside its skin, visibly stuffed with listed toppings such as corn, olives, pickles, peas, vegetables, cheese, yogurt sauce, or salad only when listed; it must look like a stuffed baked potato, not fries or potato salad."
+      : "",
+    /\b(wedges|potato wedges)\b/iu.test(source)
+      ? "For potato wedges: show thick wedge-shaped potato pieces with skin-on curved backs, roasted or fried golden; not long thin fries or cubes."
+      : "",
+    /\b(hash browns?|potato hash)\b/iu.test(source)
+      ? "For hash browns or potato hash: show shredded or small diced potatoes browned together in a skillet-style mass with crisp golden surface; not fries or mashed potato."
+      : "",
+    /\b(potato soup|potato chowder)\b/iu.test(source)
+      ? "For potato soup: show a bowl of creamy or brothy soup with potato pieces visible in liquid; not a dry plate of potatoes."
+      : "",
+    /\b(casserole|gratin|scalloped|bechamel|bechamel)\b/iu.test(source)
+      ? "For potato casserole, gratin, scalloped potatoes, or bechamel: show layered sliced potatoes baked in a dish with browned top and visible layers; not loose fries or potato cubes."
+      : "",
+    /\b(stew|tagine|tray|baked tray|roasted tray)\b/iu.test(source)
+      ? "For potato stew or tray bakes: show potato chunks or slices integrated into the named stew or oven tray, but keep the main named protein or sauce visible."
+      : ""
+  ].filter(Boolean);
+
+  return [
+    "Strict potato visual identity: potato must appear in the exact physical form named by the recipe, not as generic beige chunks.",
+    forms.length
+      ? `Recipe-specific potato form: ${forms.join(" ")}`
+      : "If no exact potato form is named, show clearly identifiable potato pieces that match the cooking method: roasted chunks for roasted potatoes, boiled cubes for salad, thin slices for a bake, or golden pieces for fried potatoes.",
+    "Hard negative: do not substitute a different potato form. Fries, smashed potatoes, mashed potatoes, baked potato/kumpir, wedges, hash browns, soup, and casserole are visually different and must not be confused.",
+    "Hard negative: avoid generic brown cubes, random beige side dishes, bread, rice, pasta, or unrelated vegetables unless listed in the recipe."
+  ].join(" ");
+}
+
+function buildWrongPotatoFormNegativePrompt(source: string) {
+  const wrongForms = [
+    /\b(french fries|fries|chips)\b/iu.test(source) ? "" : "french fries, thin fries, chips",
+    /\b(smashed potatoes|smashed potato)\b/iu.test(source) ? "" : "smashed potatoes, flattened potato rounds",
+    /\b(mashed potatoes|mashed potato|mash)\b/iu.test(source) ? "" : "mashed potatoes, smooth potato puree",
+    /\b(baked potato|loaded potato|jacket potato|kumpir|compir|kompir)\b/iu.test(source) ? "" : "whole baked potato, loaded potato, kumpir",
+    /\b(wedges|potato wedges)\b/iu.test(source) ? "" : "potato wedges",
+    /\b(hash browns?|potato hash)\b/iu.test(source) ? "" : "hash browns, potato hash",
+    /\b(potato soup|potato chowder)\b/iu.test(source) ? "" : "potato soup, potato chowder",
+    /\b(casserole|gratin|scalloped|bechamel|bechamel)\b/iu.test(source) ? "" : "potato gratin, scalloped potatoes, potato casserole"
+  ].filter(Boolean);
+
+  if (!wrongForms.length) return "";
+  return `wrong potato form, ${wrongForms.join(", ")}`;
 }
 
 function buildSoupVisualClause(

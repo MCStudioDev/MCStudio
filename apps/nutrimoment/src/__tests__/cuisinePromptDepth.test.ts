@@ -226,4 +226,27 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("creamy chicken soup");
     expect(prompt).toContain("BBQ chicken");
   });
+
+  it("requires exact potato forms in generated recipe photo identities", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [{ name: "potatoes", quantity: "1 kg" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 10,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Potato visual-form ladder");
+    expect(prompt).toContain("fries");
+    expect(prompt).toContain("smashed crispy potatoes");
+    expect(prompt).toContain("Turkish kumpir/compir stuffed baked potato");
+    expect(prompt).toContain("potato bechamel casserole");
+    expect(prompt).toContain("do not use generic potato recipe");
+  });
 });

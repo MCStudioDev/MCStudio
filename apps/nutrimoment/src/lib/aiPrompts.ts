@@ -1391,6 +1391,12 @@ function buildIngredientPrepFormGuidance(
     );
   }
 
+  if (hasAny(pantry, ["potato", "potatoes", "sweet potato"]) || /بطاطس|بطاطا/u.test(source)) {
+    guidance.push(
+      "Potato visual-form ladder: potatoes can become fries, smashed crispy potatoes, mashed potatoes, baked potato, Turkish kumpir/compir stuffed baked potato, wedges, hash browns, potato hash, potato salad, potato soup, potato gratin, scalloped potatoes, potato bechamel casserole, potato curry, potato stew, roasted tray potatoes, or stuffed potatoes when cuisine and pantry fit. Always put the exact potato form in name, dish_intent.dish_name, image_search_index, and image_search_indices; do not use generic potato recipe."
+    );
+  }
+
   guidance.push(
     "Vegetable and starch prep ladder: vegetables and starches can be sliced, diced, grated, mashed/smashed, roasted, grilled, smoked, stuffed, fried as fritters, baked into trays, simmered into stews or soups, blended into sauces, folded into omelettes, or used as fillings when authentic."
   );

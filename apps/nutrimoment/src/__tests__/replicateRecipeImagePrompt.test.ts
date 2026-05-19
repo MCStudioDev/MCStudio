@@ -39,4 +39,26 @@ describe("replicate recipe image prompts", () => {
     expect(prompt).toContain("do not show dry sauteed vegetables");
     expect(prompt).toContain("the vessel and liquid must make it unmistakably soup");
   });
+
+  it("describes exact potato forms for Replicate", () => {
+    const friesPrompt = buildRecipeImagePromptForTest("crispy french fries", ["potatoes", "oil", "salt"], {
+      exactRecipeName: "Crispy French Fries"
+    });
+    const smashedPrompt = buildRecipeImagePromptForTest("smashed potatoes", ["potatoes", "olive oil"], {
+      exactRecipeName: "Smashed Potatoes"
+    });
+    const kumpirPrompt = buildRecipeImagePromptForTest("Turkish kumpir", ["potatoes", "corn", "pickles"], {
+      exactRecipeName: "Turkish Kumpir"
+    });
+    const negativePrompt = buildRecipeImageNegativePromptForTest("crispy french fries", ["potatoes", "oil"]);
+
+    expect(friesPrompt).toContain("long thin potato sticks");
+    expect(friesPrompt).toContain("not wedges, cubes, mash");
+    expect(smashedPrompt).toContain("pressed flat into irregular discs");
+    expect(smashedPrompt).toContain("not smooth mashed potatoes");
+    expect(kumpirPrompt).toContain("large baked potato split open");
+    expect(kumpirPrompt).toContain("stuffed baked potato");
+    expect(negativePrompt).toContain("wrong potato form");
+    expect(negativePrompt).toContain("smashed potatoes");
+  });
 });

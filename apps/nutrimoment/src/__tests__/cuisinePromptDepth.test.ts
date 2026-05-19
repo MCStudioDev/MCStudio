@@ -146,4 +146,28 @@ describe("cuisine prompt depth", () => {
     expect(vegetarianPrompt).toContain("no eggs, and no dairy");
     expect(vegetarianPrompt).toContain("Do not use eggs or dairy as shortcuts");
   });
+
+  it("prevents shrimp recipes from clustering around garlic lemon seasoning", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [{ name: "shrimp", quantity: "1 kg" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 10,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Shrimp anti-clustering rule");
+    expect(prompt).toContain("at most ONE simple garlic/lemon/cumin shrimp card");
+    expect(prompt).toContain("butterfly shrimp");
+    expect(prompt).toContain("sweet chili shrimp");
+    expect(prompt).toContain("shrimp soup");
+    expect(prompt).toContain("shrimp tacos");
+    expect(prompt).toContain("Cajun shrimp boil");
+  });
 });

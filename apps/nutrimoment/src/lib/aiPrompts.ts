@@ -49,6 +49,19 @@ function buildRealRecipeGuardrails(preferredCuisine: string) {
   ].join(" ");
 }
 
+function buildAnyCuisineRotationGuidance(recipeCount: number, outputName: string) {
+  const minimumCuisineFamilies = recipeCount >= 21 ? 7 : recipeCount >= 10 ? 6 : recipeCount >= 8 ? 5 : 3;
+  const egyptianTurkishMediterraneanCap = recipeCount >= 21 ? 9 : recipeCount >= 10 ? 5 : 3;
+
+  return [
+    `Any-cuisine rotation rule: because the user selected Any, the final ${outputName} must show real variety across cuisine families, not only Egyptian, Turkish, and Mediterranean.`,
+    `When diet/allergy rules and pantry fit allow it, cover at least ${minimumCuisineFamilies} cuisine families across ${outputName}. Good families include Italian, Mexican, Indian, Thai, Chinese or broader East Asian, American, Middle Eastern or Levantine, Egyptian, Turkish, Mediterranean, Spanish, Greek, and French.`,
+    `Do not let Egyptian + Turkish + Mediterranean together take more than ${egyptianTurkishMediterraneanCap} slots unless the pantry or restrictions make other cuisines unsafe or implausible. If they do exceed that cap, the extra slots must use clearly different named dish families and preference_hits should explain why.`,
+    "Use each cuisine's own canonical dishes: Italian pizza, risotto, pasta alla norma, minestrone, and chicken cacciatore; Mexican tacos, chilaquiles, huevos rancheros, fajitas, and enchiladas; Indian dal, chana masala, curry, biryani, and bhurji; Thai pad krapow, red curry, tom yum, and larb; East Asian stir-fries, fried rice, teriyaki, kung pao, and Korean bowls; American roast chicken, chili, burgers, stew, and casseroles.",
+    "A cuisine label counts toward variety only when the dish name, starch, sauce, aromatics, steps, image_search_index, and plating are internally coherent for that cuisine."
+  ].join(" ");
+}
+
 const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
   any: [
     "When no cuisine is preferred, choose the cuisine whose real dish families best match the pantry ingredients, cooking style, and meal context.",
@@ -67,8 +80,10 @@ const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
     "Use Egyptian flavor logic such as onion, garlic, tomato, cumin, coriander, parsley, cilantro, lemon, tahini, rice, vermicelli, lentils, and fava beans where appropriate."
   ],
   italian: [
-    "Use clearly Italian or Italian-American dish families only when the ingredients support them.",
-    "Prefer specific dishes such as pasta al pomodoro, arrabbiata, aglio e olio, shrimp linguine, frittata, minestrone, risotto, caprese salad, baked pasta, chicken piccata, or chicken parmesan when those structures genuinely fit.",
+    "Use clearly Italian or Italian-American dish families only when the ingredients support them. Start from iconic Italian dishes, not generic protein-plus-starch cards with Italian herbs.",
+    "Prefer specific dishes such as pizza margherita, pizza marinara, calzone, focaccia, bruschetta, panzanella, caprese salad, minestrone, ribollita, pappa al pomodoro, pasta al pomodoro, arrabbiata, aglio e olio, cacio e pepe, amatriciana, carbonara, puttanesca, pasta alla norma, shrimp linguine, seafood risotto, mushroom risotto, frittata, lasagna, baked pasta, eggplant parmesan, chicken cacciatore, chicken piccata, or chicken parmesan when those structures genuinely fit.",
+    "Italian pizza rule: pizza is valid when the pantry has dough, pizza dough, flour plus yeast, flatbread, pita, tortilla, bread, or another credible base plus tomato, tomato sauce, mozzarella, cheese, basil, oregano, mushrooms, tuna, chicken, vegetables, or another plausible topping. Keep pizza in the dish universe and place missing essentials such as yeast, mozzarella, tomato sauce, or basil in missing_ingredients instead of skipping pizza.",
+    "Italian sparse pantry rule: if Italian is selected and the pantry is sparse, choose recognizable dish families such as pizza, focaccia, bruschetta, pasta al pomodoro, minestrone, frittata, risotto, caprese, or ribollita before falling back to vague salad, bowl, skillet, or grilled protein titles.",
     "Distinguish tomato pasta from creamy pasta, risotto from plain rice, and Italian from Italian-American; for example, creamy chicken pasta should not be labeled as a classic Italian dish unless the structure really fits.",
     "Use Italian pantry logic such as olive oil, garlic, onion, basil, oregano, parsley, tomato, parmesan, mozzarella, pasta shapes, arborio rice, beans, zucchini, eggplant, and lemon where appropriate."
   ],
@@ -76,6 +91,7 @@ const CUISINE_PROMPT_GUIDANCE: Record<string, string[]> = {
     "Use real Middle Eastern or Levantine dish families, not a generic healthy bowl with a regional label.",
     "Prefer dishes such as mujadara, lentil soup, fasolia, kofta, chicken shawarma wraps, beef shawarma plates, lamb shawarma bowls, grilled kebabs, shakshuka, chickpea salad, fattoush, tabbouleh, hummus plates, baked fish with tahini, or rice and lentil dishes when ingredients fit.",
     "Shawarma is a sliced or shaved marinated roasted meat family. Use chicken shawarma for chicken, beef shawarma for intact beef, and lamb shawarma for lamb. Do not describe shawarma as kofta, Adana, kebab skewers, ground meat, or generic wraps.",
+    "Middle Eastern shawarma rule: when the pantry has chicken, intact beef, or lamb plus any supporting shawarma signals such as garlic, lemon, cumin, coriander, paprika, allspice, yogurt, tahini, pita, flatbread, rice, pickles, or onion, include a shawarma wrap, plate, or bowl as a strong candidate and list missing support items instead of replacing it with a generic grilled meat meal.",
     "Use regional staple logic such as chickpeas, lentils, fava beans, tahini, yogurt, parsley, mint, lemon, cumin, coriander, garlic, tomato, onion, bulgur, pita, and rice."
   ],
   mediterranean: [
@@ -190,26 +206,48 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
     ]
   },
   italian: {
-    substyles: ["southern tomato-forward pasta", "Roman-style simple pasta", "Italian-American baked comfort dishes"],
-    stapleProteins: ["egg", "chicken", "white fish", "beans", "mozzarella", "parmesan"],
-    stapleStarches: ["pasta", "risotto rice", "bread", "polenta"],
+    substyles: ["Neapolitan pizza and tomato dishes", "southern tomato-forward pasta", "Roman-style simple pasta", "Tuscan bean-and-bread soups", "Italian-American baked comfort dishes"],
+    stapleProteins: ["egg", "chicken", "white fish", "shrimp", "beans", "mozzarella", "parmesan"],
+    stapleStarches: ["pizza dough", "flour", "flatbread", "pasta", "risotto rice", "bread", "polenta"],
     stapleAromatics: ["garlic", "onion", "basil", "oregano", "parsley", "lemon"],
-    stapleSauces: ["pomodoro", "arrabbiata", "cream sauce", "pesto", "butter sauce"],
-    visualAnchors: ["red tomato-coated pasta", "creamy white-sauce pasta", "golden baked pasta tops", "herb-finished skillet chicken"],
-    breakfastPatterns: ["frittata", "ricotta toast", "savory egg skillet"],
-    lunchDinnerPatterns: ["tomato pasta", "creamy pasta", "shrimp linguine", "risotto", "minestrone", "baked pasta", "piccata-style skillet dishes"],
+    stapleSauces: ["pomodoro", "marinara", "arrabbiata", "pesto", "butter sauce", "cream sauce"],
+    visualAnchors: ["round pizza with tomato sauce and melted mozzarella", "red tomato-coated pasta", "creamy white-sauce pasta", "golden baked pasta tops", "herb-finished skillet chicken", "risotto spread in a shallow bowl"],
+    breakfastPatterns: ["frittata", "ricotta toast", "savory egg skillet", "bruschetta-style toast"],
+    lunchDinnerPatterns: [
+      "pizza margherita, pizza marinara, calzone, or focaccia",
+      "bruschetta, panzanella, or caprese salad",
+      "pasta al pomodoro, arrabbiata, aglio e olio, cacio e pepe, amatriciana, carbonara, puttanesca, or pasta alla norma",
+      "shrimp linguine, spaghetti alle vongole, seafood risotto, or mushroom risotto",
+      "minestrone, ribollita, pappa al pomodoro, or pasta e fagioli",
+      "lasagna, cannelloni, baked ziti, or pasta al forno",
+      "chicken cacciatore, chicken piccata, chicken parmesan, eggplant parmesan, or polenta e funghi"
+    ],
     dishTriggers: [
+      "dough/flour/flatbread/bread + tomato or mozzarella/cheese -> pizza margherita, pizza marinara, calzone, focaccia, or bruschetta depending on form",
+      "pizza dough or pizza base + tomato sauce + mozzarella -> pizza margherita before generic flatbread",
+      "flatbread/pita/tortilla/bread + tomato + cheese/herbs -> pizza-style flatbread or bruschetta, with missing mozzarella, tomato sauce, or basil listed explicitly",
       "pasta + tomato -> pomodoro/arrabbiata/baked tomato pasta",
+      "pasta + olive oil + garlic -> aglio e olio",
+      "pasta + egg/cheese -> carbonara or cacio e pepe only when the structure fits",
+      "pasta + eggplant + tomato -> pasta alla norma",
       "pasta + dairy -> creamy pasta or alfredo-style family",
       "shrimp + pasta + garlic/lemon -> shrimp linguine or garlic shrimp pasta",
+      "fish/shrimp + rice + broth/parmesan -> seafood risotto",
       "egg + vegetables + cheese -> frittata",
-      "rice + broth + parmesan -> risotto"
+      "rice + broth + parmesan -> risotto",
+      "beans + bread/greens/tomato -> ribollita, minestrone, or pasta e fagioli",
+      "chicken + tomato/onion/herbs -> chicken cacciatore",
+      "chicken + lemon/capers/butter -> chicken piccata",
+      "eggplant + tomato + mozzarella/parmesan -> eggplant parmesan"
     ],
     substitutionRules: [
       "If parmesan is missing but the structure is otherwise Italian, keep the dish family and list parmesan or pecorino as missing.",
-      "If basil is missing, parsley or oregano may support Italian identity, but do not invent pesto unless the herb, nuts, and cheese structure fits."
+      "If basil is missing, parsley or oregano may support Italian identity, but do not invent pesto unless the herb, nuts, and cheese structure fits.",
+      "If a pizza family is the best match but dough, yeast, mozzarella, tomato sauce, or basil is missing, keep the pizza identity and place those essentials in missing_ingredients when the missing count allows it."
     ],
     guardrails: [
+      "Do not output multiple generic pasta cards when Italian is selected; rotate named Italian families with different sauces, starch forms, soups, pizza/bread forms, risotto, and baked dishes.",
+      "Do not call a flatbread pizza unless it has a credible bread/dough base and a tomato/cheese/topping structure.",
       "Do not call creamy chicken pasta a classic Italian dish unless the rest of the structure supports it; otherwise use Italian-American when appropriate.",
       "Do not label plain rice as risotto unless broth-based creamy risotto technique is plausible."
     ]
@@ -227,9 +265,9 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
       "lentil + rice -> mujadara",
       "chickpea + tahini/lemon/garlic -> hummus family",
       "ground meat + parsley/onion/spices -> kofta",
-      "chicken + garlic + yogurt/spices + pita or pickles -> chicken shawarma wrap, chicken shawarma plate, or grilled chicken plate",
-      "beef + garlic + cumin/coriander + tahini or pita -> beef shawarma wrap, beef shawarma plate, or beef shawarma bowl",
-      "lamb + garlic + cumin/coriander + yogurt or pita -> lamb shawarma wrap, lamb shawarma plate, or lamb shawarma bowl"
+      "chicken + garlic/lemon/cumin/coriander/paprika/allspice/yogurt/tahini/pita/flatbread/rice/pickles -> chicken shawarma wrap, chicken shawarma plate, or chicken shawarma bowl before generic grilled chicken",
+      "intact beef + garlic/lemon/cumin/coriander/tahini/pita/flatbread/rice/pickles -> beef shawarma wrap, beef shawarma plate, or beef shawarma bowl before generic beef plates",
+      "lamb + garlic/lemon/cumin/coriander/yogurt/tahini/pita/flatbread/rice/pickles -> lamb shawarma wrap, lamb shawarma plate, or lamb shawarma bowl before generic lamb plates"
     ],
     substitutionRules: [
       "Keep dishes within Levantine or broader Middle Eastern families when the pantry strongly fits one regional branch.",
@@ -525,6 +563,10 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     recipeCount,
     "recipe cards"
   );
+  const anyCuisineRotationGuidance =
+    normalizeCuisinePromptKey(options.preferredCuisine) === "any"
+      ? buildAnyCuisineRotationGuidance(recipeCount, "recipe cards")
+      : "";
   const ingredientCombinationGuidance = buildIngredientCombinationGuidance(
     ingredients,
     recipeCount,
@@ -585,6 +627,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
     cuisineDepthExplorationGuidance,
+    anyCuisineRotationGuidance,
     canonicalDishHint
       ? `Deterministic catalog resolver result: ${canonicalDishHint}`
       : "",
@@ -1391,6 +1434,10 @@ export function buildMealPlanPrompt({
     21,
     "weekly meal slots"
   );
+  const anyCuisineRotationGuidance =
+    normalizeCuisinePromptKey(preferredCuisine) === "any"
+      ? buildAnyCuisineRotationGuidance(21, "weekly meal slots")
+      : "";
   const realRecipeGuardrails = buildRealRecipeGuardrails(preferredCuisine);
   const namedPlatePolicy = buildNamedPlateGenerationPolicy({
     allergens,
@@ -1455,6 +1502,7 @@ export function buildMealPlanPrompt({
     "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the meal name, cuisine label, and image search phrases.",
     "Do ingredient-to-dish reasoning before planning the week. Infer which authentic dish families the pantry best supports, then build breakfast, lunch, and dinner around those families.",
     cuisineDepthExplorationGuidance,
+    anyCuisineRotationGuidance,
     "Use breakfast, lunch, and dinner patterns that make sense for the selected cuisine rather than repeating the same generic bowl structure every day.",
     "Weekly variety hard rule: do not repeat the same named plate or visual structure across the same day unless the user's restrictions leave no safer alternative. Vary dish family, cooking form, starch/sauce structure, and meal context while keeping nutrition and cuisine accuracy.",
     cuisineSpecificGuidance,
@@ -1587,6 +1635,7 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
 function buildDeepMealPlanCuisineGuidance(preferredCuisine: string) {
   const normalized = normalizeCuisinePromptKey(preferredCuisine);
   const knowledge = CUISINE_KNOWLEDGE[normalized];
+  const isAnyCuisine = normalized === "any";
   const selectedCuisine =
     preferredCuisine && preferredCuisine !== "Any"
       ? preferredCuisine
@@ -1599,7 +1648,9 @@ function buildDeepMealPlanCuisineGuidance(preferredCuisine: string) {
     "Avoid shallow labels such as Mediterranean bowl, Asian bowl, Middle Eastern plate, Egyptian chicken, Turkish eggs, or Indian fish unless the structure is tied to a real dish family.",
     "For fish and seafood meals, prefer specific visual families when they fit: Alexandrian shrimp, seafood sayadeya, Egyptian shrimp tagine, grilled shrimp kebabs, Mediterranean garlic shrimp, Mediterranean shrimp with feta, Turkish prawns with feta, Karides Guvec, Kung Pao shrimp, salt and pepper shrimp, Chinese shrimp and broccoli, ginger garlic seafood stir fry, Spanish seafood paella, Cajun seafood boil, cioppino, seafood chowder, Egyptian sayadeya, samak singari, grilled Egyptian fish, samak bel radah, smoked fish, fried tilapia, Egyptian baked fish tray, Egyptian fish tagine, Mediterranean fish soup, Thai Pla Pad Cha, Thai chilli lime fish, fish Florentine, crispy pan fried fish, Mediterranean baked fish, Arabic grilled fish, Barboon Maklee, Egyptian fried fish sandwich, lemon herb Parmesan crusted fish, or garlic butter cod.",
     "For fish and seafood meals, image_search_index and the first image_search_indices item must repeat that exact visual family, not a broad phrase like fish recipe, shrimp dinner, seafood plate, or healthy seafood.",
-    "For Any cuisine, each day should normally include at least two distinct cuisine traditions when the pantry allows it, but breakfast/lunch/dinner must still each be internally coherent."
+    isAnyCuisine
+      ? "For Any cuisine, each day should normally include at least two distinct cuisine traditions when the pantry allows it, but breakfast/lunch/dinner must still each be internally coherent."
+      : ""
   ];
 
   if (!knowledge) {
@@ -1793,6 +1844,7 @@ function buildCuisineDishCatalogGuidance(preferredCuisine: string) {
   return [
     `Famous ${preferredCuisine} dish reference set for authenticity and recall: ${referenceDishes}.`,
     "Use this reference set as the target dish universe when naming recipes.",
+    "For a normal 10-card recipe request or a weekly meal plan, at least half of the selected-cuisine cards should be recognizable named dishes from this reference set or direct variants of them when diet/allergy constraints allow it.",
     "For each primary pantry ingredient, first scan this reference set for dish names or families that naturally contain, feature, or traditionally center that ingredient before falling back to a generic preparation.",
     "When the pantry is sparse, choose the closest authentic dish family from this cuisine reference set instead of inventing a generic bowl, skillet, wrap, or salad.",
     "Generic titles are only acceptable when no recognizable dish family from the selected cuisine fits the ingredient set.",
@@ -1981,9 +2033,21 @@ function buildIngredientDrivenCuisineGuidance(
     }
   }
 
-  if (cuisineKey === "italian") {
+  if (cuisineKey === "italian" || cuisineKey === "any") {
+    if (
+      hasAny(pantry, ["pizza dough", "pizza base", "dough", "flour", "flatbread", "pita", "tortilla", "bread"]) &&
+      hasAny(pantry, ["tomato", "tomato sauce", "passata", "marinara", "mozzarella", "cheese", "basil", "oregano", "mushroom", "tuna", "chicken", "vegetable"])
+    ) {
+      hints.push("Italian ingredient reasoning: a credible pizza base plus tomato, cheese, herbs, or toppings should strongly suggest pizza margherita, pizza marinara, calzone, focaccia, or Italian flatbread pizza before generic toast, sandwich, or baked bread. Put missing yeast, mozzarella, tomato sauce, basil, or oregano in missing_ingredients when needed.");
+    }
+    if (hasAny(pantry, ["bread", "baguette", "toast", "flatbread"]) && hasAny(pantry, ["tomato", "basil", "garlic", "olive oil"])) {
+      hints.push("Italian ingredient reasoning: bread plus tomato, garlic, basil, or olive oil should suggest bruschetta or panzanella before a generic salad or toast.");
+    }
     if (hasAny(pantry, ["pasta", "spaghetti", "penne", "macaroni"]) && hasAny(pantry, ["tomato", "tomato sauce", "passata"])) {
       hints.push("Italian ingredient reasoning: pasta plus tomato should favor pomodoro, arrabbiata, baked pasta, or tomato-based pasta families instead of generic noodles.");
+    }
+    if (hasAny(pantry, ["pasta", "spaghetti", "linguine", "fettuccine"]) && hasAny(pantry, ["garlic", "olive oil"])) {
+      hints.push("Italian ingredient reasoning: pasta plus garlic and olive oil can support aglio e olio, while pasta plus tomato/olives/capers can support puttanesca, and pasta plus cheese/pepper can support cacio e pepe when missing ingredients allow it.");
     }
     if (hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "mince"]) && hasAny(pantry, ["pasta", "penne", "macaroni", "rigatoni"]) && hasAny(pantry, ["tomato", "tomato sauce", "passata"])) {
       hints.push("Italian-American ingredient reasoning: ground beef plus penne or short pasta plus tomato sauce can support a beef tomato pasta skillet or one-pan ground beef penne. The image should show crumbled ground beef in red sauce with visible penne, not steak, meatballs, or beef strips.");
@@ -1993,6 +2057,24 @@ function buildIngredientDrivenCuisineGuidance(
     }
     if (hasAny(pantry, ["shrimp", "prawn"]) && hasAny(pantry, ["pasta", "spaghetti", "linguine", "fettuccine"])) {
       hints.push("Italian ingredient reasoning: shrimp plus pasta should favor shrimp linguine or garlic shrimp pasta before a generic seafood pasta label.");
+    }
+    if (hasAny(pantry, ["rice", "arborio rice", "risotto rice"]) && hasAny(pantry, ["mushroom", "shrimp", "seafood", "broth", "parmesan"])) {
+      hints.push("Italian ingredient reasoning: rice plus broth, parmesan, mushroom, shrimp, or seafood should suggest risotto, not a generic rice bowl.");
+    }
+    if (hasAny(pantry, ["chicken"]) && hasAny(pantry, ["tomato", "tomato sauce", "onion", "garlic", "oregano", "basil"])) {
+      hints.push("Italian ingredient reasoning: chicken plus tomato, onion, garlic, and herbs should suggest chicken cacciatore before generic tomato chicken.");
+    }
+    if (hasAny(pantry, ["chicken"]) && hasAny(pantry, ["lemon", "capers", "butter", "parsley"])) {
+      hints.push("Italian ingredient reasoning: chicken plus lemon, capers, butter, or parsley should suggest chicken piccata before generic lemon chicken.");
+    }
+  }
+
+  if (cuisineKey === "middleeastern" || cuisineKey === "any") {
+    if (
+      hasAny(pantry, ["chicken", "beef", "lamb"]) &&
+      hasAny(pantry, ["garlic", "lemon", "cumin", "coriander", "paprika", "allspice", "yogurt", "tahini", "pita", "flatbread", "rice", "pickle", "pickles", "onion"])
+    ) {
+      hints.push("Middle Eastern ingredient reasoning: chicken, intact beef, or lamb with garlic, lemon, shawarma spices, tahini, yogurt, pita, flatbread, rice, pickles, or onion should strongly suggest shawarma wrap, shawarma plate, or shawarma bowl before a generic grilled meat plate. Do not use shawarma for ground or minced meat.");
     }
   }
 
@@ -2139,6 +2221,26 @@ function buildSparseIngredientGuidance(
     if (hasAny(pantry, ["fava bean", "broad bean", "ful"])) {
       baseGuidance.push(
         "Sparse Egyptian logic: fava beans alone can still justify ful medames or taameya-style dishes if the missing aromatics and herbs are listed explicitly."
+      );
+    }
+  }
+
+  if (normalizedCuisine === "italian") {
+    if (hasAny(pantry, ["pizza dough", "pizza base", "dough", "flour", "flatbread", "pita", "tortilla", "bread"])) {
+      baseGuidance.push(
+        "Sparse Italian logic: dough, flour, flatbread, pita, tortilla, or bread can still justify pizza margherita, pizza marinara, focaccia, calzone, or bruschetta when tomato, mozzarella, basil, yeast, or toppings are listed explicitly as missing ingredients."
+      );
+    }
+
+    if (hasAny(pantry, ["pasta", "spaghetti", "penne", "macaroni"])) {
+      baseGuidance.push(
+        "Sparse Italian logic: pasta alone should branch into named Italian pasta families such as pasta al pomodoro, arrabbiata, aglio e olio, cacio e pepe, puttanesca, baked pasta, pasta alla norma, or carbonara when the missing essentials fit the budget. Do not repeat generic pasta cards."
+      );
+    }
+
+    if (hasAny(pantry, ["rice", "arborio rice", "risotto rice"])) {
+      baseGuidance.push(
+        "Sparse Italian logic: rice can justify risotto only when broth-based creamy risotto technique is used and missing parmesan, stock, mushroom, seafood, or saffron is listed explicitly."
       );
     }
   }

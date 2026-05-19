@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildRecipePhotoIdentity } from "../lib/recipePhotoIdentity";
 import {
   buildRecipeImageNegativePromptForTest,
   buildRecipeImagePromptForTest
@@ -60,5 +61,21 @@ describe("replicate recipe image prompts", () => {
     expect(kumpirPrompt).toContain("stuffed baked potato");
     expect(negativePrompt).toContain("wrong potato form");
     expect(negativePrompt).toContain("smashed potatoes");
+  });
+
+  it("locks hawawshi variants to opened stuffed bread with ground meat inside", () => {
+    const prompt = buildRecipeImagePromptForTest(
+      "Alexandrian baladi hawawshi",
+      ["baladi bread", "ground beef", "onion", "cumin", "pepper"],
+      { exactRecipeName: "Alexandrian Baladi Hawawshi" }
+    );
+    const identity = buildRecipePhotoIdentity("Alexandrian baladi hawawshi");
+
+    expect(identity.canonicalDishKey).toBe("hawawshi");
+    expect(prompt).toContain("bread opened, cut in half, or cut into triangular wedges");
+    expect(prompt).toContain("spiced minced meat filling visible inside the bread");
+    expect(prompt).toContain("not an open flatbread");
+    expect(prompt).toContain("No toppings should sit on top");
+    expect(prompt).toContain("random flatbread with toppings");
   });
 });

@@ -38,11 +38,11 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   hawawshi: {
     englishName: "Egyptian hawawshi",
     visualDescription:
-      "closed Egyptian baladi bread or pita stuffed internally with a thin layer of seasoned ground beef and aromatics only when listed, then baked or pan-toasted flat until the outside is crispy, golden brown, blistered, and slightly oily. Show browned bread triangles, wedges, or pita halves with the minced meat filling visible only along the cut seams and edges. The meat must be inside the bread, not exposed on top, not loose on the plate, and not shaped as skewers",
+      "closed Egyptian baladi bread or pita stuffed internally with spiced ground meat, onion, pepper, parsley, cumin, coriander, or chili only when listed, then baked or pan-toasted flat until the outside is crispy, golden brown, blistered, and slightly oily. Show the bread opened, cut in half, or cut into triangular wedges so the browned minced meat filling is clearly visible inside the bread. The meat must be enclosed inside the bread pocket and visible only through the opened cut seam, not spread on top like a pizza or flatbread",
     plating:
-      "served as stacked or fanned crispy stuffed bread wedges on a simple plate, similar to Egyptian street-food hawawshi. Pickles, tahini sauce, or lemon wedges may appear only if they fit the recipe",
+      "served as one opened stuffed baladi bread, pita halves, or stacked/fanned crispy stuffed bread wedges on a simple plate, similar to Egyptian street-food hawawshi. Pickles, tahini sauce, tomato, onion, or lemon wedges may appear only if listed or structurally required, and must stay secondary",
     avoid:
-      "beef skewers, kebab skewers, kofta logs, adana kebab, grilled meat sticks, burger bun, hamburger, open sandwich, open-faced flatbread, lahmacun, pizza, quesadilla, tacos, shawarma wrap, cheese, pasta, rice bowl, loose meatballs, loose ground beef, thick bread loaf, random vegetables",
+      "random flatbread with toppings, open-faced flatbread, pizza, lahmacun, pide, manakish, cheese flatbread, beef skewers, kebab skewers, kofta logs, adana kebab, grilled meat sticks, burger bun, hamburger, open sandwich, quesadilla, tacos, shawarma wrap, cheese, pasta, rice bowl, loose meatballs, loose ground beef, thick bread loaf, random vegetables, toppings sitting on top of bread",
     cuisineStyle: "authentic Egyptian street food"
   },
   "roast-chicken": {
@@ -1526,7 +1526,10 @@ function getDishImpliedVisibleComponents(identity: ReturnType<typeof buildRecipe
   const source = `${query} ${identity?.cleanQuery ?? ""} ${identity?.canonicalDishKey ?? ""} ${identity?.familyKey ?? ""}`.toLowerCase();
   const components: string[] = [];
 
-  if (/\b(lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|lahmacun|kiymali\s+pide|pide|hawawshi)\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(source)) {
+  if (isHawawshiSource(source)) {
+    components.push("closed baladi bread or pita pocket");
+    components.push("spiced ground meat filling visible inside an opened cut seam");
+  } else if (/\b(lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|lahmacun|kiymali\s+pide|pide)\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646/iu.test(source)) {
     components.push("thin flatbread or dough base");
   }
   if (/\b(adana|kebab|kabab|kofta|kafta|kofte|kefta)\b|\u0643\u0641\u062a(?:\u0629|\u0647)|\u0623\u0636\u0646\u0629|\u0627\u062f\u0646\u0629/iu.test(source)) {
@@ -1656,8 +1659,8 @@ function buildGroundMeatVisualClause(source: string, forbiddenStarches: string[]
     /\b(kofta|kafta|kofte|kefta|adana|kebab|kabab)\b|\u0643\u0641\u062a\u0629/iu.test(source)
       ? "shape the ground meat as kofta, kebab fingers, or Adana-style minced meat skewers with charred ridges"
       : "",
-    /\b(hawawshi|arayes|stuffed bread|stuffed flatbread|stuffed pita)\b|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(source)
-      ? "for Egyptian hawawshi, show closed toasted baladi bread or pita cut into crispy triangular wedges with minced meat filling visible only at the cut seams; do not show meat skewers, kofta logs, open-faced meat flatbread, or loose meat"
+    isHawawshiSource(source)
+      ? "for Egyptian hawawshi, baladi hawawshi, Alexandrian hawawshi, arayes, or meat-stuffed baladi bread, show closed toasted baladi bread or pita opened or cut into crispy triangular wedges with spiced minced meat filling visible inside the bread at the opened cut seam; do not show meat sitting on top of flatbread"
       : "",
     /\b(kiymali\s+pide|pide)\b/iu.test(source)
       ? "for kiymali pide, show an oval boat-shaped flatbread with folded raised edges and a thin minced-meat topping"
@@ -1697,6 +1700,9 @@ function buildGroundMeatVisualClause(source: string, forbiddenStarches: string[]
   return [
     "Strict visual identity: the main protein is ground or minced meat, not whole beef cuts.",
     "Arabic ingredient mapping: مفروم, مفرومه, لحمة مفرومة, لحمه مفرومه, and لحم مفروم mean ground/minced meat and are valid for kofta, adana kebab, lahm bi ajin, lahmacun, pide, hawawshi, borek, and minced-meat fillings.",
+    isHawawshiSource(source)
+      ? "Hawawshi hard rule: this is not an open flatbread. The bread must be closed around the ground meat and then opened or cut so the filling is visible inside. No toppings should sit on top of the bread surface."
+      : "",
     "Do not collapse all ground-meat recipes into the same generic browned-mince plate; the named dish form must control the image.",
     "Render it as small crumbled minced meat, a thin minced-meat stuffing, or shaped ground-meat kofta/kebab forms depending on the recipe name.",
     "The meat texture must be visibly minced: fine crumbles, compressed mince, or a smooth ground-meat kebab paste. It must not be diced beef, cube-shaped pieces, chopped steak, sliced meat, stew chunks, shawarma strips, or kebab cubes.",
@@ -2017,6 +2023,12 @@ function isGroundMeatSource(source: string) {
   );
 }
 
+function isHawawshiSource(source: string) {
+  return /\b(hawawshi|baladi\s+hawawshi|alexandrian\s+hawawshi|iskandarani\s+hawawshi|eskandarani\s+hawawshi|arayes|meat\s+stuffed\s+(?:baladi\s+)?(?:bread|pita|flatbread)|stuffed\s+(?:baladi\s+)?(?:bread|pita|flatbread))\b|\u062d\u0648\u0627\u0648\u0634\u064a|\u062e\u0628\u0632\s+\u0645\u062d\u0634\u0648|\u0639\u064a\u0634\s+\u0645\u062d\u0634\u0648/iu.test(
+    source
+  );
+}
+
 function isArabicGroundMeatIngredient(value: string) {
   return /(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?|\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(
     value
@@ -2024,7 +2036,7 @@ function isArabicGroundMeatIngredient(value: string) {
 }
 
 function isFlatbreadGroundMeatDishSource(source: string) {
-  return /\b(lahmacun|lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|kiymali\s+pide|pide|hawawshi|stuffed\s+(?:bread|flatbread|pita))\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(
+  return /\b(lahmacun|lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|kiymali\s+pide|pide|hawawshi|baladi\s+hawawshi|alexandrian\s+hawawshi|stuffed\s+(?:bread|flatbread|pita))\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(
     source
   );
 }

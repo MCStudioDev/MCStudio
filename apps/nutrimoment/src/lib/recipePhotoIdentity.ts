@@ -173,7 +173,9 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   },
   {
     aliases: [
-      /\bhawawshi\b/i,
+      /\b(?:egyptian|baladi|alexandrian|iskandarani|eskandarani)?\s*hawawshi\b/i,
+      /\bbaladi\s+(?:meat\s+)?(?:stuffed\s+)?(?:bread|pita|flatbread)\b/i,
+      /\b(?:egyptian|alexandrian)\s+(?:meat\s+)?(?:stuffed\s+)?(?:baladi\s+)?(?:bread|pita|flatbread)\b/i,
       /\barayes\b/i,
       /\begyptian meat stuffed pita\b/i,
       /\begyptian stuffed pita\b/i,

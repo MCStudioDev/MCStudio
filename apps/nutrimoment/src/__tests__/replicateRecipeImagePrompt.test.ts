@@ -113,4 +113,26 @@ describe("replicate recipe image prompts", () => {
     expect(prompt).toContain("pasta/macaroni (arabic: makarona)");
     expect(negativePrompt).not.toContain("pasta, spaghetti, noodles, macaroni");
   });
+
+  it("keeps ful medames as coarse mashed fava puree instead of whole beans", () => {
+    const prompt = buildRecipeImagePromptForTest(
+      "فول مدمس بالطماطم",
+      ["فول", "طماطم", "زيت زيتون", "كمون"],
+      { exactRecipeName: "فول مدمس بالطماطم" }
+    );
+    const identity = buildRecipePhotoIdentity("فول مدمس بالطماطم");
+
+    expect(identity.canonicalDishKey).toBe("alexandrian-ful");
+    expect(prompt).toContain("crushed ful medames fava bean mash");
+    expect(prompt).toContain("mashed fava texture rather than intact beans");
+    expect(prompt).toContain("plain whole brown beans");
+    expect(prompt).toContain("ful medames fava bean mash");
+  });
+
+  it("routes specific ful variants before plain ful medames", () => {
+    expect(buildRecipePhotoIdentity("ful bil zeit").canonicalDishKey).toBe("ful-bil-zeit");
+    expect(buildRecipePhotoIdentity("spicy ful with tahini lemon cumin").canonicalDishKey).toBe("spicy-ful-bil-zeit");
+    expect(buildRecipePhotoIdentity("ful sandwich in baladi bread").canonicalDishKey).toBe("ful-sandwich");
+    expect(buildRecipePhotoIdentity("plain ful mudammas").canonicalDishKey).toBe("ful-medames");
+  });
 });

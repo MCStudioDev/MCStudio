@@ -59,6 +59,7 @@ const ARABIC_PROMPT_INGREDIENT_ALIASES: Array<{ pattern: RegExp; english: string
   { pattern: /\u062c\u0632\u0631/iu, english: "carrot" },
   { pattern: /\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)/iu, english: "tomato" },
   { pattern: /\u0635\u0644\u0635(?:\u0629|\u0647)/iu, english: "sauce" },
+  { pattern: /\u0641\u0648\u0644/iu, english: "ful medames fava bean mash" },
   { pattern: /\u0628\u0635\u0644/iu, english: "onion" },
   { pattern: /\u062b\u0648\u0645/iu, english: "garlic" },
   { pattern: /\u0623?\u0631\u0632|\u0631\u0632/iu, english: "rice" },
@@ -350,73 +351,75 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   "ful-medames": {
     englishName: "Egyptian ful medames",
     visualDescription:
-      "slow-cooked fava beans mashed lightly with olive oil, lemon, cumin, and small vegetable garnish, thick and hearty",
-    plating: "served in one small bowl or deep plate with the fava beans as the clear main subject",
-    avoid: "chickpea hummus, lentil soup, rice, pasta, meat stew, salad bowl",
+      "Egyptian ful medames: slow-cooked fava beans crushed into a coarse warm mash or thick puree, with some soft broken bean skins visible but not a bowl of separate whole beans. The texture should look creamy, spoonable, rustic, and mashed with olive oil, lemon, cumin, tahini, tomato, onion, pepper, or parsley only when listed",
+    plating:
+      "served in one small Egyptian breakfast bowl or deep plate as a thick ful puree/mash with oil sheen and shallow spoon swirls; optional listed toppings sit on the surface but the mashed fava base remains the clear subject",
+    avoid:
+      "plain whole beans, separate intact beans as the main texture, generic bean salad, chickpea hummus, smooth beige hummus dip, lentil soup, rice, pasta, meat stew, salad bowl",
     cuisineStyle: "authentic Egyptian breakfast"
   },
   "ful-bil-zeit": {
     englishName: "ful bil zeit",
     visualDescription:
-      "fava beans dressed generously with olive oil, lemon, cumin, and simple herbs or vegetables only when listed, glossy with visible oil on the surface but still clearly a bean dish",
-    plating: "served in one shallow bowl or deep plate, with the olive oil dressing visible and no unrelated toppings",
-    avoid: "dry bean salad, hummus dip, lentil soup, rice, pasta, meat stew, eggs unless listed",
+      "ful bil zeit made from ful medames: crushed fava beans with a coarse mashed puree texture, dressed generously with olive oil, lemon, cumin, and simple herbs or vegetables only when listed. It should look glossy and spoonable, not like separate whole beans",
+    plating: "served in one shallow bowl or deep plate, with olive oil pooling lightly over the mashed ful surface and no unrelated toppings",
+    avoid: "plain whole beans, dry bean salad, hummus dip, lentil soup, rice, pasta, meat stew, eggs unless listed",
     cuisineStyle: "Levantine or Egyptian fava bean breakfast"
   },
   "spicy-ful-bil-zeit": {
     englishName: "spicy ful bil zeit",
     visualDescription:
-      "fava beans topped with hot oil or chili oil, tahini, lemon, cumin, and a small vegetable garnish only when listed. The surface should show red-orange spicy oil and creamy tahini streaks if tahini is listed",
-    plating: "served in one breakfast bowl or deep plate with toppings visible on the ful surface",
-    avoid: "plain beans with no topping, hummus, lentil soup, rice, pasta, egg tray, meat stew",
+      "spicy ful bil zeit made from coarse mashed ful medames, not whole beans. The mashed fava base is topped with hot oil or chili oil, tahini, lemon, cumin, and a small vegetable garnish only when listed. The surface should show red-orange spicy oil and creamy tahini streaks if tahini is listed",
+    plating: "served in one breakfast bowl or deep plate with toppings visible on the mashed ful surface",
+    avoid: "plain whole beans with no mash texture, hummus, lentil soup, rice, pasta, egg tray, meat stew",
     cuisineStyle: "Egyptian street-style spicy ful"
   },
   "alexandrian-ful": {
     englishName: "Alexandrian ful",
     visualDescription:
-      "Egyptian Alexandrian ful with fava beans mixed with tomato, green or red pepper, garlic, cumin, coriander, lemon, chili, and herbs only when listed. It should look colorful, saucy, and rustic",
-    plating: "served in one shallow bowl or plate with tomato-pepper topping visible over the beans",
-    avoid: "plain brown beans, hummus, lentil soup, rice, pasta, unrelated salad bowl",
+      "Egyptian Alexandrian ful with crushed ful medames fava bean mash mixed with tomato, green or red pepper, garlic, cumin, coriander, lemon, chili, and herbs only when listed. It should look colorful, saucy, rustic, and spoonable, with mashed fava texture rather than intact beans",
+    plating: "served in one shallow bowl or plate with tomato-pepper topping visible over the mashed ful",
+    avoid: "plain whole brown beans, generic bean salad, hummus, lentil soup, rice, pasta, unrelated salad bowl",
     cuisineStyle: "authentic Alexandrian Egyptian breakfast"
   },
   "ful-with-fried-egg": {
     englishName: "ful with fried egg",
     visualDescription:
-      "Egyptian ful medames topped with one or two fried eggs or visible cooked eggs only when eggs are listed, with fava beans underneath and cumin, lemon, oil, or vegetables only when listed",
-    plating: "served as one breakfast plate or shallow bowl where both the ful and egg are clearly visible",
+      "Egyptian ful medames coarse fava bean mash topped with one or two fried eggs or visible cooked eggs only when eggs are listed, with the mashed ful underneath and cumin, lemon, oil, or vegetables only when listed",
+    plating: "served as one breakfast plate or shallow bowl where both the mashed ful base and egg are clearly visible",
     avoid: "plain eggs without beans, shakshuka tomato sauce, omelette, rice, pasta, sausage unless listed",
     cuisineStyle: "Egyptian suhoor or breakfast plate"
   },
   "ful-eggs-cheese-tagine": {
     englishName: "ful tagine with eggs and cheese",
     visualDescription:
-      "baked ful tagine with fava beans, visible eggs, and melted or softened cheese only when cheese is listed. The dish should look like a warm baked tray or shallow casserole, not a plain bowl",
-    plating: "served in one small oven dish or shallow tray with eggs and cheese visible on top of the beans",
+      "baked ful tagine with coarse mashed ful medames fava bean base, visible eggs, and melted or softened cheese only when cheese is listed. The dish should look like a warm baked tray or shallow casserole, not a plain bowl of whole beans",
+    plating: "served in one small oven dish or shallow tray with eggs and cheese visible on top of the mashed ful",
     avoid: "plain ful bowl, omelette without beans, sausage, basterma, pasta, rice, soup",
     cuisineStyle: "Egyptian baked ful breakfast tray"
   },
   "ful-eggs-sausage-tray": {
     englishName: "ful tray with eggs and sausage",
     visualDescription:
-      "Egyptian ful tray with fava beans, visible eggs, and sliced sausage only when sausage is listed. The tray should look baked or skillet-cooked with the beans underneath",
-    plating: "served in one shallow tray or skillet with beans, egg, and sausage all visible",
+      "Egyptian ful tray with coarse mashed ful medames fava bean base, visible eggs, and sliced sausage only when sausage is listed. The tray should look baked or skillet-cooked with mashed ful underneath",
+    plating: "served in one shallow tray or skillet with mashed ful, egg, and sausage all visible",
     avoid: "plain sausage and eggs without ful, cheese unless listed, basterma, pasta, rice, soup",
     cuisineStyle: "Egyptian breakfast tray"
   },
   "ful-eggs-basterma-tagine": {
     englishName: "ful tagine with eggs and basterma",
     visualDescription:
-      "Egyptian ful tagine with fava beans, visible eggs, and thin reddish-brown basterma or pastrami slices only when basterma or pastrami is listed. The beans should still be visible under the toppings",
-    plating: "served in one shallow baked dish or skillet with ful, eggs, and basterma clearly separated",
+      "Egyptian ful tagine with coarse mashed ful medames fava bean base, visible eggs, and thin reddish-brown basterma or pastrami slices only when basterma or pastrami is listed. The mashed ful should still be visible under the toppings",
+    plating: "served in one shallow baked dish or skillet with mashed ful, eggs, and basterma clearly separated",
     avoid: "plain eggs and pastrami without ful, sausage, cheese unless listed, rice, pasta, soup",
     cuisineStyle: "Egyptian breakfast tagine"
   },
   "ful-sandwich": {
     englishName: "Egyptian ful sandwich",
     visualDescription:
-      "Egyptian ful stuffed in baladi bread, pita, or sandwich bread only when bread is listed, with fava bean filling visible and tomato, cucumber, pickles, tahini, or herbs only when listed",
-    plating: "served as one sandwich or split bread pocket with ful filling visible",
-    avoid: "plain bowl of beans, hummus wrap, falafel sandwich, meat sandwich, rice, pasta",
+      "Egyptian ful medames coarse fava bean mash stuffed in baladi bread, pita, or sandwich bread only when bread is listed, with the mashed ful filling visible and tomato, cucumber, pickles, tahini, or herbs only when listed",
+    plating: "served as one sandwich or split bread pocket with thick mashed ful filling visible",
+    avoid: "whole loose beans in bread, plain bowl of beans, hummus wrap, falafel sandwich, meat sandwich, rice, pasta",
     cuisineStyle: "Egyptian street-food breakfast sandwich"
   },
   "eggs-with-basterma": {

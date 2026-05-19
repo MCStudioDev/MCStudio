@@ -177,8 +177,8 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   {
     aliases: [
       /\b(?:egyptian|baladi|alexandrian|iskandarani|eskandarani)?\s*hawawshi\b/i,
-      /\bbaladi\s+(?:meat\s+)?(?:stuffed\s+)?(?:bread|pita|flatbread)\b/i,
-      /\b(?:egyptian|alexandrian)\s+(?:meat\s+)?(?:stuffed\s+)?(?:baladi\s+)?(?:bread|pita|flatbread)\b/i,
+      /\bbaladi\s+(?:(?:meat\s+)?stuffed|meat)\s+(?:bread|pita|flatbread)\b/i,
+      /\b(?:egyptian|alexandrian)\s+(?:(?:meat\s+)?stuffed|meat)\s+(?:baladi\s+)?(?:bread|pita|flatbread)\b/i,
       /\barayes\b/i,
       /\begyptian meat stuffed pita\b/i,
       /\begyptian stuffed pita\b/i,
@@ -1399,13 +1399,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "spicy-tomato-seafood-pasta"
   },
   {
-    aliases: [/\b(ful|medames)\b/i, /\bfava bean/i, new RegExp(ARABIC.fava, "iu")],
-    canonicalName: "ful medames",
-    cuisineKey: "egyptian",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
-    key: "ful-medames"
-  },
-  {
     aliases: [
       /\b(ful bil zeit|ful bel zeit|foul bil zeit|foul bel zeit|fava beans with olive oil|lebanese ful bil zeit|syrian ful bil zeit)\b/i,
       /\b(ful with oil|foul with oil|fava beans in olive oil)\b/i,
@@ -1483,6 +1476,17 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "ful sandwich",
     cuisineKey: "egyptian",
     key: "ful-sandwich"
+  },
+  {
+    aliases: [
+      /\b(ful medames|foul medames|ful mudammas|foul mudammas|ful mudamas|foul mudamas|ful|foul|medames|mudammas|mudamas)\b/i,
+      /\bfava bean/i,
+      new RegExp(`${ARABIC.fava}(?:\\s+${ARABIC.egypt}|\\s+\\u0645\\u062f\\u0645\\u0633)?`, "iu")
+    ],
+    canonicalName: "ful medames",
+    cuisineKey: "egyptian",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
+    key: "ful-medames"
   },
   {
     aliases: [

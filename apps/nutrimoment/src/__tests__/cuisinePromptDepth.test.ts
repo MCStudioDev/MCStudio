@@ -225,6 +225,35 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("potatoes, pasta, noodles, quinoa");
   });
 
+  it("requires recipe photo identity and supports empty-pantry meal planning", () => {
+    const recipePrompt = buildRecipeGenerationPrompt(
+      [{ name: "Chicken", quantity: "1 kg" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Italian",
+        calorieTarget: 1650,
+        maxMissingIngredients: 5,
+        recipeCount: 5,
+        diets: [],
+        conditions: ["cholesterol", "highBloodPressure", "weightLoss"],
+        allergens: []
+      }
+    );
+    const mealPlanPrompt = buildMealPlanPrompt({
+      pantry: [],
+      pantryItems: [],
+      diets: [],
+      conditions: ["cholesterol", "highBloodPressure", "weightLoss"],
+      allergens: [],
+      preferredCuisine: "Italian"
+    });
+
+    expect(recipePrompt).toContain("Every recipe MUST also include a photo_identity object");
+    expect(recipePrompt).toContain("Each recipe object must include: name, cuisine, dish_intent, photo_identity");
+    expect(mealPlanPrompt).toContain("Empty-pantry creative mode");
+    expect(mealPlanPrompt).toContain("Build a full shoppingList");
+  });
+
   it("teaches vegetarian mahshi and sarma as stuffed dish families", () => {
     const prompt = buildRecipeGenerationPrompt(
       [

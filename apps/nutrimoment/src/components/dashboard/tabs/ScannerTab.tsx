@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useApp } from "@/contexts/AppContext";
 import { useHistory } from "@/hooks/useHistory";
+import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 import { cn, fileToBase64 } from "@/lib/utils";
@@ -170,6 +171,7 @@ export function ScannerTab() {
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
+  const { addItems: addPantryItems, items: pantryItems } = usePantry();
   const scannerInputRef = useRef<HTMLInputElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -726,6 +728,20 @@ export function ScannerTab() {
 
         return [...current, ...nextScanned];
       });
+
+      const existingPantry = new Set(pantryItems.map((item) => normalizeIngredientKey(item.name)));
+      const pantryAdditions = scanned
+        .filter((item) => {
+          const key = normalizeIngredientKey(item);
+          if (!key || existingPantry.has(key)) return false;
+          existingPantry.add(key);
+          return true;
+        })
+        .map((item) => ({ name: item, quantity: "1 item" }));
+
+      if (pantryAdditions.length) {
+        await addPantryItems(pantryAdditions);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to scan image";
       setError(message);

@@ -4,6 +4,7 @@ import {
   type DietEnforcementContext,
   type ForbiddenReason
 } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation, type HealthViolation } from "@/lib/healthEnforcement";
 import type { MealPlanData, MealPlanMeal } from "@/lib/types";
 
 export type MealSlot = "breakfast" | "lunch" | "dinner";
@@ -12,6 +13,7 @@ export type MealPlanGuardIssue =
   | { kind: "shape"; message: string; actual: number; expected: number }
   | { kind: "placeholder"; day: string; slot: MealSlot; name: string }
   | { kind: "diet"; day: string; slot: MealSlot; name: string; reason: ForbiddenReason }
+  | { kind: "health"; day: string; slot: MealSlot; name: string; reason: HealthViolation }
   | { kind: "cuisine"; day: string; slot: MealSlot; name: string; cuisine?: string; preferredCuisine: string }
   | { kind: "seafoodQuota"; actual: number; expected: number }
   | { kind: "cuisineQuota"; actual: number; expected: number; preferredCuisine: string }
@@ -21,6 +23,7 @@ export type MealPlanGuardIssue =
 
 export interface MealPlanGuardPreferences {
   dietContext: DietEnforcementContext;
+  conditions?: string[];
   preferredCuisine?: string;
   maxMealRepeatCount?: number;
   minUniqueMeals?: number;
@@ -160,6 +163,11 @@ export function validateMealPlan(
       issues.push({ kind: "diet", day: entry.day, slot: entry.slot, name: entry.meal.name, reason: violation });
     }
 
+    const healthViolation = findRecipeHealthViolation(entry.meal, preferences.conditions ?? []);
+    if (healthViolation) {
+      issues.push({ kind: "health", day: entry.day, slot: entry.slot, name: entry.meal.name, reason: healthViolation });
+    }
+
     const preferredCuisine = preferences.preferredCuisine;
     if (preferredCuisine && preferredCuisine !== "Any" && !mealMatchesPreferredCuisineIdentity(entry.meal, preferredCuisine)) {
       issues.push({
@@ -276,11 +284,12 @@ function replaceInvalidSlots(
   let repaired = 0;
   for (const entry of flattenMealPlanSlots(mealPlan)) {
     const violation = findRecipeDietViolation(entry.meal, preferences.dietContext);
+    const healthViolation = findRecipeHealthViolation(entry.meal, preferences.conditions ?? []);
     const cuisineMismatch =
       preferences.preferredCuisine && preferences.preferredCuisine !== "Any"
         ? !mealMatchesPreferredCuisineIdentity(entry.meal, preferences.preferredCuisine)
         : false;
-    if (!violation && !isPlaceholderMeal(entry.meal) && !cuisineMismatch) continue;
+    if (!violation && !healthViolation && !isPlaceholderMeal(entry.meal) && !cuisineMismatch) continue;
 
     setMealAtSlot(mealPlan, entry, pickFallbackMeal(fallbackBank, entry.slot, usedFallbackNames));
     repaired += 1;

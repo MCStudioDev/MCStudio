@@ -695,6 +695,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"white bean stew\",\"fasolia\",\"bean tomato stew\"], [\"grilled chicken red sauce pasta\",\"chicken tomato pasta\",\"grilled chicken pasta\"], [\"creamy chicken pasta\",\"white sauce pasta\",\"chicken alfredo pasta\"], [\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"].",
     "Every recipe must also include dish_intent with exactly these keys: dish_name, cuisine, meal_type, diet_type, cooking_method, visual_keywords, exclude_keywords.",
     "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
+    "Every recipe MUST also include a photo_identity object in English, even when the recipe name itself is Arabic. Shape: {\"dish_slug\":\"kebab-case-canonical-dish-key\",\"english_name\":\"Canonical English Dish Name\",\"protein\":\"seafood|shrimp|chicken|beef|lamb|fish|liver|tofu|chickpeas|lentils|beans|egg|...\",\"starch\":\"rice|pasta|bread|potato|quinoa|tortilla|...\",\"sauce\":\"tomato|lemon-herb|garlic|cream|curry|bechamel|tahini|salsa|...\",\"method\":\"grilled|fried|roasted|skillet|soup|stew|baked|raw|salad|sandwich|wrap|...\",\"cuisine_key\":\"egyptian|mediterranean|italian|mexican|indian|thai|turkish|american|global|...\"}. dish_slug must be unique, lowercase, hyphen-only, ASCII-only, and different for recipes that should not share a photo.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
     "Ownership guardrail: for each recipe, the count of ingredients must be greater than or equal to the count of missing_ingredients whenever possible.",
@@ -736,8 +737,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Fish visual reference set: for fish choose named families such as fish Florentine, baked fish with lemon cream sauce, emergency easy baked fish, spicy fish fry, skillet garlic butter white fish, baked fish with slow-cooked peppers, creamy fish fillet, baked fish with asparagus, salt-grilled fish, quick baked fish fillets, salt and pepper fish, herb roasted fish, baked fish masala, white fish with brown butter, steamed fish with ginger, baked basa fish, grilled Indian fish, crispy oven-baked fish, honey garlic pan-seared fish, crispy panko crusted fish, fish nuggets, fish curry, oily fish grill, Egyptian sayadeya, samak singari, grilled Egyptian fish, samak bel radah, smoked fish, fried tilapia, Egyptian fish tagine, Egyptian baked fish tray, Mediterranean fish soup, Thai Pla Pad Cha fried fish, Thai chilli lime fish, Mediterranean baked fish with olives and capers, Barboon Maklee fried red mullet, Egyptian fried fish sandwich, lemon herb Parmesan crusted fish, or garlic butter cod when pantry and cuisine fit.",
     "For all seafood/fish cards, image_search_index must name the same exact family chosen in the recipe name; do not use generic phrases like shrimp recipe, fish plate, seafood dinner, baked fish, or grilled seafood unless no named family fits.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, dish_intent, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent must be English-only internal image metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
+    "Each recipe object must include: name, cuisine, dish_intent, photo_identity, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent and photo_identity must be English-only internal image metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
   ].join(" ");
 }
 
@@ -1546,12 +1547,16 @@ export function buildMealPlanPrompt({
     allergens
   });
   const isArabicMode = recipeLanguage.toLowerCase() === "arabic";
+  const hasPantryItems = pantry.some((item) => item.trim()) || pantryItems.some((item) => item.name.trim());
   const pantryLine = isArabicMode
     ? `مكونات المستخدم المتاحة للجدول الأسبوعي، اتركها كما كتبها المستخدم ولا تترجمها داخل هذا السطر: ${pantry.join(", ") || "لا توجد مكونات"}.`
     : `Pantry items: ${pantry.join(", ") || "none provided"}.`;
   const pantryQuantitiesLine = isArabicMode
     ? `كميات مكونات المستخدم المتاحة، اترك أسماء المكونات كما كتبها المستخدم: ${pantryWithQuantities.join(", ") || "غير متوفرة"}.`
     : `Pantry quantities (use these to decide what is actually needed for the week): ${pantryWithQuantities.join(", ") || "not provided"}.`;
+  const pantryPlanningMode = hasPantryItems
+    ? "Pantry mode: the user has saved/scanned pantry or fridge items. Use those items first where they fit the selected cuisine, diet, and health profile; do not force them into meals where they make the meal unsafe or off-cuisine."
+    : "Empty-pantry creative mode: the user has no saved pantry items. Generate a complete, creative, cuisine-accurate weekly plan from scratch using the diet, health conditions, calorie target, and preferred cuisine as the authority. Do not make generic placeholder meals. Build a full shoppingList for all ingredients needed, and vary proteins, vegetables, starches, sauces, and cooking methods across the week.";
   const arabicMealPlanPromptBlock = isArabicMode
     ? [
         "تعليمات مهمة لوضع اللغة العربية في جدول الوجبات:",
@@ -1624,6 +1629,7 @@ export function buildMealPlanPrompt({
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
     "Never output a placeholder meal, flexible meal slot, TBD meal, or empty meal. If the pantry cannot support a safe real meal, create a real compatible meal using missing ingredients and list those missing ingredients in shoppingList.",
     "It is acceptable to go beyond the pantry for diet safety, allergens, cuisine authenticity, and a complete usable weekly plan.",
+    pantryPlanningMode,
     pantryLine,
     pantryQuantitiesLine,
     preferenceBrief,
@@ -1638,7 +1644,7 @@ export function buildMealPlanPrompt({
     "Return an object with exactly these top-level keys: plan, shoppingList.",
     "plan must be an array of 7 days.",
     "Each breakfast, lunch, and dinner object must include cuisine, image_search_index, and image_search_indices for image generation.",
-    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"…\",\"cuisine\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"…\",\"cuisine\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"…\",\"cuisine\":\"…\",\"ingredients\":[\"…\"],\"steps\":[\"…\"],\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
+    "Each day must use this exact shape: {\"day\":\"Monday\",\"breakfast\":{\"name\":\"...\",\"cuisine\":\"...\",\"photo_identity\":{\"dish_slug\":\"...\",\"english_name\":\"...\"},\"ingredients\":[\"...\"],\"steps\":[\"...\"],\"calories\":400,\"protein\":\"20g\",\"carbs\":\"45g\",\"fat\":\"12g\"},\"lunch\":{\"name\":\"...\",\"cuisine\":\"...\",\"photo_identity\":{\"dish_slug\":\"...\",\"english_name\":\"...\"},\"ingredients\":[\"...\"],\"steps\":[\"...\"],\"calories\":550,\"protein\":\"30g\",\"carbs\":\"60g\",\"fat\":\"18g\"},\"dinner\":{\"name\":\"...\",\"cuisine\":\"...\",\"photo_identity\":{\"dish_slug\":\"...\",\"english_name\":\"...\"},\"ingredients\":[\"...\"],\"steps\":[\"...\"],\"calories\":650,\"protein\":\"35g\",\"carbs\":\"55g\",\"fat\":\"22g\"}}.",
     "Each meal MUST include an ingredients array that lists every ingredient the meal uses, including pantry items the diner already owns. In Arabic mode, write ingredients in Arabic and keep pantry ingredient names exactly as the user wrote them when they appear.",
     "Each meal MUST also include a steps array with 7 to 10 detailed preparation instructions suitable for home cooking.",
     "Every meal step string must include the action, exact ingredient quantities used in that step, heat level or tool when relevant, timing in minutes, and the visual/texture cue for moving to the next step.",

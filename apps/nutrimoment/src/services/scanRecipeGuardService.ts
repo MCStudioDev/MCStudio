@@ -5,6 +5,7 @@ import {
   translateIngredientToEnglish
 } from "@/lib/arabicRecipeLocalization";
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import type { Recipe } from "@/lib/types";
 
 export interface ScanRecipeGuardContext {
@@ -32,7 +33,8 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
   };
   const repaired = recipes
     .map((recipe) => repairIngredientOwnership(recipe, signals, wantsArabic))
-    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext));
+    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext))
+    .filter((recipe) => !findRecipeHealthViolation(recipe, context.conditions ?? []));
 
   const prefersSpecificCuisine = Boolean(context.preferredCuisine && context.preferredCuisine !== "Any");
   const cuisineMatchedRecipes = prefersSpecificCuisine

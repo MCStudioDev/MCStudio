@@ -119,6 +119,28 @@ describe("meal plan guard service", () => {
     expect(result.repairedSlots).toBeGreaterThan(0);
     expect(finalIssues.filter((issue) => issue.kind === "ingredientCluster")).toEqual([]);
   });
+
+  it("repairs heart-health meal plans that contain rich repeated meals", () => {
+    const preferences = {
+      dietContext: {
+        diets: [],
+        allergens: []
+      },
+      conditions: ["cholesterol", "highBloodPressure", "weightLoss"],
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15
+    };
+    const initialIssues = validateMealPlan(buildRichHeartRiskPlan(), preferences);
+
+    expect(initialIssues.some((issue) => issue.kind === "health")).toBe(true);
+
+    const result = repairMealPlanWithGuard(buildRichHeartRiskPlan(), preferences);
+    const finalIssues = validateMealPlan(result.mealPlan, preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(finalIssues.filter((issue) => issue.kind === "health")).toEqual([]);
+  });
 });
 
 function buildBadMinaStylePlan(): MealPlanData {
@@ -186,6 +208,23 @@ function buildRiceLegumeClusterPlan(): MealPlanData {
       breakfast: meal(`Lentil rice breakfast ${index + 1}`, "Middle Eastern", ["lentils", "rice", "tomato"]),
       lunch: meal(`Chickpea rice lunch ${index + 1}`, "Middle Eastern", ["chickpeas", "rice", "cucumber"]),
       dinner: meal(`Bean rice dinner ${index + 1}`, "Middle Eastern", ["white beans", "rice", "tomato"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildRichHeartRiskPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: index % 2 === 0
+        ? meal(`Cheese omelette ${index + 1}`, "Italian", ["egg", "cheese", "butter"])
+        : meal(`Oat breakfast ${index + 1}`, "Italian", ["oats", "apple", "cinnamon"]),
+      lunch: meal(`Cream pasta ${index + 1}`, "Italian", ["pasta", "cream", "parmesan"]),
+      dinner: index % 2 === 0
+        ? meal(`Fried beef dinner ${index + 1}`, "Italian", ["beef", "butter", "mushroom"])
+        : meal(`Tomato bean dinner ${index + 1}`, "Italian", ["white beans", "tomato", "zucchini"])
     })),
     shoppingList: []
   };

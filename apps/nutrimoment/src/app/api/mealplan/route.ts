@@ -28,6 +28,7 @@ import {
   findRecipeDietViolation,
   type DietEnforcementContext
 } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -143,6 +144,7 @@ export async function POST(request: Request) {
     };
     const mealPlanGuardPreferences = {
       dietContext,
+      conditions: parsed.data.conditions ?? [],
       preferredCuisine: parsed.data.preferredCuisine,
       maxMealRepeatCount: 2,
       minUniqueMeals: 15,
@@ -151,6 +153,7 @@ export async function POST(request: Request) {
     const repairMealPlanSlots = (plan: MealPlanData, stage: string, replacementRecipes: RecipeCatalogDoc[] = []): MealPlanData => {
       let repairCount = 0;
       let dietViolationCount = 0;
+      let healthViolationCount = 0;
       let cuisineRepairCount = 0;
       let placeholderCount = 0;
       let catalogReplacementCount = 0;
@@ -166,17 +169,20 @@ export async function POST(request: Request) {
             const meal = day[slot];
             if (!meal) continue;
             const violation = findRecipeDietViolation(meal, dietContext);
+            const healthViolation = findRecipeHealthViolation(meal, parsed.data.conditions ?? []);
             const placeholder = isPlaceholderMeal(meal);
             const cuisineMismatch = !mealMatchesPreferredCuisine(meal, parsed.data.preferredCuisine);
-            if (violation || placeholder || cuisineMismatch) {
+            if (violation || healthViolation || placeholder || cuisineMismatch) {
               repairCount += 1;
               if (violation) dietViolationCount += 1;
+              if (healthViolation) healthViolationCount += 1;
               if (placeholder) placeholderCount += 1;
               if (cuisineMismatch) cuisineRepairCount += 1;
               const replacement = buildSafeMealReplacement({
                 dietContext,
                 recipeLanguage,
                 preferredCuisine: parsed.data.preferredCuisine,
+                conditions: parsed.data.conditions ?? [],
                 replacementRecipes: cuisineAlignedReplacements.length ? cuisineAlignedReplacements : replacementRecipes,
                 slot,
                 usedReplacementNames
@@ -197,6 +203,7 @@ export async function POST(request: Request) {
           stage,
           repairCount,
           dietViolationCount,
+          healthViolationCount,
           cuisineRepairCount,
           placeholderCount,
           catalogReplacementCount,
@@ -505,6 +512,7 @@ function mealMatchesPreferredCuisine(meal: MealPlanMeal, preferredCuisine?: stri
 
 function buildSafeMealReplacement({
   dietContext,
+  conditions,
   recipeLanguage,
   preferredCuisine,
   replacementRecipes,
@@ -512,6 +520,7 @@ function buildSafeMealReplacement({
   usedReplacementNames
 }: {
   dietContext: DietEnforcementContext;
+  conditions: string[];
   recipeLanguage: string;
   preferredCuisine?: string;
   replacementRecipes: RecipeCatalogDoc[];
@@ -519,8 +528,8 @@ function buildSafeMealReplacement({
   usedReplacementNames: Set<string>;
 }): { meal: MealPlanMeal; source: "catalog" | "default" } {
   const selectedRecipe =
-    pickSafeReplacementRecipe(replacementRecipes, slot, dietContext, usedReplacementNames) ??
-    pickSafeReplacementRecipe(replacementRecipes, undefined, dietContext, usedReplacementNames);
+    pickSafeReplacementRecipe(replacementRecipes, slot, dietContext, conditions, usedReplacementNames) ??
+    pickSafeReplacementRecipe(replacementRecipes, undefined, dietContext, conditions, usedReplacementNames);
 
   if (selectedRecipe) {
     usedReplacementNames.add(selectedRecipe.title.toLowerCase());
@@ -543,12 +552,13 @@ function pickSafeReplacementRecipe(
   recipes: RecipeCatalogDoc[],
   slot: "breakfast" | "lunch" | "dinner" | undefined,
   dietContext: DietEnforcementContext,
+  conditions: string[],
   usedReplacementNames: Set<string>
 ) {
   return recipes.find((recipe) => {
     if (slot && recipe.mealType !== slot) return false;
     if (usedReplacementNames.has(recipe.title.toLowerCase())) return false;
-    return !findRecipeDietViolation(recipe, dietContext);
+    return !findRecipeDietViolation(recipe, dietContext) && !findRecipeHealthViolation(recipe, conditions);
   });
 }
 
@@ -573,6 +583,10 @@ function buildDefaultSafeMeal(
 
   if (cuisineKey.includes("asian") || cuisineKey.includes("thai")) {
     return attach(buildDefaultAsianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames));
+  }
+
+  if (cuisineKey.includes("italian")) {
+    return attach(buildDefaultItalianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames));
   }
 
   if (slot === "breakfast") {
@@ -674,6 +688,153 @@ function selectDefaultMealVariant(variants: DefaultMealVariant[], usedReplacemen
     variants.find((meal) => !usedReplacementNames.has(meal.name.toLowerCase())) ??
     variants[usedReplacementNames.size % variants.length]
   );
+}
+
+function buildDefaultItalianSafeMeal(
+  slot: "breakfast" | "lunch" | "dinner",
+  cuisine: string,
+  wantsArabic: boolean,
+  usedReplacementNames: Set<string>
+) {
+  const variants: Record<"breakfast" | "lunch" | "dinner", DefaultMealVariant[]> = {
+    breakfast: wantsArabic
+      ? [
+          {
+            name: "شوفان بالتفاح والقرفة",
+            image_search_index: "apple cinnamon oatmeal",
+            calories: 390,
+            protein: "14غ",
+            carbs: "62غ",
+            fat: "9غ",
+            ingredients: ["شوفان", "تفاح", "قرفة", "حليب شوفان", "جوز"],
+            steps: ["اطهِ الشوفان بحليب الشوفان حتى يصبح كريميًا.", "أضف التفاح والقرفة واتركه يلين.", "قدمه مع كمية صغيرة من الجوز."]
+          },
+          {
+            name: "توست طماطم وريحان",
+            image_search_index: "tomato basil toast",
+            calories: 360,
+            protein: "10غ",
+            carbs: "54غ",
+            fat: "11غ",
+            ingredients: ["خبز حبوب كاملة", "طماطم", "ريحان", "زيت زيتون", "فلفل أسود"],
+            steps: ["حمص الخبز حتى يصبح مقرمشًا.", "قطع الطماطم واخلطها بالريحان.", "ضع خليط الطماطم فوق الخبز مع رشة زيت زيتون."]
+          }
+        ]
+      : [
+          {
+            name: "Apple cinnamon oatmeal",
+            image_search_index: "apple cinnamon oatmeal",
+            calories: 390,
+            protein: "14g",
+            carbs: "62g",
+            fat: "9g",
+            ingredients: ["oats", "apple", "cinnamon", "oat milk", "walnuts"],
+            steps: ["Simmer oats with oat milk until creamy.", "Fold in diced apple and cinnamon until the apple softens.", "Top with a small spoon of walnuts."]
+          },
+          {
+            name: "Tomato basil toast",
+            image_search_index: "tomato basil toast",
+            calories: 360,
+            protein: "10g",
+            carbs: "54g",
+            fat: "11g",
+            ingredients: ["whole grain bread", "tomato", "basil", "olive oil", "black pepper"],
+            steps: ["Toast the bread until crisp.", "Dice tomato and toss it with basil.", "Spoon the tomato mixture over toast with a light drizzle of olive oil."]
+          }
+        ],
+    lunch: wantsArabic
+      ? [
+          {
+            name: "مينستروني خضار وفاصوليا",
+            image_search_index: "vegetable minestrone soup",
+            calories: 510,
+            protein: "20غ",
+            carbs: "78غ",
+            fat: "12غ",
+            ingredients: ["فاصوليا بيضاء", "طماطم", "كوسة", "جزر", "مكرونة صغيرة", "ريحان"],
+            steps: ["شوح الجزر والكوسة بكمية صغيرة من زيت الزيتون.", "أضف الطماطم والفاصوليا واتركها تغلي برفق.", "أضف المكرونة الصغيرة حتى تنضج وتصبح الشوربة كثيفة."]
+          },
+          {
+            name: "باستا بريمافيرا بزيت الزيتون",
+            image_search_index: "pasta primavera vegetables",
+            calories: 540,
+            protein: "18غ",
+            carbs: "82غ",
+            fat: "14غ",
+            ingredients: ["مكرونة", "كوسة", "فلفل رومي", "طماطم", "ريحان", "زيت زيتون"],
+            steps: ["اسلق المكرونة حتى تكون متماسكة.", "شوح الخضار حتى تلين وتبقى ملونة.", "قلب المكرونة مع الخضار والريحان وكمية صغيرة من زيت الزيتون."]
+          }
+        ]
+      : [
+          {
+            name: "Vegetable white bean minestrone",
+            image_search_index: "vegetable minestrone soup",
+            calories: 510,
+            protein: "20g",
+            carbs: "78g",
+            fat: "12g",
+            ingredients: ["white beans", "tomato", "zucchini", "carrot", "small pasta", "basil"],
+            steps: ["Saute carrot and zucchini in a small amount of olive oil.", "Add tomato and white beans and simmer gently.", "Add small pasta until tender and the soup looks hearty."]
+          },
+          {
+            name: "Pasta primavera with olive oil",
+            image_search_index: "pasta primavera vegetables",
+            calories: 540,
+            protein: "18g",
+            carbs: "82g",
+            fat: "14g",
+            ingredients: ["pasta", "zucchini", "bell pepper", "tomato", "basil", "olive oil"],
+            steps: ["Boil pasta until al dente.", "Saute the vegetables until tender and bright.", "Toss pasta with vegetables, basil, and a light olive oil finish."]
+          }
+        ],
+    dinner: wantsArabic
+      ? [
+          {
+            name: "راتاتوي إيطالي مع فاصوليا بيضاء",
+            image_search_index: "italian vegetable bean stew",
+            calories: 560,
+            protein: "22غ",
+            carbs: "74غ",
+            fat: "15غ",
+            ingredients: ["فاصوليا بيضاء", "باذنجان", "كوسة", "طماطم", "ثوم", "ريحان"],
+            steps: ["حمص الباذنجان والكوسة حتى يظهرا بلون ذهبي.", "أضف الطماطم والثوم والفاصوليا واتركها تغلي.", "اختم بالريحان وقدمها كطبق خضار مشبع."]
+          },
+          {
+            name: "باستا طماطم وسبانخ",
+            image_search_index: "spinach tomato pasta",
+            calories: 555,
+            protein: "19غ",
+            carbs: "84غ",
+            fat: "14غ",
+            ingredients: ["مكرونة", "سبانخ", "طماطم", "ثوم", "ريحان", "زيت زيتون"],
+            steps: ["اسلق المكرونة حتى تكون متماسكة.", "اطبخ الطماطم والثوم حتى تتكاثف الصلصة.", "أضف السبانخ والمكرونة وقلب حتى تتغطى جيدًا."]
+          }
+        ]
+      : [
+          {
+            name: "Italian vegetable white bean stew",
+            image_search_index: "italian vegetable bean stew",
+            calories: 560,
+            protein: "22g",
+            carbs: "74g",
+            fat: "15g",
+            ingredients: ["white beans", "eggplant", "zucchini", "tomato", "garlic", "basil"],
+            steps: ["Roast eggplant and zucchini until lightly golden.", "Simmer tomato, garlic, and white beans until saucy.", "Finish with basil and serve as a hearty vegetable main."]
+          },
+          {
+            name: "Spinach tomato pasta",
+            image_search_index: "spinach tomato pasta",
+            calories: 555,
+            protein: "19g",
+            carbs: "84g",
+            fat: "14g",
+            ingredients: ["pasta", "spinach", "tomato", "garlic", "basil", "olive oil"],
+            steps: ["Boil pasta until al dente.", "Cook tomato and garlic until the sauce thickens.", "Fold in spinach and pasta until evenly coated."]
+          }
+        ]
+  };
+
+  return withCuisine(selectDefaultMealVariant(variants[slot], usedReplacementNames), cuisine)!;
 }
 
 function withCuisine(variant: DefaultMealVariant | undefined, cuisine: string): MealPlanMeal | undefined {

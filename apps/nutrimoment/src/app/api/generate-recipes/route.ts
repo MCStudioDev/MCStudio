@@ -35,6 +35,7 @@ import {
 } from "@/lib/ingredientFamilies";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipePhotoIdentity, isStrictRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
+import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
 import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
@@ -62,8 +63,9 @@ import {
   filterRecipesByDiet,
   type DietEnforcementContext
 } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 
-const DEFAULT_RECIPE_RESULT_COUNT = 10;
+const DEFAULT_RECIPE_RESULT_COUNT = 5;
 const MIN_RECIPE_RESULT_COUNT = 1;
 const MAX_SHARED_POOL_RECIPE_RESULT_COUNT = 10;
 const AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS = 3;
@@ -237,15 +239,21 @@ export async function POST(request: Request) {
     };
     const enforceDietOnRecipes = (recipes: Recipe[], stage: string): Recipe[] => {
       const result = filterRecipesByDiet(recipes, dietContext);
-      if (result.rejected.length) {
+      const healthRejected: Array<{ recipe: Recipe; reason: ReturnType<typeof findRecipeHealthViolation> }> = [];
+      const healthAllowed = result.allowed.filter((recipe) => {
+        const reason = findRecipeHealthViolation(recipe, parsed.data.conditions ?? []);
+        if (reason) healthRejected.push({ recipe, reason });
+        return !reason;
+      });
+      if (result.rejected.length || healthRejected.length) {
         logger.warn("Diet/allergen filter dropped recipes", {
           requestId,
           stage,
-          droppedCount: result.rejected.length,
-          firstReason: result.rejected[0]?.reason
+          droppedCount: result.rejected.length + healthRejected.length,
+          firstReason: result.rejected[0]?.reason ?? healthRejected[0]?.reason
         });
       }
-      return result.allowed;
+      return healthAllowed;
     };
     const availableIngredients = buildAvailableIngredientSet(ingredients, expandedNormalizedIngredientNames);
     const aiTraceSummary = {
@@ -296,9 +304,11 @@ export async function POST(request: Request) {
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const prepareRecipes = (recipes: Recipe[]) =>
-      (wantsArabic ? recipes.map(ensureArabicRecipeLanguage) : recipes).map((recipe) =>
-        ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
-      );
+      (wantsArabic ? recipes.map(ensureArabicRecipeLanguage) : recipes)
+        .map(ensureRecipePhotoIdentity)
+        .map((recipe) =>
+          ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
+        );
     const finalizeRecipes = (recipes: Recipe[]) => {
       const finalized = ensureRequestedRecipeCount(
         enforceDistinctRecipeVariety(
@@ -830,6 +840,32 @@ function buildMockExactScanRecipe(availableIngredients: Set<string>) {
     match_quality: "great" as const,
     preference_hits: Array.isArray(firstRecipe.preference_hits) ? firstRecipe.preference_hits : []
   };
+}
+
+function ensureRecipePhotoIdentity(recipe: Recipe): Recipe {
+  const existing = normalizePhotoIdentity(recipe.photo_identity);
+  if (existing) return { ...recipe, photo_identity: existing };
+
+  const source =
+    recipe.image_search_index?.trim() ||
+    recipe.image_search_indices?.[0]?.trim() ||
+    recipe.dish_intent?.dish_name?.trim() ||
+    recipe.localized?.English?.name?.trim() ||
+    recipe.name?.trim();
+  if (!source) return recipe;
+
+  const identity = buildRecipePhotoIdentity(source);
+  const synthesized = normalizePhotoIdentity({
+    dish_slug: identity.canonicalDishKey ?? identity.familyKey ?? toIdentityKey(source) ?? "recipe-photo",
+    english_name: identity.cleanQuery || source,
+    cuisine_key: identity.cuisineKey ?? toIdentityKey(recipe.cuisine),
+    protein: identity.mainIngredientKey,
+    starch: identity.starchKey,
+    sauce: identity.sauceKey,
+    method: identity.cookingMethodKey
+  });
+
+  return synthesized ? { ...recipe, photo_identity: synthesized } : recipe;
 }
 
 function parseAiJsonPayload(text: string, context: "recipe_generation" | "scan_match") {

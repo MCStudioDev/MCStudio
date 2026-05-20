@@ -398,11 +398,129 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
     ]
   },
   paleo: {
-    // Paleo is a strong preference, not strict in our codebase. We treat it as
-    // a soft hint at the prompt level only; no server-side filter to avoid
-    // dropping otherwise reasonable recipes.
-    english: [],
-    arabic: []
+    english: [
+      "wheat",
+      "wheat flour",
+      "all-purpose flour",
+      "all purpose flour",
+      "bread flour",
+      "flour",
+      "semolina",
+      "couscous",
+      "bulgur",
+      "freekeh",
+      "farro",
+      "barley",
+      "rye",
+      "spelt",
+      "oats",
+      "oatmeal",
+      "rice",
+      "quinoa",
+      "corn",
+      "pita",
+      "bread",
+      "toast",
+      "baguette",
+      "naan",
+      "tortilla",
+      "pasta",
+      "spaghetti",
+      "penne",
+      "macaroni",
+      "fettuccine",
+      "lasagna",
+      "ravioli",
+      "noodle",
+      "noodles",
+      "ramen",
+      "udon",
+      "soba",
+      "phyllo",
+      "filo",
+      "kataifi",
+      "panko",
+      "breadcrumb",
+      "breadcrumbs",
+      "bean",
+      "beans",
+      "lentil",
+      "lentils",
+      "chickpea",
+      "chickpeas",
+      "garbanzo",
+      "fava",
+      "pea",
+      "peas",
+      "soy",
+      "soybean",
+      "tofu",
+      "tempeh",
+      "edamame",
+      "peanut",
+      "peanuts",
+      "milk",
+      "buttermilk",
+      "cream",
+      "butter",
+      "ghee",
+      "yogurt",
+      "yoghurt",
+      "labneh",
+      "cheese",
+      "feta",
+      "halloumi",
+      "ricotta",
+      "mozzarella",
+      "parmesan",
+      "paneer",
+      "whey",
+      "casein",
+      "sugar",
+      "brown sugar",
+      "white sugar",
+      "corn syrup",
+      "candy",
+      "soda"
+    ],
+    arabic: [
+      "قمح",
+      "دقيق",
+      "طحين",
+      "سميد",
+      "كسكس",
+      "برغل",
+      "فريك",
+      "شعير",
+      "شوفان",
+      "أرز",
+      "ارز",
+      "ذرة",
+      "خبز",
+      "عيش",
+      "مكرونة",
+      "معكرونة",
+      "نودلز",
+      "فاصوليا",
+      "لوبيا",
+      "عدس",
+      "حمص",
+      "فول",
+      "بازلاء",
+      "صويا",
+      "توفو",
+      "فول سوداني",
+      "حليب",
+      "لبن",
+      "زبدة",
+      "سمنة",
+      "قشطة",
+      "كريمة",
+      "زبادي",
+      "جبنة",
+      "جبن",
+      "سكر"
+    ]
   },
   pescatarian: {
     // Pescatarian: allows fish and seafood, forbids only meat and poultry.
@@ -457,10 +575,122 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
     ]
   },
   keto: {
-    // Keto enforcement is calorie/macro-based, not ingredient-based, so leave
-    // this empty and let `nutritionGoals.maxCarbs` in rankingService handle it.
-    english: [],
-    arabic: []
+    english: [
+      "sugar",
+      "brown sugar",
+      "white sugar",
+      "corn syrup",
+      "high fructose corn syrup",
+      "honey",
+      "maple syrup",
+      "molasses",
+      "agave",
+      "candy",
+      "soda",
+      "juice",
+      "wheat",
+      "wheat flour",
+      "all-purpose flour",
+      "all purpose flour",
+      "bread flour",
+      "flour",
+      "semolina",
+      "couscous",
+      "bulgur",
+      "freekeh",
+      "farro",
+      "barley",
+      "rye",
+      "spelt",
+      "oats",
+      "oatmeal",
+      "cereal",
+      "granola",
+      "rice",
+      "quinoa",
+      "corn",
+      "pita",
+      "bread",
+      "toast",
+      "baguette",
+      "naan",
+      "tortilla",
+      "pasta",
+      "spaghetti",
+      "penne",
+      "macaroni",
+      "fettuccine",
+      "lasagna",
+      "ravioli",
+      "noodle",
+      "noodles",
+      "ramen",
+      "udon",
+      "soba",
+      "phyllo",
+      "filo",
+      "kataifi",
+      "panko",
+      "breadcrumb",
+      "breadcrumbs",
+      "potato",
+      "potatoes",
+      "sweet potato",
+      "sweet potatoes",
+      "yam",
+      "yams",
+      "bean",
+      "beans",
+      "lentil",
+      "lentils",
+      "chickpea",
+      "chickpeas",
+      "garbanzo",
+      "fava",
+      "pea",
+      "peas",
+      "banana",
+      "apple",
+      "dates",
+      "date syrup",
+      "grapes",
+      "mango"
+    ],
+    arabic: [
+      "سكر",
+      "عسل",
+      "عصير",
+      "قمح",
+      "دقيق",
+      "طحين",
+      "سميد",
+      "كسكس",
+      "برغل",
+      "فريك",
+      "شعير",
+      "شوفان",
+      "أرز",
+      "ارز",
+      "ذرة",
+      "خبز",
+      "عيش",
+      "مكرونة",
+      "معكرونة",
+      "نودلز",
+      "بطاطس",
+      "بطاطا",
+      "فاصوليا",
+      "لوبيا",
+      "عدس",
+      "حمص",
+      "فول",
+      "بازلاء",
+      "موز",
+      "تفاح",
+      "تمر",
+      "عنب",
+      "مانجو"
+    ]
   }
 };
 
@@ -719,6 +949,7 @@ const ARABIC_DIET_FORBIDDEN_ALIASES: Partial<Record<string, string[]>> = {
   ],
   vegetarian: [...ARABIC_MEAT_POULTRY_TERMS, ...ARABIC_SEAFOOD_TERMS, "جيلاتين"],
   dairyFree: ARABIC_DAIRY_EGG_TERMS,
+  paleo: DIET_FORBIDDEN_PATTERNS.paleo.arabic,
   pescatarian: [...ARABIC_MEAT_POULTRY_TERMS, "جيلاتين"],
   glutenFree: [
     "قمح",
@@ -744,7 +975,8 @@ const ARABIC_DIET_FORBIDDEN_ALIASES: Partial<Record<string, string[]>> = {
     "نودلز",
     "فيلو",
     "فطير"
-  ]
+  ],
+  keto: DIET_FORBIDDEN_PATTERNS.keto.arabic
 };
 
 const ARABIC_ALLERGEN_FORBIDDEN_ALIASES: Record<string, string[]> = {
@@ -862,6 +1094,7 @@ const PLANT_BUTTER_PREFIX_PATTERN =
 
 function isAllowedPlantDairyAlternative(text: string, pattern: string, matchStart: number): boolean {
   const prefix = text.slice(Math.max(0, matchStart - 48), matchStart);
+  const suffix = text.slice(matchStart, matchStart + 48);
 
   if (pattern === "milk") {
     return new RegExp(`${PLANT_MILK_PREFIX_PATTERN}\\s+$`, "i").test(prefix);
@@ -874,6 +1107,19 @@ function isAllowedPlantDairyAlternative(text: string, pattern: string, matchStar
   }
   if (pattern === "butter") {
     return new RegExp(`${PLANT_BUTTER_PREFIX_PATTERN}\\s+$`, "i").test(prefix);
+  }
+  if (pattern === "rice") {
+    return /(?:cauliflower|konjac|miracle)\s+$/i.test(prefix);
+  }
+  if (pattern === "flour") {
+    return /(?:almond|coconut|hazelnut|flaxseed|sunflower seed|pumpkin seed)\s+$/i.test(prefix);
+  }
+  if (pattern === "noodle" || pattern === "noodles" || pattern === "pasta" || pattern === "spaghetti") {
+    return /(?:zucchini|konjac|shirataki|palmini|heart of palm|hearts of palm)\s+$/i.test(prefix) ||
+      (pattern === "spaghetti" && /^spaghetti\s+squash/i.test(suffix));
+  }
+  if (pattern === "tortilla") {
+    return /(?:lettuce|cheese|almond flour|coconut flour)\s+$/i.test(prefix);
   }
 
   return false;

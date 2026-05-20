@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { findRecipeDietViolation } from "../lib/dietEnforcement";
 import type { MealPlanData, MealPlanMeal } from "../lib/types";
 import {
   repairMealPlanWithGuard,
@@ -141,6 +142,32 @@ describe("meal plan guard service", () => {
     expect(result.repairedSlots).toBeGreaterThan(0);
     expect(finalIssues.filter((issue) => issue.kind === "health")).toEqual([]);
   });
+
+  it("repairs keto meal plans with low-carb fallback meals", () => {
+    const preferences = {
+      dietContext: {
+        diets: ["keto"],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15
+    };
+    const initialIssues = validateMealPlan(buildHighCarbPlan(), preferences);
+
+    expect(initialIssues.some((issue) => issue.kind === "diet")).toBe(true);
+
+    const result = repairMealPlanWithGuard(buildHighCarbPlan(), preferences);
+    const finalIssues = validateMealPlan(result.mealPlan, preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(finalIssues.filter((issue) => issue.kind === "diet")).toEqual([]);
+    expect(
+      result.mealPlan.shoppingList.map((item) =>
+        findRecipeDietViolation({ name: item, ingredients: [item] }, preferences.dietContext)
+      )
+    ).toEqual(result.mealPlan.shoppingList.map(() => null));
+  });
 });
 
 function buildBadMinaStylePlan(): MealPlanData {
@@ -158,7 +185,7 @@ function buildBadMinaStylePlan(): MealPlanData {
           ? meal("يخنة عدس بالخضار مع الأرز", "Mexican", ["عدس", "أرز", "جزر", "طماطم"])
           : meal("توفو وبروكلي سوتيه", "Asian", ["توفو", "بروكلي", "أرز", "ثوم"])
     })),
-    shoppingList: []
+    shoppingList: ["rice - 4 cup", "pasta - 2 pack", "shrimp - 1 kg"]
   };
 }
 
@@ -225,6 +252,19 @@ function buildRichHeartRiskPlan(): MealPlanData {
       dinner: index % 2 === 0
         ? meal(`Fried beef dinner ${index + 1}`, "Italian", ["beef", "butter", "mushroom"])
         : meal(`Tomato bean dinner ${index + 1}`, "Italian", ["white beans", "tomato", "zucchini"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildHighCarbPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: meal(`Oatmeal ${index + 1}`, "Global", ["oats", "apple", "milk"]),
+      lunch: meal(`Rice bowl ${index + 1}`, "Global", ["rice", "chicken", "beans"]),
+      dinner: meal(`Pasta dinner ${index + 1}`, "Global", ["pasta", "tomato", "shrimp"])
     })),
     shoppingList: []
   };

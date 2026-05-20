@@ -231,7 +231,15 @@ export function repairMealPlanWithGuard(
 ): MealPlanRepairResult {
   const initialIssues = validateMealPlan(mealPlan, preferences);
   if (!initialIssues.length) {
-    return { mealPlan, initialIssues, finalIssues: [], repairedSlots: 0 };
+    return {
+      mealPlan: {
+        ...mealPlan,
+        shoppingList: sanitizeShoppingListForDiet(mealPlan.shoppingList ?? [], preferences.dietContext)
+      },
+      initialIssues,
+      finalIssues: [],
+      repairedSlots: 0
+    };
   }
 
   const fallbackBank = buildFallbackBank(preferences);
@@ -250,7 +258,10 @@ export function repairMealPlanWithGuard(
   repairedSlots += repairCuisineQuota(nextPlan, preferences, fallbackBank, usedFallbackNames);
   repairedSlots += repairRepeatedMeals(nextPlan, preferences, fallbackBank, usedFallbackNames);
   repairedSlots += repairPlantBasedIngredientClusters(nextPlan, preferences, fallbackBank, usedFallbackNames);
-  nextPlan.shoppingList = mergeShoppingList(nextPlan.shoppingList, flattenMealPlanSlots(nextPlan).map((entry) => entry.meal));
+  nextPlan.shoppingList = sanitizeShoppingListForDiet(
+    mergeShoppingList(nextPlan.shoppingList, flattenMealPlanSlots(nextPlan).map((entry) => entry.meal)),
+    preferences.dietContext
+  );
 
   const finalIssues = validateMealPlan(nextPlan, preferences);
   return { mealPlan: nextPlan, initialIssues, finalIssues, repairedSlots };
@@ -430,6 +441,24 @@ function repairIngredientCluster(
 }
 
 function buildFallbackBank(preferences: MealPlanGuardPreferences): Record<MealSlot, MealPlanMeal[]> {
+  const diets = preferences.dietContext.diets;
+
+  if (diets.includes("paleo") && (diets.includes("vegan") || diets.includes("vegetarian"))) {
+    return PALEO_PLANT_FALLBACKS;
+  }
+
+  if (diets.includes("paleo")) {
+    return PALEO_FALLBACKS;
+  }
+
+  if (diets.includes("keto") && (diets.includes("vegan") || diets.includes("vegetarian"))) {
+    return KETO_PLANT_FALLBACKS;
+  }
+
+  if (diets.includes("keto")) {
+    return KETO_FALLBACKS;
+  }
+
   if (preferences.dietContext.diets.includes("vegan")) {
     return VEGAN_FALLBACKS;
   }
@@ -570,6 +599,10 @@ function mergeShoppingList(shoppingList: string[], meals: MealPlanMeal[]) {
   return next;
 }
 
+function sanitizeShoppingListForDiet(shoppingList: string[], dietContext: DietEnforcementContext) {
+  return shoppingList.filter((item) => !findRecipeDietViolation({ name: item, ingredients: [item] }, dietContext));
+}
+
 function meal(
   name: string,
   slot: MealSlot,
@@ -659,9 +692,109 @@ const VEGAN_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
   ]
 };
 
+const KETO_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
+  breakfast: [
+    fallbackMeal("Spinach mushroom egg skillet", "breakfast", "Global", ["eggs", "spinach", "mushrooms", "olive oil", "avocado"], 410, "24g", "spinach mushroom egg skillet", "14g", "28g"),
+    fallbackMeal("Smoked salmon cucumber avocado plate", "breakfast", "Global", ["smoked salmon", "cucumber", "avocado", "lemon", "dill"], 390, "29g", "salmon cucumber avocado plate", "10g", "27g"),
+    fallbackMeal("Greek salad egg bowl", "breakfast", "Mediterranean", ["eggs", "cucumber", "tomato", "olive", "lettuce"], 380, "22g", "greek salad egg bowl", "12g", "25g")
+  ],
+  lunch: [
+    fallbackMeal("Chicken lettuce shawarma bowl", "lunch", "Middle Eastern", ["chicken", "romaine lettuce", "cucumber", "tahini", "shawarma spices"], 520, "42g", "chicken lettuce shawarma bowl", "16g", "31g"),
+    fallbackMeal("Salmon cauliflower rice bowl", "lunch", "Global", ["salmon", "cauliflower rice", "zucchini", "lemon", "olive oil"], 540, "39g", "salmon cauliflower rice bowl", "15g", "35g"),
+    fallbackMeal("Beef kofta salad plate", "lunch", "Middle Eastern", ["ground beef", "lettuce", "cucumber", "parsley", "tahini"], 560, "38g", "beef kofta salad plate", "13g", "39g")
+  ],
+  dinner: [
+    fallbackMeal("Shrimp zucchini noodle skillet", "dinner", "Global", ["shrimp", "zucchini noodles", "garlic", "olive oil", "parsley"], 500, "38g", "shrimp zucchini noodle skillet", "14g", "30g"),
+    fallbackMeal("Chicken cauliflower mash plate", "dinner", "Global", ["chicken", "cauliflower", "asparagus", "olive oil", "herbs"], 560, "44g", "chicken cauliflower mash", "18g", "34g"),
+    fallbackMeal("Baked fish with broccoli and tahini", "dinner", "Mediterranean", ["white fish", "broccoli", "tahini", "lemon", "olive oil"], 535, "41g", "baked fish broccoli tahini", "16g", "33g")
+  ]
+};
+
+const KETO_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
+  breakfast: [
+    fallbackMeal("Tofu avocado cucumber bowl", "breakfast", "Global", ["tofu", "avocado", "cucumber", "spinach", "olive oil"], 410, "24g", "tofu avocado cucumber bowl", "15g", "30g"),
+    fallbackMeal("Chia coconut seed pudding", "breakfast", "Global", ["chia seeds", "coconut milk", "pumpkin seeds", "cinnamon", "berries"], 390, "15g", "chia coconut seed pudding", "16g", "29g"),
+    fallbackMeal("Mushroom spinach tofu scramble", "breakfast", "Global", ["tofu", "mushrooms", "spinach", "turmeric", "olive oil"], 395, "25g", "mushroom spinach tofu scramble", "14g", "27g")
+  ],
+  lunch: [
+    fallbackMeal("Cauliflower tabbouleh tofu bowl", "lunch", "Middle Eastern", ["tofu", "cauliflower", "parsley", "cucumber", "tahini"], 520, "31g", "cauliflower tabbouleh tofu bowl", "18g", "35g"),
+    fallbackMeal("Zucchini noodle tofu stir fry", "lunch", "Asian", ["tofu", "zucchini noodles", "broccoli", "ginger", "sesame"], 505, "30g", "zucchini noodle tofu stir fry", "17g", "34g"),
+    fallbackMeal("Eggplant tahini walnut salad", "lunch", "Mediterranean", ["eggplant", "tahini", "walnuts", "cucumber", "parsley"], 540, "18g", "eggplant tahini walnut salad", "20g", "42g")
+  ],
+  dinner: [
+    fallbackMeal("Coconut tofu vegetable curry", "dinner", "Thai", ["tofu", "coconut milk", "zucchini", "mushrooms", "basil"], 560, "28g", "coconut tofu vegetable curry", "18g", "40g"),
+    fallbackMeal("Stuffed zucchini with cauliflower and walnuts", "dinner", "Mediterranean", ["zucchini", "cauliflower", "walnuts", "tomato", "herbs"], 535, "17g", "stuffed zucchini cauliflower walnuts", "20g", "39g"),
+    fallbackMeal("Mushroom lettuce taco cups", "dinner", "Mexican", ["mushrooms", "lettuce", "avocado", "salsa", "pumpkin seeds"], 500, "16g", "mushroom lettuce taco cups", "19g", "36g")
+  ]
+};
+
+const PALEO_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
+  breakfast: [
+    fallbackMeal("Egg avocado vegetable skillet", "breakfast", "Global", ["eggs", "avocado", "spinach", "mushrooms", "olive oil"], 430, "24g", "egg avocado vegetable skillet", "16g", "31g"),
+    fallbackMeal("Turkey sweet potato breakfast hash", "breakfast", "Global", ["turkey", "sweet potato", "bell pepper", "onion", "olive oil"], 455, "33g", "turkey sweet potato hash", "34g", "18g"),
+    fallbackMeal("Salmon cucumber breakfast plate", "breakfast", "Global", ["salmon", "cucumber", "avocado", "lemon", "dill"], 405, "31g", "salmon cucumber avocado plate", "12g", "28g")
+  ],
+  lunch: [
+    fallbackMeal("Chicken roasted vegetable plate", "lunch", "Global", ["chicken", "zucchini", "carrot", "broccoli", "olive oil"], 540, "42g", "chicken roasted vegetables", "32g", "28g"),
+    fallbackMeal("Beef lettuce shawarma bowl", "lunch", "Middle Eastern", ["beef", "lettuce", "cucumber", "tomato", "tahini"], 560, "38g", "beef lettuce shawarma bowl", "18g", "37g"),
+    fallbackMeal("Tuna avocado salad plate", "lunch", "Mediterranean", ["tuna", "avocado", "lettuce", "cucumber", "olive oil"], 520, "39g", "tuna avocado salad plate", "14g", "35g")
+  ],
+  dinner: [
+    fallbackMeal("Baked fish with sweet potato and broccoli", "dinner", "Mediterranean", ["white fish", "sweet potato", "broccoli", "lemon", "olive oil"], 585, "42g", "baked fish sweet potato broccoli", "42g", "26g"),
+    fallbackMeal("Chicken zucchini tomato skillet", "dinner", "Mediterranean", ["chicken", "zucchini", "tomato", "garlic", "olive oil"], 545, "44g", "chicken zucchini tomato skillet", "20g", "30g"),
+    fallbackMeal("Shrimp cauliflower vegetable skillet", "dinner", "Global", ["shrimp", "cauliflower", "zucchini", "bell pepper", "olive oil"], 510, "39g", "shrimp cauliflower vegetable skillet", "18g", "28g")
+  ]
+};
+
+const PALEO_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
+  breakfast: [
+    fallbackMeal("Avocado cucumber seed plate", "breakfast", "Global", ["avocado", "cucumber", "pumpkin seeds", "spinach", "lemon"], 395, "12g", "avocado cucumber seed plate", "18g", "31g"),
+    fallbackMeal("Coconut chia berry bowl", "breakfast", "Global", ["chia seeds", "coconut milk", "berries", "walnuts", "cinnamon"], 410, "13g", "coconut chia berry bowl", "22g", "32g"),
+    fallbackMeal("Mushroom spinach avocado skillet", "breakfast", "Global", ["mushrooms", "spinach", "avocado", "olive oil", "herbs"], 385, "10g", "mushroom spinach avocado skillet", "16g", "30g")
+  ],
+  lunch: [
+    fallbackMeal("Cauliflower tabbouleh walnut bowl", "lunch", "Middle Eastern", ["cauliflower", "parsley", "cucumber", "walnuts", "olive oil"], 510, "13g", "cauliflower tabbouleh walnut bowl", "23g", "41g"),
+    fallbackMeal("Roasted eggplant avocado salad", "lunch", "Mediterranean", ["eggplant", "avocado", "tomato", "parsley", "olive oil"], 525, "10g", "roasted eggplant avocado salad", "28g", "39g"),
+    fallbackMeal("Stuffed zucchini with mushrooms and walnuts", "lunch", "Mediterranean", ["zucchini", "mushrooms", "walnuts", "tomato", "herbs"], 500, "13g", "stuffed zucchini mushrooms walnuts", "24g", "37g")
+  ],
+  dinner: [
+    fallbackMeal("Cauliflower mushroom shawarma plate", "dinner", "Middle Eastern", ["cauliflower", "mushrooms", "tahini", "cucumber", "shawarma spices"], 545, "16g", "cauliflower mushroom shawarma plate", "26g", "42g"),
+    fallbackMeal("Vegetable coconut curry", "dinner", "Thai", ["coconut milk", "zucchini", "mushrooms", "cauliflower", "basil"], 560, "11g", "vegetable coconut curry", "24g", "45g"),
+    fallbackMeal("Eggplant zucchini tomato bake", "dinner", "Mediterranean", ["eggplant", "zucchini", "tomato", "olive oil", "herbs"], 520, "11g", "eggplant zucchini tomato bake", "30g", "36g")
+  ]
+};
+
 const MEXICAN_GENERAL_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = MEXICAN_PESCATARIAN_FALLBACKS;
 
 const GENERAL_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = VEGAN_FALLBACKS;
+
+function fallbackMeal(
+  name: string,
+  slot: MealSlot,
+  cuisine: string,
+  ingredients: string[],
+  calories: number,
+  protein: string,
+  imageSearchIndex: string,
+  carbs: string,
+  fat: string
+): MealPlanMeal {
+  return {
+    name,
+    cuisine,
+    calories,
+    protein,
+    carbs,
+    fat,
+    ingredients,
+    steps: [
+      "Prep all vegetables, protein, herbs, and sauce ingredients before cooking.",
+      "Cook the main ingredient with the cuisine-appropriate aromatics until tender and well seasoned.",
+      "Plate with a clear vegetable base, fresh garnish, and a matching sauce or citrus finish."
+    ],
+    image_search_index: imageSearchIndex
+  };
+}
 
 function veganMeal(
   name: string,

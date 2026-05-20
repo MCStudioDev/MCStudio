@@ -139,4 +139,32 @@ describe("diet enforcement", () => {
       match: "بيض"
     });
   });
+
+  it("treats keto as a hard low-carb ingredient gate", () => {
+    const ctx = { diets: ["keto"], allergens: [] };
+
+    expect(findRecipeDietViolation({ name: "Chicken rice bowl", ingredients: ["chicken", "rice", "broccoli"] }, ctx)).toEqual({
+      kind: "diet",
+      diet: "keto",
+      match: "rice"
+    });
+    expect(findRecipeDietViolation({ name: "Shrimp zucchini noodle skillet", ingredients: ["shrimp", "zucchini noodles", "olive oil"] }, ctx)).toBeNull();
+    expect(findRecipeDietViolation({ name: "Salmon cauliflower rice bowl", ingredients: ["salmon", "cauliflower rice", "zucchini"] }, ctx)).toBeNull();
+  });
+
+  it("treats paleo as a hard grain legume and dairy gate", () => {
+    const ctx = { diets: ["paleo"], allergens: [] };
+
+    expect(findRecipeDietViolation({ name: "White bean chicken stew", ingredients: ["chicken", "white beans", "tomato"] }, ctx)).toEqual({
+      kind: "diet",
+      diet: "paleo",
+      match: "bean"
+    });
+    expect(findRecipeDietViolation({ name: "Chicken roasted vegetable plate", ingredients: ["chicken", "zucchini", "carrot"] }, ctx)).toBeNull();
+    expect(findRecipeDietViolation({ name: "Greek yogurt bowl", ingredients: ["yogurt", "berries"] }, ctx)).toEqual({
+      kind: "diet",
+      diet: "paleo",
+      match: "yogurt"
+    });
+  });
 });

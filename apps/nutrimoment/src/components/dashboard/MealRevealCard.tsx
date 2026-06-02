@@ -174,7 +174,7 @@ export function MealRevealCard({
   }, [imageLookupVersion, queryKey]);
   const cachedImageEntry = !bypassClientCache && queryKey ? recipePhotoSuccessCache.get(queryKey) : undefined;
   const cachedImage =
-    isUsableRecipeCardImageUrl(cachedImageEntry?.imageUrl, hasGeneratedImageAccess) &&
+    isUsableRecipeCardImageUrl(cachedImageEntry?.imageUrl) &&
     !isFailedImageUrl(cachedImageEntry.imageUrl) &&
     !isRecipePhotoRecentlyAssignedToDifferentQuery(cachedImageEntry.imageUrl, queryKey, reuseKey)
       ? cachedImageEntry.imageUrl
@@ -182,7 +182,7 @@ export function MealRevealCard({
   const cachedFailure = !hasGeneratedImageAccess && !bypassClientCache && queryKey ? isRecipePhotoFailureCached(queryKey) : false;
   const lookedUpImage =
     lookupState.queryKey === queryKey &&
-    isUsableRecipeCardImageUrl(lookupState.image, hasGeneratedImageAccess) &&
+    isUsableRecipeCardImageUrl(lookupState.image) &&
     !isFailedImageUrl(lookupState.image)
       ? lookupState.image
       : "";
@@ -190,7 +190,7 @@ export function MealRevealCard({
   const lookupLoading = lookupState.queryKey === queryKey ? lookupState.loading : false;
   const lookupRetrying = lookupState.queryKey === queryKey ? lookupState.retrying : false;
   const internetProvidedImage =
-    isUsableRecipeCardImageUrl(imageUrl, hasGeneratedImageAccess) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
+    isUsableRecipeCardImageUrl(imageUrl) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
   const effectiveProvidedImage = internetProvidedImage;
   const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
@@ -365,7 +365,7 @@ export function MealRevealCard({
               }
             | null;
 
-          if (response.ok && isUsableRecipeCardImageUrl(data?.imageUrl, hasGeneratedImageAccess)) {
+          if (response.ok && isUsableRecipeCardImageUrl(data?.imageUrl)) {
             return {
               imageAttributionName: data.imageAttributionName,
               imageAttributionUrl: data.imageAttributionUrl,
@@ -990,7 +990,7 @@ function isInternetImageUrl(imageUrl?: string): imageUrl is string {
   return isDurableRecipeImageUrl(imageUrl);
 }
 
-function isUsableRecipeCardImageUrl(imageUrl: string | undefined, _hasGeneratedImageAccess: boolean): imageUrl is string {
+function isUsableRecipeCardImageUrl(imageUrl: string | undefined): imageUrl is string {
   if (!isInternetImageUrl(imageUrl)) return false;
   // Accept any durable non-weak image for display regardless of access tier.
   // Premium Replicate generation is orchestrated by MealPlanTab; this gate

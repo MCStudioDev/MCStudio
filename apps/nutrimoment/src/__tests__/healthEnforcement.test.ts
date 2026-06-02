@@ -35,4 +35,50 @@ describe("health enforcement", () => {
       )
     ).toEqual({ condition: "weightLoss", match: "fried" });
   });
+
+  it("uses nutrition numbers for diabetes profiles", () => {
+    expect(
+      findRecipeHealthViolation(
+        { name: "Sweet rice bowl", ingredients: ["rice", "dates"], calories: 520, carbs: "78g", sugar: "22g", protein: "8g" },
+        ["diabetes"]
+      )
+    ).toEqual({ condition: "diabetes", match: "sugar>15g" });
+  });
+
+  it("uses nutrition numbers for low blood pressure profiles", () => {
+    expect(
+      findRecipeHealthViolation(
+        { name: "Tiny cucumber salad", ingredients: ["cucumber", "lettuce"], calories: 180, sodium: "80mg", protein: "4g" },
+        ["lowBloodPressure"]
+      )
+    ).toEqual({ condition: "lowBloodPressure", match: "calories<320" });
+  });
+
+  it("uses nutrition numbers for weight-gain profiles", () => {
+    expect(
+      findRecipeHealthViolation(
+        { name: "Light broth", ingredients: ["vegetable broth", "herbs"], calories: 240, protein: "7g" },
+        ["weightGain"]
+      )
+    ).toEqual({ condition: "weightGain", match: "calories<430" });
+  });
+
+  it("allows numerically compatible health meals", () => {
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Salmon quinoa vegetable plate",
+          ingredients: ["salmon", "quinoa", "broccoli", "olive oil"],
+          calories: 540,
+          carbs: "38g",
+          sugar: "6g",
+          sodium: "420mg",
+          fat: "18g",
+          fiber: "6g",
+          protein: "38g"
+        },
+        ["diabetes", "highBloodPressure", "weightGain", "cholesterol"]
+      )
+    ).toBeNull();
+  });
 });

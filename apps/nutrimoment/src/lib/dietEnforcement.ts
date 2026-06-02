@@ -1300,6 +1300,20 @@ export function findRecipeDietViolation(
   return null;
 }
 
+export function findIngredientDietViolation(
+  ingredient: string,
+  ctx: DietEnforcementContext
+): ForbiddenReason | null {
+  if (!ingredient.trim()) return null;
+  return findRecipeDietViolation(
+    {
+      ingredients: [ingredient],
+      name: ingredient
+    },
+    ctx
+  );
+}
+
 export interface DietFilterResult<T> {
   allowed: T[];
   rejected: Array<{ recipe: T; reason: ForbiddenReason }>;

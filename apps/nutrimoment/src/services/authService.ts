@@ -130,7 +130,7 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
           email: decoded.email ?? null,
           tier: "free",
           role: "user",
-          status: "active",
+          status: "free",
           features: {},
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
@@ -269,7 +269,7 @@ export function hasGeneratedRecipeImageAccess(access: RequestAccess) {
   return access.isAdmin || access.isPremium;
 }
 
-function resolveEffectiveAccessTier(entitlementData: Record<string, unknown> | undefined, claimTier: unknown): AccessTier {
+export function resolveEffectiveAccessTier(entitlementData: Record<string, unknown> | undefined, claimTier: unknown): AccessTier {
   const entitlementTier = entitlementData?.tier === "premium" || entitlementData?.tier === "free"
     ? entitlementData.tier
     : undefined;
@@ -279,6 +279,7 @@ function resolveEffectiveAccessTier(entitlementData: Record<string, unknown> | u
 
   if (["free", "expired", "canceled", "cancelled", "inactive"].includes(status)) return "free";
   if (isExpired) return "free";
+  if (entitlementTier === "free") return "free";
 
   if (
     entitlementTier === "premium" ||

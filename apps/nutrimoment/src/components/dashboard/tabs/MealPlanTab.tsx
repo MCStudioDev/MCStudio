@@ -32,7 +32,7 @@ const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
 const MEAL_PLAN_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const MEAL_PLAN_HISTORY_ENTRY_STORAGE_KEY = "nutrimoment-meal-plan-history-entry";
 const PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY = "nutrimoment.pendingMealPlanGenerationIds";
-const MEAL_PLAN_GENERATION_TIMEOUT_MS = 85_000;
+const MEAL_PLAN_GENERATION_TIMEOUT_MS = 180_000;
 const MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS = 3 * 60 * 1000;
 const MEAL_PLAN_HISTORY_ENTRY_TIMEOUT_MS = 8_000;
 const MEAL_PLAN_IMAGE_APPLY_CONCURRENCY = 4;
@@ -120,6 +120,7 @@ export function MealPlanTab() {
 
     setLoading(true);
     let pendingHistoryEntryId: string | null = null;
+    let keepPendingRecoveryActive = false;
     try {
       const historyIngredients = items.map((item) => item.name);
       pendingHistoryEntryId = await withClientTimeout(
@@ -183,16 +184,27 @@ export function MealPlanTab() {
       }
     } catch (error) {
       const interrupted = pendingHistoryEntryId && isLikelyBackgroundFetchInterruption(error);
-      const message = interrupted
-        ? "Meal plan generation was interrupted before it finished. Please try again."
-        : error instanceof Error ? error.message : "Failed to generate meal plan";
+      if (interrupted) {
+        keepPendingRecoveryActive = true;
+        setError("Meal plan is still finishing. We will refresh it automatically when it is ready.");
+        window.setTimeout(() => {
+          void reloadMealPlan().finally(() => {
+            if (!readPendingMealPlanGenerationIds().length) {
+              setLoading(false);
+            }
+          });
+        }, 5000);
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "Failed to generate meal plan";
       if (pendingHistoryEntryId) {
         await updateEntryStatus(pendingHistoryEntryId, "failed", message).catch(() => undefined);
         forgetPendingMealPlanGeneration(pendingHistoryEntryId);
       }
       setError(message);
     } finally {
-      setLoading(false);
+      setLoading(keepPendingRecoveryActive ? readPendingMealPlanGenerationIds().length > 0 : false);
     }
   };
 
@@ -914,7 +926,7 @@ function MealPlanRevealCard({
       summary={buildMealSummary(ingredients, haveIngredients, needIngredients, t)}
       previewLabel={t("pantryNutritionPreview")}
       previewItems={[...haveIngredients, ...needIngredients].slice(0, 5)}
-      imageUrl={hasStrictRenderableImage(meal.image_url, false) ? meal.image_url : undefined}
+      imageUrl={hasStrictRenderableImage(meal.image_url, Boolean(strictGeneratedImages)) ? meal.image_url : undefined}
       imageSource={meal.image_source}
       imageAttributionName={meal.image_attribution_name}
       imageAttributionUrl={meal.image_attribution_url}

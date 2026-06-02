@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildMealPlanPrompt, buildRecipeGenerationPrompt } from "../lib/aiPrompts";
+import { getCuisineDishReferenceText } from "../lib/cuisineDishCatalog";
 
 describe("cuisine prompt depth", () => {
   it("keeps Italian generation anchored to iconic dishes including pizza", () => {
@@ -141,12 +142,32 @@ describe("cuisine prompt depth", () => {
     expect(vegetarianPrompt).toContain("Southern-inspired vegetarian dinner variety");
     expect(vegetarianPrompt).toContain("Good Food-inspired vegetarian dinner variety");
     expect(vegetarianPrompt).toContain("Everyday vegetarian dinner variety");
+    expect(vegetarianPrompt).toContain("Vegetable-forward mandate");
+    expect(vegetarianPrompt).toContain("Vegetable technique ladder");
+    expect(vegetarianPrompt).toContain("Vegetable-specific dish map");
     expect(vegetarianPrompt).toContain("black bean enchiladas");
     expect(vegetarianPrompt).toContain("chickpea shawarma bowls");
+    expect(vegetarianPrompt).toContain("mushroom curry");
+    expect(vegetarianPrompt).toContain("zucchini boats");
+    expect(vegetarianPrompt).toContain("broccoli oat-milk soup");
     expect(vegetarianPrompt).toContain("no eggs, and no dairy");
     expect(vegetarianPrompt).toContain("almond milk, oat milk, coconut milk");
     expect(vegetarianPrompt).toContain("vegan pancakes");
     expect(vegetarianPrompt).toContain("Do not use eggs or dairy as shortcuts");
+  });
+
+  it("adds vegetable-forward cuisine references and shawarma to Egyptian and Turkish", () => {
+    expect(getCuisineDishReferenceText("Egyptian", 80)).toContain("egyptian chicken shawarma wrap");
+    expect(getCuisineDishReferenceText("Egyptian", 80)).toContain("vegetarian egyptian mixed mahshi");
+    expect(getCuisineDishReferenceText("Egyptian", 80)).toContain("egyptian vegetarian moussaka");
+
+    expect(getCuisineDishReferenceText("Turkish", 80)).toContain("turkish chicken shawarma doner wrap");
+    expect(getCuisineDishReferenceText("Turkish", 80)).toContain("vegetarian sarma");
+    expect(getCuisineDishReferenceText("Turkish", 80)).toContain("imam bayildi");
+
+    expect(getCuisineDishReferenceText("Italian", 80)).toContain("pasta primavera");
+    expect(getCuisineDishReferenceText("Mexican", 80)).toContain("calabacitas");
+    expect(getCuisineDishReferenceText("Asian", 80)).toContain("vegetable lo mein");
   });
 
   it("prevents shrimp recipes from clustering around garlic lemon seasoning", () => {
@@ -225,6 +246,52 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("potatoes, pasta, noodles, quinoa");
   });
 
+  it("ignores pantry items that conflict with the selected weekly-plan diet", () => {
+    const prompt = buildMealPlanPrompt({
+      pantry: ["chicken", "ground beef", "zucchini", "mushrooms", "tomato", "pasta"],
+      pantryItems: [
+        { name: "chicken", quantity: "1 kg" },
+        { name: "ground beef", quantity: "500g" },
+        { name: "zucchini", quantity: "3 whole" },
+        { name: "mushrooms", quantity: "300g" },
+        { name: "tomato", quantity: "4 whole" },
+        { name: "pasta", quantity: "500g" }
+      ],
+      diets: ["vegetarian"],
+      conditions: [],
+      allergens: [],
+      preferredCuisine: "Italian",
+      recipeLanguage: "English"
+    });
+
+    expect(prompt).toContain("Diet-first pantry mode");
+    expect(prompt).toContain("Pantry cannot override user preference");
+    expect(prompt).toContain("Diet-compatible pantry items for this user: zucchini, mushrooms, tomato, pasta.");
+    expect(prompt).toContain("Ignored pantry items for this plan because they conflict");
+    expect(prompt).toContain("chicken, ground beef");
+
+    const arabicPrompt = buildMealPlanPrompt({
+      pantry: ["chicken", "ground beef", "zucchini", "mushrooms", "tomato", "pasta"],
+      pantryItems: [
+        { name: "chicken", quantity: "1 kg" },
+        { name: "ground beef", quantity: "500g" },
+        { name: "zucchini", quantity: "3 whole" },
+        { name: "mushrooms", quantity: "300g" },
+        { name: "tomato", quantity: "4 whole" },
+        { name: "pasta", quantity: "500g" }
+      ],
+      diets: ["vegetarian"],
+      conditions: [],
+      allergens: [],
+      preferredCuisine: "Italian",
+      recipeLanguage: "Arabic"
+    });
+
+    expect(arabicPrompt).toContain("مكونات المستخدم المتوافقة مع النظام الغذائي");
+    expect(arabicPrompt).toContain("zucchini, mushrooms, tomato, pasta");
+    expect(arabicPrompt).toContain("Ignored pantry items for this plan because they conflict");
+  });
+
   it("requires recipe photo identity and supports empty-pantry meal planning", () => {
     const recipePrompt = buildRecipeGenerationPrompt(
       [{ name: "Chicken", quantity: "1 kg" }],
@@ -250,7 +317,7 @@ describe("cuisine prompt depth", () => {
 
     expect(recipePrompt).toContain("Every recipe MUST also include a photo_identity object");
     expect(recipePrompt).toContain("Each recipe object must include: name, cuisine, dish_intent, photo_identity");
-    expect(mealPlanPrompt).toContain("Empty-pantry creative mode");
+    expect(mealPlanPrompt).toContain("Empty-or-incompatible-pantry creative mode");
     expect(mealPlanPrompt).toContain("Build a full shoppingList");
   });
 

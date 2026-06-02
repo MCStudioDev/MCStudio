@@ -32,6 +32,41 @@ describe("scan recipe guard service", () => {
       )
     ).toBe(false);
   });
+
+  it("does not inject seafood fallback cards for vegan vegetarian dairy-free scans", () => {
+    const repaired = repairScanRecipesWithGuard(buildBadFreeScanRecipes(), {
+      allergens: [],
+      calorieTarget: 1650,
+      conditions: ["weightLoss", "highCholesterol", "highBloodPressure"],
+      diets: ["vegetarian", "vegan", "dairyFree"],
+      inputIngredients: ["rice"],
+      preferredCuisine: "Egyptian",
+      recipeCount: 10,
+      recipeLanguage: "Arabic",
+      scoringIngredients: ["rice", "shrimp"]
+    });
+
+    expect(JSON.stringify(repaired)).not.toMatch(/shrimp|salmon|fish|tilapia|seafood|Ø¬Ù…Ø¨Ø±ÙŠ|Ø³Ù…Ùƒ|Ø³Ù„Ù…ÙˆÙ†|Ø¨Ù„Ø·ÙŠ/i);
+    expect(repaired.map((recipe) => findRecipeDietViolation(recipe, { diets: ["vegetarian", "vegan", "dairyFree"], allergens: [] }))).toEqual(
+      Array(repaired.length).fill(null)
+    );
+  });
+
+  it("does not inject seafood fallback cards when seafood is scanned but pescatarian is not selected", () => {
+    const repaired = repairScanRecipesWithGuard(buildBadFreeScanRecipes(), {
+      allergens: [],
+      calorieTarget: 1650,
+      conditions: ["weightLoss"],
+      diets: ["dairyFree"],
+      inputIngredients: ["rice", "shrimp"],
+      preferredCuisine: "Egyptian",
+      recipeCount: 10,
+      recipeLanguage: "Arabic",
+      scoringIngredients: ["rice", "shrimp"]
+    });
+
+    expect(JSON.stringify(repaired)).not.toMatch(/shrimp|salmon|fish|tilapia|seafood|Ø¬Ù…Ø¨Ø±ÙŠ|Ø³Ù…Ùƒ|Ø³Ù„Ù…ÙˆÙ†|Ø¨Ù„Ø·ÙŠ/i);
+  });
 });
 
 function buildBadFreeScanRecipes(): Recipe[] {

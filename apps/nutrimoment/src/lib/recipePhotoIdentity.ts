@@ -581,6 +581,17 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   },
   {
     aliases: [
+      /\b(eggplant tomato pasta|eggplant pasta with tomato|pasta alla norma|aubergine tomato pasta|aubergine pasta)\b/i,
+      /\b(pasta with eggplant and tomato|tomato eggplant pasta|eggplant marinara pasta)\b/i,
+      /(?:\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646).*(?:\u0637\u0645\u0627\u0637\u0645|\u0635\u0644\u0635(?:\u0629|\u0647)).*(?:\u0645\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0645\u0639\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0628\u0627\u0633\u062a\u0627|\u0633\u0628\u0627\u062c\u064a\u062a\u064a|\u0628\u064a\u0646\u064a)/iu,
+      /(?:\u0645\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0645\u0639\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0628\u0627\u0633\u062a\u0627|\u0633\u0628\u0627\u062c\u064a\u062a\u064a|\u0628\u064a\u0646\u064a).*(?:\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646).*(?:\u0637\u0645\u0627\u0637\u0645|\u0635\u0644\u0635(?:\u0629|\u0647))/iu
+    ],
+    canonicalName: "eggplant tomato pasta",
+    cuisineKey: "italian",
+    key: "eggplant-tomato-pasta"
+  },
+  {
+    aliases: [
       /\b(ground beef pasta|beef pasta skillet|beef tomato pasta|hamburger pasta)\b/i,
       /\b(elbow macaroni|macaroni)\s+(?:with|and)\s+(?:ground beef|minced beef|meat sauce)\b/i
     ],
@@ -1528,6 +1539,17 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   },
   {
     aliases: [
+      /\b(avocado tomato (?:sourdough )?toast|avocado (?:and )?tomato toast|sourdough avocado tomato toast)\b/i,
+      /\b(tomato avocado (?:sourdough )?toast|avocado toast with tomato)\b/i,
+      /(?:\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648).*(?:\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)).*(?:\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u062a\u0648\u0633\u062a|\u062e\u0628\u0632)/iu,
+      /(?:\u062a\u0648\u0633\u062a|\u062e\u0628\u0632).*(?:\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648).*(?:\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647))/iu
+    ],
+    canonicalName: "avocado tomato sourdough toast",
+    cuisineKey: "western",
+    key: "avocado-tomato-toast"
+  },
+  {
+    aliases: [
       /\b(sunny side eggs with avocado toast|eggs with avocado toast|avocado toast with fried egg|fried egg avocado toast)\b/i,
       /\u0628\u064a\u0636.*(?:\u0639\u064a\u0648\u0646).*(?:\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648|\u062a\u0648\u0633\u062a)/iu
     ],
@@ -1652,6 +1674,8 @@ const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "chickpea", pattern: new RegExp(`\\bchickpea|chickpeas\\b|${ARABIC.chickpea}`, "iu") },
   { key: "lentil", pattern: new RegExp(`\\blentil|lentils\\b|${ARABIC.lentil}`, "iu") },
   { key: "bean", pattern: new RegExp(`\\bbean|beans|fava\\b|${ARABIC.fava}|${ARABIC.bean}|${ARABIC.loubia}`, "iu") },
+  { key: "eggplant", pattern: /\beggplant|aubergine\b|\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646/iu },
+  { key: "avocado", pattern: /\bavocado\b|\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648/iu },
   { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") }
 ];
 
@@ -1678,7 +1702,10 @@ const STARCH_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") },
   { key: "bulgur", pattern: /\bbulgur|burghul|borghol\b/iu },
   { key: "potato", pattern: /\bpotato|potatoes\b/iu },
-  { key: "bread", pattern: /\bbread|toast|bun|roll|wrap\b/iu }
+  {
+    key: "bread",
+    pattern: /\bbread|toast|bun|roll|wrap\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/iu
+  }
 ];
 
 const COOKING_METHOD_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
@@ -2163,6 +2190,12 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("vegetable omelet"), withCuisine("spinach omelet"), withCuisine("bell pepper omelet")];
     case "egg-scramble":
       return [withCuisine("scrambled eggs spinach"), withCuisine("egg scramble"), withCuisine("breakfast eggs")];
+    case "avocado-tomato-toast":
+      return [
+        withCuisine("avocado tomato sourdough toast"),
+        withCuisine("avocado tomato toast"),
+        withCuisine("sourdough avocado toast tomato")
+      ];
     case "chicken-shawarma":
     case "chicken-shawarma-bowl":
       return [
@@ -2295,6 +2328,8 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("ground beef penne"), withCuisine("beef tomato penne"), withCuisine("one pan beef penne")];
     case "ground-beef-pasta":
       return [withCuisine("ground beef pasta"), withCuisine("beef macaroni skillet"), withCuisine("hamburger pasta")];
+    case "eggplant-tomato-pasta":
+      return [withCuisine("eggplant tomato pasta"), withCuisine("pasta alla norma"), withCuisine("aubergine tomato pasta")];
     case "hamburger-stew":
       return [withCuisine("hamburger stew"), withCuisine("ground beef vegetable stew"), withCuisine("hamburger soup potatoes carrots")];
     case "rice-kofta":

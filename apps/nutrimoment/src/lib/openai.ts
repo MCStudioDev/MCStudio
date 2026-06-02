@@ -3,15 +3,16 @@ import { logger } from "@/lib/logger";
 
 const apiKey = process.env.GEMINI_API_KEY ?? "";
 const defaultTextModel = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash-lite";
-const fallbackTextModels = (process.env.GEMINI_TEXT_FALLBACK_MODELS ?? "gemini-2.5-flash-lite")
+const fallbackTextModels = (process.env.GEMINI_TEXT_FALLBACK_MODELS ?? "gemini-2.5-flash,gemini-2.0-flash-lite")
   .split(",")
   .map((model) => model.trim())
   .filter(Boolean);
 const defaultVisionModel = process.env.GEMINI_VISION_MODEL ?? "gemini-2.5-flash-lite";
-const fallbackVisionModels = (process.env.GEMINI_VISION_FALLBACK_MODELS ?? fallbackTextModels.join(","))
+const fallbackVisionModels = (process.env.GEMINI_VISION_FALLBACK_MODELS ?? "gemini-2.5-flash,gemini-2.0-flash-lite")
   .split(",")
   .map((model) => model.trim())
   .filter(Boolean);
+const transientRetryAttempts = Math.max(1, Number(process.env.GEMINI_TRANSIENT_RETRY_ATTEMPTS ?? "2") || 2);
 
 export interface AiCallTraceOptions {
   feature?: string;
@@ -78,6 +79,10 @@ function getModelAttempts(modelName: string, fallbacks: string[]) {
   return Array.from(new Set([modelName, ...fallbacks]));
 }
 
+function getAttemptDelayMs(attempt: number) {
+  return Math.min(2000, 500 * attempt);
+}
+
 export function isTransientModelError(error: unknown) {
   const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : undefined;
   const message = error instanceof Error ? error.message : String(error);
@@ -121,46 +126,56 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
 
   const modelAttempts = getModelAttempts(modelName, fallbackTextModels);
   let lastError: unknown;
-  for (const [index, model] of modelAttempts.entries()) {
-    try {
-      logger.debug("Gemini text generation attempt started", {
-        requestId: trace?.requestId,
-        feature: trace?.feature,
-        phase: trace?.phase,
-        model,
-        attempt: index + 1,
-        attempts: modelAttempts.length
-      });
-      const response = await client.models.generateContent({
-        model,
-        contents: prompt
-      });
+  const totalAttempts = modelAttempts.length * transientRetryAttempts;
+  let attempt = 0;
+  for (const model of modelAttempts) {
+    for (let modelAttempt = 1; modelAttempt <= transientRetryAttempts; modelAttempt += 1) {
+      attempt += 1;
+      try {
+        logger.debug("Gemini text generation attempt started", {
+          requestId: trace?.requestId,
+          feature: trace?.feature,
+          phase: trace?.phase,
+          model,
+          modelAttempt,
+          attempt,
+          attempts: totalAttempts
+        });
+        const response = await client.models.generateContent({
+          model,
+          contents: prompt
+        });
 
-      const text = response.text?.trim() ?? "";
-      if (!text) throw new Error(`Empty response from Gemini model ${model}`);
-      logger.info("Gemini text generation attempt succeeded", {
-        requestId: trace?.requestId,
-        feature: trace?.feature,
-        phase: trace?.phase,
-        model,
-        attempt: index + 1,
-        attempts: modelAttempts.length
-      });
-      return text;
-    } catch (error) {
-      lastError = error;
-      logger.error("Gemini text generation attempt failed", error, {
-        requestId: trace?.requestId,
-        feature: trace?.feature,
-        phase: trace?.phase,
-        model,
-        attempt: index + 1,
-        attempts: modelAttempts.length,
-        ...getGeminiErrorLog(error)
-      });
-      if (!isTransientModelError(error)) break;
-      if (index < modelAttempts.length - 1) {
-        await delay(400);
+        const text = response.text?.trim() ?? "";
+        if (!text) throw new Error(`Empty response from Gemini model ${model}`);
+        logger.info("Gemini text generation attempt succeeded", {
+          requestId: trace?.requestId,
+          feature: trace?.feature,
+          phase: trace?.phase,
+          model,
+          modelAttempt,
+          attempt,
+          attempts: totalAttempts
+        });
+        return text;
+      } catch (error) {
+        lastError = error;
+        logger.error("Gemini text generation attempt failed", error, {
+          requestId: trace?.requestId,
+          feature: trace?.feature,
+          phase: trace?.phase,
+          model,
+          modelAttempt,
+          attempt,
+          attempts: totalAttempts,
+          ...getGeminiErrorLog(error)
+        });
+        if (!isTransientModelError(error)) {
+          throw error instanceof Error ? error : new Error(String(error));
+        }
+        if (attempt < totalAttempts) {
+          await delay(getAttemptDelayMs(modelAttempt));
+        }
       }
     }
   }
@@ -180,55 +195,65 @@ export async function callOpenAIVision(
   const normalizedImage = normalizeImageInput(image);
   const modelAttempts = getModelAttempts(modelName, fallbackVisionModels);
   let lastError: unknown;
+  const totalAttempts = modelAttempts.length * transientRetryAttempts;
+  let attempt = 0;
 
-  for (const [index, model] of modelAttempts.entries()) {
-    try {
-      logger.debug("Gemini vision generation attempt started", {
-        requestId: trace?.requestId,
-        feature: trace?.feature,
-        phase: trace?.phase,
-        model,
-        attempt: index + 1,
-        attempts: modelAttempts.length
-      });
-      const response = await client.models.generateContent({
-        model,
-        contents: [
-          {
-            inlineData: {
-              mimeType: normalizedImage.mimeType,
-              data: normalizedImage.data
-            }
-          },
-          { text: prompt }
-        ]
-      });
+  for (const model of modelAttempts) {
+    for (let modelAttempt = 1; modelAttempt <= transientRetryAttempts; modelAttempt += 1) {
+      attempt += 1;
+      try {
+        logger.debug("Gemini vision generation attempt started", {
+          requestId: trace?.requestId,
+          feature: trace?.feature,
+          phase: trace?.phase,
+          model,
+          modelAttempt,
+          attempt,
+          attempts: totalAttempts
+        });
+        const response = await client.models.generateContent({
+          model,
+          contents: [
+            {
+              inlineData: {
+                mimeType: normalizedImage.mimeType,
+                data: normalizedImage.data
+              }
+            },
+            { text: prompt }
+          ]
+        });
 
-      const text = response.text?.trim() ?? "";
-      if (!text) throw new Error(`Empty response from Gemini model ${model}`);
-      logger.info("Gemini vision generation attempt succeeded", {
-        requestId: trace?.requestId,
-        feature: trace?.feature,
-        phase: trace?.phase,
-        model,
-        attempt: index + 1,
-        attempts: modelAttempts.length
-      });
-      return text;
-    } catch (error) {
-      lastError = error;
-      logger.error("Gemini vision generation attempt failed", error, {
-        requestId: trace?.requestId,
-        feature: trace?.feature,
-        phase: trace?.phase,
-        model,
-        attempt: index + 1,
-        attempts: modelAttempts.length,
-        ...getGeminiErrorLog(error)
-      });
-      if (!isTransientModelError(error)) break;
-      if (index < modelAttempts.length - 1) {
-        await delay(400);
+        const text = response.text?.trim() ?? "";
+        if (!text) throw new Error(`Empty response from Gemini model ${model}`);
+        logger.info("Gemini vision generation attempt succeeded", {
+          requestId: trace?.requestId,
+          feature: trace?.feature,
+          phase: trace?.phase,
+          model,
+          modelAttempt,
+          attempt,
+          attempts: totalAttempts
+        });
+        return text;
+      } catch (error) {
+        lastError = error;
+        logger.error("Gemini vision generation attempt failed", error, {
+          requestId: trace?.requestId,
+          feature: trace?.feature,
+          phase: trace?.phase,
+          model,
+          modelAttempt,
+          attempt,
+          attempts: totalAttempts,
+          ...getGeminiErrorLog(error)
+        });
+        if (!isTransientModelError(error)) {
+          throw error instanceof Error ? error : new Error(String(error));
+        }
+        if (attempt < totalAttempts) {
+          await delay(getAttemptDelayMs(modelAttempt));
+        }
       }
     }
   }

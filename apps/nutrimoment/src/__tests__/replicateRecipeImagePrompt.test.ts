@@ -97,6 +97,22 @@ describe("replicate recipe image prompts", () => {
     expect(negativePrompt).toContain("sweet pudding");
   });
 
+  it("locks Arabic lentil yakhna to soup instead of rice or chicken tenders", () => {
+    const yakhnaAdas = "\u064a\u062e\u0646\u0647 \u0639\u062f\u0633";
+    const prompt = buildRecipeImagePromptForTest(yakhnaAdas, ["\u0639\u062f\u0633", "\u0645\u0631\u0642\u0629"], {
+      exactRecipeName: yakhnaAdas
+    });
+    const negativePrompt = buildRecipeImageNegativePromptForTest(yakhnaAdas, ["\u0639\u062f\u0633", "\u0645\u0631\u0642\u0629"]);
+
+    expect(prompt).toContain("lentil soup in a bowl");
+    expect(prompt).toContain("lentils suspended in the soup");
+    expect(prompt).toContain("not dry beans on a plate");
+    expect(prompt).toContain("do not show chicken tenders");
+    expect(negativePrompt).toContain("dry rice plate");
+    expect(negativePrompt).toContain("chicken tenders");
+    expect(negativePrompt).toContain("no visible liquid");
+  });
+
   it("translates Arabic macaroni terms as pasta", () => {
     const prompt = buildRecipeImagePromptForTest(
       "معكرونة بالصلصة",
@@ -134,5 +150,35 @@ describe("replicate recipe image prompts", () => {
     expect(buildRecipePhotoIdentity("spicy ful with tahini lemon cumin").canonicalDishKey).toBe("spicy-ful-bil-zeit");
     expect(buildRecipePhotoIdentity("ful sandwich in baladi bread").canonicalDishKey).toBe("ful-sandwich");
     expect(buildRecipePhotoIdentity("plain ful mudammas").canonicalDishKey).toBe("ful-medames");
+  });
+
+  it("reads Arabic avocado tomato toast as toast, not rice", () => {
+    const arabicTitle = "\u0623\u0641\u0648\u0643\u0627\u062f\u0648 \u0637\u0645\u0627\u0637\u0645 \u0633\u0627\u0648\u0631\u062f\u0648\u063a \u062a\u0648\u0633\u062a";
+    const identity = buildRecipePhotoIdentity(arabicTitle);
+    const prompt = buildRecipeImagePromptForTest(arabicTitle, ["\u0623\u0641\u0648\u0643\u0627\u062f\u0648", "\u0637\u0645\u0627\u0637\u0645", "\u062a\u0648\u0633\u062a"], {
+      exactRecipeName: arabicTitle
+    });
+
+    expect(identity.canonicalDishKey).toBe("avocado-tomato-toast");
+    expect(identity.starchKey).toBe("bread");
+    expect(prompt).toContain("avocado tomato sourdough toast");
+    expect(prompt).toContain("bread must be clearly visible");
+    expect(prompt).toContain("not a rice plate");
+    expect(prompt).toContain("Do not show or imply: rice");
+  });
+
+  it("reads Arabic eggplant tomato pasta as eggplant pasta, not plain red sauce pasta", () => {
+    const arabicTitle = "\u0628\u0627\u0630\u0646\u062c\u0627\u0646 \u0637\u0645\u0627\u0637\u0645 \u0645\u0643\u0631\u0648\u0646\u0629 \u0635\u064a\u0646\u064a\u0629";
+    const identity = buildRecipePhotoIdentity(arabicTitle);
+    const prompt = buildRecipeImagePromptForTest(arabicTitle, ["\u0628\u0627\u0630\u0646\u062c\u0627\u0646", "\u0637\u0645\u0627\u0637\u0645", "\u0645\u0643\u0631\u0648\u0646\u0629"], {
+      exactRecipeName: arabicTitle
+    });
+
+    expect(identity.canonicalDishKey).toBe("eggplant-tomato-pasta");
+    expect(identity.starchKey).toBe("pasta");
+    expect(prompt).toContain("eggplant tomato pasta");
+    expect(prompt).toContain("visible chunks or slices of roasted or sauteed eggplant");
+    expect(prompt).toContain("rather than plain red sauce pasta");
+    expect(prompt).toContain("Do not show or imply: plain pasta with only red sauce");
   });
 });

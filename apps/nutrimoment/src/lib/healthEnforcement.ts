@@ -25,7 +25,7 @@ export interface HealthEnforcementSubject {
 }
 
 export interface HealthViolation {
-  condition: "cholesterol" | "highBloodPressure" | "weightLoss";
+  condition: "cholesterol" | "diabetes" | "highBloodPressure" | "lowBloodPressure" | "weightGain" | "weightLoss";
   match: string;
 }
 
@@ -97,22 +97,79 @@ export function findRecipeHealthViolation(
   if (!conditions.length) return null;
 
   const haystack = buildHealthSearchText(subject);
+  const nutrition = readNutritionNumbers(subject);
+  if (conditions.includes("diabetes")) {
+    if (nutrition.sugar != null && nutrition.sugar > 15) return { condition: "diabetes", match: `sugar>${15}g` };
+    if (nutrition.carbs != null && nutrition.carbs > 55) return { condition: "diabetes", match: `carbs>${55}g` };
+    if (nutrition.carbs != null && nutrition.carbs > 45 && nutrition.protein != null && nutrition.protein < 12) {
+      return { condition: "diabetes", match: "high-carb low-protein" };
+    }
+  }
+
   if (conditions.includes("cholesterol")) {
     const match = findTerm(haystack, HEART_HEAVY_TERMS);
     if (match) return { condition: "cholesterol", match };
+    if (nutrition.fat != null && nutrition.fat > 26) return { condition: "cholesterol", match: `fat>${26}g` };
+    if (nutrition.fiber != null && nutrition.fiber < 3 && nutrition.fat != null && nutrition.fat > 18) {
+      return { condition: "cholesterol", match: "high-fat low-fiber" };
+    }
   }
 
   if (conditions.includes("highBloodPressure")) {
     const match = findTerm(haystack, LOW_SODIUM_RISK_TERMS);
     if (match) return { condition: "highBloodPressure", match };
+    if (nutrition.sodium != null && nutrition.sodium > 700) return { condition: "highBloodPressure", match: `sodium>${700}mg` };
+  }
+
+  if (conditions.includes("lowBloodPressure")) {
+    if (nutrition.calories != null && nutrition.calories < 320) return { condition: "lowBloodPressure", match: `calories<${320}` };
+    if (nutrition.sodium != null && nutrition.sodium < 120) return { condition: "lowBloodPressure", match: `sodium<${120}mg` };
+  }
+
+  if (conditions.includes("weightGain")) {
+    if (nutrition.calories != null && nutrition.calories < 430) return { condition: "weightGain", match: `calories<${430}` };
+    if (nutrition.protein != null && nutrition.protein < 16) return { condition: "weightGain", match: `protein<${16}g` };
   }
 
   if (conditions.includes("weightLoss")) {
     const match = findTerm(haystack, WEIGHT_LOSS_HEAVY_TERMS);
     if (match) return { condition: "weightLoss", match };
+    if (nutrition.calories != null && nutrition.calories > 700) return { condition: "weightLoss", match: `calories>${700}` };
+    if (nutrition.fat != null && nutrition.fat > 28) return { condition: "weightLoss", match: `fat>${28}g` };
   }
 
   return null;
+}
+
+function readNutritionNumbers(subject: HealthEnforcementSubject) {
+  const maybeNutritionSubject = subject as HealthEnforcementSubject & {
+    calories?: number | string;
+    carbs?: number | string;
+    sugar?: number | string;
+    sodium?: number | string;
+    fat?: number | string;
+    fiber?: number | string;
+    protein?: number | string;
+  };
+
+  return {
+    calories: readNutritionNumber(maybeNutritionSubject.calories),
+    carbs: readNutritionNumber(maybeNutritionSubject.carbs),
+    sugar: readNutritionNumber(maybeNutritionSubject.sugar),
+    sodium: readNutritionNumber(maybeNutritionSubject.sodium),
+    fat: readNutritionNumber(maybeNutritionSubject.fat),
+    fiber: readNutritionNumber(maybeNutritionSubject.fiber),
+    protein: readNutritionNumber(maybeNutritionSubject.protein)
+  };
+}
+
+function readNutritionNumber(value: number | string | undefined): number | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  const match = value.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return undefined;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function buildHealthSearchText(subject: HealthEnforcementSubject) {

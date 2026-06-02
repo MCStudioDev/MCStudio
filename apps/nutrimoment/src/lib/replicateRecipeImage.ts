@@ -50,12 +50,24 @@ const ARABIC_FOOD_MEANINGS: Array<{ pattern: RegExp; promptMeaning: string; keyw
     pattern: /\u0645\u0639?\u0643\u0631\u0648\u0646(?:\u0629|\u0647)?/iu,
     promptMeaning: "معكرونة / مكرونة / makarona means pasta or macaroni, usually short pasta or spaghetti depending on the recipe",
     keywords: ["pasta", "macaroni", "spaghetti"]
+  },
+  {
+    pattern: /\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646/iu,
+    promptMeaning: "eggplant / aubergine must be visible as purple-skinned or browned eggplant pieces, not hidden as plain tomato sauce",
+    keywords: ["eggplant", "aubergine"]
+  },
+  {
+    pattern: /\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/iu,
+    promptMeaning: "toast, sourdough, khobz, or aish means bread/toast; show bread clearly when it is part of the recipe and do not replace it with rice",
+    keywords: ["bread", "toast", "sourdough"]
   }
 ];
 
 const ARABIC_PROMPT_INGREDIENT_ALIASES: Array<{ pattern: RegExp; english: string }> = [
   { pattern: /\u0639\u062f\u0633/iu, english: "lentils" },
   { pattern: /\u062e\u0636(?:\u0627\u0631|\u0631\u0648\u0627\u062a)|\u062e\u0636\u0631/iu, english: "vegetables" },
+  { pattern: /\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646/iu, english: "eggplant" },
+  { pattern: /\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648/iu, english: "avocado" },
   { pattern: /\u062c\u0632\u0631/iu, english: "carrot" },
   { pattern: /\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)/iu, english: "tomato" },
   { pattern: /\u0635\u0644\u0635(?:\u0629|\u0647)/iu, english: "sauce" },
@@ -63,6 +75,7 @@ const ARABIC_PROMPT_INGREDIENT_ALIASES: Array<{ pattern: RegExp; english: string
   { pattern: /\u0628\u0635\u0644/iu, english: "onion" },
   { pattern: /\u062b\u0648\u0645/iu, english: "garlic" },
   { pattern: /\u0623?\u0631\u0632|\u0631\u0632/iu, english: "rice" },
+  { pattern: /\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/iu, english: "toast or bread" },
   { pattern: /\u0628\u0637\u0627\u0637(?:\u0633|\u0627)/iu, english: "potato" },
   { pattern: /\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e/iu, english: "chicken" },
   { pattern: /\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646/iu, english: "shrimp" },
@@ -203,6 +216,16 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     avoid:
       "steak, beef strips, beef cubes, meatballs, burger patty, kofta, kebab, spaghetti-only plate, lasagna, creamy white sauce, rice, bread, salad, unrelated vegetables",
     cuisineStyle: "weeknight American comfort food"
+  },
+  "eggplant-tomato-pasta": {
+    englishName: "eggplant tomato pasta",
+    visualDescription:
+      "pasta tossed in red tomato sauce with visible chunks or slices of roasted or sauteed eggplant distributed through the sauce. Eggplant pieces must be large and recognizable, with dark purple skin or browned flesh visible, so the dish reads as eggplant tomato pasta or pasta alla norma rather than plain red sauce pasta",
+    plating:
+      "served as one close recipe-card bowl or shallow plate of pasta with tomato sauce and clearly visible eggplant pieces on top and mixed in",
+    avoid:
+      "plain pasta with only red sauce, spaghetti with no eggplant, meat sauce, shrimp pasta, rice, toast, soup, salad, lasagna, creamy white sauce, hidden eggplant, tiny invisible eggplant garnish",
+    cuisineStyle: "Italian vegetarian pasta"
   },
   "hamburger-stew": {
     englishName: "hamburger stew",
@@ -468,6 +491,14 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
       "toast topped with mashed or sliced avocado and sunny-side fried egg only when avocado and bread or toast are listed, with the egg yolk visible and avocado green clearly present",
     plating: "served as one toast or open-faced breakfast plate",
     avoid: "plain eggs, ful beans, meat skillet, no bread, no avocado, rice, pasta",
+    cuisineStyle: "modern breakfast toast"
+  },
+  "avocado-tomato-toast": {
+    englishName: "avocado tomato sourdough toast",
+    visualDescription:
+      "one slice of toasted sourdough or rustic toast topped with mashed or sliced green avocado and fresh red tomato slices or diced tomato only when tomato is listed. The bread must be clearly visible under the toppings and the dish must read as open-faced avocado tomato toast, not a rice plate",
+    plating: "served as one open-faced toast on a small breakfast plate, with avocado and tomato as the only main toppings",
+    avoid: "rice, rice bowl, tomato rice, pasta, eggs unless listed, meat, fish, shrimp, soup, salad bowl, plain tomato sauce, avocado hidden under sauce, extra side dishes",
     cuisineStyle: "modern breakfast toast"
   },
   "eggs-with-mushrooms": {
@@ -1382,7 +1413,7 @@ function buildRecipeImagePrompt(
 
   const primarySubject = inferPrimaryVisualSubject(visualSource, ingredientList, identity);
   const supportStarches = ingredientList.filter((ingredient) =>
-    /\b(rice|pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|bulgur|bread|pita|bun|potato|potatoes)\b/i.test(
+    /\b(rice|pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|bulgur|bread|toast|sourdough|pita|bun|potato|potatoes)\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/i.test(
       ingredient
     )
   );
@@ -1875,7 +1906,7 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
     allow(/\b(rice|pilaf|couscous|bulgur|burghul|quinoa)\b/i)
       ? ""
       : "rice, pilaf, couscous, bulgur, quinoa, grain bowl",
-    allow(/\b(bread|toast|pita|flatbread|bun|roll|wrap|tortilla|dough)\b/i) || isFlatbreadDish
+    allow(/\b(bread|toast|sourdough|pita|flatbread|bun|roll|wrap|tortilla|dough)\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/i) || isFlatbreadDish
       ? ""
       : "bread, toast, pita, flatbread, bun, roll, wrap, tortilla",
     allow(/\b(potato|potatoes|fries)\b/i) ? "" : "potatoes, fries",
@@ -1901,7 +1932,8 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
       ? "eggs, egg yolks, egg whites, poached egg, fried egg, boiled egg, omelette, mayonnaise, chicken, beef, lamb, fish, shrimp, seafood, meat"
       : "",
     isDairyFree ? "cheese, feta, mozzarella, parmesan, cream, yogurt, labneh, butter, ghee, dairy sauce" : "",
-    isArabicStewSource(source) ? "dessert, sweets, sweet pudding, custard, cake, candy, pastry" : ""
+    isArabicStewSource(source) ? "dessert, sweets, sweet pudding, custard, cake, candy, pastry" : "",
+    isSoupSource(source) ? "dry rice plate, rice bowl, chicken tenders, breaded chicken strips, random grilled meat, dry fried plate, no visible liquid" : ""
   ].filter(Boolean);
 
   return [
@@ -2107,6 +2139,10 @@ function inferPrimaryVisualSubject(
     return "seafood";
   }
 
+  if (isSoupSource(source, identity) && (/\b(lentils?|dal)\b/iu.test(source) || /\u0639\u062f\u0633/iu.test(source))) {
+    return "lentil soup in a bowl";
+  }
+
   const proteinMatch =
     source.match(/\b(liver|kebda|kibda|ciger|cigeri|chicken|beef|lamb|fish|shrimp|prawn|egg|eggs|lentils?|chickpeas?)\b/)?.[1] ?? "";
   if (proteinMatch) return proteinMatch;
@@ -2238,18 +2274,18 @@ function buildSoupVisualClause(
   const soupName = identity.canonicalDishKey?.replace(/-/g, " ") || identity.cleanQuery || "the named soup";
   const textureCue = /\b(chowder|cream|creamy|bisque)\b/iu.test(source)
     ? "The liquid should read as creamy soup or chowder only when cream or dairy is listed or the exact dish name requires it."
-    : /\b(lentil|dal|split pea|bean|fava|besara)\b/iu.test(source)
+    : /\b(lentil|dal|split pea|bean|fava|besara)\b/iu.test(source) || /\u0639\u062f\u0633|\u0641\u0648\u0644|\u0641\u0627\u0635\u0648\u0644\u064a\u0627/iu.test(source)
     ? "The liquid should read as thick legume soup with spoonable body, not dry beans on a plate."
     : /\b(noodle|ramen|pho)\b/iu.test(source)
     ? "The bowl may include noodles only when named or listed, but the broth must remain clearly visible."
     : "The liquid should read as broth or soup base, with visible spoonable liquid around the solids.";
   const visibleSolids = [
     /\b(mushroom|mushrooms)\b/iu.test(source) ? "mushroom pieces or slices" : "",
-    /\b(lentils?|dal)\b/iu.test(source) ? "lentils suspended in the soup" : "",
+    /\b(lentils?|dal)\b/iu.test(source) || /\u0639\u062f\u0633/iu.test(source) ? "lentils suspended in the soup" : "",
     /\b(bean|beans|chickpea|chickpeas|fava)\b/iu.test(source) ? "beans or chickpeas in the soup" : "",
-    /\b(tomato)\b/iu.test(source) ? "red tomato soup or tomato pieces" : "",
-    /\b(vegetable|carrot|celery|zucchini|squash|cauliflower|broccoli)\b/iu.test(source) ? "listed vegetables visible in the broth" : "",
-    /\b(chicken|beef|fish|shrimp|seafood)\b/iu.test(source) ? "the named protein visible in the soup liquid" : ""
+    /\b(tomato)\b/iu.test(source) || /\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)/iu.test(source) ? "red tomato soup or tomato pieces" : "",
+    /\b(vegetable|carrot|celery|zucchini|squash|cauliflower|broccoli)\b/iu.test(source) || /\u062e\u0636(?:\u0627\u0631|\u0631\u0648\u0627\u062a)|\u062e\u0636\u0631|\u062c\u0632\u0631|\u0643\u0648\u0633\u0627|\u0642\u0631\u0646\u0628\u064a\u0637|\u0628\u0631\u0648\u0643\u0644\u064a/iu.test(source) ? "listed vegetables visible in the broth" : "",
+    /\b(chicken|beef|fish|shrimp|seafood)\b/iu.test(source) || /\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e|\u0644\u062d\u0645|\u0633\u0645\u0643|\u062c\u0645\u0628\u0631\u064a/iu.test(source) ? "the named protein visible in the soup liquid" : ""
   ].filter(Boolean);
 
   return [
@@ -2260,6 +2296,7 @@ function buildSoupVisualClause(
       ? `Visible soup contents should match the recipe: ${visibleSolids.join(", ")}.`
       : "Show the named ingredients as contents inside the soup liquid, not plated separately.",
     "Hard negative: do not show dry sauteed vegetables, a salad, pasta plate, rice bowl, roasted tray, grilled plate, curry plate, or the main ingredient sitting alone without liquid.",
+    "Hard negative: do not show chicken tenders, fried strips, breaded pieces, random grilled meat, or a dry rice plate unless that exact protein or rice is listed and visibly inside the soup.",
     "Hard negative: do not show a sauce-coated plate and call it soup; the vessel and liquid must make it unmistakably soup.",
     forbiddenStarches.length
       ? `Hard negative: do not include ${forbiddenStarches.join("; ")} as side dishes unless listed; if a starch belongs in the soup, it must appear inside the bowl and not dominate.`
@@ -2338,7 +2375,15 @@ function buildForbiddenIngredientClause(
     forbiddenGroups.push("plain rice, pilaf, couscous, bulgur");
   }
 
-  if (!allowsDishFlatbread && !supportStarches.some((value) => /\b(bread|pita|bun|roll|toast|dough|flatbread)\b/i.test(value)) && identity.starchKey !== "bread") {
+  if (
+    !allowsDishFlatbread &&
+    !supportStarches.some((value) =>
+      /\b(bread|pita|bun|roll|toast|sourdough|dough|flatbread)\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/i.test(
+        value
+      )
+    ) &&
+    identity.starchKey !== "bread"
+  ) {
     forbiddenGroups.push("bread, toast, buns, pita");
   }
 

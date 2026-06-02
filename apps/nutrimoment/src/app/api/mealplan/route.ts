@@ -15,7 +15,7 @@ import { logger } from "@/lib/logger";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { mapCatalogRecipeToMeal, searchCatalogRecipes } from "@/services/recipeSearchService";
 import { repairMealPlanWithGuard, summarizeMealPlanIssues, validateMealPlan } from "@/services/mealPlanGuardService";
-import { cuisineMatchesPreference } from "@/lib/cuisines";
+import { normalizeCuisineLabel } from "@/lib/cuisines";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
@@ -25,6 +25,7 @@ import { getAdminDb } from "@/lib/firebaseAdmin";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 import {
+  findIngredientDietViolation,
   findRecipeDietViolation,
   type DietEnforcementContext
 } from "@/lib/dietEnforcement";
@@ -142,6 +143,18 @@ export async function POST(request: Request) {
       diets: parsed.data.diets ?? [],
       allergens: parsed.data.allergens ?? []
     };
+    const rawPantryStock = pantryItems.length ? pantryItems : pantry.map((name) => ({ name, quantity: "1" }));
+    const pantryStock = rawPantryStock.filter((item) => !findIngredientDietViolation(item.name, dietContext));
+    const ignoredPantryItems = rawPantryStock.filter((item) => findIngredientDietViolation(item.name, dietContext));
+    const dietCompatiblePantry = pantryStock.map((item) => item.name);
+    if (ignoredPantryItems.length) {
+      logger.info("Meal plan ignored pantry items that conflict with selected diet/allergen rules", {
+        requestId,
+        ignoredPantryItems: ignoredPantryItems.map((item) => item.name),
+        diets: dietContext.diets,
+        allergens: dietContext.allergens
+      });
+    }
     const mealPlanGuardPreferences = {
       dietContext,
       conditions: parsed.data.conditions ?? [],
@@ -243,7 +256,7 @@ export async function POST(request: Request) {
       try {
         const repairText = await callOpenAIText(
           buildMealPlanRepairPrompt({
-            pantry,
+            pantry: dietCompatiblePantry,
             pantryItems: pantryStock,
             diets: parsed.data.diets ?? [],
             conditions: parsed.data.conditions ?? [],
@@ -308,7 +321,7 @@ export async function POST(request: Request) {
       });
       await persistMealPlanResultForUser({
         historyEntryId: parsed.data.historyEntryId,
-        historyIngredients: parsed.data.historyIngredients ?? pantry,
+        historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
         historyTitle: parsed.data.historyTitle,
         mealPlan: outputMockPlan,
         persistResult: parsed.data.persistResult,
@@ -318,7 +331,7 @@ export async function POST(request: Request) {
     }
 
     const searchResult = await searchCatalogRecipes({
-      ingredients: pantry,
+      ingredients: dietCompatiblePantry,
       preferredCuisine: parsed.data.preferredCuisine,
       calorieTarget: parsed.data.calorieTarget,
       diets: parsed.data.diets,
@@ -329,7 +342,6 @@ export async function POST(request: Request) {
       uid: access.uid
     });
 
-    const pantryStock = pantryItems.length ? pantryItems : pantry.map((name) => ({ name, quantity: "1" }));
     const rankedRecipeMap = new Map(searchResult.candidateRecipes.map((recipe) => [recipe.id, recipe]));
     const orderedRankedRecipes = searchResult.rankedRecipeIds
       .map((recipeId) => rankedRecipeMap.get(recipeId))
@@ -344,7 +356,7 @@ export async function POST(request: Request) {
       ensureAiAvailable();
       const text = await callOpenAIText(
         buildMealPlanPrompt({
-          pantry,
+          pantry: dietCompatiblePantry,
           pantryItems: pantryStock,
           diets: parsed.data.diets ?? [],
           conditions: parsed.data.conditions ?? [],
@@ -384,7 +396,7 @@ export async function POST(request: Request) {
         });
         await persistMealPlanResultForUser({
           historyEntryId: parsed.data.historyEntryId,
-          historyIngredients: parsed.data.historyIngredients ?? pantry,
+          historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
           historyTitle: parsed.data.historyTitle,
           mealPlan: outputMealPlan,
           persistResult: parsed.data.persistResult,
@@ -444,7 +456,7 @@ export async function POST(request: Request) {
     });
     await persistMealPlanResultForUser({
       historyEntryId: parsed.data.historyEntryId,
-      historyIngredients: parsed.data.historyIngredients ?? pantry,
+      historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
       historyTitle: parsed.data.historyTitle,
       mealPlan: outputEmergencyMealPlan,
       persistResult: parsed.data.persistResult,
@@ -498,16 +510,17 @@ function getCuisineAlignedRecipes(recipes: RecipeCatalogDoc[], preferredCuisine?
 }
 
 function catalogRecipeMatchesPreferredCuisine(recipe: RecipeCatalogDoc, preferredCuisine: string) {
+  const preferred = normalizeCuisineLabel(preferredCuisine);
   return (
-    cuisineMatchesPreference(recipe.cuisine, preferredCuisine) ||
-    (recipe.regionalCuisines ?? []).some((cuisine) => cuisineMatchesPreference(cuisine, preferredCuisine)) ||
-    cuisineMatchesPreference(recipe.localized?.English?.cuisine ?? "", preferredCuisine)
+    normalizeCuisineLabel(recipe.cuisine) === preferred ||
+    (recipe.regionalCuisines ?? []).some((cuisine) => normalizeCuisineLabel(cuisine) === preferred) ||
+    normalizeCuisineLabel(recipe.localized?.English?.cuisine ?? "") === preferred
   );
 }
 
 function mealMatchesPreferredCuisine(meal: MealPlanMeal, preferredCuisine?: string) {
   if (!preferredCuisine || preferredCuisine === "Any") return true;
-  return cuisineMatchesPreference(meal.cuisine ?? "", preferredCuisine);
+  return normalizeCuisineLabel(meal.cuisine ?? "") === normalizeCuisineLabel(preferredCuisine);
 }
 
 function buildSafeMealReplacement({

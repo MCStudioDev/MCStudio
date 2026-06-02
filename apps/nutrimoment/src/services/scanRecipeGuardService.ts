@@ -47,9 +47,10 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
   const seafoodCount = cuisineMatchedRecipes.filter(recipeContainsSeafood).length;
   const cuisineGap = prefersSpecificCuisine ? Math.max(0, context.recipeCount - cuisineMatchedRecipes.length) : 0;
   const fallbackCount = Math.max(0, seafoodMinimum - seafoodCount, cuisineGap);
+  const canUseSeafoodFallback = requestedSeafood && dietAllowsSeafoodFallback(dietContext);
   const fallbackRecipes =
-    requestedSeafood && fallbackCount > 0
-      ? buildSeafoodFallbackRecipes(context, fallbackCount, wantsArabic)
+    canUseSeafoodFallback && fallbackCount > 0
+      ? filterRecipesByGuardRules(buildSeafoodFallbackRecipes(context, fallbackCount, wantsArabic), context, dietContext)
       : [];
 
   let merged = dedupeRecipes(orderDiverseRecipes([
@@ -60,14 +61,41 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
     ...repaired.filter((recipe) => !cuisineMatchedRecipes.includes(recipe))
   ]));
 
-  if (requestedSeafood && merged.length < context.recipeCount) {
+  if (canUseSeafoodFallback && merged.length < context.recipeCount) {
     merged = dedupeRecipes(orderDiverseRecipes([
       ...merged,
-      ...buildSeafoodFallbackRecipes(context, context.recipeCount - merged.length, wantsArabic)
+      ...filterRecipesByGuardRules(
+        buildSeafoodFallbackRecipes(context, context.recipeCount - merged.length, wantsArabic),
+        context,
+        dietContext
+      )
     ]));
   }
 
   return merged.slice(0, context.recipeCount);
+}
+
+function dietAllowsSeafoodFallback(dietContext: { diets: string[]; allergens: string[] }) {
+  const selectedDiets = new Set(dietContext.diets.map((diet) => diet.trim().toLowerCase()));
+  if (!selectedDiets.has("pescatarian")) return false;
+
+  return !findRecipeDietViolation({
+    name: "Seafood fallback probe",
+    cuisine: "Seafood",
+    ingredients: ["shrimp", "fish"],
+    missing_ingredients: [],
+    steps: ["Probe only."]
+  }, dietContext);
+}
+
+function filterRecipesByGuardRules(
+  recipes: Recipe[],
+  context: ScanRecipeGuardContext,
+  dietContext: { diets: string[]; allergens: string[] }
+) {
+  return recipes
+    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext))
+    .filter((recipe) => !findRecipeHealthViolation(recipe, context.conditions ?? []));
 }
 
 interface IngredientSignal {

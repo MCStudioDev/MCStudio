@@ -404,7 +404,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const exactScanMatch = accessCheck.allowed && parsed.data.referenceImage
+    const exactScanMatch = !isFreeTier && accessCheck.allowed && parsed.data.referenceImage
       ? await buildExactScanMatchRecipe({
           availableIngredients,
           image: parsed.data.referenceImage,

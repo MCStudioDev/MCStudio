@@ -205,6 +205,7 @@ function resolveEffectiveAccessTier(entitlement: Record<string, unknown> | undef
 
   if (["free", "expired", "canceled", "cancelled", "inactive"].includes(status)) return "free";
   if (isExpired) return "free";
+  if (entitlementTier === "free") return "free";
 
   if (
     entitlementTier === "premium" ||

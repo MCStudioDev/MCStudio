@@ -4,7 +4,8 @@ import { getCuisineVisualReferenceText } from "@/lib/cuisineVisualReferences";
 import { isPastaLikeIngredient } from "@/lib/ingredientFamilies";
 import {
   buildPromptForbiddenIngredientsLine,
-  buildPromptForbiddenMealPlanLine
+  buildPromptForbiddenMealPlanLine,
+  findIngredientDietViolation
 } from "@/lib/dietEnforcement";
 import type { MealPlanData } from "@/lib/types";
 
@@ -824,8 +825,12 @@ function buildVegetarianVarietyGuidance(diets: string[], recipeCount: number): s
   return [
     vegetarianProteinRule,
     `Produce at least ${minimumDistinctForms} visibly different dish forms across the set.`,
+    "Vegetable-forward mandate: when vegetarian or vegan is selected, do not treat lentils, chickpeas, beans, hummus, falafel, or rice as the default answer. At least half of a 10-card vegetarian set, and at least half of a vegetarian weekly plan when pantry allows, should be vegetable-led named dishes where the visible hero is a vegetable or vegetable mix: eggplant, zucchini, cauliflower, broccoli, mushrooms, peppers, potatoes, sweet potatoes, squash, cabbage, grape leaves, okra, green beans, spinach, carrots, peas, corn, tomato, or mixed roasted vegetables.",
+    "Vegetable technique ladder: rotate vegetables through roasted traybakes, stuffed vegetables, stews, soups, curries, stir-fries, fritters, casseroles, pasta dishes, flatbreads or pizza, tacos or enchiladas, sandwiches, grain bowls, salads, gratins or dairy-free bakes, and pureed creamy soups with plant milk when needed. A plain vegetable side is not enough; make it a complete named meal.",
+    "Vegetable family anti-repeat rule: do not output multiple rice-legume bowls when vegetables are available. If the pantry has several vegetables, each repeated base must change the hero vegetable and dish form, for example cauliflower tacos, mushroom curry, zucchini boats, stuffed peppers, broccoli soup, eggplant pasta, potato hash, cabbage rolls, okra tomato stew, green bean fasolakia, or roasted squash risotto.",
     "Vegetarian lentil anti-clustering rule: do not default to mujadara for every lentil card. Mujadara is only one lentil family. Rotate lentils through lentil kofta or lentil patties, lentil salad, lentil soup, lentil dal, lentil curry, lentil bolognese, lentil moussaka, lentil shepherd's pie, lentil stuffed peppers, koshary with lentils/rice/pasta, lentil tacos, lentil loaf, lentil stew, lentil kibbeh or kofte, and lentil pasta bake when pantry and cuisine fit.",
     "Vegetarian eggplant anti-clustering rule: eggplant should not become only grilled eggplant or baba ghanoush. Rotate eggplant through fried eggplant, eggplant musakhan-style plates when culturally appropriate, Turkish musakka, Greek moussaka, eggplant parmesan, pasta alla norma, baba ghanoush, mutabbal, pickled eggplant, stuffed eggplant with rice or vegetables, sheikh el mahshi vegetarian style, eggplant bechamel casserole, eggplant chickpea tagine, eggplant curry, roasted eggplant salad, and eggplant sandwiches when diet rules allow.",
+    "Vegetable-specific dish map: cauliflower can become roasted cauliflower steak, cauliflower tacos, cauliflower curry, cauliflower shawarma bowl, cauliflower soup, gobi manchurian, aloo gobi, or cauliflower bolognese. Broccoli can become broccoli pasta, broccoli soup with oat or almond milk, broccoli stir-fry, broccoli cheddar only when dairy is allowed, broccoli pesto pasta, or broccoli potato bake. Mushrooms can become mushroom shawarma, mushroom stroganoff, mushroom risotto, mushroom curry, stuffed mushrooms, mushroom tacos, mushroom soup, or mushroom noodle stir-fry. Zucchini can become kousa mahshi, zucchini boats, zucchini fritters, ratatouille, zucchini pasta, briam, or vegetable lasagne. Peppers can become stuffed peppers, fajitas, pepper tomato stew, peperonata, shakshuka-style eggless tomato pepper skillet, or roasted pepper pasta. Cabbage can become malfouf, sarma, cabbage rolls, stir-fried cabbage noodles, cabbage soup, or roasted cabbage steaks. Okra can become bamia tomato stew, okra curry, gumbo-style okra stew, or roasted okra. Green beans can become fasolakia, stir-fried green beans, green bean casserole when diet allows, or tomato green bean stew.",
     isDairyFree || isVegan
       ? "Dairy-free cooking knowledge: almond milk, oat milk, coconut milk, soy milk, cashew milk, coconut cream, and cashew cream are allowed plant-based substitutes. Use them for broccoli soup, cauliflower chowder, creamy vegetable soup, vegan pancakes, oatmeal, chia pudding, dairy-free white sauce, and curry when they fit; do not treat them as dairy."
       : "",
@@ -836,8 +841,8 @@ function buildVegetarianVarietyGuidance(diets: string[], recipeCount: number): s
     "Good Food-inspired vegetarian dinner variety: also rotate through global meat-free family suppers such as vegetable lasagne, sweet potato peanut curry, veggie shepherd's pie with sweet potato mash, butternut squash risotto, coconut squash dhansak, vegetarian bolognese, mushroom curry, vegetarian chilli, pasta bake, warming stew, traybake, pie, and bean or lentil mains. Use these as real dish-family anchors instead of generic vegetable plates.",
     "Everyday vegetarian dinner variety: include practical named families such as black bean enchiladas, easy chickpea curry, pasta primavera, vegetarian taco skillet, lasagna stuffed mushrooms, vegetarian tikka masala, roasted cauliflower chickpea tacos, black bean soup, black bean quinoa enchilada bake, ratatouille, sesame noodles, white bean soup, stacked roasted vegetable enchiladas, butternut squash enchiladas, chickpea salad sandwich, roasted vegetable lasagne, white bean skillet, enchilada stuffed sweet potatoes, creamy lemon ravioli, butternut squash baked ziti, veggie pizza, skillet vegetarian enchiladas, Asian quinoa salad, bean and cheese burritos, spaghetti with chickpeas and kale, vegetarian fajitas, pasta pomodoro, cauliflower chowder, broccoli pasta, black bean taquitos, cottage cheese frittata, cauliflower bolognese, migas, sweet potato hash, roasted corn chowder, enchilada stuffed mushrooms, sweet potato refried bean tostadas, roasted vegetable quinoa bowls, butternut squash mac and cheese, vegetable soup, vegetarian chili mac, skillet vegetable lasagna, chickpea shawarma bowls, and broccoli cheese soup when diet rules allow them.",
     isDairyFree || isVegan
-      ? "Strong vegetarian dairy-free dish families to draw from: lentil soup, lentil kofta, lentil patties, lentil salad, mujadara, koshary, chickpea curry or chana masala, falafel with tahini, stuffed bell peppers with rice and vegetables, tomato-basil pasta without cheese, marinara pizza or flatbread without cheese, mushroom risotto finished with olive oil, vegetable tagine with couscous, lentil moussaka without dairy, stuffed vine leaves with rice, tofu vegetable stir-fry, lentil dal, baba ghanoush with pita, mutabbal without yogurt, pickled eggplant, fried eggplant, stuffed eggplant with rice and vegetables, eggplant chickpea tagine, eggplant curry, roasted eggplant salad, vegetable soup, bean tacos or burritos, black bean enchiladas without cheese, tomato bean stew, vegetable pot pie with dairy-free crust, roasted cauliflower steak, sweet potato peanut curry, coconut squash dhansak, mushroom curry, vegetarian chilli, dairy-free vegetable lasagne, vegetable traybake, lentil shepherd's pie with olive-oil mash, black bean soup, ratatouille, sesame noodles, roasted cauliflower chickpea tacos without dairy sauce, chickpea shawarma bowls with tahini, sweet potato refried bean tostadas without dairy, roasted vegetable quinoa bowls, dairy-free vegetable chili mac, and white bean skillet."
-      : "Strong vegetarian dish families to draw from: shakshuka eggs in tomato sauce, cheese omelette or vegetable frittata, lentil soup, lentil kofta, lentil patties, lentil salad, mujadara, lentil dal, koshary, chickpea curry or chana masala, falafel with tahini, stuffed bell peppers with rice and vegetables, caprese or Greek salad, pasta primavera or pasta with tomato basil sauce, margherita pizza or flatbread, mushroom risotto, vegetable tagine with couscous, palak paneer or paneer tikka, moussaka with lentils, stuffed vine leaves with rice, vegetable stir-fry with tofu or egg, baba ghanoush with pita, mutabbal, pickled eggplant, fried eggplant, Turkish musakka, Greek moussaka, eggplant parmesan, pasta alla norma, stuffed eggplant with rice and vegetables, sheikh el mahshi vegetarian style, eggplant bechamel casserole, vegetable soup, bean tacos or burritos, macaroni and cheese, spinach and cheese pie, bean stew, vegetable lasagne, black bean enchiladas, tomato pie, vegetable pot pie, roasted cauliflower steak, sweet potato peanut curry, coconut squash dhansak, mushroom curry, vegetarian chilli, vegetarian bolognese, butternut squash risotto, veggie shepherd's pie, vegetable traybake, and pasta bake.",
+      ? "Strong vegetarian dairy-free dish families to draw from: stuffed bell peppers with rice and vegetables, kousa mahshi, vegetarian cabbage rolls, grape leaves with rice and herbs, tomato-basil pasta without cheese, marinara pizza or flatbread without cheese, mushroom risotto finished with olive oil, vegetable tagine with couscous, lentil moussaka without dairy, tofu vegetable stir-fry, baba ghanoush with pita, mutabbal without yogurt, pickled eggplant, fried eggplant, stuffed eggplant with rice and vegetables, eggplant chickpea tagine, eggplant curry, roasted eggplant salad, vegetable soup, tomato okra stew, fasolakia green beans, broccoli oat-milk soup, cauliflower chowder with almond milk, mushroom curry, mushroom shawarma, mushroom tacos, zucchini boats, ratatouille, briam, imam bayildi, vegetable pot pie with dairy-free crust, roasted cauliflower steak, sweet potato peanut curry, coconut squash dhansak, dairy-free vegetable lasagne, vegetable traybake, lentil shepherd's pie with olive-oil mash, black bean soup, roasted cauliflower chickpea tacos without dairy sauce, sweet potato refried bean tostadas without dairy, roasted vegetable quinoa bowls, dairy-free vegetable chili mac, black bean enchiladas without cheese, white bean skillet, lentil soup, lentil kofta, lentil patties, lentil salad, mujadara, koshary, chickpea curry or chana masala, falafel with tahini, and lentil dal."
+      : "Strong vegetarian dish families to draw from: stuffed bell peppers with rice and vegetables, kousa mahshi, vegetarian cabbage rolls, grape leaves with rice and herbs, caprese or Greek salad, pasta primavera, pasta with tomato basil sauce, margherita pizza or flatbread, mushroom risotto, vegetable tagine with couscous, palak paneer or paneer tikka, moussaka with lentils, vegetable stir-fry with tofu or egg, baba ghanoush with pita, mutabbal, pickled eggplant, fried eggplant, Turkish musakka, Greek moussaka, eggplant parmesan, pasta alla norma, stuffed eggplant with rice and vegetables, sheikh el mahshi vegetarian style, eggplant bechamel casserole, tomato okra stew, fasolakia green beans, broccoli pasta, broccoli soup, mushroom curry, mushroom shawarma, mushroom tacos, zucchini boats, ratatouille, briam, imam bayildi, macaroni and cheese, spinach and cheese pie, vegetable lasagne, black bean enchiladas, tomato pie, vegetable pot pie, roasted cauliflower steak, sweet potato peanut curry, coconut squash dhansak, vegetarian chilli, vegetarian bolognese, butternut squash risotto, veggie shepherd's pie, vegetable traybake, pasta bake, shakshuka eggs in tomato sauce, cheese omelette or vegetable frittata, lentil soup, lentil kofta, lentil patties, lentil salad, mujadara, lentil dal, koshary, chickpea curry or chana masala, falafel with tahini, and bean tacos or burritos.",
     "Do not default to plain rice and lentils for every card. Vary the protein source, cooking form, cuisine region, and plate architecture across the list.",
     isDairyFree || isVegan
       ? "For vegetarian dairy-free variety, rotate legumes, beans, lentils, chickpeas, tofu, mushrooms, eggplant, cauliflower, squash, grains, nuts, and seeds. Do not use eggs or dairy as shortcuts."
@@ -1478,6 +1483,25 @@ function isMinorPantryIngredientForPrompt(ingredient: string) {
   );
 }
 
+function splitPantryByDietCompatibility(
+  items: { name: string; quantity?: string }[],
+  dietContext: { diets: string[]; allergens: string[] }
+) {
+  const allowed: { name: string; quantity?: string }[] = [];
+  const ignored: { name: string; quantity?: string }[] = [];
+
+  for (const item of items) {
+    if (!item.name.trim()) continue;
+    if (findIngredientDietViolation(item.name, dietContext)) {
+      ignored.push(item);
+    } else {
+      allowed.push(item);
+    }
+  }
+
+  return { allowed, ignored };
+}
+
 export function buildMealPlanPrompt({
   pantry,
   pantryItems = [],
@@ -1488,12 +1512,18 @@ export function buildMealPlanPrompt({
   preferredCuisine = "Any",
   calorieTarget = 2000
 }: MealPlanPromptOptions) {
-  const pantryWithQuantities = pantryItems
-    .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
-    .filter(Boolean);
-  const pantryIngredients = pantryItems.length
+  const dietContext = { diets: diets ?? [], allergens: allergens ?? [] };
+  const rawPantryIngredients = pantryItems.length
     ? pantryItems.map((item) => ({ name: item.name, quantity: item.quantity }))
     : pantry.map((name) => ({ name }));
+  const pantryDietSplit = splitPantryByDietCompatibility(rawPantryIngredients, dietContext);
+  const safePantryIngredients = pantryDietSplit.allowed;
+  const safePantry = safePantryIngredients.map((item) => item.name);
+  const ignoredPantry = pantryDietSplit.ignored.map((item) => item.name);
+  const pantryWithQuantities = safePantryIngredients
+    .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
+    .filter(Boolean);
+  const pantryIngredients = safePantryIngredients;
   const cuisineSpecificGuidance = buildCuisineSpecificGuidance(preferredCuisine);
   const cuisineKnowledgeGuidance = buildCuisineKnowledgeGuidance(preferredCuisine);
   const cuisineDishCatalogGuidance = buildCuisineDishCatalogGuidance(preferredCuisine);
@@ -1547,16 +1577,19 @@ export function buildMealPlanPrompt({
     allergens
   });
   const isArabicMode = recipeLanguage.toLowerCase() === "arabic";
-  const hasPantryItems = pantry.some((item) => item.trim()) || pantryItems.some((item) => item.name.trim());
+  const hasPantryItems = safePantry.some((item) => item.trim());
   const pantryLine = isArabicMode
-    ? `مكونات المستخدم المتاحة للجدول الأسبوعي، اتركها كما كتبها المستخدم ولا تترجمها داخل هذا السطر: ${pantry.join(", ") || "لا توجد مكونات"}.`
-    : `Pantry items: ${pantry.join(", ") || "none provided"}.`;
+    ? `مكونات المستخدم المتوافقة مع النظام الغذائي للجدول الأسبوعي، اتركها كما كتبها المستخدم ولا تترجمها داخل هذا السطر: ${safePantry.join(", ") || "لا توجد مكونات متوافقة"}.`
+    : `Diet-compatible pantry items for this user: ${safePantry.join(", ") || "none provided"}.`;
   const pantryQuantitiesLine = isArabicMode
     ? `كميات مكونات المستخدم المتاحة، اترك أسماء المكونات كما كتبها المستخدم: ${pantryWithQuantities.join(", ") || "غير متوفرة"}.`
     : `Pantry quantities (use these to decide what is actually needed for the week): ${pantryWithQuantities.join(", ") || "not provided"}.`;
+  const ignoredPantryLine = ignoredPantry.length
+    ? `Ignored pantry items for this plan because they conflict with the selected diet/allergen rules or may belong to someone else: ${ignoredPantry.join(", ")}. Do not use them in any meal, ingredient, image identity, or shopping-list reconciliation.`
+    : "";
   const pantryPlanningMode = hasPantryItems
-    ? "Pantry mode: the user has saved/scanned pantry or fridge items. Use those items first where they fit the selected cuisine, diet, and health profile; do not force them into meals where they make the meal unsafe or off-cuisine."
-    : "Empty-pantry creative mode: the user has no saved pantry items. Generate a complete, creative, cuisine-accurate weekly plan from scratch using the selected diets, health conditions, calorie target, and preferred cuisine as hard authority. Because there is no pantry constraint, choose the best safe ingredients for the plan and put every needed item in shoppingList with quantities. Build a full shoppingList for the whole week. Do not minimize the shopping list by making repetitive cheap filler meals. Do not make generic placeholder meals. Vary proteins, vegetables, starches, sauces, cooking methods, meal families, colors, and textures across the week.";
+    ? "Diet-first pantry mode: the user has saved/scanned pantry or fridge items, but diet, allergens, medical conditions, and selected cuisine are higher authority than pantry. Use only the diet-compatible pantry items where they fit the selected cuisine and health profile. If the pantry contains chicken, meat, fish, eggs, dairy, or any other item forbidden by the selected diet, ignore it completely; it may belong to another person and must not steer this user's weekly plan."
+    : "Empty-or-incompatible-pantry creative mode: the user has no saved pantry items compatible with the selected diet. Generate a complete, creative, cuisine-accurate weekly plan from scratch using the selected diets, health conditions, calorie target, and preferred cuisine as hard authority. Because usable pantry is absent, choose the best safe ingredients for the plan and put every needed item in shoppingList with quantities. Build a full shoppingList for the whole week. Do not minimize the shopping list by making repetitive cheap filler meals. Do not make generic placeholder meals. Vary proteins, vegetables, starches, sauces, cooking methods, meal families, colors, and textures across the week.";
   const arabicMealPlanPromptBlock = isArabicMode
     ? [
         "تعليمات مهمة لوضع اللغة العربية في جدول الوجبات:",
@@ -1628,11 +1661,13 @@ export function buildMealPlanPrompt({
     "Two different photo_identity slugs MUST exist for two meals that visually look different. Same photo_identity.dish_slug means the meals will share a photo — only use the same slug when the meals truly are the same dish.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and include the substitute in shoppingList.",
     "Selected diets are hard requirements for every meal and every shoppingList item. If a dish cannot be made compatible with all selected diets, choose a different named dish family instead.",
+    "Pantry cannot override user preference: if a pantry item conflicts with vegetarian, vegan, pescatarian, dairy-free, allergy, medical, or cuisine rules, ignore that item and plan as if it is not available. The weekly plan is for the current user's settings, not for every food item in the household fridge.",
     "Never output a placeholder meal, flexible meal slot, TBD meal, or empty meal. If the pantry cannot support a safe real meal, create a real compatible meal using missing ingredients and list those missing ingredients in shoppingList.",
     "It is acceptable to go beyond the pantry for diet safety, allergens, cuisine authenticity, and a complete usable weekly plan.",
     pantryPlanningMode,
     pantryLine,
     pantryQuantitiesLine,
+    ignoredPantryLine,
     preferenceBrief,
     `Preferred cuisine: ${preferredCuisine}.`,
     `Recipe language: ${recipeLanguage}.`,
@@ -1653,7 +1688,10 @@ export function buildMealPlanPrompt({
     "Use pantry quantities when provided and choose realistic per-meal quantities for missing ingredients. Be specific enough that a beginner can cook without guessing.",
     "Do not use vague meal-plan steps like 'cook the chicken', 'prepare vegetables', 'mix together', or 'serve'. Break prep, cooking, finishing, and plating into separate explicit steps.",
     "Include image_search_index and image_search_indices in English inside every breakfast, lunch, and dinner object, for example: breakfast {\"name\":\"Greek Yogurt Bowl\",\"image_search_index\":\"greek yogurt berries\",\"image_search_indices\":[\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"],...}.",
-    "shoppingList must be an array of strings with only missing items needed after pantry ingredients are used. In Arabic mode, write shoppingList in Arabic.",
+    "shoppingList must be an array of strings with only missing grocery items needed after pantry ingredients are used. Build shoppingList from canonical English grocery names first, merge duplicates by that canonical English ingredient, then render the final item label in the selected recipe language.",
+    "Shopping-list language rule: shoppingList is for buying groceries, not cooking prep. Collapse prep forms into the buyable ingredient name. Use onion, not chopped onion; tomato, not diced tomato; parsley, not chopped parsley for garnish; herbs, not dried Mediterranean herbs unless the user truly must buy a dried herb mix. For staples use measurable grocery units, not arbitrary item counts: rice/pasta/oats/lentils/quinoa use cup or package/bag, coconut milk uses can, garlic uses clove, herbs use bunch.",
+    "Shopping-list quantity rule: sum the whole-week amount per grocery ingredient. If onion appears chopped in five recipes, output one line such as \"onion - 6 whole\" or Arabic equivalent, not five recipe-prep lines.",
+    "Shopping-list translation rule: every user-facing shoppingList item must be in the selected recipe language. Do not output English units like item, bunch, cup, or transliterated words inside Arabic shoppingList. Translate by meaning from the canonical English grocery name, not letter-by-letter transliteration: coconut milk -> حليب جوز الهند, oat milk -> حليب الشوفان, almond milk -> حليب اللوز, nori -> طحالب نوري, edamame -> فول صويا أخضر, sushi rice -> أرز سوشي.",
     "Every shoppingList item must include summed quantity and unit. In English mode use examples like \"rice - 4 cup\" or \"tomato - 8 whole\"; in Arabic mode use Arabic item names and Arabic-readable quantities."
   ].join(" ");
 }
@@ -1947,7 +1985,8 @@ function buildCuisineDishCatalogGuidance(preferredCuisine: string) {
     "For each primary pantry ingredient, first scan this reference set for dish names or families that naturally contain, feature, or traditionally center that ingredient before falling back to a generic preparation.",
     "When the pantry is sparse, choose the closest authentic dish family from this cuisine reference set instead of inventing a generic bowl, skillet, wrap, or salad.",
     "Generic titles are only acceptable when no recognizable dish family from the selected cuisine fits the ingredient set.",
-    "If the pantry only supports part of a classic dish, keep the authentic dish family and move the missing support items into missing_ingredients."
+    "If the pantry only supports part of a classic dish, keep the authentic dish family and move the missing support items into missing_ingredients.",
+    "When the user is vegan or dairy-free, use compatible dishes and direct compatible variants from the same cuisine reference set before jumping to global tofu bowls, sushi, or generic salads. For Mediterranean vegan planning, prefer briam, fasolakia, revithada, spanakorizo, fava Santorini, gigantes plaki, gemista, dolma, imam bayildi, caponata, pasta alla norma without cheese, lentil moussaka without dairy, white bean tomato stew, chickpea tagine, hummus plates, baba ghanoush, roasted cauliflower tahini, and vegetable couscous."
   ].join(" ");
 }
 

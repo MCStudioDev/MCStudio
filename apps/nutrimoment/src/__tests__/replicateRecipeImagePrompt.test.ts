@@ -181,4 +181,151 @@ describe("replicate recipe image prompts", () => {
     expect(prompt).toContain("rather than plain red sauce pasta");
     expect(prompt).toContain("Do not show or imply: plain pasta with only red sauce");
   });
+
+  it("uses stable English visual identities for vegetarian catalog examples", () => {
+    const palakIdentity = buildRecipePhotoIdentity("Vegan Palak Paneer With Tofu");
+    const palakPrompt = buildRecipeImagePromptForTest(
+      "Vegan Palak Paneer With Tofu",
+      ["tofu", "spinach", "tomato", "coconut milk"],
+      { exactRecipeName: "Vegan Palak Paneer With Tofu" }
+    );
+    const shellsIdentity = buildRecipePhotoIdentity("Roasted Vegetables Stuffed Shells");
+    const shellsPrompt = buildRecipeImagePromptForTest(
+      "Roasted Vegetables Stuffed Shells",
+      ["pasta shells", "roasted vegetables", "tomato sauce", "tofu ricotta"],
+      { exactRecipeName: "Roasted Vegetables Stuffed Shells" }
+    );
+    const tacosPrompt = buildRecipeImagePromptForTest(
+      "Easy Roasted Veggie Tacos",
+      ["corn tortillas", "cauliflower", "sweet potato", "beans", "avocado"],
+      { exactRecipeName: "Easy Roasted Veggie Tacos" }
+    );
+
+    expect(palakIdentity.canonicalDishKey).toBe("vegan-palak-tofu");
+    expect(palakPrompt).toContain("green spinach curry gravy");
+    expect(palakPrompt).toContain("Tofu cubes must be visible");
+    expect(palakPrompt).toContain("Do not show or imply: paneer cheese");
+
+    expect(shellsIdentity.canonicalDishKey).toBe("roasted-vegetable-stuffed-shells");
+    expect(shellsPrompt).toContain("large jumbo pasta shells filled with roasted vegetables");
+    expect(shellsPrompt).toContain("shell shape and filling must be visible");
+    expect(shellsPrompt).toContain("Do not show or imply: spaghetti");
+
+    expect(tacosPrompt).toContain("corn tortillas filled with roasted cauliflower");
+    expect(tacosPrompt).toContain("Do not show or imply: meat tacos");
+  });
+
+  it("uses stable English visual identities for meat catalog examples", () => {
+    const surfIdentity = buildRecipePhotoIdentity("Garlic Butter Steak and Shrimp");
+    const surfPrompt = buildRecipeImagePromptForTest(
+      "Garlic Butter Steak and Shrimp",
+      ["steak", "shrimp", "garlic", "parsley", "lemon"],
+      { exactRecipeName: "Garlic Butter Steak and Shrimp" }
+    );
+    const ribsIdentity = buildRecipePhotoIdentity("Ribs with Hot-Pepper-Jelly Glaze");
+    const ribsPrompt = buildRecipeImagePromptForTest(
+      "Ribs with Hot-Pepper-Jelly Glaze",
+      ["ribs", "hot pepper jelly", "spice rub", "herbs"],
+      { exactRecipeName: "Ribs with Hot-Pepper-Jelly Glaze" }
+    );
+    const kalbiPrompt = buildRecipeImagePromptForTest(
+      "Kalbi Ribs and Grilled Corn with Kalbi Butter",
+      ["short ribs", "corn", "soy sauce", "scallion", "sesame"],
+      { exactRecipeName: "Kalbi Ribs and Grilled Corn with Kalbi Butter" }
+    );
+    const lazankiPrompt = buildRecipeImagePromptForTest(
+      "Polish Lazanki",
+      ["pasta", "cabbage", "mushrooms", "kielbasa", "dill"],
+      { exactRecipeName: "Polish Lazanki" }
+    );
+
+    expect(surfIdentity.canonicalDishKey).toBe("garlic-butter-steak-shrimp");
+    expect(surfPrompt).toContain("Both steak and shrimp must be visible");
+    expect(surfPrompt).toContain("Do not show or imply: steak alone");
+
+    expect(ribsIdentity.canonicalDishKey).toBe("ribs-hot-pepper-jelly-glaze");
+    expect(ribsPrompt).toContain("visible bones and a red-orange sticky hot pepper jelly glaze");
+    expect(ribsPrompt).toContain("Do not show or imply: plain steak");
+
+    expect(kalbiPrompt).toContain("Korean-style cross-cut beef short ribs");
+    expect(kalbiPrompt).toContain("grilled corn");
+
+    expect(lazankiPrompt).toContain("wide square or ribbon pasta tossed with cabbage");
+    expect(lazankiPrompt).toContain("Do not show or imply: Italian red sauce pasta");
+  });
+
+  it("uses stable English visual identities for ground meat variants", () => {
+    const lettuceIdentity = buildRecipePhotoIdentity("Orange Beef Lettuce Wraps");
+    const lettucePrompt = buildRecipeImagePromptForTest(
+      "Orange Beef Lettuce Wraps",
+      ["ground beef", "lettuce", "carrot", "scallion", "orange sauce"],
+      { exactRecipeName: "Orange Beef Lettuce Wraps" }
+    );
+    const zucchiniIdentity = buildRecipePhotoIdentity("Ground Beef Zucchini Boats");
+    const zucchiniPrompt = buildRecipeImagePromptForTest(
+      "Ground Beef Zucchini Boats",
+      ["ground beef", "zucchini", "tomato sauce", "bell pepper"],
+      { exactRecipeName: "Ground Beef Zucchini Boats" }
+    );
+    const burritoPrompt = buildRecipeImagePromptForTest(
+      "Ground Beef Burritos",
+      ["ground beef", "flour tortillas", "beans", "salsa"],
+      { exactRecipeName: "Ground Beef Burritos" }
+    );
+    const lasagnaPrompt = buildRecipeImagePromptForTest(
+      "Lasagna alla Bolognese",
+      ["ground beef", "lasagna sheets", "tomato sauce", "bechamel"],
+      { exactRecipeName: "Lasagna alla Bolognese" }
+    );
+
+    expect(lettuceIdentity.canonicalDishKey).toBe("orange-beef-lettuce-wraps");
+    expect(lettucePrompt).toContain("large crisp lettuce leaves shaped as cups");
+    expect(lettucePrompt).toContain("browned crumbled ground beef");
+    expect(lettucePrompt).toContain("Do not show or imply: tacos");
+
+    expect(zucchiniIdentity.canonicalDishKey).toBe("ground-beef-zucchini-boats");
+    expect(zucchiniPrompt).toContain("zucchini halves hollowed into long green boats");
+    expect(zucchiniPrompt).toContain("The zucchini boat structure must be visible");
+    expect(zucchiniPrompt).toContain("Do not show or imply: loose ground beef skillet");
+
+    expect(burritoPrompt).toContain("Show one burrito cut open");
+    expect(burritoPrompt).toContain("Do not show or imply: open tacos");
+
+    expect(lasagnaPrompt).toContain("layered lasagna with pasta sheets");
+    expect(lasagnaPrompt).toContain("red ground-beef ragu");
+    expect(lasagnaPrompt).toContain("Do not show or imply: plain spaghetti");
+  });
+
+  it("uses distinct visual identities for kofta variants", () => {
+    const moroccanPrompt = buildRecipeImagePromptForTest(
+      "Moroccan Beef Kofta",
+      ["ground beef", "parsley", "cumin", "lemon"],
+      { exactRecipeName: "Moroccan Beef Kofta" }
+    );
+    const lebanesePrompt = buildRecipeImagePromptForTest(
+      "Lebanese Beef Kofta",
+      ["ground beef", "parsley", "onion", "pita"],
+      { exactRecipeName: "Lebanese Beef Kofta" }
+    );
+    const curryIdentity = buildRecipePhotoIdentity("Pakistani Beef Kofta Curry");
+    const curryPrompt = buildRecipeImagePromptForTest(
+      "Pakistani Beef Kofta Curry",
+      ["ground beef", "tomato", "onion", "spices", "cilantro"],
+      { exactRecipeName: "Pakistani Beef Kofta Curry" }
+    );
+
+    expect(buildRecipePhotoIdentity("Moroccan Beef Kofta").canonicalDishKey).toBe("moroccan-beef-kofta");
+    expect(moroccanPrompt).toContain("grilled Moroccan beef kofta");
+    expect(moroccanPrompt).toContain("oval patties or short logs");
+    expect(moroccanPrompt).toContain("Do not show or imply: burger patty");
+
+    expect(buildRecipePhotoIdentity("Lebanese Beef Kofta").canonicalDishKey).toBe("lebanese-beef-kofta");
+    expect(lebanesePrompt).toContain("Lebanese kafta");
+    expect(lebanesePrompt).toContain("long kebab logs or skewers");
+
+    expect(curryIdentity.canonicalDishKey).toBe("pakistani-beef-kofta-curry");
+    expect(curryPrompt).toContain("round ground-beef kofta meatballs");
+    expect(curryPrompt).toContain("thick spiced tomato-onion curry gravy");
+    expect(curryPrompt).toContain("Do not show or imply: dry grilled kofta");
+  });
 });

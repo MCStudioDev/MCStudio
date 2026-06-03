@@ -170,6 +170,87 @@ describe("cuisine prompt depth", () => {
     expect(getCuisineDishReferenceText("Asian", 80)).toContain("vegetable lo mein");
   });
 
+  it("adds visual vegetarian recipe references across cuisines", () => {
+    expect(getCuisineDishReferenceText("Mediterranean", 120)).toContain("avocado and chickpea salad cups");
+    expect(getCuisineDishReferenceText("Mediterranean", 120)).toContain("greek salad upgrade in a jar");
+    expect(getCuisineDishReferenceText("Mediterranean", 120)).toContain("creamy spicy fasolada");
+    expect(getCuisineDishReferenceText("Mediterranean", 120)).toContain("yiayia's creamy pasta");
+    expect(getCuisineDishReferenceText("Mediterranean", 120)).toContain("creamy greek potato salad");
+
+    expect(getCuisineDishReferenceText("Indian", 120)).toContain("vegan palak paneer with tofu");
+    expect(getCuisineDishReferenceText("Indian", 120)).toContain("vegan tikka masala");
+
+    expect(getCuisineDishReferenceText("American", 120)).toContain("southwestern pinto bean burgers");
+    expect(getCuisineDishReferenceText("American", 120)).toContain("low carb cheesy cauliflower pizza breadsticks");
+    expect(getCuisineDishReferenceText("American", 120)).toContain("low carb easy eggplant lasagna");
+
+    expect(getCuisineDishReferenceText("Mexican", 120)).toContain("easy roasted veggie tacos");
+    expect(getCuisineDishReferenceText("Italian", 120)).toContain("roasted vegetables stuffed shells");
+  });
+
+  it("adds visual meat and seafood recipe references across cuisines", () => {
+    const american = getCuisineDishReferenceText("American", 180);
+    const asian = getCuisineDishReferenceText("Asian", 180);
+    const italian = getCuisineDishReferenceText("Italian", 180);
+    const mexican = getCuisineDishReferenceText("Mexican", 180);
+    const mediterranean = getCuisineDishReferenceText("Mediterranean", 180);
+    const middleEastern = getCuisineDishReferenceText("Middle Eastern", 180);
+
+    expect(american).toContain("easy beef pot roast");
+    expect(american).toContain("garlic butter steak and shrimp");
+    expect(american).toContain("ribs with hot-pepper-jelly glaze");
+    expect(american).toContain("polish lazanki");
+    expect(american).toContain("orange beef lettuce wraps");
+    expect(american).toContain("ground beef zucchini boats");
+    expect(american).toContain("cheesy ground beef and cauliflower casserole");
+
+    expect(asian).toContain("crispy beef bok choy stir-fry");
+    expect(asian).toContain("kalbi ribs and grilled corn");
+    expect(asian).toContain("beef stroganoff ramen");
+
+    expect(italian).toContain("tuscan-style veal chops");
+    expect(italian).toContain("sofrito bolognese");
+    expect(italian).toContain("smothered italian sausage");
+    expect(italian).toContain("ground beef lasagna");
+
+    expect(mexican).toContain("carne asada with black beans");
+    expect(mexican).toContain("churrasco with chimichurri");
+    expect(mexican).toContain("frijoles peruanos");
+    expect(mexican).toContain("ground beef tacos");
+    expect(mexican).toContain("ground beef burritos");
+
+    expect(mediterranean).toContain("slow-grilled rack of lamb with mustard and herbs");
+    expect(middleEastern).toContain("moroccan beef kofta");
+    expect(middleEastern).toContain("lebanese beef kofta");
+    expect(getCuisineDishReferenceText("Indian", 180)).toContain("pakistani beef kofta curry");
+  });
+
+  it("fans out ground meat into named recipe families", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [{ name: "ground beef", quantity: "500g" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 10,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Ground-meat distinct-card mode is active");
+    expect(prompt).toContain("Moroccan beef kofta");
+    expect(prompt).toContain("Lebanese beef kofta");
+    expect(prompt).toContain("ground beef tacos");
+    expect(prompt).toContain("ground beef burritos");
+    expect(prompt).toContain("orange beef lettuce wraps");
+    expect(prompt).toContain("ground beef zucchini boats");
+    expect(prompt).toContain("cheesy ground beef cauliflower casserole");
+    expect(prompt).toContain("lasagna alla bolognese");
+  });
+
   it("prevents shrimp recipes from clustering around garlic lemon seasoning", () => {
     const prompt = buildRecipeGenerationPrompt(
       [{ name: "shrimp", quantity: "1 kg" }],

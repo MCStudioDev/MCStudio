@@ -1035,7 +1035,7 @@ function buildGroundMeatDistinctCardGuidance(
     "Ground-meat distinct-card mode is active. The ingredient means minced or ground meat, not sliced beef, steak, cubes, or whole meat.",
     `Across the recipe set, produce at least ${minimumDistinctForms} visibly different ground-meat dish forms when generating this many cards.`,
     cuisineScope,
-    "Good distinct forms include: Egyptian kofta mashwia skewers, Dawood Basha meatballs in tomato sauce, macarona bechamel with minced meat, Egyptian rice kofta in tomato sauce, taagen kofta with potatoes or tomato sauce, hawawshi stuffed bread, Turkish kofte, Turkish Adana kebab, Adana durum or Beyti wrap, Iskender kebab, doner kebab, cag kebap, Turkish kiymali pide, Turkish lahmacun, Turkish karniyarik stuffed eggplant, Turkish spiral borek, kiymali tepsi boregi, Turkish musakka, Turkish ground beef stew, Indian keema, Middle Eastern kofta bowl, tacos, lettuce cups, or stuffed peppers.",
+    "Good distinct forms include: Egyptian kofta mashwia skewers, Moroccan beef kofta, Lebanese beef kofta, beef kofta with saffron rice, beef kofta in tomato sauce, Pakistani beef kofta curry, Dawood Basha meatballs in tomato sauce, macarona bechamel with minced meat, lasagna alla bolognese, Egyptian rice kofta in tomato sauce, taagen kofta with potatoes or tomato sauce, hawawshi stuffed bread, Turkish kofte, Turkish Adana kebab, Adana durum or Beyti wrap, Iskender kebab, doner kebab, cag kebap, Turkish kiymali pide, Turkish lahmacun, Turkish karniyarik stuffed eggplant, Turkish spiral borek, kiymali tepsi boregi, Turkish musakka, Turkish ground beef stew, Indian keema, Middle Eastern kofta bowl, ground beef tacos, ground beef burritos, orange beef lettuce wraps, ground beef zucchini boats, stuffed bell peppers with ground beef, cheesy ground beef cauliflower casserole, keto ground beef Worcestershire skillet, meatballs, or stuffed peppers.",
     "For Egyptian or Arabic ground-meat inputs, do not make the set mostly grilled garlic/lemon plates or plain pasta. Lemon and garlic are seasoning details, not dish identities. At least the top cards should include named Egyptian forms such as kofta mashwia, Dawood Basha, macarona bechamel, taagen kofta, rice kofta, or hawawshi when diet rules allow the missing support ingredients.",
     "Do not return several loose ground-meat skillets, several kofta-only cards, or several pasta cards unless the user explicitly asked for that narrow family.",
     "For each ground-meat recipe, dish_intent.visual_keywords must name the visible form such as stuffed flatbread, Adana flat skewers, durum wrap, sliced doner over bread, tomato-sauce meatballs, baked bechamel pasta square, kofta tray, boat-shaped pide, thin lahmacun, split stuffed eggplant, tray-cut borek, spiral pastry, chunky stew, or red-sauce pasta."
@@ -1175,8 +1175,8 @@ function buildBeefFormPriorityGuidance(
   if (hasExplicitGroundOrMincedMeatInput(ingredients)) {
     return [
       "Ground/minced beef mode is explicit because the user wrote ground, minced, mince, or Arabic minced meat.",
-      "In this mode, ground beef, minced fillings, kofta, meatballs, hawawshi, lahmacun, Adana, hamburger stew, and ground beef pasta are valid when cuisine and pantry fit.",
-      "Even in ground/minced mode, avoid duplicate cards: vary the shape and serving form across stuffed bread, meatballs, skewers, pasta, stew, tray bake, rice topping, and stuffed vegetables."
+      "In this mode, ground beef, minced fillings, kofta variants, meatballs, hawawshi, lahmacun, Adana, hamburger stew, ground beef pasta, lasagna, tacos, burritos, lettuce wraps, zucchini boats, cauliflower casseroles, and stuffed vegetables are valid when cuisine and pantry fit.",
+      "Even in ground/minced mode, avoid duplicate cards: vary the shape and serving form across stuffed bread, meatballs, skewers, pasta, lasagna, stew, curry, tray bake, rice topping, tacos, burritos, lettuce cups, casseroles, and stuffed vegetables."
     ].join(" ");
   }
 
@@ -1382,7 +1382,7 @@ function buildIngredientPrepFormGuidance(
   ) {
     guidance.push(
       hasExplicitGroundOrMincedMeatInput(ingredients)
-        ? "Ground/minced meat prep ladder: because the user explicitly provided ground or minced meat, use cuisine-native ground-meat forms such as kofta, meatballs, stuffed fillings, patties, loose rice toppings, bread fillings, pasta sauces, casserole layers, and stews when realistic."
+        ? "Ground/minced meat prep ladder: because the user explicitly provided ground or minced meat, use cuisine-native ground-meat forms such as kofta variants, meatballs, stuffed fillings, patties, loose rice toppings, bread fillings, pasta sauces, lasagna layers, taco or burrito fillings, lettuce wraps, zucchini boats, cauliflower casseroles, curry meatballs, and stews when realistic."
         : "Plain meat prep ladder: beef/meat can become cubes, strips, thin slices, chopped pieces, steak bites, roast slices, shredded braised meat, stew pieces, soup pieces, rice toppings, kebab cubes, fried strips, or casserole layers when realistic. Do not mince plain beef/meat into ground beef, kofta, meatballs, hawawshi, lahmacun, Adana, burger patties, or loose crumbles unless the user explicitly provided ground/minced meat."
     );
   }

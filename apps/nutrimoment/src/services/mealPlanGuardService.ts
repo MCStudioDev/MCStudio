@@ -55,7 +55,7 @@ const DEFAULT_MIN_UNIQUE = 15;
 const DEFAULT_PESCATARIAN_SEAFOOD_SLOTS = 6;
 const DEFAULT_PLANT_BASED_RICE_SLOTS = 7;
 const DEFAULT_PLANT_BASED_LEGUME_SLOTS = 9;
-const DEFAULT_MAX_SIMILAR_MEAL_FAMILY_SLOTS = 3;
+const DEFAULT_MAX_SIMILAR_MEAL_FAMILY_SLOTS = 2;
 
 const SEAFOOD_TERMS = [
   "fish",
@@ -146,9 +146,18 @@ const MEAL_FAMILY_PATTERNS: Array<[string, RegExp[]]> = [
   ["chickpea-rice", [/\bchickpeas?\b.*\brice\b|\brice\b.*\bchickpeas?\b/i, /\u062d\u0645\u0635.*[\u0623\u0627]\u0631\u0632|[\u0623\u0627]\u0631\u0632.*\u062d\u0645\u0635/]],
   ["chickpea-salad", [/\bchickpeas?\b.*\bsalad\b|\bsalad\b.*\bchickpeas?\b/i, /\u0633\u0644\u0637\u0629.*\u062d\u0645\u0635|\u062d\u0645\u0635.*\u0633\u0644\u0637\u0629/]],
   ["lentil-soup", [/\blentils?\b.*\bsoup\b|\bsoup\b.*\blentils?\b/i, /\u0634\u0648\u0631\u0628\u0629.*\u0639\u062f\u0633|\u0639\u062f\u0633.*\u0634\u0648\u0631\u0628\u0629/]],
+  ["yogurt-bowl", [/\byogurt\b.*\b(?:berry|berries|fruit|granola|chia|bowl)\b|\b(?:berry|berries|fruit|granola|chia)\b.*\byogurt\b/i, /\u0632\u0628\u0627\u062f\u064a.*(?:\u062a\u0648\u062a|\u0641\u0648\u0627\u0643\u0647|\u062c\u0631\u0627\u0646\u0648\u0644\u0627|\u0634\u064a\u0627)|(?:\u062a\u0648\u062a|\u0641\u0648\u0627\u0643\u0647|\u062c\u0631\u0627\u0646\u0648\u0644\u0627|\u0634\u064a\u0627).*\u0632\u0628\u0627\u062f\u064a/]],
   ["egg-toast", [/\begg\b.*\btoast\b|\btoast\b.*\begg\b/i, /\u062a\u0648\u0633\u062a.*\u0628\u064a\u0636|\u0628\u064a\u0636.*\u062a\u0648\u0633\u062a/]],
+  ["egg-meal", [/\b(?:omelette|omelet|frittata|scrambled egg|boiled egg|egg bowl)\b/i, /\u0623\u0648\u0645\u0644\u064a\u062a|\u0627\u0648\u0645\u0644\u064a\u062a|\u0641\u0631\u064a\u062a\u0627\u062a\u0627|\u0628\u064a\u0636\s+(?:\u0645\u062e\u0641\u0648\u0642|\u0645\u0633\u0644\u0648\u0642)|\u0648\u0639\u0627\u0621.*\u0628\u064a\u0636/]],
+  ["tomato-pasta", [/\b(?:pasta|spaghetti|penne|macaroni)\b.*\b(?:tomato|pomodoro|marinara|red sauce)\b|\b(?:tomato|pomodoro|marinara|red sauce)\b.*\b(?:pasta|spaghetti|penne|macaroni)\b/i, /(?:\u0628\u0627\u0633\u062a\u0627|\u0645\u0643\u0631\u0648\u0646(?:\u0629|\u0647)|\u0633\u0628\u0627\u062c\u064a\u062a\u064a|\u0628\u064a\u0646\u064a).*(?:\u0637\u0645\u0627\u0637\u0645|\u0635\u0644\u0635\u0629|\u0628\u0648\u0645\u0648\u062f\u0648\u0631\u0648)|(?:\u0637\u0645\u0627\u0637\u0645|\u0635\u0644\u0635\u0629|\u0628\u0648\u0645\u0648\u062f\u0648\u0631\u0648).*(?:\u0628\u0627\u0633\u062a\u0627|\u0645\u0643\u0631\u0648\u0646(?:\u0629|\u0647)|\u0633\u0628\u0627\u062c\u064a\u062a\u064a|\u0628\u064a\u0646\u064a)/]],
+  ["vegetable-pasta", [/\b(?:pasta|spaghetti|penne|macaroni)\b.*\b(?:vegetable|veggie|spinach|zucchini|eggplant|broccoli)\b|\b(?:vegetable|veggie|spinach|zucchini|eggplant|broccoli)\b.*\b(?:pasta|spaghetti|penne|macaroni)\b/i, /(?:\u0628\u0627\u0633\u062a\u0627|\u0645\u0643\u0631\u0648\u0646(?:\u0629|\u0647)|\u0633\u0628\u0627\u062c\u064a\u062a\u064a).*(?:\u062e\u0636\u0627\u0631|\u0633\u0628\u0627\u0646\u062e|\u0643\u0648\u0633\u0629|\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u0631\u0648\u0643\u0644\u064a)|(?:\u062e\u0636\u0627\u0631|\u0633\u0628\u0627\u0646\u062e|\u0643\u0648\u0633\u0629|\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u0631\u0648\u0643\u0644\u064a).*(?:\u0628\u0627\u0633\u062a\u0627|\u0645\u0643\u0631\u0648\u0646(?:\u0629|\u0647)|\u0633\u0628\u0627\u062c\u064a\u062a\u064a)/]],
+  ["pasta", [/\b(?:pasta|spaghetti|penne|macaroni|linguine|fettuccine|noodles?)\b/i, /\u0628\u0627\u0633\u062a\u0627|\u0645\u0643\u0631\u0648\u0646(?:\u0629|\u0647)|\u0645\u0639\u0643\u0631\u0648\u0646(?:\u0629|\u0647)|\u0633\u0628\u0627\u062c\u064a\u062a\u064a|\u0646\u0648\u062f\u0644/]],
   ["kofta", [/\bkofta\b|\bkafta\b|\bkofte\b/i, /\u0643\u0641\u062a[\u0629\u0647]/]],
+  ["lemon-herb-chicken", [/\bchicken\b.*\b(?:lemon|herb|butter)\b|\b(?:lemon|herb|butter)\b.*\bchicken\b/i, /\u062f\u062c\u0627\u062c.*(?:\u0644\u064a\u0645\u0648\u0646|\u0623\u0639\u0634\u0627\u0628|\u0627\u0639\u0634\u0627\u0628|\u0632\u0628\u062f\u0629)|(?:\u0644\u064a\u0645\u0648\u0646|\u0623\u0639\u0634\u0627\u0628|\u0627\u0639\u0634\u0627\u0628|\u0632\u0628\u062f\u0629).*\u062f\u062c\u0627\u062c/]],
   ["chicken-rice", [/\bchicken\b.*\brice\b|\brice\b.*\bchicken\b/i, /\u062f\u062c\u0627\u062c.*[\u0623\u0627]\u0631\u0632|[\u0623\u0627]\u0631\u0632.*\u062f\u062c\u0627\u062c/]],
+  ["seafood-rice", [/\b(?:fish|seafood|shrimp|prawn|tilapia|salmon|tuna)\b.*\b(?:rice|paella|sayadeya)\b|\b(?:rice|paella|sayadeya)\b.*\b(?:fish|seafood|shrimp|prawn|tilapia|salmon|tuna)\b/i, /(?:\u0633\u0645\u0643|\u0633\u064a\s*\u0641\u0648\u062f|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0628\u0644\u0637\u064a|\u0633\u0644\u0645\u0648\u0646|\u062a\u0648\u0646\u0629).*(?:\u0623\u0631\u0632|\u0627\u0631\u0632|\u0628\u0627\u064a\u0644\u0627|\u0628\u0627\u064a\u0627\u064a\u0627|\u0635\u064a\u0627\u062f\u064a\u0629)|(?:\u0623\u0631\u0632|\u0627\u0631\u0632|\u0628\u0627\u064a\u0644\u0627|\u0628\u0627\u064a\u0627\u064a\u0627|\u0635\u064a\u0627\u062f\u064a\u0629).*(?:\u0633\u0645\u0643|\u0633\u064a\s*\u0641\u0648\u062f|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0628\u0644\u0637\u064a|\u0633\u0644\u0645\u0648\u0646|\u062a\u0648\u0646\u0629)/]],
+  ["fish", [/\b(?:grilled|baked|fried|roasted)?\s*(?:fish|tilapia|salmon|tuna|cod|bass|snapper)\b/i, /(?:\u0633\u0645\u0643|\u0628\u0644\u0637\u064a|\u0633\u0644\u0645\u0648\u0646|\u062a\u0648\u0646\u0629|\u0642\u0627\u0631\u0648\u0635)/]],
+  ["shrimp", [/\b(?:shrimp|prawn|calamari)\b/i, /\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0643\u0627\u0644\u064a\u0645\u0627\u0631\u064a/]],
   ["vegetable-soup", [/\bvegetable\b.*\bsoup\b|\bsoup\b.*\bvegetable\b/i, /\u0634\u0648\u0631\u0628\u0629.*\u062e\u0636\u0627\u0631|\u062e\u0636\u0627\u0631.*\u0634\u0648\u0631\u0628\u0629/]]
 ];
 
@@ -224,6 +233,7 @@ export function validateMealPlan(
 
   const familyCounts = countMealsByFamily(slots);
   for (const [name, count] of familyCounts.entries()) {
+    if (shouldSkipFamilyLimit(name, preferences)) continue;
     if (count > maxSimilarFamily) {
       issues.push({ kind: "repeat", name, actual: count, allowed: maxSimilarFamily });
     }
@@ -421,6 +431,7 @@ function repairRepeatedMealFamilies(
 
   for (const entry of flattenMealPlanSlots(mealPlan)) {
     const key = getMealFamilyKey(entry.meal);
+    if (shouldSkipFamilyLimit(key, preferences)) continue;
     const nextCount = (counts.get(key) ?? 0) + 1;
     counts.set(key, nextCount);
     if (nextCount <= maxSimilarFamily) continue;
@@ -566,6 +577,17 @@ function buildFallbackMealPlan(
 
 function shouldEnforcePescatarianSeafoodQuota(preferences: MealPlanGuardPreferences) {
   return preferences.dietContext.diets.includes("pescatarian") && !preferences.dietContext.diets.includes("vegan");
+}
+
+function shouldSkipFamilyLimit(family: string, preferences: MealPlanGuardPreferences) {
+  const diets = preferences.dietContext.diets;
+  if (diets.includes("pescatarian") && (family === "fish" || family === "shrimp" || family === "seafood-rice")) {
+    return true;
+  }
+  if ((diets.includes("keto") || diets.includes("paleo") || diets.includes("glutenFree")) && family === "fish") {
+    return true;
+  }
+  return false;
 }
 
 function shouldEnforcePlantBasedVariety(preferences: MealPlanGuardPreferences) {
@@ -779,15 +801,15 @@ const VEGAN_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
     veganMeal("Mushroom potato breakfast hash", "breakfast", ["potatoes", "mushrooms", "bell pepper", "onion", "parsley", "olive oil"], 430, "12g", "mushroom potato breakfast hash"),
     veganMeal("Avocado tomato sourdough toast", "breakfast", ["whole grain bread", "avocado", "tomato", "cucumber", "lemon"], 420, "12g", "avocado tomato toast"),
     veganMeal("Vegetable tofu breakfast scramble", "breakfast", ["tofu", "spinach", "mushrooms", "bell pepper", "turmeric", "olive oil"], 410, "24g", "vegan tofu scramble vegetables"),
-    veganMeal("Cinnamon apple oatmeal", "breakfast", ["oats", "apple", "cinnamon", "almond milk", "walnuts"], 395, "13g", "apple cinnamon oatmeal"),
-    veganMeal("Date tahini oatmeal", "breakfast", ["oats", "dates", "tahini", "cinnamon", "almond milk"], 390, "13g", "date tahini oatmeal"),
-    veganMeal("Berry chia almond pudding", "breakfast", ["chia seeds", "almond milk", "berries", "pumpkin seeds", "cinnamon"], 380, "14g", "berry chia pudding")
+    veganMeal("Cinnamon apple oatmeal", "breakfast", ["oats", "apple", "cinnamon", "almond beverage", "walnuts"], 395, "13g", "apple cinnamon oatmeal"),
+    veganMeal("Date tahini oatmeal", "breakfast", ["oats", "dates", "tahini", "cinnamon", "almond beverage"], 390, "13g", "date tahini oatmeal"),
+    veganMeal("Berry chia almond pudding", "breakfast", ["chia seeds", "almond beverage", "berries", "pumpkin seeds", "cinnamon"], 380, "14g", "berry chia pudding")
   ],
   lunch: [
     veganMeal("Pasta primavera with roasted vegetables", "lunch", ["pasta", "zucchini", "bell pepper", "tomato", "basil", "olive oil"], 545, "18g", "vegan pasta primavera"),
     veganMeal("Mushroom shawarma pita with tahini", "lunch", ["mushrooms", "pita bread", "cucumber", "tomato", "tahini", "shawarma spices"], 535, "18g", "mushroom shawarma pita"),
     veganMeal("Vegetable sushi rolls with edamame", "lunch", ["nori", "sushi rice", "cucumber", "avocado", "carrot", "edamame"], 520, "18g", "vegetable sushi rolls edamame"),
-    veganMeal("Tofu soba noodle salad", "lunch", ["tofu", "soba noodles", "cucumber", "carrot", "sesame", "ginger"], 540, "26g", "tofu soba noodle salad"),
+    veganMeal("Tofu buckwheat salad", "lunch", ["tofu", "buckwheat groats", "cucumber", "carrot", "sesame", "ginger"], 540, "26g", "tofu buckwheat salad"),
     veganMeal("Roasted eggplant tahini flatbread", "lunch", ["eggplant", "flatbread", "tahini", "tomato", "parsley", "lemon"], 550, "17g", "roasted eggplant tahini flatbread"),
     veganMeal("Quinoa roasted vegetable bowl", "lunch", ["quinoa", "zucchini", "carrot", "bell pepper", "pumpkin seeds", "lemon"], 535, "19g", "quinoa roasted vegetable bowl"),
     veganMeal("Falafel chickpea salad bowl", "lunch", ["falafel", "chickpeas", "romaine", "tomato", "cucumber", "tahini"], 560, "23g", "falafel chickpea salad bowl"),
@@ -796,9 +818,9 @@ const VEGAN_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
   ],
   dinner: [
     veganMeal("Eggplant tomato pasta bake", "dinner", ["eggplant", "pasta", "tomato sauce", "garlic", "basil", "olive oil"], 590, "19g", "vegan eggplant tomato pasta bake"),
-    veganMeal("Thai tofu vegetable curry", "dinner", ["tofu", "coconut milk", "zucchini", "bell pepper", "carrot", "basil"], 575, "25g", "thai tofu vegetable curry"),
+    veganMeal("Thai tofu vegetable curry", "dinner", ["tofu", "coconut broth", "zucchini", "bell pepper", "carrot", "basil"], 575, "25g", "thai tofu vegetable curry"),
     veganMeal("Stuffed peppers with quinoa vegetables", "dinner", ["bell peppers", "quinoa", "zucchini", "tomato", "onion", "parsley"], 555, "18g", "quinoa stuffed peppers"),
-    veganMeal("Mushroom noodle stir fry", "dinner", ["noodles", "mushrooms", "broccoli", "carrot", "ginger", "soy sauce"], 560, "20g", "mushroom vegetable noodle stir fry"),
+    veganMeal("Mushroom vegetable stir fry", "dinner", ["rice", "mushrooms", "broccoli", "carrot", "ginger", "tamari"], 560, "20g", "mushroom vegetable stir fry"),
     veganMeal("Okra tomato stew with potatoes", "dinner", ["okra", "potatoes", "tomato sauce", "onion", "garlic", "coriander"], 535, "14g", "okra tomato potato stew"),
     veganMeal("Cauliflower shawarma tray with tahini", "dinner", ["cauliflower", "potatoes", "tahini", "tomato", "parsley", "shawarma spices"], 555, "17g", "cauliflower shawarma tray"),
     veganMeal("Vegetable moussaka no dairy", "dinner", ["eggplant", "zucchini", "tomato sauce", "potatoes", "onion", "olive oil"], 570, "15g", "vegan vegetable moussaka"),
@@ -812,10 +834,10 @@ const GLUTEN_FREE_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
     veganMeal("Ful medames with tomato cucumber salad", "breakfast", ["fava beans", "tomato", "cucumber", "parsley", "lemon", "olive oil"], 430, "19g", "ful medames tomato cucumber"),
     veganMeal("Mushroom potato breakfast hash", "breakfast", ["potatoes", "mushrooms", "bell pepper", "onion", "parsley", "olive oil"], 430, "12g", "mushroom potato breakfast hash"),
     veganMeal("Vegetable tofu breakfast scramble", "breakfast", ["tofu", "spinach", "mushrooms", "bell pepper", "turmeric", "olive oil"], 410, "24g", "vegan tofu scramble vegetables"),
-    veganMeal("Berry chia almond pudding", "breakfast", ["chia seeds", "almond milk", "berries", "pumpkin seeds", "cinnamon"], 380, "14g", "berry chia pudding"),
-    veganMeal("Coconut chia fruit bowl", "breakfast", ["chia seeds", "coconut milk", "berries", "walnuts", "cinnamon"], 410, "13g", "coconut chia fruit bowl"),
+    veganMeal("Berry chia almond pudding", "breakfast", ["chia seeds", "almond beverage", "berries", "pumpkin seeds", "cinnamon"], 380, "14g", "berry chia pudding"),
+    veganMeal("Coconut chia fruit bowl", "breakfast", ["chia seeds", "coconut beverage", "berries", "walnuts", "cinnamon"], 410, "13g", "coconut chia fruit bowl"),
     veganMeal("Sweet potato mushroom skillet", "breakfast", ["sweet potato", "mushrooms", "bell pepper", "spinach", "olive oil"], 425, "12g", "sweet potato mushroom skillet"),
-    veganMeal("Quinoa apple cinnamon bowl", "breakfast", ["quinoa", "apple", "cinnamon", "almond milk", "pumpkin seeds"], 405, "14g", "quinoa apple cinnamon bowl")
+    veganMeal("Quinoa apple cinnamon bowl", "breakfast", ["quinoa", "apple", "cinnamon", "almond beverage", "pumpkin seeds"], 405, "14g", "quinoa apple cinnamon bowl")
   ],
   lunch: [
     veganMeal("Vegetable sushi rolls with edamame", "lunch", ["nori", "sushi rice", "cucumber", "avocado", "carrot", "edamame"], 520, "18g", "vegetable sushi rolls edamame"),
@@ -823,11 +845,11 @@ const GLUTEN_FREE_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
     veganMeal("Chickpea shawarma vegetable bowl", "lunch", ["chickpeas", "cucumber", "tomato", "tahini", "cabbage", "shawarma spices"], 545, "21g", "chickpea shawarma vegetable bowl"),
     veganMeal("Falafel chickpea salad bowl", "lunch", ["falafel", "chickpeas", "romaine", "tomato", "cucumber", "tahini"], 560, "23g", "falafel chickpea salad bowl"),
     veganMeal("Stuffed grape leaves with cucumber salad", "lunch", ["grape leaves", "rice", "tomato", "parsley", "cucumber", "lemon"], 520, "12g", "stuffed grape leaves cucumber salad"),
-    veganMeal("Zucchini noodle tofu stir fry", "lunch", ["tofu", "zucchini noodles", "broccoli", "ginger", "sesame"], 505, "30g", "zucchini noodle tofu stir fry"),
+    veganMeal("Zucchini ribbon tofu stir fry", "lunch", ["tofu", "zucchini ribbons", "broccoli", "ginger", "sesame"], 505, "30g", "zucchini ribbon tofu stir fry"),
     veganMeal("Cauliflower tabbouleh tofu bowl", "lunch", ["tofu", "cauliflower", "parsley", "cucumber", "tahini"], 520, "31g", "cauliflower tabbouleh tofu bowl")
   ],
   dinner: [
-    veganMeal("Thai tofu vegetable curry", "dinner", ["tofu", "coconut milk", "zucchini", "bell pepper", "carrot", "basil"], 575, "25g", "thai tofu vegetable curry"),
+    veganMeal("Thai tofu vegetable curry", "dinner", ["tofu", "coconut broth", "zucchini", "bell pepper", "carrot", "basil"], 575, "25g", "thai tofu vegetable curry"),
     veganMeal("Stuffed peppers with quinoa vegetables", "dinner", ["bell peppers", "quinoa", "zucchini", "tomato", "onion", "parsley"], 555, "18g", "quinoa stuffed peppers"),
     veganMeal("Okra tomato stew with potatoes", "dinner", ["okra", "potatoes", "tomato sauce", "onion", "garlic", "coriander"], 535, "14g", "okra tomato potato stew"),
     veganMeal("Cauliflower shawarma tray with tahini", "dinner", ["cauliflower", "potatoes", "tahini", "tomato", "parsley", "shawarma spices"], 555, "17g", "cauliflower shawarma tray"),
@@ -853,7 +875,7 @@ const LOW_CARB_PESCATARIAN_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
     fallbackMeal("Tuna lettuce tahini salad", "lunch", "Mediterranean", ["tuna", "lettuce", "cucumber", "tahini", "lemon"], 500, "38g", "tuna lettuce tahini salad", "12g", "33g"),
     fallbackMeal("Baked fish broccoli tahini plate", "lunch", "Mediterranean", ["white fish", "broccoli", "tahini", "lemon", "olive oil"], 535, "41g", "baked fish broccoli tahini", "16g", "33g"),
     fallbackMeal("Salmon asparagus herb tray", "lunch", "Global", ["salmon", "asparagus", "zucchini", "lemon", "olive oil"], 565, "42g", "salmon asparagus herb tray", "12g", "39g"),
-    fallbackMeal("Shrimp zucchini noodle skillet", "lunch", "Global", ["shrimp", "zucchini noodles", "garlic", "olive oil", "parsley"], 500, "38g", "shrimp zucchini noodle skillet", "14g", "30g"),
+    fallbackMeal("Shrimp zucchini ribbon skillet", "lunch", "Global", ["shrimp", "zucchini ribbons", "garlic", "olive oil", "parsley"], 500, "38g", "shrimp zucchini ribbon skillet", "14g", "30g"),
     fallbackMeal("Tuna cucumber herb plate", "lunch", "Mediterranean", ["tuna", "cucumber", "celery", "parsley", "olive oil"], 385, "34g", "tuna cucumber herb plate", "9g", "24g")
   ],
   dinner: [
@@ -887,7 +909,7 @@ const KETO_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
     fallbackMeal("Chicken broccoli olive plate", "lunch", "Mediterranean", ["chicken", "broccoli", "olive", "tomato", "olive oil"], 545, "43g", "chicken broccoli olive plate", "17g", "35g")
   ],
   dinner: [
-    fallbackMeal("Shrimp zucchini noodle skillet", "dinner", "Global", ["shrimp", "zucchini noodles", "garlic", "olive oil", "parsley"], 500, "38g", "shrimp zucchini noodle skillet", "14g", "30g"),
+    fallbackMeal("Shrimp zucchini ribbon skillet", "dinner", "Global", ["shrimp", "zucchini ribbons", "garlic", "olive oil", "parsley"], 500, "38g", "shrimp zucchini ribbon skillet", "14g", "30g"),
     fallbackMeal("Chicken cauliflower mash plate", "dinner", "Global", ["chicken", "cauliflower", "asparagus", "olive oil", "herbs"], 560, "44g", "chicken cauliflower mash", "18g", "34g"),
     fallbackMeal("Baked fish with broccoli and tahini", "dinner", "Mediterranean", ["white fish", "broccoli", "tahini", "lemon", "olive oil"], 535, "41g", "baked fish broccoli tahini", "16g", "33g"),
     fallbackMeal("Beef mushroom lettuce bowl", "dinner", "Global", ["beef", "mushrooms", "lettuce", "cucumber", "olive oil"], 555, "39g", "beef mushroom lettuce bowl", "13g", "38g"),
@@ -900,16 +922,16 @@ const KETO_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
 const KETO_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
   breakfast: [
     fallbackMeal("Tofu avocado cucumber bowl", "breakfast", "Global", ["tofu", "avocado", "cucumber", "spinach", "olive oil"], 410, "24g", "tofu avocado cucumber bowl", "15g", "30g"),
-    fallbackMeal("Chia coconut seed pudding", "breakfast", "Global", ["chia seeds", "coconut milk", "pumpkin seeds", "cinnamon", "berries"], 390, "15g", "chia coconut seed pudding", "16g", "29g"),
+    fallbackMeal("Chia coconut seed pudding", "breakfast", "Global", ["chia seeds", "coconut beverage", "pumpkin seeds", "cinnamon", "berries"], 390, "15g", "chia coconut seed pudding", "16g", "29g"),
     fallbackMeal("Mushroom spinach tofu scramble", "breakfast", "Global", ["tofu", "mushrooms", "spinach", "turmeric", "olive oil"], 395, "25g", "mushroom spinach tofu scramble", "14g", "27g")
   ],
   lunch: [
     fallbackMeal("Cauliflower tabbouleh tofu bowl", "lunch", "Middle Eastern", ["tofu", "cauliflower", "parsley", "cucumber", "tahini"], 520, "31g", "cauliflower tabbouleh tofu bowl", "18g", "35g"),
-    fallbackMeal("Zucchini noodle tofu stir fry", "lunch", "Asian", ["tofu", "zucchini noodles", "broccoli", "ginger", "sesame"], 505, "30g", "zucchini noodle tofu stir fry", "17g", "34g"),
+    fallbackMeal("Zucchini ribbon tofu stir fry", "lunch", "Asian", ["tofu", "zucchini ribbons", "broccoli", "ginger", "sesame"], 505, "30g", "zucchini ribbon tofu stir fry", "17g", "34g"),
     fallbackMeal("Eggplant tahini walnut salad", "lunch", "Mediterranean", ["eggplant", "tahini", "walnuts", "cucumber", "parsley"], 540, "18g", "eggplant tahini walnut salad", "20g", "42g")
   ],
   dinner: [
-    fallbackMeal("Coconut tofu vegetable curry", "dinner", "Thai", ["tofu", "coconut milk", "zucchini", "mushrooms", "basil"], 560, "28g", "coconut tofu vegetable curry", "18g", "40g"),
+    fallbackMeal("Coconut tofu vegetable curry", "dinner", "Thai", ["tofu", "coconut broth", "zucchini", "mushrooms", "basil"], 560, "28g", "coconut tofu vegetable curry", "18g", "40g"),
     fallbackMeal("Stuffed zucchini with cauliflower and walnuts", "dinner", "Mediterranean", ["zucchini", "cauliflower", "walnuts", "tomato", "herbs"], 535, "17g", "stuffed zucchini cauliflower walnuts", "20g", "39g"),
     fallbackMeal("Mushroom lettuce taco cups", "dinner", "Mexican", ["mushrooms", "lettuce", "avocado", "salsa", "pumpkin seeds"], 500, "16g", "mushroom lettuce taco cups", "19g", "36g")
   ]
@@ -918,7 +940,7 @@ const KETO_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
 const PALEO_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
   breakfast: [
     fallbackMeal("Avocado cucumber seed plate", "breakfast", "Global", ["avocado", "cucumber", "pumpkin seeds", "spinach", "lemon"], 395, "12g", "avocado cucumber seed plate", "18g", "31g"),
-    fallbackMeal("Coconut chia berry bowl", "breakfast", "Global", ["chia seeds", "coconut milk", "berries", "walnuts", "cinnamon"], 410, "13g", "coconut chia berry bowl", "22g", "32g"),
+    fallbackMeal("Coconut chia berry bowl", "breakfast", "Global", ["chia seeds", "coconut beverage", "berries", "walnuts", "cinnamon"], 410, "13g", "coconut chia berry bowl", "22g", "32g"),
     fallbackMeal("Mushroom spinach avocado skillet", "breakfast", "Global", ["mushrooms", "spinach", "avocado", "olive oil", "herbs"], 385, "10g", "mushroom spinach avocado skillet", "16g", "30g")
   ],
   lunch: [
@@ -928,7 +950,7 @@ const PALEO_PLANT_FALLBACKS: Record<MealSlot, MealPlanMeal[]> = {
   ],
   dinner: [
     fallbackMeal("Cauliflower mushroom shawarma plate", "dinner", "Middle Eastern", ["cauliflower", "mushrooms", "tahini", "cucumber", "shawarma spices"], 545, "16g", "cauliflower mushroom shawarma plate", "26g", "42g"),
-    fallbackMeal("Vegetable coconut curry", "dinner", "Thai", ["coconut milk", "zucchini", "mushrooms", "cauliflower", "basil"], 560, "11g", "vegetable coconut curry", "24g", "45g"),
+    fallbackMeal("Vegetable coconut curry", "dinner", "Thai", ["coconut broth", "zucchini", "mushrooms", "cauliflower", "basil"], 560, "11g", "vegetable coconut curry", "24g", "45g"),
     fallbackMeal("Eggplant zucchini tomato bake", "dinner", "Mediterranean", ["eggplant", "zucchini", "tomato", "olive oil", "herbs"], 520, "11g", "eggplant zucchini tomato bake", "30g", "36g")
   ]
 };

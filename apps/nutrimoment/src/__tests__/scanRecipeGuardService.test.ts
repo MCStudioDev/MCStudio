@@ -52,7 +52,7 @@ describe("scan recipe guard service", () => {
     );
   });
 
-  it("does not inject seafood fallback cards when seafood is scanned but pescatarian is not selected", () => {
+  it("can use scanned seafood for non-vegetarian users even when pescatarian is not selected", () => {
     const repaired = repairScanRecipesWithGuard(buildBadFreeScanRecipes(), {
       allergens: [],
       calorieTarget: 1650,
@@ -65,8 +65,90 @@ describe("scan recipe guard service", () => {
       scoringIngredients: ["rice", "shrimp"]
     });
 
-    expect(JSON.stringify(repaired)).not.toMatch(/shrimp|salmon|fish|tilapia|seafood|Ø¬Ù…Ø¨Ø±ÙŠ|Ø³Ù…Ùƒ|Ø³Ù„Ù…ÙˆÙ†|Ø¨Ù„Ø·ÙŠ/i);
+    expect(JSON.stringify(repaired)).toMatch(/shrimp|seafood|Ø¬Ù…Ø¨Ø±ÙŠ/i);
+    expect(repaired.map((recipe) => findRecipeDietViolation(recipe, { diets: ["dairyFree"], allergens: [] }))).toEqual(
+      Array(repaired.length).fill(null)
+    );
   });
+});
+
+it("fills ordinary multi-ingredient free scans to the requested card count", () => {
+  const repaired = repairScanRecipesWithGuard(buildSparseChristineStyleScanRecipes(), {
+    allergens: [],
+    calorieTarget: 2000,
+    conditions: ["cholesterol", "highBloodPressure"],
+    diets: [],
+    inputIngredients: ["lentils", "pasta", "rice", "tomato", "onion"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    recipeLanguage: "English",
+    scoringIngredients: ["lentils", "pasta", "rice", "tomato", "onion"]
+  });
+
+  expect(repaired).toHaveLength(10);
+  expect(new Set(repaired.map((recipe) => recipe.image_search_index).filter(Boolean)).size).toBeGreaterThanOrEqual(6);
+  const visibleRecipeText = JSON.stringify(
+    repaired.map((recipe) => ({
+      ingredients: recipe.ingredients,
+      missing_ingredients: recipe.missing_ingredients,
+      name: recipe.name,
+      steps: recipe.steps
+    }))
+  );
+  expect(visibleRecipeText).not.toMatch(/\beggs?\b|cheese|cream|butter|sausage|bacon/i);
+  expect(
+    repaired.filter((recipe) =>
+      recipe.ingredients.some((ingredient) => /lentil|pasta|rice|tomato|onion/i.test(ingredient))
+    ).length
+  ).toBeGreaterThanOrEqual(8);
+});
+
+it("builds healthy varied fallback cards across seafood dairy produce fruit and grains", () => {
+  const repaired = repairScanRecipesWithGuard([], {
+    allergens: [],
+    calorieTarget: 2000,
+    conditions: ["cholesterol", "highBloodPressure"],
+    diets: [],
+    inputIngredients: ["fish", "shrimp", "yogurt", "spinach", "apple", "oats"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    recipeLanguage: "English",
+    scoringIngredients: ["fish", "shrimp", "yogurt", "spinach", "apple", "oats"]
+  });
+
+  expect(repaired).toHaveLength(10);
+  const names = repaired.map((recipe) => recipe.name).join(" ");
+  expect(names).toMatch(/Grilled|Baked|Stew|Soup/);
+  expect(names).toMatch(/Yogurt|Oat|Grain|Tray|Bowl/);
+  const visibleRecipeText = JSON.stringify(
+    repaired.map((recipe) => ({
+      ingredients: recipe.ingredients,
+      missing_ingredients: recipe.missing_ingredients,
+      name: recipe.name,
+      steps: recipe.steps
+    }))
+  );
+  expect(visibleRecipeText).not.toMatch(/cream sauce|butter|deep fried|sausage|bacon/i);
+});
+
+it("creates healthy method variety for meat chicken bread and onion", () => {
+  const repaired = repairScanRecipesWithGuard([], {
+    allergens: [],
+    calorieTarget: 2000,
+    conditions: ["cholesterol", "highBloodPressure"],
+    diets: [],
+    inputIngredients: ["meat", "chicken", "bread", "onion"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    recipeLanguage: "English",
+    scoringIngredients: ["meat", "chicken", "bread", "onion"]
+  });
+
+  expect(repaired).toHaveLength(10);
+  const names = repaired.map((recipe) => recipe.name).join(" ");
+  expect(names).toMatch(/Shawarma-Style|Grilled|BBQ-Style|Smoked-Paprika|Stew|Soup|Baked/);
+  expect(repaired.some((recipe) => /Chicken/i.test(recipe.name))).toBe(true);
+  expect(repaired.some((recipe) => /Meat/i.test(recipe.name))).toBe(true);
 });
 
 function buildBadFreeScanRecipes(): Recipe[] {
@@ -77,6 +159,15 @@ function buildBadFreeScanRecipes(): Recipe[] {
     recipe("طاجن حمص وطماطم مصري", "مصري", [], ["حمص", "طماطم", "بصل", "ثوم", "أرز"]),
     recipe("وعاء أرز وعدس مستوحى من الكشري", "مصري", [], ["أرز", "عدس", "مكرونة", "طماطم", "بصل", "حمص"]),
     recipe("رز مقلاة", "مصري", ["رز"], ["بصل", "ثوم", "طماطم", "زيت زيتون"])
+  ];
+}
+
+function buildSparseChristineStyleScanRecipes(): Recipe[] {
+  return [
+    recipe("Egyptian lentil tomato soup", "Egyptian", ["lentils", "tomato", "onion"], ["garlic", "cumin"]),
+    recipe("Koshary-inspired rice lentil bowl", "Egyptian", ["rice", "lentils", "tomato", "onion"], ["chickpeas"]),
+    recipe("Middle Eastern lentil rice", "Middle Eastern", ["rice", "lentils", "onion"], ["parsley"]),
+    recipe("Tomato pasta with onions", "Italian", ["pasta", "tomato", "onion"], ["garlic", "basil"])
   ];
 }
 

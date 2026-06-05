@@ -141,6 +141,7 @@ export interface MealPlanData {
   shoppingList: string[];
   recommendedRecipes?: Recipe[];
   servedFrom?: "shared_pool" | "fallback_ai" | "mock";
+  preferenceSignature?: string;
 }
 
 export interface HistoryItem {

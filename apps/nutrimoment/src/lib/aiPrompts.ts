@@ -980,13 +980,25 @@ function buildAllowedProteinRotationGuidance(
     : "";
 
   const collapseWarning = `ANTI-COLLAPSE RULE: when multiple dietary preferences and health conditions are active simultaneously, the AI must NOT find the single food type that satisfies every constraint at once and repeat it throughout the output. This produces a plan that feels monotonous and ignores half of the user's allowed diet. Instead: identify ALL food groups that are compatible with the combined constraints, then ROTATE across every allowed group within ${contextLabel}.`;
+  const friendlyHealthAdaptationNote = [
+    hasHeartConditions
+      ? "Broader heart-health adaptation: high blood pressure and high cholesterol limit fat and sodium, not normal food categories. Red meat, eggs, shawarma-style plates, BBQ-style plates, sliced sandwiches, soups, and stews can appear when made lean, low-sodium, baked/grilled/roasted/stewed, and not fried, creamy, cured, or processed. Keep dishes appetizing; do not replace everything with salads or generic healthy bowls."
+      : "",
+    hasDiabetes
+      ? "Broader diabetes adaptation: control sugar and starch portions without banning all bread, rice, pasta, fruit, or comfort dishes. Use protein, fiber, legumes, whole grains when appropriate, and balanced portions."
+      : "",
+    hasWeightCondition
+      ? "Weight-goal adaptation: use portions, protein, calorie density, and cooking method to fit the goal while keeping real dish identities and variety."
+      : ""
+  ].filter(Boolean).join(" ");
 
   return [
     collapseWarning,
     `Allowed protein and food sources for this combined preference profile (${[...diets, ...conditions].join(", ")}): ${strictAllowedProteins.join("; ")}.`,
     strictRotationInstruction,
     strictHeartNote,
-    diabetesNote
+    diabetesNote,
+    friendlyHealthAdaptationNote
   ].filter(Boolean).join(" ");
 }
 
@@ -996,10 +1008,10 @@ function buildDietVarietyGuidance(diets: string[], conditions: string[], recipeC
   if (selected.length) {
     return [
       `Diet and health variety mode is active for: ${selected.join(", ")}.`,
-      "Do not ignore these preferences when creating variety. Every recipe must be compatible with them or clearly adapted for them.",
+      "Do not ignore these preferences when creating variety, but do not make the output feel punitive, scary, or like a medical warning. Every recipe must be compatible with the nutrition target or clearly adapted through cooking method, portion, ingredient form, or seasoning.",
       "Use dish_intent.diet_type and preference_hits to explain the adaptation, for example low carb, high protein, heart healthy, diabetes friendly, gluten free, dairy free, or low sodium.",
       "Do not repeat the same base dish just because the diet labels differ; each card still needs a distinct cuisine, cooking form, starch/sauce structure, or serving format.",
-      "When a familiar dish normally conflicts with the selected diet, keep the real dish identity only if a believable substitution is listed in missing_ingredients, such as lettuce or cauliflower instead of bread/rice/pasta for low carb, gluten-free pasta/bread for gluten free, olive oil instead of dairy for dairy free, or herbs/citrus instead of salt for low sodium."
+      "When a familiar dish normally conflicts with the selected diet, keep the real dish identity only if a believable adaptation is listed in missing_ingredients or preparation: lean or trimmed meat instead of fatty cuts, baked/grilled instead of fried, low-sodium seasoning instead of salty sauces, lettuce or cauliflower instead of bread/rice/pasta for low carb, gluten-free pasta/bread for gluten free, olive oil instead of dairy for dairy free, or herbs/citrus instead of salt for low sodium."
     ].join(" ");
   }
 

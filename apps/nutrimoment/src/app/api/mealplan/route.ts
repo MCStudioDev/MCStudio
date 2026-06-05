@@ -20,6 +20,7 @@ import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
+import { buildMealPlanPreferenceSignature } from "@/lib/mealPlanPreferenceSignature";
 import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import type { RecipeCatalogDoc } from "@/lib/domain";
@@ -163,6 +164,14 @@ export async function POST(request: Request) {
       minUniqueMeals: 15,
       minPescatarianSeafoodSlots: 6
     };
+    const preferenceSignature = buildMealPlanPreferenceSignature({
+      allergens: parsed.data.allergens ?? [],
+      calorieTarget: parsed.data.calorieTarget,
+      conditions: parsed.data.conditions ?? [],
+      diets: parsed.data.diets ?? [],
+      preferredCuisine: parsed.data.preferredCuisine,
+      uiLanguage: parsed.data.uiLanguage
+    });
     const repairMealPlanSlots = (plan: MealPlanData, stage: string, replacementRecipes: RecipeCatalogDoc[] = []): MealPlanData => {
       let repairCount = 0;
       let dietViolationCount = 0;
@@ -324,10 +333,11 @@ export async function POST(request: Request) {
         historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
         historyTitle: parsed.data.historyTitle,
         mealPlan: outputMockPlan,
+        preferenceSignature,
         persistResult: parsed.data.persistResult,
         uid: access.uid
       });
-      return Response.json({ result: JSON.stringify(outputMockPlan), access: accessPayload(nextAccess) });
+      return Response.json({ result: JSON.stringify({ ...outputMockPlan, preferenceSignature }), access: accessPayload(nextAccess) });
     }
 
     const searchResult = await searchCatalogRecipes({
@@ -399,6 +409,7 @@ export async function POST(request: Request) {
           historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
           historyTitle: parsed.data.historyTitle,
           mealPlan: outputMealPlan,
+          preferenceSignature,
           persistResult: parsed.data.persistResult,
           uid: access.uid
         });
@@ -408,7 +419,7 @@ export async function POST(request: Request) {
           shoppingItemsBeforeReconcile: aiMealPlan.shoppingList.length
         });
         return Response.json({
-          result: JSON.stringify({ ...outputMealPlan, servedFrom: "fallback_ai" }),
+          result: JSON.stringify({ ...outputMealPlan, preferenceSignature, servedFrom: "fallback_ai" }),
           servedFrom: "fallback_ai",
           access: accessPayload(nextAccess)
         });
@@ -459,6 +470,7 @@ export async function POST(request: Request) {
       historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
       historyTitle: parsed.data.historyTitle,
       mealPlan: outputEmergencyMealPlan,
+      preferenceSignature,
       persistResult: parsed.data.persistResult,
       uid: access.uid
     });
@@ -467,7 +479,7 @@ export async function POST(request: Request) {
       shoppingItems: outputEmergencyMealPlan.shoppingList.length
     });
     return Response.json({
-      result: JSON.stringify(outputEmergencyMealPlan),
+      result: JSON.stringify({ ...outputEmergencyMealPlan, preferenceSignature }),
       servedFrom: "shared_pool",
       fallbackNotice: "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool.",
       access: accessPayload(nextAccess)
@@ -1318,6 +1330,7 @@ async function persistMealPlanResultForUser({
   historyIngredients,
   historyTitle,
   mealPlan,
+  preferenceSignature,
   persistResult,
   uid
 }: {
@@ -1325,6 +1338,7 @@ async function persistMealPlanResultForUser({
   historyIngredients: string[];
   historyTitle?: string;
   mealPlan: MealPlanData;
+  preferenceSignature?: string;
   persistResult?: boolean;
   uid: string;
 }) {
@@ -1335,7 +1349,8 @@ async function persistMealPlanResultForUser({
     const sanitized = sanitizeMealPlanForFirestore(mealPlan);
     await db.doc(`users/${uid}/plans/currentWeekly`).set(
       {
-        mealPlan: sanitized,
+        mealPlan: preferenceSignature ? { ...sanitized, preferenceSignature } : sanitized,
+        ...(preferenceSignature ? { preferenceSignature } : {}),
         updatedAt: FieldValue.serverTimestamp()
       },
       { merge: true }

@@ -17,6 +17,7 @@ import { translateIngredientToEnglish, translateRecipeTitleToEnglish } from "@/l
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
+import { buildMealPlanPreferenceSignatureFromProfile } from "@/lib/mealPlanPreferenceSignature";
 import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildNormalizedShoppingList } from "@/lib/shoppingListNormalizer";
@@ -93,7 +94,11 @@ export function MealPlanTab() {
     updateEntryStatus,
     updateRecipeImage: updateHistoryRecipeImage
   } = useHistory();
-  const { mealPlan, loading: savedPlanLoading, error: mealPlanError, reloadMealPlan, saveMealPlan, updateMealImage } = useMealPlan();
+  const mealPlanPreferenceSignature = useMemo(
+    () => buildMealPlanPreferenceSignatureFromProfile(settings, health),
+    [health, settings]
+  );
+  const { mealPlan, loading: savedPlanLoading, error: mealPlanError, reloadMealPlan, saveMealPlan, updateMealImage } = useMealPlan(mealPlanPreferenceSignature);
   const [loading, setLoading] = useState(false);
   const [imageLoadingSlots, setImageLoadingSlots] = useState<Set<string>>(() => new Set());
   const [imageErrorSlots, setImageErrorSlots] = useState<Set<string>>(() => new Set());

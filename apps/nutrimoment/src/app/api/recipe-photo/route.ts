@@ -108,7 +108,7 @@ const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const PREMIUM_REPLICATE_RETRY_TTL_MS = 3 * 1000;
 const PREMIUM_REPLICATE_RETRY_AFTER_SECONDS = 2;
 const WIKIMEDIA_ENABLED = true;
-const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v6";
+const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v7";
 const MIN_ACCEPTED_PROVIDER_SCORE = {
   wikimedia: 12,
   pexels_search: 11,
@@ -589,6 +589,7 @@ function canUseGeneratedRecipePhotoCacheForRequest(
 ) {
   if (entry.source !== "generated") return true;
   if (!isReplicateGeneratedRecipeImageUrl(entry.imageUrl)) return false;
+  if (!entry.signature.includes(STRICT_RECIPE_PHOTO_CACHE_VERSION)) return false;
 
   const cachedQuery = normalizeGeneratedCacheQuery(entry.query || entry.signature);
   if (!cachedQuery) return false;
@@ -602,16 +603,19 @@ function canUseGeneratedRecipePhotoCacheForRequest(
   if (normalizedRequestQueries.has(cachedQuery)) return true;
 
   const cachedIdentity = buildRecipePhotoIdentity(cachedQuery);
-  if (
-    exactNameHints.length > 0 &&
-    isWeakGeneratedRecipePhotoCacheQuery(cachedQuery, cachedIdentity)
-  ) {
+  if (isWeakGeneratedRecipePhotoCacheQuery(cachedQuery, cachedIdentity)) {
     return false;
   }
 
   return requestQueries
     .map((candidate) => buildRecipePhotoIdentity(candidate))
-    .some((candidateIdentity) => areGeneratedRecipePhotoIdentitiesCompatible(cachedIdentity, candidateIdentity));
+    .some((candidateIdentity) =>
+      Boolean(
+        cachedIdentity.canonicalDishKey &&
+          candidateIdentity.canonicalDishKey &&
+          cachedIdentity.canonicalDishKey === candidateIdentity.canonicalDishKey
+      )
+    );
 }
 
 function normalizeGeneratedCacheQuery(value: string) {
@@ -640,53 +644,6 @@ function isWeakGeneratedRecipePhotoCacheQuery(
   );
 
   return !hasStrongDishSignal;
-}
-
-function areGeneratedRecipePhotoIdentitiesCompatible(
-  cachedIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
-  requestIdentity: ReturnType<typeof buildRecipePhotoIdentity>
-) {
-  if (cachedIdentity.canonicalDishKey || requestIdentity.canonicalDishKey) {
-    return cachedIdentity.canonicalDishKey === requestIdentity.canonicalDishKey;
-  }
-
-  if (
-    cachedIdentity.mainIngredientKey &&
-    requestIdentity.mainIngredientKey &&
-    cachedIdentity.mainIngredientKey !== requestIdentity.mainIngredientKey
-  ) {
-    return false;
-  }
-
-  if (cachedIdentity.starchKey && requestIdentity.starchKey && cachedIdentity.starchKey !== requestIdentity.starchKey) {
-    return false;
-  }
-
-  if (
-    cachedIdentity.mealTypeKey &&
-    requestIdentity.mealTypeKey &&
-    cachedIdentity.mealTypeKey !== requestIdentity.mealTypeKey
-  ) {
-    return false;
-  }
-
-  if (
-    cachedIdentity.cookingMethodKey &&
-    requestIdentity.cookingMethodKey &&
-    cachedIdentity.cookingMethodKey !== requestIdentity.cookingMethodKey
-  ) {
-    return false;
-  }
-
-  const cachedTokens = new Set(cachedIdentity.coreTokens);
-  const requestTokens = requestIdentity.coreTokens.filter((token) => cachedTokens.has(token));
-  const hasSharedStrongSignal = Boolean(
-    cachedIdentity.mainIngredientKey &&
-      requestIdentity.mainIngredientKey &&
-      cachedIdentity.mainIngredientKey === requestIdentity.mainIngredientKey
-  );
-
-  return hasSharedStrongSignal && requestTokens.length >= 2;
 }
 
 function buildPhotoIdentityOverrideFromSearchParams(searchParams: URLSearchParams): RecipePhotoIdentityOverride | undefined {
@@ -1375,7 +1332,7 @@ function isStrongLegacyExactRecipePhotoIdentity(identity: ReturnType<typeof buil
 
 async function persistExactAliasesForLegacyPhoto(photo: CachedRecipePhoto, exactAliasCandidates: string[]) {
   if (!exactAliasCandidates.length) return;
-  if (photo.source !== "generated") return;
+  if (photo.source === "generated") return;
 
   try {
     await persistSharedRecipePhotoExactAliases(

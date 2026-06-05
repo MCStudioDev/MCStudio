@@ -61,62 +61,6 @@ function isRenderableImage(imageUrl?: string) {
   return isDurableRecipeImageUrl(imageUrl);
 }
 
-function getMealImageIdentity(meal: MealPlanData["plan"][number]["breakfast"]) {
-  return [
-    meal.name,
-    meal.image_search_index,
-    ...(meal.image_search_indices ?? [])
-  ]
-    .map((value) => value?.trim().toLowerCase())
-    .filter(Boolean)
-    .join("::");
-}
-
-function preserveExistingMealImages(nextMealPlan: MealPlanData, currentMealPlan: MealPlanData | null) {
-  if (!currentMealPlan) return nextMealPlan;
-
-  const existingMealsByIdentity = new Map(
-    currentMealPlan.plan
-      .flatMap((day) => [day.breakfast, day.lunch, day.dinner])
-      .map((meal) => [getMealImageIdentity(meal), meal] as const)
-      .filter(([identity, meal]) => Boolean(identity) && isRenderableImage(meal.image_url))
-  );
-
-  return {
-    ...nextMealPlan,
-    plan: nextMealPlan.plan.map((day, dayIndex) => ({
-      ...day,
-      breakfast: preserveExistingMealImage(day.breakfast, currentMealPlan.plan[dayIndex]?.breakfast, existingMealsByIdentity),
-      lunch: preserveExistingMealImage(day.lunch, currentMealPlan.plan[dayIndex]?.lunch, existingMealsByIdentity),
-      dinner: preserveExistingMealImage(day.dinner, currentMealPlan.plan[dayIndex]?.dinner, existingMealsByIdentity)
-    }))
-  };
-}
-
-function preserveExistingMealImage(
-  nextMeal: MealPlanData["plan"][number]["breakfast"],
-  indexedExistingMeal: MealPlanData["plan"][number]["breakfast"] | undefined,
-  existingMealsByIdentity: Map<string, MealPlanData["plan"][number]["breakfast"]>
-) {
-  if (isRenderableImage(nextMeal.image_url)) return nextMeal;
-
-  const identity = getMealImageIdentity(nextMeal);
-  const existingMeal =
-    (indexedExistingMeal && getMealImageIdentity(indexedExistingMeal) === identity ? indexedExistingMeal : undefined) ??
-    existingMealsByIdentity.get(identity);
-  const existingImageUrl = existingMeal?.image_url;
-
-  if (!existingMeal || !isRenderableImage(existingImageUrl)) return nextMeal;
-
-  return {
-    ...nextMeal,
-    image_attribution_name: nextMeal.image_attribution_name ?? existingMeal.image_attribution_name,
-    image_attribution_url: nextMeal.image_attribution_url ?? existingMeal.image_attribution_url,
-    image_source: nextMeal.image_source ?? existingMeal.image_source,
-    image_url: existingImageUrl
-  };
-}
-
 function mealPlanReducer(state: MealPlanState, action: MealPlanAction): MealPlanState {
   switch (action.type) {
     case "loading":
@@ -130,7 +74,7 @@ function mealPlanReducer(state: MealPlanState, action: MealPlanAction): MealPlan
   }
 }
 
-export function useMealPlan() {
+export function useMealPlan(expectedPreferenceSignature?: string) {
   const { user } = useAuth();
   const [state, dispatch] = useReducer(mealPlanReducer, INITIAL_STATE);
   const latestMealPlanRef = useRef<MealPlanData | null>(null);
@@ -148,7 +92,10 @@ export function useMealPlan() {
       return;
     }
 
-    const cachedMealPlan = mealPlanMemoryCache.get(user.uid) ?? null;
+    const cachedMealPlan = filterMealPlanByPreferenceSignature(
+      mealPlanMemoryCache.get(user.uid) ?? null,
+      expectedPreferenceSignature
+    );
     if (cachedMealPlan) {
       latestMealPlanRef.current = cachedMealPlan;
       dispatch({ type: "plan", payload: cachedMealPlan });
@@ -170,8 +117,18 @@ export function useMealPlan() {
         mealPlanMemoryCache.delete(user.uid);
         dispatch({ type: "plan", payload: null });
       } else {
-        const data = snapshot.data() as { mealPlan?: unknown };
-        const normalized = normalizeMealPlanData(data.mealPlan);
+        const data = snapshot.data() as { mealPlan?: unknown; preferenceSignature?: unknown };
+        const normalizedPlan = normalizeMealPlanData(data.mealPlan);
+        const storedPreferenceSignature =
+          typeof data.preferenceSignature === "string"
+            ? data.preferenceSignature
+            : normalizedPlan?.preferenceSignature;
+        const normalized = filterMealPlanByPreferenceSignature(
+          normalizedPlan && storedPreferenceSignature
+            ? { ...normalizedPlan, preferenceSignature: storedPreferenceSignature }
+            : normalizedPlan,
+          expectedPreferenceSignature
+        );
         latestMealPlanRef.current = normalized;
         if (normalized) {
           mealPlanMemoryCache.set(user.uid, normalized);
@@ -191,7 +148,7 @@ export function useMealPlan() {
     } finally {
       dispatch({ type: "loading", payload: false });
     }
-  }, [user]);
+  }, [expectedPreferenceSignature, user]);
 
   useEffect(() => {
     void loadMealPlan();
@@ -199,16 +156,20 @@ export function useMealPlan() {
 
   const saveMealPlan = async (mealPlan: MealPlanData) => {
     const normalizedPlan = normalizeMealPlanData(mealPlan);
-    const normalized = normalizedPlan ? preserveExistingMealImages(normalizedPlan, latestMealPlanRef.current) : null;
+    const normalized = normalizedPlan;
     if (!normalized) {
       throw new Error("Meal plan is missing required days");
     }
 
+    const normalizedWithSignature = expectedPreferenceSignature
+      ? { ...normalized, preferenceSignature: expectedPreferenceSignature }
+      : normalized;
+
     localMutationVersionRef.current += 1;
-    dispatch({ type: "plan", payload: normalized });
-    latestMealPlanRef.current = normalized;
+    dispatch({ type: "plan", payload: normalizedWithSignature });
+    latestMealPlanRef.current = normalizedWithSignature;
     if (user) {
-      mealPlanMemoryCache.set(user.uid, normalized);
+      mealPlanMemoryCache.set(user.uid, normalizedWithSignature);
     }
 
     if (!user) {
@@ -217,12 +178,13 @@ export function useMealPlan() {
 
     const planRef = doc(db, "users", user.uid, "plans", "currentWeekly");
     try {
-      const sanitized = sanitizeMealPlanForFirestore(normalized);
+      const sanitized = sanitizeMealPlanForFirestore(normalizedWithSignature);
       await withClientTimeout(
         setDoc(
           planRef,
           {
             mealPlan: sanitized,
+            ...(expectedPreferenceSignature ? { preferenceSignature: expectedPreferenceSignature } : {}),
             updatedAt: serverTimestamp()
           },
           { merge: true }
@@ -285,9 +247,13 @@ export function useMealPlan() {
 
     const nextMealPlan: MealPlanData = {
       ...current,
-      plan: nextPlan
+      plan: nextPlan,
+      ...(expectedPreferenceSignature ? { preferenceSignature: expectedPreferenceSignature } : {})
     };
-    const sanitized = sanitizeMealPlanForFirestore(nextMealPlan);
+    const nextMealPlanWithSignature = expectedPreferenceSignature
+      ? { ...nextMealPlan, preferenceSignature: expectedPreferenceSignature }
+      : nextMealPlan;
+    const sanitized = sanitizeMealPlanForFirestore(nextMealPlanWithSignature);
 
     localMutationVersionRef.current += 1;
     latestMealPlanRef.current = nextMealPlan;
@@ -302,10 +268,11 @@ export function useMealPlan() {
     try {
       await setDoc(
         planRef,
-        {
-          mealPlan: sanitized,
-          updatedAt: serverTimestamp()
-        },
+          {
+            mealPlan: sanitized,
+            ...(expectedPreferenceSignature ? { preferenceSignature: expectedPreferenceSignature } : {}),
+            updatedAt: serverTimestamp()
+          },
         { merge: true }
       );
     } catch (error) {
@@ -315,7 +282,7 @@ export function useMealPlan() {
       }
       throw error;
     }
-  }, [user]);
+  }, [expectedPreferenceSignature, user]);
 
   return {
     mealPlan: state.mealPlan,
@@ -325,4 +292,12 @@ export function useMealPlan() {
     saveMealPlan,
     updateMealImage
   };
+}
+
+function filterMealPlanByPreferenceSignature(
+  mealPlan: MealPlanData | null,
+  expectedPreferenceSignature?: string
+) {
+  if (!mealPlan || !expectedPreferenceSignature) return mealPlan;
+  return mealPlan.preferenceSignature === expectedPreferenceSignature ? mealPlan : null;
 }

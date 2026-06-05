@@ -18,6 +18,70 @@ describe("health enforcement", () => {
     ).toBeNull();
   });
 
+  it("allows familiar proteins when the preparation and numbers are heart-smart", () => {
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Lean grilled beef onion flatbread",
+          ingredients: ["lean beef", "onion", "whole wheat flatbread", "lemon", "herbs"],
+          steps: ["Trim visible fat.", "Grill the beef strips with onion and a small amount of olive oil."],
+          calories: 520,
+          fat: "18g",
+          fiber: "6g",
+          sodium: "520mg",
+          protein: "36g"
+        },
+        ["cholesterol", "highBloodPressure"]
+      )
+    ).toBeNull();
+
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Smoked-paprika chicken shawarma-style wrap",
+          ingredients: ["skinless chicken", "onion", "whole wheat pita", "smoked paprika", "garlic"],
+          steps: ["Use smoked paprika for flavor, not cured smoked meat.", "Bake the chicken and slice it thin."],
+          calories: 480,
+          fat: "12g",
+          fiber: "5g",
+          sodium: "560mg",
+          protein: "38g"
+        },
+        ["highCholesterol", "highBloodPressure"]
+      )
+    ).toBeNull();
+  });
+
+  it("allows adapted dairy while still blocking heavy dairy", () => {
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Low-fat mozzarella vegetable toast",
+          ingredients: ["whole grain bread", "low-fat mozzarella", "tomato", "spinach"],
+          calories: 390,
+          fat: "11g",
+          fiber: "6g",
+          sodium: "430mg",
+          protein: "23g"
+        },
+        ["cholesterol", "highBloodPressure"]
+      )
+    ).toBeNull();
+
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Creamy cheese pasta",
+          ingredients: ["pasta", "cheese", "cream", "butter"],
+          calories: 720,
+          fat: "36g",
+          sodium: "820mg"
+        },
+        ["cholesterol", "highBloodPressure"]
+      )
+    ).toEqual({ condition: "cholesterol", match: "butter" });
+  });
+
   it("blocks processed salty foods for high blood pressure profiles", () => {
     expect(
       findRecipeHealthViolation(
@@ -43,6 +107,21 @@ describe("health enforcement", () => {
         ["diabetes"]
       )
     ).toEqual({ condition: "diabetes", match: "sugar>15g" });
+
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Chicken whole grain bowl",
+          ingredients: ["chicken", "brown rice", "lentils", "vegetables"],
+          calories: 560,
+          carbs: "58g",
+          sugar: "6g",
+          fiber: "8g",
+          protein: "34g"
+        },
+        ["diabetes"]
+      )
+    ).toBeNull();
   });
 
   it("uses nutrition numbers for low blood pressure profiles", () => {
@@ -51,7 +130,7 @@ describe("health enforcement", () => {
         { name: "Tiny cucumber salad", ingredients: ["cucumber", "lettuce"], calories: 180, sodium: "80mg", protein: "4g" },
         ["lowBloodPressure"]
       )
-    ).toEqual({ condition: "lowBloodPressure", match: "calories<320" });
+    ).toEqual({ condition: "lowBloodPressure", match: "calories<260" });
   });
 
   it("uses nutrition numbers for weight-gain profiles", () => {
@@ -60,7 +139,14 @@ describe("health enforcement", () => {
         { name: "Light broth", ingredients: ["vegetable broth", "herbs"], calories: 240, protein: "7g" },
         ["weightGain"]
       )
-    ).toEqual({ condition: "weightGain", match: "calories<430" });
+    ).toEqual({ condition: "weightGain", match: "calories<320" });
+
+    expect(
+      findRecipeHealthViolation(
+        { name: "Chicken avocado rice plate", ingredients: ["chicken", "avocado", "rice"], calories: 390, protein: "28g" },
+        ["weightGain"]
+      )
+    ).toBeNull();
   });
 
   it("allows numerically compatible health meals", () => {

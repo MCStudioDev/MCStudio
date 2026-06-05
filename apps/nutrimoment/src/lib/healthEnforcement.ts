@@ -29,7 +29,7 @@ export interface HealthViolation {
   match: string;
 }
 
-const HEART_HEAVY_TERMS = [
+const HEART_SATURATED_FAT_TERMS = [
   "butter",
   "ghee",
   "cream",
@@ -44,18 +44,19 @@ const HEART_HEAVY_TERMS = [
   "fried",
   "deep fried",
   "breaded",
-  "beef",
-  "steak",
-  "meatball",
   "sausage",
   "pepperoni",
   "salami",
-  "bacon",
-  "egg",
-  "eggs",
-  "omelette",
-  "omelet",
-  "frittata"
+  "bacon"
+];
+
+const HEART_RICH_MEAT_TERMS = [
+  "ribeye",
+  "brisket",
+  "short rib",
+  "pork belly",
+  "fatty beef",
+  "fatty lamb"
 ];
 
 const LOW_SODIUM_RISK_TERMS = [
@@ -84,9 +85,6 @@ const WEIGHT_LOSS_HEAVY_TERMS = [
   "butter",
   "ghee",
   "cheese",
-  "beef",
-  "steak",
-  "meatball",
   "sausage"
 ];
 
@@ -94,51 +92,132 @@ export function findRecipeHealthViolation(
   subject: HealthEnforcementSubject,
   conditions: string[] = []
 ): HealthViolation | null {
-  if (!conditions.length) return null;
+  const normalizedConditions = normalizeConditions(conditions);
+  if (!normalizedConditions.size) return null;
 
   const haystack = buildHealthSearchText(subject);
   const nutrition = readNutritionNumbers(subject);
-  if (conditions.includes("diabetes")) {
+  const adaptation = readHealthAdaptationSignals(haystack, nutrition);
+
+  if (normalizedConditions.has("diabetes")) {
     if (nutrition.sugar != null && nutrition.sugar > 15) return { condition: "diabetes", match: `sugar>${15}g` };
-    if (nutrition.carbs != null && nutrition.carbs > 55) return { condition: "diabetes", match: `carbs>${55}g` };
+    if (nutrition.carbs != null && nutrition.carbs > 65) return { condition: "diabetes", match: `carbs>${65}g` };
+    if (
+      nutrition.carbs != null &&
+      nutrition.carbs > 55 &&
+      !adaptation.bloodSugarBalanced
+    ) {
+      return { condition: "diabetes", match: `carbs>${55}g` };
+    }
     if (nutrition.carbs != null && nutrition.carbs > 45 && nutrition.protein != null && nutrition.protein < 12) {
       return { condition: "diabetes", match: "high-carb low-protein" };
     }
   }
 
-  if (conditions.includes("cholesterol")) {
-    const match = findTerm(haystack, HEART_HEAVY_TERMS);
-    if (match) return { condition: "cholesterol", match };
-    if (nutrition.fat != null && nutrition.fat > 26) return { condition: "cholesterol", match: `fat>${26}g` };
-    if (nutrition.fiber != null && nutrition.fiber < 3 && nutrition.fat != null && nutrition.fat > 18) {
+  if (normalizedConditions.has("cholesterol")) {
+    const match = findTerm(haystack, HEART_SATURATED_FAT_TERMS);
+    if (match && !(isAdaptableDairyFatTerm(match) && adaptation.heartSmartPreparation)) {
+      return { condition: "cholesterol", match };
+    }
+    const richMeatMatch = findTerm(haystack, HEART_RICH_MEAT_TERMS);
+    if (richMeatMatch && !adaptation.heartSmartPreparation) return { condition: "cholesterol", match: richMeatMatch };
+    if (nutrition.fat != null && nutrition.fat > 30) return { condition: "cholesterol", match: `fat>${30}g` };
+    if (nutrition.fiber != null && nutrition.fiber < 3 && nutrition.fat != null && nutrition.fat > 22) {
       return { condition: "cholesterol", match: "high-fat low-fiber" };
     }
   }
 
-  if (conditions.includes("highBloodPressure")) {
+  if (normalizedConditions.has("highBloodPressure")) {
     const match = findTerm(haystack, LOW_SODIUM_RISK_TERMS);
-    if (match) return { condition: "highBloodPressure", match };
+    if (match && !adaptation.lowSodiumPreparation) return { condition: "highBloodPressure", match };
     if (nutrition.sodium != null && nutrition.sodium > 700) return { condition: "highBloodPressure", match: `sodium>${700}mg` };
   }
 
-  if (conditions.includes("lowBloodPressure")) {
-    if (nutrition.calories != null && nutrition.calories < 320) return { condition: "lowBloodPressure", match: `calories<${320}` };
-    if (nutrition.sodium != null && nutrition.sodium < 120) return { condition: "lowBloodPressure", match: `sodium<${120}mg` };
+  if (normalizedConditions.has("lowBloodPressure")) {
+    if (nutrition.calories != null && nutrition.calories < 260) return { condition: "lowBloodPressure", match: `calories<${260}` };
+    if (
+      nutrition.calories != null &&
+      nutrition.calories < 320 &&
+      !adaptation.nutrientDense
+    ) {
+      return { condition: "lowBloodPressure", match: `calories<${320}` };
+    }
+    if (nutrition.sodium != null && nutrition.sodium < 120 && !adaptation.nutrientDense) {
+      return { condition: "lowBloodPressure", match: `sodium<${120}mg` };
+    }
   }
 
-  if (conditions.includes("weightGain")) {
-    if (nutrition.calories != null && nutrition.calories < 430) return { condition: "weightGain", match: `calories<${430}` };
-    if (nutrition.protein != null && nutrition.protein < 16) return { condition: "weightGain", match: `protein<${16}g` };
+  if (normalizedConditions.has("weightGain")) {
+    if (nutrition.calories != null && nutrition.calories < 320) return { condition: "weightGain", match: `calories<${320}` };
+    if (nutrition.calories != null && nutrition.calories < 430 && !adaptation.weightGainSupportive) {
+      return { condition: "weightGain", match: `calories<${430}` };
+    }
+    if (nutrition.protein != null && nutrition.protein < 14) return { condition: "weightGain", match: `protein<${14}g` };
   }
 
-  if (conditions.includes("weightLoss")) {
+  if (normalizedConditions.has("weightLoss")) {
     const match = findTerm(haystack, WEIGHT_LOSS_HEAVY_TERMS);
-    if (match) return { condition: "weightLoss", match };
+    if (match && !(isAdaptableDairyFatTerm(match) && adaptation.heartSmartPreparation)) {
+      return { condition: "weightLoss", match };
+    }
     if (nutrition.calories != null && nutrition.calories > 700) return { condition: "weightLoss", match: `calories>${700}` };
-    if (nutrition.fat != null && nutrition.fat > 28) return { condition: "weightLoss", match: `fat>${28}g` };
+    if (nutrition.fat != null && nutrition.fat > 30) return { condition: "weightLoss", match: `fat>${30}g` };
   }
 
   return null;
+}
+
+function isAdaptableDairyFatTerm(term: string) {
+  return /^(cheese|ricotta|mozzarella|parmesan)$/i.test(term);
+}
+
+function normalizeConditions(conditions: string[]) {
+  const normalized = new Set<string>();
+  for (const condition of conditions) {
+    const value = condition.trim().toLowerCase();
+    if (!value) continue;
+    if (value === "highcholesterol" || value === "high cholesterol") {
+      normalized.add("cholesterol");
+      continue;
+    }
+    if (value === "highbloodpressure" || value === "hypertension" || value === "high blood pressure") {
+      normalized.add("highBloodPressure");
+      continue;
+    }
+    normalized.add(condition);
+  }
+  return normalized;
+}
+
+function readHealthAdaptationSignals(
+  text: string,
+  nutrition: ReturnType<typeof readNutritionNumbers>
+) {
+  const lowFatText = /\b(lean|trimmed|skinless|grilled|baked|roasted|steamed|broiled|air[-\s]?fried|olive oil|small amount of oil|low[-\s]?fat|light)\b/i.test(text);
+  const lowSodiumText = /\b(low[-\s]?sodium|no[-\s]?salt|unsalted|reduced[-\s]?sodium|salt[-\s]?free)\b/i.test(text);
+  const balancedCarbText = /\b(whole grain|high fiber|fiber|beans?|lentils?|chickpeas?|vegetables?|non[-\s]?starchy|portion controlled|balanced carbs?)\b/i.test(text);
+  const nutrientDenseText = /\b(nutrient dense|beans?|lentils?|chickpeas?|nuts?|seeds?|avocado|olive oil|whole grain|yogurt|dates?|banana|electrolyte|broth)\b/i.test(text);
+  const highProteinText = /\b(high protein|protein|chicken|fish|seafood|turkey|lean beef|lean meat|eggs?|beans?|lentils?|chickpeas?|tofu)\b/i.test(text);
+
+  return {
+    bloodSugarBalanced: Boolean(
+      balancedCarbText ||
+        ((nutrition.protein ?? 0) >= 20 && (nutrition.fiber ?? 0) >= 5 && (nutrition.carbs ?? 0) <= 65)
+    ),
+    heartSmartPreparation: Boolean(
+      lowFatText ||
+        ((nutrition.fat ?? Number.POSITIVE_INFINITY) <= 24 && (nutrition.sodium ?? Number.POSITIVE_INFINITY) <= 700)
+    ),
+    lowSodiumPreparation: Boolean(lowSodiumText),
+    nutrientDense: Boolean(
+      nutrientDenseText ||
+        ((nutrition.protein ?? 0) >= 12 && (nutrition.calories ?? 0) >= 260)
+    ),
+    weightGainSupportive: Boolean(
+      highProteinText ||
+        ((nutrition.protein ?? 0) >= 20 && (nutrition.calories ?? 0) >= 360)
+    )
+  };
 }
 
 function readNutritionNumbers(subject: HealthEnforcementSubject) {
@@ -208,7 +287,11 @@ function stringifyHealthItems(items?: HealthIngredient[]) {
 function findTerm(text: string, terms: string[]) {
   for (const term of terms) {
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    if (new RegExp(`\\b${escaped}s?\\b`, "i").test(text)) return term;
+    if (new RegExp(`\\b${escaped}s?\\b`, "i").test(text) && !hasNegatedHealthTerm(text, escaped)) return term;
   }
   return null;
+}
+
+function hasNegatedHealthTerm(text: string, escapedTerm: string) {
+  return new RegExp(`\\b(?:avoid|without|not|no|free\\s+from)\\s+(?:\\w+\\s+){0,3}${escapedTerm}s?\\b`, "i").test(text);
 }

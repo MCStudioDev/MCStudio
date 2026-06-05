@@ -840,9 +840,11 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   koshary: {
     englishName: "Egyptian koshary",
     visualDescription:
-      "a bowl of rice, lentils, small pasta, chickpeas, tomato sauce, and crispy fried onions arranged in distinct visible layers",
-    plating: "served in one Egyptian street-food bowl with tomato sauce and crispy onions on top",
-    avoid: "plain rice, biryani, risotto, spaghetti-only pasta, meat, chicken, creamy sauce, soup",
+      "a full Egyptian koshary bowl with rice, brown lentils, short macaroni pasta, chickpeas, red tomato sauce, garlic-vinegar sauce only when listed, and crispy fried onions arranged in distinct visible layers. The pasta, chickpeas, tomato sauce, and crispy onions must all be visible so it cannot read as plain lentil rice",
+    plating:
+      "served in one Egyptian street-food bowl with red tomato sauce spooned over the rice-lentil-pasta mix and a generous crispy onion topping",
+    avoid:
+      "plain lentil rice, mujadara, rice and lentils only, biryani, risotto, spaghetti-only pasta, tomato rice, meat, chicken, creamy sauce, soup, hidden pasta, no chickpeas, no crispy onions",
     cuisineStyle: "authentic Egyptian street food"
   },
   kafta: {
@@ -2259,6 +2261,11 @@ function getDishImpliedVisibleComponents(identity: ReturnType<typeof buildRecipe
   if (isHawawshiSource(source)) {
     components.push("closed baladi bread or pita pocket");
     components.push("spiced ground meat filling visible inside an opened cut seam");
+  } else if (/\bkoshary\b|\bkoshari\b|\bkushari\b|\u0643\u0634\u0631\u064a|\u0643\u0648\u0634\u0627\u0631\u064a/iu.test(source)) {
+    components.push("short macaroni pasta mixed with rice and lentils");
+    components.push("whole chickpeas");
+    components.push("red tomato sauce topping");
+    components.push("crispy fried onions");
   } else if (/\b(lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|lahmacun|kiymali\s+pide|pide)\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646/iu.test(source)) {
     components.push("thin flatbread or dough base");
   }

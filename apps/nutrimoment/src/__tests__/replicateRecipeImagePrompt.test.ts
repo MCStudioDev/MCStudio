@@ -182,6 +182,22 @@ describe("replicate recipe image prompts", () => {
     expect(prompt).toContain("Do not show or imply: plain pasta with only red sauce");
   });
 
+  it("keeps koshary visually complete instead of plain lentil rice", () => {
+    const identity = buildRecipePhotoIdentity("\u0643\u0634\u0631\u064a \u0645\u0635\u0631\u064a");
+    const prompt = buildRecipeImagePromptForTest(
+      "\u0643\u0634\u0631\u064a \u0645\u0635\u0631\u064a",
+      ["\u0623\u0631\u0632", "\u0639\u062f\u0633"],
+      { exactRecipeName: "\u0643\u0634\u0631\u064a \u0645\u0635\u0631\u064a" }
+    );
+
+    expect(identity.canonicalDishKey).toBe("koshary");
+    expect(prompt).toContain("short macaroni pasta");
+    expect(prompt).toContain("whole chickpeas");
+    expect(prompt).toContain("red tomato sauce topping");
+    expect(prompt).toContain("crispy fried onions");
+    expect(prompt).toContain("plain lentil rice");
+  });
+
   it("uses stable English visual identities for vegetarian catalog examples", () => {
     const palakIdentity = buildRecipePhotoIdentity("Vegan Palak Paneer With Tofu");
     const palakPrompt = buildRecipeImagePromptForTest(

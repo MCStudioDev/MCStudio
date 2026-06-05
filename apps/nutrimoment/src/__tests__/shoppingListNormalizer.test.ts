@@ -56,10 +56,27 @@ describe("shopping list normalizer", () => {
         displayLanguage: "ar",
         shoppingList: [
           "\u0623\u0631\u0632 - 2 \u062d\u0628\u0629",
-          "\u0623\u0631\u0632 \u0645\u0635\u0631\u064a - 1 \u0639\u0628\u0648\u0629"
+          "\u0623\u0631\u0632 \u0645\u0635\u0631\u064a - 1 \u0639\u0628\u0648\u0629",
+          "basmati rice - 2 cups"
         ]
       })
-    ).toEqual(["\u0623\u0631\u0632 - 1 \u0639\u0628\u0648\u0629"]);
+    ).toEqual(["\u0623\u0631\u0632 - 5 \u0643\u0648\u0628"]);
+  });
+
+  it("uses spoon units for spices instead of vague item counts", () => {
+    expect(
+      buildNormalizedShoppingList({
+        displayLanguage: "ar",
+        shoppingList: [
+          "cumin - 1 item",
+          "\u0643\u0645\u0648\u0646 - 2 \u0645\u0644\u0639\u0642\u0629 \u0635\u063a\u064a\u0631\u0629",
+          "paprika - 1 package"
+        ]
+      })
+    ).toEqual([
+      "\u0628\u0627\u0628\u0631\u064a\u0643\u0627 - 1 \u0645\u0644\u0639\u0642\u0629 \u0635\u063a\u064a\u0631\u0629",
+      "\u0643\u0645\u0648\u0646 - 3 \u0645\u0644\u0639\u0642\u0629 \u0635\u063a\u064a\u0631\u0629"
+    ]);
   });
 
   it("translates plant milks from canonical English into readable Arabic", () => {

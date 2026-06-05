@@ -22,6 +22,46 @@ interface ShoppingAmount {
   unit: string;
 }
 
+const FORCE_MEASURED_SHOPPING_UNITS = new Set([
+  "all purpose flour",
+  "almond flour",
+  "baking powder",
+  "baking soda",
+  "breadcrumbs",
+  "bulgur",
+  "couscous",
+  "flour",
+  "macaroni",
+  "noodles",
+  "oats",
+  "olive oil",
+  "oil",
+  "pasta",
+  "quinoa",
+  "rice",
+  "spaghetti",
+  "tomato paste",
+  "tomato sauce",
+  "vinegar",
+  "tahini",
+  "honey",
+  "salt",
+  "black pepper",
+  "cumin",
+  "coriander",
+  "paprika",
+  "turmeric",
+  "cinnamon",
+  "oregano",
+  "basil",
+  "thyme",
+  "rosemary",
+  "chili powder",
+  "curry powder",
+  "garlic powder",
+  "onion powder"
+]);
+
 const READABLE_ARABIC_UNIT_ALIASES: Record<string, string> = {
   "\u062d\u0628\u0629": "whole",
   "\u062d\u0628\u0627\u062a": "whole",
@@ -207,7 +247,7 @@ function mergeCompatibleShoppingAmount(
   next: ShoppingAmount
 ) {
   const currentKey = `${current.canonical}::${current.unit}`;
-  const preferredUnit = choosePreferredShoppingUnit(current.unit, next.unit);
+  const preferredUnit = choosePreferredShoppingUnit(current.canonical, current.unit, next.unit);
   current.quantity = mergeCompatibleQuantity(current, next, preferredUnit);
   current.unit = preferredUnit;
 
@@ -223,7 +263,11 @@ function mergeCompatibleShoppingAmount(
   }
 }
 
-function choosePreferredShoppingUnit(left: string, right: string) {
+function choosePreferredShoppingUnit(canonical: string, left: string, right: string) {
+  const preferred = getPreferredPantryUnit(canonical);
+  if (shouldForceMeasuredShoppingUnit(canonical, left) || shouldForceMeasuredShoppingUnit(canonical, right)) {
+    return preferred;
+  }
   if (isPackageLikeUnit(left) && !isPackageLikeUnit(right)) return left;
   if (isPackageLikeUnit(right)) return right;
   if (isVagueItemUnit(left) && !isVagueItemUnit(right)) return right;
@@ -231,6 +275,9 @@ function choosePreferredShoppingUnit(left: string, right: string) {
 }
 
 function mergeCompatibleQuantity(current: ShoppingAmount, next: ShoppingAmount, preferredUnit: string) {
+  if (shouldForceMeasuredShoppingUnit(current.canonical, preferredUnit)) {
+    return current.quantity + next.quantity;
+  }
   if (isPackageLikeUnit(preferredUnit)) {
     if (isPackageLikeUnit(current.unit) && isPackageLikeUnit(next.unit)) {
       return current.quantity + next.quantity;
@@ -360,16 +407,24 @@ function normalizeShoppingUnit(unit: string) {
 
 function chooseShoppingUnit(canonical: string, unit: string) {
   const normalized = normalizeShoppingUnit(unit) || "whole";
+  if (shouldForceMeasuredShoppingUnit(canonical, normalized)) return getPreferredPantryUnit(canonical);
   if (normalized !== "whole") return normalized;
 
   const preferred = getPreferredPantryUnit(canonical);
   return preferred === "whole" ? normalized : preferred;
 }
 
+function shouldForceMeasuredShoppingUnit(canonical: string, unit: string) {
+  const preferred = getPreferredPantryUnit(canonical);
+  return preferred !== "whole" &&
+    FORCE_MEASURED_SHOPPING_UNITS.has(canonical) &&
+    (unit === preferred || isVagueItemUnit(unit) || isPackageLikeUnit(unit));
+}
+
 function formatShoppingAmount(item: ShoppingAmount, displayLanguage: ShoppingLanguage) {
   if (item.unit === TO_TASTE_UNIT) {
     const label = localizeIngredientLabel(item.canonical, displayLanguage);
-    return displayLanguage === "ar" ? `${label} - Ø­Ø³Ø¨ Ø§Ù„Ø­Ø§Ø¬Ø©` : `${label} - to taste`;
+    return displayLanguage === "ar" ? `${label} - \u062d\u0633\u0628 \u0627\u0644\u062d\u0627\u062c\u0629` : `${label} - to taste`;
   }
 
   const quantity = Number.isInteger(item.quantity) ? `${item.quantity}` : item.quantity.toFixed(1);

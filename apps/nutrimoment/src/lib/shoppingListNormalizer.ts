@@ -18,6 +18,7 @@ type ShoppingLanguage = "ar" | "en";
 
 interface ShoppingAmount {
   canonical: string;
+  inferred?: boolean;
   quantity: number;
   unit: string;
 }
@@ -59,7 +60,36 @@ const FORCE_MEASURED_SHOPPING_UNITS = new Set([
   "chili powder",
   "curry powder",
   "garlic powder",
-  "onion powder"
+  "onion powder",
+  "beef",
+  "meat",
+  "ground beef",
+  "ground meat",
+  "minced beef",
+  "minced meat",
+  "lamb",
+  "chicken",
+  "chicken breast",
+  "fish",
+  "salmon",
+  "seafood",
+  "shrimp"
+]);
+
+const WEIGHT_SHOPPING_INGREDIENTS = new Set([
+  "beef",
+  "meat",
+  "ground beef",
+  "ground meat",
+  "minced beef",
+  "minced meat",
+  "lamb",
+  "chicken",
+  "chicken breast",
+  "fish",
+  "salmon",
+  "seafood",
+  "shrimp"
 ]);
 
 const READABLE_ARABIC_UNIT_ALIASES: Record<string, string> = {
@@ -197,23 +227,40 @@ function reconcileShoppingEntries(entries: string[], pantryItems: ShoppingListPa
     const canonical = canonicalizeShoppingIngredient(parsed.label);
     if (!canonical) continue;
 
-    const unit = chooseShoppingUnit(canonical, normalizeShoppingUnit(parsed.unit) || "whole");
+    const originalUnit = normalizeShoppingUnit(parsed.unit) || "whole";
+    const unit = chooseShoppingUnit(canonical, originalUnit);
+    const quantity = normalizeShoppingQuantity(canonical, parsed.quantity, originalUnit, unit);
+    const inferred = isInferredWeightShoppingQuantity(canonical, originalUnit, unit);
     const key = `${canonical}::${unit}`;
     const current = needed.get(key);
     if (current) {
-      current.quantity += parsed.quantity;
+      if (current.inferred && !inferred) {
+        current.quantity = quantity;
+        current.inferred = false;
+        continue;
+      }
+      if (!current.inferred && inferred) continue;
+      current.quantity += quantity;
       continue;
     }
 
     const compatible = findCompatibleShoppingAmount(needed, canonical, unit);
     if (compatible) {
-      mergeCompatibleShoppingAmount(needed, compatible, { canonical, quantity: parsed.quantity, unit });
+      if (compatible.inferred && !inferred) {
+        compatible.quantity = quantity;
+        compatible.unit = unit;
+        compatible.inferred = false;
+        continue;
+      }
+      if (!compatible.inferred && inferred) continue;
+      mergeCompatibleShoppingAmount(needed, compatible, { canonical, inferred, quantity, unit });
       continue;
     }
 
     needed.set(key, {
       canonical,
-      quantity: parsed.quantity,
+      inferred,
+      quantity,
       unit
     });
   }
@@ -416,9 +463,37 @@ function chooseShoppingUnit(canonical: string, unit: string) {
 
 function shouldForceMeasuredShoppingUnit(canonical: string, unit: string) {
   const preferred = getPreferredPantryUnit(canonical);
+  if (WEIGHT_SHOPPING_INGREDIENTS.has(canonical) && preferred === "kg") {
+    return unit !== TO_TASTE_UNIT;
+  }
   return preferred !== "whole" &&
     FORCE_MEASURED_SHOPPING_UNITS.has(canonical) &&
     (unit === preferred || isVagueItemUnit(unit) || isPackageLikeUnit(unit));
+}
+
+function normalizeShoppingQuantity(canonical: string, quantity: number, originalUnit: string, selectedUnit: string) {
+  if (!WEIGHT_SHOPPING_INGREDIENTS.has(canonical) || selectedUnit !== "kg") return quantity;
+
+  switch (normalizeShoppingUnit(originalUnit)) {
+    case "g":
+      return quantity / 1000;
+    case "lb":
+      return quantity * 0.45;
+    case "oz":
+      return quantity * 0.03;
+    case "cup":
+      return quantity * 0.25;
+    case "fillet":
+      return quantity * 0.2;
+    default:
+      return quantity;
+  }
+}
+
+function isInferredWeightShoppingQuantity(canonical: string, originalUnit: string, selectedUnit: string) {
+  return WEIGHT_SHOPPING_INGREDIENTS.has(canonical) &&
+    selectedUnit === "kg" &&
+    (isVagueItemUnit(originalUnit) || isPackageLikeUnit(originalUnit));
 }
 
 function formatShoppingAmount(item: ShoppingAmount, displayLanguage: ShoppingLanguage) {

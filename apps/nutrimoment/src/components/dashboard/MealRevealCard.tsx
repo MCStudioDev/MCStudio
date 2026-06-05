@@ -79,6 +79,7 @@ export function MealRevealCard({
   deferImageLookup = false,
   imageLookupVersion = 0,
   name,
+  imageSource,
   imageUrl,
   imageLoading,
   imageError,
@@ -190,7 +191,17 @@ export function MealRevealCard({
   const lookupLoading = lookupState.queryKey === queryKey ? lookupState.loading : false;
   const lookupRetrying = lookupState.queryKey === queryKey ? lookupState.retrying : false;
   const internetProvidedImage =
-    isUsableRecipeCardImageUrl(imageUrl) && !isFailedImageUrl(imageUrl) ? imageUrl : undefined;
+    isUsableRecipeCardImageUrl(imageUrl) &&
+    !isFailedImageUrl(imageUrl) &&
+    shouldTrustProvidedRecipeImage({
+      imageUrl,
+      imagePhotoIdentity,
+      imageQuery: queryCandidates,
+      imageSource,
+      name
+    })
+      ? imageUrl
+      : undefined;
   const effectiveProvidedImage = internetProvidedImage;
   const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
   const lookupEnabled = !deferImageLookup || lookupActivated;
@@ -996,6 +1007,93 @@ function isUsableRecipeCardImageUrl(imageUrl: string | undefined): imageUrl is s
   // Premium Replicate generation is orchestrated by MealPlanTab; this gate
   // only controls what the card renders — not what triggers generation.
   return !isKnownWeakRecipeProviderImageUrl(imageUrl);
+}
+
+function shouldTrustProvidedRecipeImage({
+  imageUrl,
+  imagePhotoIdentity,
+  imageQuery,
+  imageSource,
+  name
+}: {
+  imageUrl: string;
+  imagePhotoIdentity?: PhotoIdentity;
+  imageQuery: string[];
+  imageSource?: RecipeImageSource;
+  name: string;
+}) {
+  if (imageSource === "api") {
+    return doesGeneratedImageSlugMatchCard({
+      imageUrl,
+      imagePhotoIdentity,
+      imageQuery,
+      name
+    });
+  }
+
+  // Provider/search/cache images are not strong enough to preserve across
+  // scan/history merges. They must be revalidated for the current exact query
+  // so cards do not inherit a nice-looking but unrelated food photo.
+  return false;
+}
+
+function doesGeneratedImageSlugMatchCard({
+  imageUrl,
+  imagePhotoIdentity,
+  imageQuery,
+  name
+}: {
+  imageUrl: string;
+  imagePhotoIdentity?: PhotoIdentity;
+  imageQuery: string[];
+  name: string;
+}) {
+  const generatedSlug = extractGeneratedImageSlug(imageUrl);
+  if (!generatedSlug) return true;
+
+  const candidates = [
+    name,
+    imagePhotoIdentity?.english_name,
+    imagePhotoIdentity?.dish_slug,
+    ...imageQuery
+  ]
+    .filter(Boolean)
+    .map((value) => normalizeGeneratedImageSlug(String(value)))
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index);
+
+  if (!candidates.length) return false;
+
+  return candidates.some((candidate) => {
+    if (candidate === generatedSlug) return true;
+    if (candidate.length >= 10 && generatedSlug.includes(candidate)) return true;
+    return generatedSlug.length >= 10 && candidate.includes(generatedSlug);
+  });
+}
+
+function extractGeneratedImageSlug(imageUrl: string) {
+  const decodedUrl = safeDecodeURIComponent(imageUrl);
+  const match =
+    decodedUrl.match(/generated(?::strict-v\d+)?:([^/?#]+?)(?:\.jpg|[?#]|$)/i) ??
+    decodedUrl.match(/recipe-photo-cache\/([^/?#]+?)(?:\.jpg|[?#]|$)/i);
+
+  return normalizeGeneratedImageSlug(match?.[1] ?? "");
+}
+
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeGeneratedImageSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\.(?:jpe?g|png|webp)$/i, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function isRecipePhotoFailureCached(queryKey: string) {

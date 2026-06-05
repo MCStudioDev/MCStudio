@@ -2944,6 +2944,22 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("loubia bzeit"), withCuisine("green bean stew")];
     case "kafta":
       return [withCuisine("kafta kebab")];
+    case "warak-enab":
+      return [withCuisine("warak enab"), withCuisine("stuffed grape leaves"), withCuisine("stuffed vine leaves")];
+    case "sarma-dolma":
+      return [withCuisine("sarma dolma"), withCuisine("stuffed grape leaves"), withCuisine("stuffed vine leaves")];
+    case "mahshi":
+      return [withCuisine("mixed mahshi"), withCuisine("egyptian stuffed vegetables"), withCuisine("rice stuffed vegetables")];
+    case "kousa-mahshi":
+      return [withCuisine("kousa mahshi"), withCuisine("stuffed zucchini"), withCuisine("zucchini mahshi")];
+    case "stuffed-cabbage-rolls":
+      return [withCuisine("stuffed cabbage rolls"), withCuisine("malfouf mahshi"), withCuisine("cabbage mahshi")];
+    case "stuffed-bell-peppers":
+      return [withCuisine("stuffed bell peppers"), withCuisine("mahshi peppers"), withCuisine("rice stuffed peppers")];
+    case "tomato-mahshi":
+      return [withCuisine("tomato mahshi"), withCuisine("stuffed tomatoes"), withCuisine("rice stuffed tomatoes")];
+    case "stuffed-eggplant":
+      return [withCuisine("stuffed eggplant"), withCuisine("eggplant mahshi"), withCuisine("batenjan mahshi")];
     case "kiymali-pide":
       return [withCuisine("kiymali pide"), withCuisine("turkish beef pide"), withCuisine("turkish minced meat pide")];
     case "lahmacun":

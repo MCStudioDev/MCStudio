@@ -89,4 +89,29 @@ describe("shopping list normalizer", () => {
     expect(list).toContain("\u062d\u0644\u064a\u0628 \u0627\u0644\u0634\u0648\u0641\u0627\u0646 - 2 \u0643\u0648\u0628");
     expect(list).toContain("\u062d\u0644\u064a\u0628 \u0627\u0644\u0644\u0648\u0632 - 1 \u0643\u0648\u0628");
   });
+
+  it("uses kg for meat, poultry, fish, shrimp, and seafood instead of cups", () => {
+    const englishList = buildNormalizedShoppingList({
+      displayLanguage: "en",
+      shoppingList: [
+        "ground meat - 2 cups",
+        "chicken - 500 g",
+        "fish - 2 fillets",
+        "shrimp - 1 cup"
+      ]
+    });
+
+    expect(englishList).toContain("meat - 0.5 kg");
+    expect(englishList).toContain("chicken - 0.5 kg");
+    expect(englishList).toContain("fish - 0.4 kg");
+    expect(englishList).toContain("shrimp - 0.3 kg");
+
+    const arabicList = buildNormalizedShoppingList({
+      displayLanguage: "ar",
+      shoppingList: ["\u0644\u062d\u0645 \u0645\u0641\u0631\u0648\u0645 - 2 \u0643\u0648\u0628", "\u062c\u0645\u0628\u0631\u064a - 1 \u0643\u0648\u0628"]
+    });
+
+    expect(arabicList).toContain("\u0644\u062d\u0645 - 0.5 \u0643\u062c\u0645");
+    expect(arabicList).toContain("\u062c\u0645\u0628\u0631\u064a - 0.3 \u0643\u062c\u0645");
+  });
 });

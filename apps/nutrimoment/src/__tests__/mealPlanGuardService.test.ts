@@ -227,6 +227,25 @@ describe("meal plan guard service", () => {
     expect(issues).toContainEqual({ kind: "repeat", name: "koshary", actual: 7, allowed: 2 });
     expect(issues).toContainEqual({ kind: "repeat", name: "lentil-rice", actual: 7, allowed: 2 });
   });
+
+  it("flags Christine-style semantic repetition across seafood, yogurt, eggs, and pasta", () => {
+    const preferences = {
+      dietContext: {
+        diets: [],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 10,
+      maxSimilarMealFamilySlots: 2,
+      minUniqueMeals: 15
+    };
+    const issues = validateMealPlan(buildChristineStyleRepetitivePlan(), preferences);
+
+    expect(issues).toContainEqual({ kind: "repeat", name: "fish", actual: 3, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "yogurt-bowl", actual: 3, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "egg-meal", actual: 3, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "tomato-pasta", actual: 3, allowed: 2 });
+  });
 });
 
 function buildBadMinaStylePlan(): MealPlanData {
@@ -350,6 +369,43 @@ function buildSimilarFamilyPlan(): MealPlanData {
       breakfast: meal(`Tomato egg toast variation ${index + 1}`, "Egyptian", ["egg", "toast", "tomato"]),
       lunch: meal(`Koshary bowl with tomato sauce ${index + 1}`, "Egyptian", ["rice", "lentils", "chickpeas", "tomato sauce"]),
       dinner: meal(`Lentil rice stew with vegetables ${index + 1}`, "Egyptian", ["lentils", "rice", "carrot", "tomato"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildChristineStyleRepetitivePlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const meals = [
+    meal("Grilled fish with lemon and herbs", "Mediterranean", ["fish", "lemon", "herbs"]),
+    meal("Greek yogurt with granola and berries", "Mediterranean", ["greek yogurt", "granola", "berries"]),
+    meal("Pasta pomodoro with tuna", "Italian", ["pasta", "tomato sauce", "tuna"]),
+    meal("Baked tilapia with tomato herbs", "Mediterranean", ["tilapia", "tomato", "herbs"]),
+    meal("Yogurt berry chia bowl", "Mediterranean", ["yogurt", "berries", "chia"]),
+    meal("Pasta with roasted vegetables and tomato sauce", "Italian", ["pasta", "tomato sauce", "zucchini"]),
+    meal("Vegetable frittata", "Italian", ["egg", "vegetables"]),
+    meal("Plain omelette", "Italian", ["egg"]),
+    meal("Lemon herb grilled fish salad", "Mediterranean", ["fish", "lemon", "lettuce"]),
+    meal("Greek yogurt with mixed fruit and chia", "Mediterranean", ["yogurt", "fruit", "chia"]),
+    meal("Pasta al pomodoro", "Italian", ["pasta", "tomato"]),
+    meal("Boiled egg breakfast", "Global", ["egg"]),
+    meal("Oatmeal with banana", "Global", ["oats", "banana"]),
+    meal("Caprese salad", "Italian", ["tomato", "basil"]),
+    meal("Minestrone soup", "Italian", ["vegetables", "beans"]),
+    meal("Chicken lemon herb plate", "Mediterranean", ["chicken", "lemon"]),
+    meal("Spinach garlic saute", "Global", ["spinach", "garlic"]),
+    meal("Tofu vegetables", "Asian", ["tofu", "vegetables"]),
+    meal("Chickpea cucumber salad", "Mediterranean", ["chickpeas", "cucumber"]),
+    meal("Lentil vegetable soup", "Middle Eastern", ["lentils", "vegetables"]),
+    meal("Roasted vegetable bowl", "Mediterranean", ["zucchini", "pepper"])
+  ];
+
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: meals[index * 3],
+      lunch: meals[index * 3 + 1],
+      dinner: meals[index * 3 + 2]
     })),
     shoppingList: []
   };

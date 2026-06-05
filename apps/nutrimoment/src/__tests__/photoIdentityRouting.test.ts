@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RecipeCatalogDoc } from "../lib/domain";
 import { buildPhotoIdentityFromCatalog, normalizePhotoIdentity, toIdentityKey } from "../lib/photoIdentityBuilders";
 import { buildEnglishRecipePhotoContext } from "../lib/recipePhotoLanguage";
-import { buildRecipePhotoIdentity } from "../lib/recipePhotoIdentity";
+import { buildRecipePhotoIdentity, isStrictRecipePhotoIdentity } from "../lib/recipePhotoIdentity";
 
 const baseCatalog: RecipeCatalogDoc = {
   id: "test-1",
@@ -136,5 +136,15 @@ describe("photo identity routing", () => {
     expect(toIdentityKey("  Spaces  And-Hyphens ")).toBe("spaces-and-hyphens");
     expect(toIdentityKey("")).toBeUndefined();
     expect(toIdentityKey(undefined)).toBeUndefined();
+  });
+
+  it("keeps stuffed grape leaves visually strict and query-specific", () => {
+    const identity = buildRecipePhotoIdentity("\u0645\u062d\u0634\u064a \u0648\u0631\u0642 \u0639\u0646\u0628");
+
+    expect(identity.canonicalDishKey).toBe("warak-enab");
+    expect(identity.searchQueries).toContain("warak enab middle-eastern");
+    expect(identity.searchQueries).toContain("stuffed grape leaves middle-eastern");
+    expect(identity.searchQueries.join(" ")).not.toMatch(/\brice plate\b/);
+    expect(isStrictRecipePhotoIdentity(identity)).toBe(true);
   });
 });

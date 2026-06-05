@@ -222,6 +222,12 @@ function preserveExistingRecipeImage(nextRecipe: Recipe, existingRecipe?: Recipe
     return sanitizedNextRecipe;
   }
 
+  const nextIdentity = getRecipeImageIdentity(sanitizedNextRecipe);
+  const existingIdentity = getRecipeImageIdentity(existingRecipe);
+  if (!nextIdentity || !existingIdentity || nextIdentity !== existingIdentity) {
+    return sanitizedNextRecipe;
+  }
+
   return stripUndefined({
     ...sanitizedNextRecipe,
     image_url: existingRecipe.image_url,

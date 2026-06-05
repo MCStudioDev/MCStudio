@@ -91,8 +91,19 @@ const PREFERRED_UNITS: Record<string, string> = {
   dill: "bunch",
   mint: "bunch",
   asparagus: "bunch",
+  beef: "kg",
+  meat: "kg",
+  "ground beef": "kg",
+  "ground meat": "kg",
+  "minced beef": "kg",
+  "minced meat": "kg",
+  lamb: "kg",
+  chicken: "kg",
   salmon: "fillet",
-  "chicken breast": "lb",
+  "chicken breast": "kg",
+  fish: "kg",
+  seafood: "kg",
+  shrimp: "kg",
   tofu: "oz"
 };
 
@@ -212,7 +223,20 @@ const INGREDIENT_EQUIVALENTS: Record<string, string> = {
   "coconut drink": "coconut milk",
   "milk coconut": "coconut milk",
   "oat beverage": "oat milk",
-  "almond beverage": "almond milk"
+  "almond beverage": "almond milk",
+  beefs: "beef",
+  "beef meat": "beef",
+  "chopped meat": "ground meat",
+  "chopped beef": "ground beef",
+  chicken: "chicken",
+  "chicken breasts": "chicken breast",
+  "chicken thighs": "chicken",
+  lambs: "lamb",
+  "lamb meat": "lamb",
+  meats: "meat",
+  prawns: "shrimp",
+  shrimps: "shrimp",
+  "white fish": "fish"
 };
 
 export function getPreferredPantryUnit(ingredientName: string) {
@@ -225,7 +249,7 @@ export function getPantryQuantityHint(ingredientName: string) {
   const label = unit === "whole" ? "whole/items" : unit;
   return ingredientName.trim()
     ? `Use ${label} for ${normalizePantryIngredientName(ingredientName)}`
-    : "Examples: rice 2 cups, tomato 4 whole/items, chicken breast 1 lb";
+    : "Examples: rice 2 cups, tomato 4 whole/items, chicken breast 1 kg";
 }
 
 export function parsePantryQuantity(value: string | undefined, ingredientName: string): ParsedPantryQuantity {

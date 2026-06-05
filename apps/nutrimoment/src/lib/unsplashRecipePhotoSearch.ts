@@ -402,7 +402,7 @@ function looksLikeFoodPhoto(
     .filter((token) => token.length >= 4)
     .filter((token) => haystack.includes(token)).length;
 
-  return semanticHits >= 2 || requestHits >= 2 || hasFoodContext(haystack);
+  return semanticHits >= 2 || requestHits >= 2;
 }
 
 function hasFoodContext(haystack: string) {

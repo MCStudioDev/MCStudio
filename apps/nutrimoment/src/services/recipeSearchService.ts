@@ -1,5 +1,6 @@
 import type { Recipe, MealPlanMeal } from "@/lib/types";
-import { normalizeCuisineLabel } from "@/lib/cuisines";
+import { cuisineMatchesPreference, normalizeCuisineLabel } from "@/lib/cuisines";
+import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { OFFLINE_RECIPES } from "@/data/offline/recipes";
 import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
 import type { RankedRecipeResult, RecipeCatalogDoc, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
@@ -84,7 +85,11 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   const ingredientMatchedRanked = ranked.filter(
     (result) => result.matchedRequiredCount + result.matchedOptionalCount > 0
   );
-  const rankedResults = ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked;
+  const rankedResults = filterRankedResultsForSpecificCuisineQuality(
+    ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked,
+    primaryRecipePool,
+    preferences.preferredCuisine
+  );
   const rankedRecipePool = primaryRecipePool;
 
   const limit = input.maxResults ?? 3;
@@ -368,6 +373,116 @@ function selectDistinctRankedResults(
   }
 
   return selected;
+}
+
+function filterRankedResultsForSpecificCuisineQuality(
+  rankedResults: RankedRecipeResult[],
+  recipes: RecipeCatalogDoc[],
+  preferredCuisine: string
+) {
+  if (!preferredCuisine || preferredCuisine === "Any") return rankedResults;
+
+  const recipeMap = new Map(recipes.map((recipe) => [recipe.id, recipe]));
+  return rankedResults.filter((result) => {
+    const recipe = recipeMap.get(result.recipeId);
+    if (!recipe) return false;
+    return (
+      cuisineMatchesPreference(recipe.cuisine, preferredCuisine) &&
+      hasSpecificCuisineDishSignal(recipe, preferredCuisine)
+    );
+  });
+}
+
+function hasSpecificCuisineDishSignal(recipe: RecipeCatalogDoc, preferredCuisine: string) {
+  const haystack = normalizeCuisineIdentityText([
+    recipe.title,
+    recipe.slug,
+    recipe.localized?.English?.name,
+    recipe.localized?.English?.dish_intent?.dish_name,
+    recipe.localized?.English?.image_search_index,
+    ...(recipe.localized?.English?.image_search_indices ?? []),
+    recipe.localized?.Arabic?.name,
+    recipe.localized?.Arabic?.dish_intent?.dish_name,
+    recipe.dishIntent?.dish_name,
+    ...(recipe.dishIntent?.visual_keywords ?? []),
+    recipe.image.sourceQuery,
+    ...(recipe.regionalCuisines ?? []),
+    ...(recipe.styleTags ?? []),
+    ...(recipe.searchMetadata?.cuisineTokens ?? [])
+  ].filter(Boolean).join(" "));
+
+  if (!haystack) return false;
+  if (!hasCuisineSpecificIdentitySignal(haystack, preferredCuisine)) return false;
+  return getCuisineDishAliases(preferredCuisine).some((alias) => identityTextIncludesAlias(haystack, alias));
+}
+
+function hasCuisineSpecificIdentitySignal(haystack: string, preferredCuisine: string) {
+  const signals: Record<string, string[]> = {
+    egyptian: ["alexandrian", "baladi", "basha", "egyptian", "fattah", "hawawshi", "kofta", "koshary", "molokhia", "sayadeya"],
+    indian: ["baingan", "biryani", "chana", "dal", "gobi", "indian", "masala", "palak", "rajma", "rasam", "saag", "sambar", "tadka", "tikka"],
+    italian: ["arrabbiata", "caponata", "ciambotta", "fagioli", "italian", "margherita", "melanzane", "minestrone", "norma", "polenta", "pomodoro", "ribollita", "risotto"],
+    mediterranean: ["briam", "caponata", "dolma", "fasolada", "gemista", "greek", "mediterranean", "moussaka", "ratatouille", "saganaki", "souvlaki"],
+    mexican: ["caldo", "chilaquiles", "chile", "enchilada", "fajita", "fajitas", "huevos", "mexican", "mole", "pescado", "pozole", "quesadilla", "sopa", "taco", "tinga", "tostada", "tostadas", "veracruzana"],
+    middleeastern: ["fatteh", "hummus", "kibbeh", "maqluba", "mansaf", "middle eastern", "mujadara", "shawarma", "tabbouleh"],
+    thai: ["gaeng", "goong", "khao", "krapow", "larb", "massaman", "pad", "panang", "pla", "prik", "sen", "thai", "tom kha", "tom yum", "woon", "yum"],
+    turkish: ["adana", "biber", "borek", "dolma", "izgara", "karniyarik", "kebab", "kofte", "lahmacun", "menemen", "patlican", "pide", "saksuka", "turkish"]
+  };
+  const key = preferredCuisine.toLowerCase().replace(/[^a-z]/g, "");
+  return (signals[key] ?? [key]).some((signal) => identityTextIncludesAlias(haystack, signal));
+}
+
+function identityTextIncludesAlias(haystack: string, alias: string) {
+  if (!haystack || !alias) return false;
+  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\s)${escaped}(\\s|$)`, "u").test(haystack);
+}
+
+function getCuisineDishAliases(preferredCuisine: string) {
+  const oneWordSignals = new Set([
+    "arrabbiata",
+    "biryani",
+    "caponata",
+    "chana",
+    "ciambotta",
+    "dal",
+    "dolma",
+    "fagioli",
+    "gobi",
+    "hawawshi",
+    "kofta",
+    "koshary",
+    "kofte",
+    "menemen",
+    "minestrone",
+    "palak",
+    "polenta",
+    "pozole",
+    "ribollita",
+    "risotto",
+    "sambar",
+    "shawarma"
+  ]);
+
+  return (getCompleteCuisineCatalog(preferredCuisine) ?? [])
+    .flatMap((dish) => [
+      dish.id.replace(/-/g, " "),
+      ...dish.names.english,
+      ...dish.names.native,
+      ...(dish.names.other ?? [])
+    ])
+    .map(normalizeCuisineIdentityText)
+    .filter((alias) => alias.length >= 4)
+    .filter((alias) => alias.includes(" ") || oneWordSignals.has(alias));
+}
+
+function normalizeCuisineIdentityText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildStrictArabicFallbackRecipe(input: {

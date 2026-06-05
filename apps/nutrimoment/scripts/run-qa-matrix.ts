@@ -199,12 +199,12 @@ function runHealthMatrix() {
     },
     {
       conditions: ["lowBloodPressure"],
-      expected: { condition: "lowBloodPressure", match: "calories<320" },
+      expected: { condition: "lowBloodPressure", match: "calories<260" },
       meal: { name: "Tiny salad", ingredients: ["lettuce", "cucumber"], calories: 180, sodium: "80mg" }
     },
     {
       conditions: ["weightGain"],
-      expected: { condition: "weightGain", match: "calories<430" },
+      expected: { condition: "weightGain", match: "calories<320" },
       meal: { name: "Light broth", ingredients: ["vegetable broth"], calories: 240, protein: "7g" }
     },
     {
@@ -214,7 +214,7 @@ function runHealthMatrix() {
     },
     {
       conditions: ["cholesterol"],
-      expected: { condition: "cholesterol", match: "fat>26g" },
+      expected: { condition: "cholesterol", match: "fat>30g" },
       meal: { name: "Rich lamb plate", ingredients: ["lamb", "rice"], calories: 640, fat: "32g", fiber: "2g" }
     }
   ];

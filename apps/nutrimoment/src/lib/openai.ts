@@ -13,6 +13,7 @@ const fallbackVisionModels = (process.env.GEMINI_VISION_FALLBACK_MODELS ?? "gemi
   .map((model) => model.trim())
   .filter(Boolean);
 const transientRetryAttempts = Math.max(1, Number(process.env.GEMINI_TRANSIENT_RETRY_ATTEMPTS ?? "2") || 2);
+const requestTimeoutMs = Math.max(5_000, Number(process.env.GEMINI_REQUEST_TIMEOUT_MS ?? "45000") || 45_000);
 
 export interface AiCallTraceOptions {
   feature?: string;
@@ -87,7 +88,12 @@ export function isTransientModelError(error: unknown) {
   const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : undefined;
   const message = error instanceof Error ? error.message : String(error);
 
-  return status === 429 || status === 503 || /UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|rate limit/i.test(message);
+  return status === 429 || status === 503 || /UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|rate limit|timeout|timed out|abort/i.test(message);
+}
+
+function isModelTimeoutError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|abort/i.test(message);
 }
 
 export function getClientFacingAiErrorMessage(error: unknown, fallback = "AI service is temporarily unavailable. Please try again again in a few minutes.") {
@@ -119,6 +125,19 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function createGeminiRequestAbortController() {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => {
+    controller.abort(new Error(`Gemini request timed out after ${requestTimeoutMs}ms`));
+  }, requestTimeoutMs);
+
+  return { controller, timeout };
+}
+
+function clearGeminiRequestAbortTimeout(timeout: ReturnType<typeof globalThis.setTimeout>) {
+  globalThis.clearTimeout(timeout);
+}
+
 export async function callOpenAIText(prompt: string, modelName = defaultTextModel, trace?: AiCallTraceOptions): Promise<string> {
   ensureAiAvailable();
   const client = getClient();
@@ -132,6 +151,7 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
     for (let modelAttempt = 1; modelAttempt <= transientRetryAttempts; modelAttempt += 1) {
       attempt += 1;
       try {
+        const { controller, timeout } = createGeminiRequestAbortController();
         logger.debug("Gemini text generation attempt started", {
           requestId: trace?.requestId,
           feature: trace?.feature,
@@ -141,10 +161,21 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
           attempt,
           attempts: totalAttempts
         });
-        const response = await client.models.generateContent({
-          model,
-          contents: prompt
-        });
+        let response;
+        try {
+          response = await client.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              abortSignal: controller.signal,
+              httpOptions: {
+                timeout: requestTimeoutMs
+              }
+            }
+          });
+        } finally {
+          clearGeminiRequestAbortTimeout(timeout);
+        }
 
         const text = response.text?.trim() ?? "";
         if (!text) throw new Error(`Empty response from Gemini model ${model}`);
@@ -170,7 +201,7 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
           attempts: totalAttempts,
           ...getGeminiErrorLog(error)
         });
-        if (!isTransientModelError(error)) {
+        if (isModelTimeoutError(error) || !isTransientModelError(error)) {
           throw error instanceof Error ? error : new Error(String(error));
         }
         if (attempt < totalAttempts) {
@@ -202,6 +233,7 @@ export async function callOpenAIVision(
     for (let modelAttempt = 1; modelAttempt <= transientRetryAttempts; modelAttempt += 1) {
       attempt += 1;
       try {
+        const { controller, timeout } = createGeminiRequestAbortController();
         logger.debug("Gemini vision generation attempt started", {
           requestId: trace?.requestId,
           feature: trace?.feature,
@@ -211,18 +243,29 @@ export async function callOpenAIVision(
           attempt,
           attempts: totalAttempts
         });
-        const response = await client.models.generateContent({
-          model,
-          contents: [
-            {
-              inlineData: {
-                mimeType: normalizedImage.mimeType,
-                data: normalizedImage.data
+        let response;
+        try {
+          response = await client.models.generateContent({
+            model,
+            contents: [
+              {
+                inlineData: {
+                  mimeType: normalizedImage.mimeType,
+                  data: normalizedImage.data
+                }
+              },
+              { text: prompt }
+            ],
+            config: {
+              abortSignal: controller.signal,
+              httpOptions: {
+                timeout: requestTimeoutMs
               }
-            },
-            { text: prompt }
-          ]
-        });
+            }
+          });
+        } finally {
+          clearGeminiRequestAbortTimeout(timeout);
+        }
 
         const text = response.text?.trim() ?? "";
         if (!text) throw new Error(`Empty response from Gemini model ${model}`);
@@ -248,7 +291,7 @@ export async function callOpenAIVision(
           attempts: totalAttempts,
           ...getGeminiErrorLog(error)
         });
-        if (!isTransientModelError(error)) {
+        if (isModelTimeoutError(error) || !isTransientModelError(error)) {
           throw error instanceof Error ? error : new Error(String(error));
         }
         if (attempt < totalAttempts) {

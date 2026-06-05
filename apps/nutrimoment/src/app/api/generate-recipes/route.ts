@@ -36,7 +36,7 @@ import {
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipePhotoIdentity, isStrictRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
-import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
+import { getAllDishes, getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
 import {
@@ -60,6 +60,7 @@ import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import {
+  findRecipeDietViolation,
   filterRecipesByDiet,
   type DietEnforcementContext
 } from "@/lib/dietEnforcement";
@@ -310,41 +311,43 @@ export async function POST(request: Request) {
           ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
         );
     const finalizeRecipes = (recipes: Recipe[]) => {
-      const finalized = ensureRequestedRecipeCount(
-        enforceDistinctRecipeVariety(
-          prioritizePantryUsageRecipes(enforceAuthenticCuisineRecipeSet(enforceHardRequestRecipes(
-              parsed.data.preferredCuisine === "Any"
-                ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
-                : enforcePreferredCuisineRecipes(
-                    recipes,
-                    parsed.data.preferredCuisine,
-                    parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
-                    recipeCount
-                  ),
-              requestRestriction,
+      const cuisineSelected =
+        parsed.data.preferredCuisine === "Any"
+          ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
+          : enforcePreferredCuisineRecipes(
+              recipes,
+              parsed.data.preferredCuisine,
+              parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
               recipeCount
-            ), {
-            availableIngredients: scoringIngredients,
-            preferredCuisine: parsed.data.preferredCuisine,
-            recipeLanguage,
-            recipeCount
-          }), scoringIngredients),
-          recipeCount
-          ),
-          {
-            availableIngredients,
-            calorieTarget: parsed.data.calorieTarget ?? 2000,
-            ingredients,
-            allergens: parsed.data.allergens ?? [],
-            preferredCuisine: parsed.data.preferredCuisine ?? "Any",
-            recipeCount,
-            scoringIngredients,
-            diets: parsed.data.diets ?? [],
-            conditions: parsed.data.conditions ?? []
-          }
-        );
+            );
+      const hardRequestSelected = enforceHardRequestRecipes(cuisineSelected, requestRestriction, recipeCount);
+      const authenticSelected = enforceAuthenticCuisineRecipeSet(hardRequestSelected, {
+        availableIngredients: scoringIngredients,
+        preferredCuisine: parsed.data.preferredCuisine,
+        recipeLanguage,
+        recipeCount
+      });
+      const cuisineQualitySelected = filterWeakSpecificCuisineRecipes(authenticSelected, {
+        availableIngredients: scoringIngredients,
+        preferredCuisine: parsed.data.preferredCuisine,
+        recipeCount,
+        requestId
+      });
+      const pantryPrioritized = prioritizePantryUsageRecipes(cuisineQualitySelected, scoringIngredients);
+      const varied = enforceDistinctRecipeVariety(pantryPrioritized, recipeCount);
+      const finalized = ensureRequestedRecipeCount(varied, {
+        availableIngredients,
+        calorieTarget: parsed.data.calorieTarget ?? 2000,
+        ingredients,
+        allergens: parsed.data.allergens ?? [],
+        preferredCuisine: parsed.data.preferredCuisine ?? "Any",
+        recipeCount,
+        scoringIngredients,
+        diets: parsed.data.diets ?? [],
+        conditions: parsed.data.conditions ?? []
+      });
 
-      const guarded = repairScanRecipesWithGuard(finalized, {
+      const guardContext = {
         allergens: parsed.data.allergens ?? [],
         calorieTarget: parsed.data.calorieTarget ?? 2000,
         conditions: parsed.data.conditions ?? [],
@@ -354,9 +357,33 @@ export async function POST(request: Request) {
         recipeCount,
         recipeLanguage,
         scoringIngredients
-      });
+      };
+      const guarded = repairScanRecipesWithGuard(finalized, guardContext);
+      const finalQualitySelected =
+        parsed.data.preferredCuisine === "Any"
+          ? filterGenericAnyCuisineRecipes(guarded, { recipeCount, requestId })
+          : filterWeakSpecificCuisineRecipes(guarded, {
+              availableIngredients: scoringIngredients,
+              preferredCuisine: parsed.data.preferredCuisine,
+              recipeCount,
+              requestId
+            });
+      const finalCountRepaired = ensureRequestedRecipeCount(
+        enforceDistinctRecipeVariety(prioritizePantryUsageRecipes(finalQualitySelected, scoringIngredients), recipeCount),
+        {
+          availableIngredients,
+          calorieTarget: parsed.data.calorieTarget ?? 2000,
+          ingredients,
+          allergens: parsed.data.allergens ?? [],
+          preferredCuisine: parsed.data.preferredCuisine ?? "Any",
+          recipeCount,
+          scoringIngredients,
+          diets: parsed.data.diets ?? [],
+          conditions: parsed.data.conditions ?? []
+        }
+      );
 
-      return prepareRecipes(guarded);
+      return prepareRecipes(finalCountRepaired.slice(0, recipeCount));
     };
     const deliverRecipes = (recipes: Recipe[]) =>
       hasGeneratedImageAccess ? stripPremiumDeliveredImages(recipes) : recipes;
@@ -1189,14 +1216,26 @@ function buildSparseIngredientRecipeFillers(context: {
   const targetCalories = Math.max(320, Math.round(context.calorieTarget / 3));
 
   if (isSparseGroundMeatSource(source)) {
-    return buildGroundMeatSparseFillers(primaryIngredient, context, targetCalories);
+    return filterSparseFillersForPreferences(buildGroundMeatSparseFillers(primaryIngredient, context, targetCalories), context);
   }
 
   if (/\b(liver|kebda|kibda|ciger|cigeri)\b|كبدة|كبده/iu.test(source)) {
-    return buildLiverSparseFillers(primaryIngredient, context, targetCalories);
+    return filterSparseFillersForPreferences(buildLiverSparseFillers(primaryIngredient, context, targetCalories), context);
   }
 
-  return buildGenericSparseFillers(primaryIngredient, context, targetCalories);
+  return filterSparseFillersForPreferences(buildGenericSparseFillers(primaryIngredient, context, targetCalories), context);
+}
+
+function filterSparseFillersForPreferences(
+  recipes: Recipe[],
+  context: { allergens: string[]; conditions: string[]; diets: string[] }
+) {
+  const dietContext = { diets: context.diets, allergens: context.allergens };
+  const filtered = recipes
+    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext))
+    .filter((recipe) => !findRecipeHealthViolation(recipe, context.conditions));
+
+  return filtered.length ? filtered : recipes;
 }
 
 function choosePrimarySparseIngredient(rawIngredients: string[], scoringIngredients: string[]) {
@@ -1466,7 +1505,11 @@ function buildGroundMeatSparseFillers(
     }, context)
   ];
 
-  return prefersEgyptianFirst ? orderSparseFillersByCuisine(all, "egyptian") : orderSparseFillersByCuisine(all, preferred);
+  const curated = buildCuratedCuisineSparseFillerInputs(context.preferredCuisine, primaryIngredient, targetCalories)
+    .map((input) => makeSparseFillerRecipe(input, context));
+  return prefersEgyptianFirst
+    ? orderSparseFillersByCuisine([...all, ...curated], "egyptian")
+    : orderSparseFillersByCuisine([...all, ...curated], preferred);
 }
 
 function buildLiverSparseFillers(
@@ -1519,10 +1562,22 @@ function buildLiverSparseFillers(
 
 function buildGenericSparseFillers(
   primaryIngredient: string,
-  context: { allergens: string[]; availableIngredients: Set<string>; conditions: string[]; diets: string[]; preferredCuisine: string },
+  context: {
+    allergens: string[];
+    availableIngredients: Set<string>;
+    conditions: string[];
+    diets: string[];
+    ingredients: string[];
+    preferredCuisine: string;
+    scoringIngredients: string[];
+  },
   targetCalories: number
 ) {
-  return [
+  const preferred = normalizeCuisinePreference(context.preferredCuisine);
+  const authenticFillers = preferred === "any"
+    ? buildAnyCuisineSparseFillers(primaryIngredient, context, targetCalories)
+    : buildAuthenticCuisineSparseFillers(primaryIngredient, context, targetCalories);
+  const fallbackFillers = [
     makeSparseFillerRecipe({
       calories: targetCalories,
       carbs: "30g",
@@ -1542,6 +1597,399 @@ function buildGenericSparseFillers(
       visualKeywords: [primaryIngredient, "skillet meal", "simple plated dish"]
     }, context)
   ];
+
+  return authenticFillers.length ? authenticFillers : fallbackFillers;
+}
+
+function buildAnyCuisineSparseFillers(
+  primaryIngredient: string,
+  context: {
+    allergens: string[];
+    availableIngredients: Set<string>;
+    conditions: string[];
+    diets: string[];
+    ingredients: string[];
+    preferredCuisine: string;
+    scoringIngredients: string[];
+  },
+  targetCalories: number
+) {
+  const source = `${context.ingredients.join(" ")} ${context.scoringIngredients.join(" ")}`.toLowerCase();
+  const hasSeafood = /\b(shrimp|fish|seafood|salmon|tilapia|cod|prawn)\b/.test(source);
+  const hasGrain = /\b(rice|quinoa|bulgur|farro|barley|freekeh)\b/.test(source);
+  const baseIngredient = primaryIngredient || (hasSeafood ? "seafood" : hasGrain ? "rice" : "vegetables");
+  const templates: SparseFillerRecipeInput[] = [
+    {
+      calories: targetCalories + 20,
+      carbs: hasGrain ? "42g" : "28g",
+      cuisine: "Mexican",
+      difficulty: "Medium",
+      dishName: "pescado a la veracruzana",
+      excludeKeywords: ["generic fish plate"],
+      fat: "14g",
+      fiber: "6g",
+      imageSearchIndices: ["pescado a la veracruzana", "veracruz style fish"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["tomato", "pepper", "olive", "capers"],
+      name: "Pescado a la Veracruzana",
+      protein: hasSeafood ? "34g" : "24g",
+      sodium: "620mg",
+      sugar: "6g",
+      visualKeywords: ["veracruz fish", "tomato olive sauce"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "34g",
+      cuisine: "Thai",
+      difficulty: "Medium",
+      dishName: "tom yum goong",
+      excludeKeywords: ["generic shrimp soup"],
+      fat: "10g",
+      fiber: "4g",
+      imageSearchIndices: ["tom yum goong", "thai tom yum shrimp"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["lemongrass", "lime", "chili", "mushrooms"],
+      name: "Tom Yum Goong",
+      protein: "32g",
+      sodium: "600mg",
+      sugar: "5g",
+      visualKeywords: ["tom yum", "clear spicy shrimp soup"]
+    },
+    {
+      calories: targetCalories + 30,
+      carbs: "44g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "sayadeya",
+      excludeKeywords: ["generic rice bowl"],
+      fat: "13g",
+      fiber: "5g",
+      imageSearchIndices: ["egyptian fish sayadeya", "seafood sayadeya rice"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["rice", "onion", "tomato", "cumin"],
+      name: "Sayadeya",
+      protein: "33g",
+      sodium: "640mg",
+      sugar: "5g",
+      visualKeywords: ["egyptian seafood rice", "sayadeya"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "38g",
+      cuisine: "Mediterranean",
+      difficulty: "Easy",
+      dishName: "salmon souvlaki",
+      excludeKeywords: ["generic salmon plate"],
+      fat: "16g",
+      fiber: "5g",
+      imageSearchIndices: ["salmon souvlaki", "mediterranean salmon souvlaki"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["lemon", "oregano", "cucumber", "tomato"],
+      name: "Salmon Souvlaki",
+      protein: "34g",
+      sodium: "590mg",
+      sugar: "5g",
+      visualKeywords: ["salmon skewers", "greek souvlaki"]
+    },
+    {
+      calories: targetCalories + 30,
+      carbs: "40g",
+      cuisine: "Indian",
+      difficulty: "Medium",
+      dishName: "fish curry",
+      excludeKeywords: ["generic curry bowl"],
+      fat: "15g",
+      fiber: "6g",
+      imageSearchIndices: ["indian fish curry", "tomato fish curry"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["tomato", "ginger", "turmeric", "cumin"],
+      name: "Indian Fish Curry",
+      protein: "33g",
+      sodium: "620mg",
+      sugar: "6g",
+      visualKeywords: ["fish curry", "spiced tomato sauce"]
+    },
+    {
+      calories: targetCalories + 20,
+      carbs: "42g",
+      cuisine: "Italian",
+      difficulty: "Medium",
+      dishName: "seafood risotto",
+      excludeKeywords: ["generic rice"],
+      fat: "12g",
+      fiber: "4g",
+      imageSearchIndices: ["seafood risotto", "italian seafood risotto"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["arborio rice", "tomato", "parsley", "olive oil"],
+      name: "Seafood Risotto",
+      protein: "31g",
+      sodium: "620mg",
+      sugar: "5g",
+      visualKeywords: ["italian seafood risotto", "creamy rice"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "36g",
+      cuisine: "Middle Eastern",
+      difficulty: "Medium",
+      dishName: "samke harra",
+      excludeKeywords: ["generic fish"],
+      fat: "14g",
+      fiber: "5g",
+      imageSearchIndices: ["samke harra", "lebanese spicy fish"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["tahini", "chili", "lemon", "cilantro"],
+      name: "Samke Harra",
+      protein: "33g",
+      sodium: "610mg",
+      sugar: "5g",
+      visualKeywords: ["lebanese spicy fish", "tahini chili sauce"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "40g",
+      cuisine: "Turkish",
+      difficulty: "Medium",
+      dishName: "hamsili pilav",
+      excludeKeywords: ["generic rice"],
+      fat: "13g",
+      fiber: "5g",
+      imageSearchIndices: ["hamsili pilav", "turkish anchovy rice"],
+      ingredients: [baseIngredient],
+      missingIngredients: ["rice", "parsley", "onion", "lemon"],
+      name: "Hamsili Pilav",
+      protein: "30g",
+      sodium: "620mg",
+      sugar: "5g",
+      visualKeywords: ["turkish fish rice", "hamsili pilav"]
+    }
+  ];
+
+  return templates.map((input) => makeSparseFillerRecipe(input, context));
+}
+
+function buildAuthenticCuisineSparseFillers(
+  primaryIngredient: string,
+  context: {
+    allergens: string[];
+    availableIngredients: Set<string>;
+    conditions: string[];
+    diets: string[];
+    ingredients: string[];
+    preferredCuisine: string;
+    scoringIngredients: string[];
+  },
+  targetCalories: number
+) {
+  const candidateIngredients = Array.from(new Set([
+    ...context.ingredients,
+    ...context.scoringIngredients,
+    ...Array.from(context.availableIngredients)
+  ])).filter(Boolean);
+  const candidates = resolveAuthenticCuisineDishes({
+    cuisine: context.preferredCuisine,
+    ingredients: candidateIngredients
+  }, 16);
+
+  const catalogFillers = candidates
+    .filter((candidate) => candidate.matchedRequired.length || candidate.matchedOptional.length || candidate.strongRule)
+    .filter((candidate) => isSpecificCuisineFillerName(candidate.dishName, context.preferredCuisine))
+    .slice(0, 12)
+    .map((candidate) => {
+      const dishIngredients = [...candidate.dish.primaryIngredients, ...candidate.dish.optionalIngredients];
+      const ownedIngredients = dishIngredients.filter((ingredient) => isIngredientAvailable(ingredient, context.availableIngredients));
+      const missingIngredients = dishIngredients.filter((ingredient) => !isIngredientAvailable(ingredient, context.availableIngredients));
+      const cuisine = getCuisineLabelFromCandidate(candidate.cuisine);
+      const hasSeafood = dishIngredients.some((ingredient) => /\b(fish|shrimp|seafood|salmon|tilapia|prawn)\b/i.test(ingredient));
+      const hasLegumes = dishIngredients.some((ingredient) => /\b(lentil|chickpea|bean|tofu)\b/i.test(ingredient));
+      const hasMeat = dishIngredients.some((ingredient) => /\b(beef|meat|lamb|chicken|turkey)\b/i.test(ingredient));
+
+      return makeSparseFillerRecipe({
+        calories: targetCalories + (hasMeat ? 35 : hasSeafood ? 10 : 0),
+        carbs: hasLegumes ? "34g" : "30g",
+        cuisine,
+        difficulty: candidate.dish.iconicScore >= 75 ? "Medium" : "Easy",
+        dishName: candidate.dishName,
+        excludeKeywords: ["generic bowl", "random cuisine", "fusion", "wrong dish"],
+        fat: hasMeat ? "18g" : hasSeafood ? "12g" : "13g",
+        fiber: hasLegumes ? "8g" : "5g",
+        imageSearchIndices: Array.from(new Set([
+          candidate.dishName,
+          ...candidate.aliases,
+          `${cuisine} ${candidate.dishName}`,
+          `traditional ${candidate.dishName}`
+        ])).slice(0, 5),
+        ingredients: ownedIngredients.length ? ownedIngredients : [primaryIngredient],
+        missingIngredients: missingIngredients.slice(0, 6),
+        name: candidate.dishName,
+        protein: hasMeat || hasSeafood ? "32g" : hasLegumes ? "18g" : "14g",
+        sodium: "620mg",
+        sugar: "5g",
+        visualKeywords: [
+          candidate.dishName,
+          `${cuisine} ${candidate.dishName}`,
+          ...candidate.dish.names.english
+        ].slice(0, 6)
+      }, context);
+    });
+
+  const seen = new Set(catalogFillers.map((recipe) => normalizeCuisineIdentityText(recipe.dish_intent?.dish_name ?? recipe.name)));
+  const curatedFillers = buildCuratedCuisineSparseFillerInputs(context.preferredCuisine, primaryIngredient, targetCalories)
+    .filter((input) => {
+      const key = normalizeCuisineIdentityText(input.dishName);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((input) => makeSparseFillerRecipe(input, context));
+
+  return [...catalogFillers, ...curatedFillers];
+}
+
+function isSpecificCuisineFillerName(dishName: string, preferredCuisine: string) {
+  const normalized = normalizeCuisineIdentityText(dishName);
+  return (
+    Boolean(normalized) &&
+    !hasConflictingCuisineDisplaySignal(normalized, preferredCuisine) &&
+    hasCuisineSpecificIdentitySignal(normalized, preferredCuisine) &&
+    !isGenericSpecificCuisineDisplayName(normalized)
+  );
+}
+
+function buildCuratedCuisineSparseFillerInputs(
+  preferredCuisine: string,
+  primaryIngredient: string,
+  targetCalories: number
+): SparseFillerRecipeInput[] {
+  const protein = /\b(shrimp|fish|seafood|salmon|tilapia|cod|prawn)\b/i.test(primaryIngredient)
+    ? "32g"
+    : /\b(lentil|chickpea|bean|tofu)\b/i.test(primaryIngredient)
+      ? "18g"
+      : "24g";
+  const base = {
+    calories: targetCalories,
+    carbs: "30g",
+    difficulty: "Medium",
+    fat: "13g",
+    fiber: "6g",
+    protein,
+    sodium: "620mg",
+    sugar: "5g"
+  };
+  const cuisine = normalizeCuisinePreference(preferredCuisine);
+  const make = (input: Omit<SparseFillerRecipeInput, keyof typeof base>) => ({ ...base, ...input });
+
+  if (cuisine === "italian") {
+    return [
+      make({ cuisine: "Italian", dishName: "caponata", excludeKeywords: ["generic vegetable tray"], imageSearchIndices: ["sicilian caponata", "eggplant caponata", "caponata"], ingredients: [primaryIngredient], missingIngredients: ["eggplant", "tomato", "celery", "capers", "olive oil"], name: "Caponata", visualKeywords: ["eggplant caponata", "sicilian vegetable stew"] }),
+      make({ cuisine: "Italian", dishName: "ribollita", excludeKeywords: ["generic soup"], imageSearchIndices: ["ribollita", "tuscan ribollita", "white bean ribollita"], ingredients: [primaryIngredient], missingIngredients: ["white beans", "tomato", "kale", "carrot", "olive oil"], name: "Ribollita", visualKeywords: ["tuscan bean soup", "ribollita"] }),
+      make({ cuisine: "Italian", dishName: "pasta e fagioli", excludeKeywords: ["generic pasta"], imageSearchIndices: ["pasta e fagioli", "italian bean pasta soup"], ingredients: [primaryIngredient], missingIngredients: ["gluten-free pasta", "white beans", "tomato", "rosemary"], name: "Pasta e Fagioli", visualKeywords: ["bean pasta soup", "italian pasta e fagioli"] }),
+      make({ cuisine: "Italian", dishName: "polenta e funghi", excludeKeywords: ["rice bowl"], imageSearchIndices: ["polenta e funghi", "italian polenta mushrooms"], ingredients: [primaryIngredient], missingIngredients: ["polenta", "mushrooms", "tomato", "olive oil"], name: "Polenta e Funghi", visualKeywords: ["soft polenta", "mushrooms"] }),
+      make({ cuisine: "Italian", dishName: "pasta alla norma", excludeKeywords: ["generic pasta"], imageSearchIndices: ["pasta alla norma", "sicilian eggplant pasta"], ingredients: [primaryIngredient], missingIngredients: ["gluten-free pasta", "eggplant", "tomato", "basil"], name: "Pasta alla Norma", visualKeywords: ["eggplant tomato pasta", "sicilian pasta alla norma"] }),
+      make({ cuisine: "Italian", dishName: "ciambotta", excludeKeywords: ["generic stew"], imageSearchIndices: ["ciambotta", "italian vegetable stew"], ingredients: [primaryIngredient], missingIngredients: ["zucchini", "eggplant", "tomato", "pepper"], name: "Ciambotta", visualKeywords: ["italian vegetable stew", "ciambotta"] }),
+      make({ cuisine: "Italian", dishName: "pappa al pomodoro", excludeKeywords: ["generic tomato soup"], imageSearchIndices: ["pappa al pomodoro", "tuscan tomato bread soup"], ingredients: [primaryIngredient], missingIngredients: ["tomato", "gluten-free bread", "basil", "olive oil"], name: "Pappa al Pomodoro", visualKeywords: ["thick tomato soup", "tuscan pappa al pomodoro"] }),
+      make({ cuisine: "Italian", dishName: "farinata", excludeKeywords: ["generic pancake"], imageSearchIndices: ["farinata", "ligurian chickpea farinata"], ingredients: [primaryIngredient], missingIngredients: ["chickpea flour", "rosemary", "olive oil"], name: "Farinata", visualKeywords: ["chickpea flatbread", "ligurian farinata"] }),
+      make({ cuisine: "Italian", dishName: "parmigiana di melanzane", excludeKeywords: ["generic casserole"], imageSearchIndices: ["parmigiana di melanzane", "eggplant parmigiana"], ingredients: [primaryIngredient], missingIngredients: ["eggplant", "tomato sauce", "mozzarella", "basil"], name: "Parmigiana di Melanzane", visualKeywords: ["eggplant parmigiana", "tomato basil layers"] }),
+      make({ cuisine: "Italian", dishName: "fagioli all'uccelletto", excludeKeywords: ["generic beans"], imageSearchIndices: ["fagioli all'uccelletto", "tuscan white beans tomato sage"], ingredients: [primaryIngredient], missingIngredients: ["white beans", "tomato", "sage", "olive oil"], name: "Fagioli all'Uccelletto", visualKeywords: ["tuscan white beans", "tomato sage sauce"] }),
+      make({ cuisine: "Italian", dishName: "melanzane a funghetto", excludeKeywords: ["generic eggplant tray"], imageSearchIndices: ["melanzane a funghetto", "neapolitan eggplant tomato"], ingredients: [primaryIngredient], missingIngredients: ["eggplant", "tomato", "garlic", "basil"], name: "Melanzane a Funghetto", visualKeywords: ["neapolitan eggplant", "tomato basil"] }),
+      make({ cuisine: "Italian", dishName: "risotto al pomodoro", excludeKeywords: ["generic rice bowl"], imageSearchIndices: ["risotto al pomodoro", "italian tomato risotto"], ingredients: [primaryIngredient], missingIngredients: ["arborio rice", "tomato", "basil", "olive oil"], name: "Risotto al Pomodoro", visualKeywords: ["tomato risotto", "italian risotto"] }),
+      make({ cuisine: "Italian", dishName: "peperonata", excludeKeywords: ["generic pepper tray"], imageSearchIndices: ["peperonata", "italian peppers tomato stew"], ingredients: [primaryIngredient], missingIngredients: ["bell peppers", "tomato", "onion", "olive oil"], name: "Peperonata", visualKeywords: ["italian pepper stew", "tomato peppers"] })
+    ];
+  }
+
+  if (cuisine === "thai") {
+    return [
+      make({ cuisine: "Thai", dishName: "tom yum goong", excludeKeywords: ["generic shrimp soup"], imageSearchIndices: ["tom yum goong", "thai tom yum shrimp soup"], ingredients: [primaryIngredient], missingIngredients: ["lemongrass", "lime", "chili", "mushrooms"], name: "Tom Yum Goong", visualKeywords: ["clear spicy shrimp soup", "tom yum"] }),
+      make({ cuisine: "Thai", dishName: "pla neung manao", excludeKeywords: ["generic steamed fish"], imageSearchIndices: ["pla neung manao", "thai steamed fish lime garlic"], ingredients: [primaryIngredient], missingIngredients: ["lime", "garlic", "chili", "cilantro"], name: "Pla Neung Manao", visualKeywords: ["steamed fish", "lime garlic sauce"] }),
+      make({ cuisine: "Thai", dishName: "gaeng som", excludeKeywords: ["generic curry"], imageSearchIndices: ["gaeng som", "thai sour fish curry"], ingredients: [primaryIngredient], missingIngredients: ["tamarind", "chili paste", "vegetables", "lime"], name: "Gaeng Som", visualKeywords: ["orange sour curry", "fish curry"] }),
+      make({ cuisine: "Thai", dishName: "pad thai goong", excludeKeywords: ["generic noodles"], imageSearchIndices: ["pad thai goong", "shrimp pad thai"], ingredients: [primaryIngredient], missingIngredients: ["rice noodles", "tamarind", "bean sprouts", "lime"], name: "Pad Thai Goong", visualKeywords: ["rice noodles", "shrimp pad thai"] }),
+      make({ cuisine: "Thai", dishName: "goong ob woon sen", excludeKeywords: ["generic rice bowl"], imageSearchIndices: ["goong ob woon sen", "thai shrimp glass noodles"], ingredients: [primaryIngredient], missingIngredients: ["glass noodles", "ginger", "celery", "garlic"], name: "Goong Ob Woon Sen", visualKeywords: ["shrimp glass noodles", "clay pot noodles"] }),
+      make({ cuisine: "Thai", dishName: "pla rad prik", excludeKeywords: ["generic fried fish"], imageSearchIndices: ["pla rad prik", "thai fish chili sauce"], ingredients: [primaryIngredient], missingIngredients: ["chili", "lime", "garlic", "thai basil"], name: "Pla Rad Prik", visualKeywords: ["fish with chili sauce", "thai pla rad prik"] }),
+      make({ cuisine: "Thai", dishName: "gaeng keow wan pla", excludeKeywords: ["generic curry"], imageSearchIndices: ["gaeng keow wan pla", "thai green curry fish"], ingredients: [primaryIngredient], missingIngredients: ["coconut milk", "green curry paste", "thai basil", "vegetables"], name: "Gaeng Keow Wan Pla", visualKeywords: ["green curry fish", "thai basil curry"] }),
+      make({ cuisine: "Thai", dishName: "panang pla", excludeKeywords: ["generic curry"], imageSearchIndices: ["panang pla", "thai panang fish curry"], ingredients: [primaryIngredient], missingIngredients: ["coconut milk", "panang curry paste", "lime leaves", "thai basil"], name: "Panang Pla", visualKeywords: ["panang fish curry", "red coconut curry"] }),
+      make({ cuisine: "Thai", dishName: "yum woon sen talay", excludeKeywords: ["generic seafood salad"], imageSearchIndices: ["yum woon sen talay", "thai glass noodle seafood salad"], ingredients: [primaryIngredient], missingIngredients: ["glass noodles", "lime", "chili", "cilantro"], name: "Yum Woon Sen Talay", visualKeywords: ["glass noodle seafood salad", "thai lime dressing"] }),
+      make({ cuisine: "Thai", dishName: "pad krapow goong", excludeKeywords: ["generic stir fry"], imageSearchIndices: ["pad krapow goong", "thai basil shrimp stir fry"], ingredients: [primaryIngredient], missingIngredients: ["thai basil", "chili", "garlic", "rice"], name: "Pad Krapow Goong", visualKeywords: ["thai basil shrimp", "chili basil stir fry"] }),
+      make({ cuisine: "Thai", dishName: "tom kha pla", excludeKeywords: ["generic soup"], imageSearchIndices: ["tom kha pla", "thai coconut fish soup"], ingredients: [primaryIngredient], missingIngredients: ["coconut milk", "galangal", "lime", "mushrooms"], name: "Tom Kha Pla", visualKeywords: ["coconut fish soup", "tom kha"] })
+    ];
+  }
+
+  if (cuisine === "indian") {
+    return [
+      make({ cuisine: "Indian", dishName: "dal tadka", excludeKeywords: ["generic lentil stew"], imageSearchIndices: ["dal tadka", "indian dal tadka"], ingredients: [primaryIngredient], missingIngredients: ["lentils", "tomato", "cumin", "turmeric"], name: "Dal Tadka", visualKeywords: ["yellow lentil dal", "tempered spices"] }),
+      make({ cuisine: "Indian", dishName: "chana masala", excludeKeywords: ["generic chickpea stew"], imageSearchIndices: ["chana masala", "indian chickpea curry"], ingredients: [primaryIngredient], missingIngredients: ["chickpeas", "tomato", "ginger", "garam masala"], name: "Chana Masala", visualKeywords: ["chickpea curry", "masala sauce"] }),
+      make({ cuisine: "Indian", dishName: "palak dal", excludeKeywords: ["generic spinach soup"], imageSearchIndices: ["palak dal", "spinach dal"], ingredients: [primaryIngredient], missingIngredients: ["spinach", "lentils", "garlic", "cumin"], name: "Palak Dal", visualKeywords: ["spinach lentil dal", "green dal"] }),
+      make({ cuisine: "Indian", dishName: "gobi masala", excludeKeywords: ["generic cauliflower tray"], imageSearchIndices: ["gobi masala", "indian cauliflower masala"], ingredients: [primaryIngredient], missingIngredients: ["cauliflower", "tomato", "ginger", "cumin"], name: "Gobi Masala", visualKeywords: ["cauliflower masala", "spiced tomato sauce"] }),
+      make({ cuisine: "Indian", dishName: "sambar", excludeKeywords: ["generic vegetable soup"], imageSearchIndices: ["sambar", "south indian lentil sambar"], ingredients: [primaryIngredient], missingIngredients: ["lentils", "tamarind", "tomato", "vegetables"], name: "Sambar", visualKeywords: ["south indian sambar", "lentil vegetable stew"] }),
+      make({ cuisine: "Indian", dishName: "baingan bharta", excludeKeywords: ["generic eggplant dip"], imageSearchIndices: ["baingan bharta", "indian roasted eggplant"], ingredients: [primaryIngredient], missingIngredients: ["eggplant", "tomato", "onion", "cumin"], name: "Baingan Bharta", visualKeywords: ["roasted eggplant mash", "indian baingan bharta"] }),
+      make({ cuisine: "Indian", dishName: "saag chana", excludeKeywords: ["generic spinach bowl"], imageSearchIndices: ["saag chana", "indian spinach chickpeas"], ingredients: [primaryIngredient], missingIngredients: ["spinach", "chickpeas", "ginger", "cumin"], name: "Saag Chana", visualKeywords: ["spinach chickpea curry", "green saag"] }),
+      make({ cuisine: "Indian", dishName: "rajma masala", excludeKeywords: ["generic bean stew"], imageSearchIndices: ["rajma masala", "indian kidney bean curry"], ingredients: [primaryIngredient], missingIngredients: ["kidney beans", "tomato", "ginger", "garam masala"], name: "Rajma Masala", visualKeywords: ["kidney bean curry", "rajma masala"] }),
+      make({ cuisine: "Indian", dishName: "tofu tikka masala", excludeKeywords: ["paneer", "chicken tikka"], imageSearchIndices: ["tofu tikka masala", "vegan tikka masala"], ingredients: [primaryIngredient], missingIngredients: ["tofu", "tomato", "ginger", "garam masala"], name: "Tofu Tikka Masala", visualKeywords: ["vegan tikka masala", "tomato masala sauce"] }),
+      make({ cuisine: "Indian", dishName: "vegetable jalfrezi", excludeKeywords: ["generic vegetable tray"], imageSearchIndices: ["vegetable jalfrezi", "indian jalfrezi vegetables"], ingredients: [primaryIngredient], missingIngredients: ["cauliflower", "pepper", "tomato", "cumin"], name: "Vegetable Jalfrezi", visualKeywords: ["spiced vegetable jalfrezi", "tomato pepper masala"] }),
+      make({ cuisine: "Indian", dishName: "rasam", excludeKeywords: ["generic tomato soup"], imageSearchIndices: ["rasam", "south indian rasam"], ingredients: [primaryIngredient], missingIngredients: ["tomato", "tamarind", "black pepper", "cumin"], name: "Rasam", visualKeywords: ["south indian rasam", "spiced tomato broth"] })
+    ];
+  }
+
+  if (cuisine === "turkish") {
+    return [
+      make({ cuisine: "Turkish", dishName: "izgara kofte", excludeKeywords: ["burger", "generic meatballs"], imageSearchIndices: ["izgara kofte", "turkish grilled kofte"], ingredients: [primaryIngredient], missingIngredients: ["parsley", "onion", "sumac", "tomato"], name: "Izgara Kofte", visualKeywords: ["grilled turkish kofte", "charred kofte patties"] }),
+      make({ cuisine: "Turkish", dishName: "adana kebab", excludeKeywords: ["generic kebab"], imageSearchIndices: ["adana kebab", "turkish adana kebab"], ingredients: [primaryIngredient], missingIngredients: ["red pepper", "parsley", "onion", "sumac"], name: "Adana Kebab", visualKeywords: ["spicy minced kebab", "turkish adana"] }),
+      make({ cuisine: "Turkish", dishName: "patlican kebabi", excludeKeywords: ["generic eggplant tray"], imageSearchIndices: ["patlican kebabi", "turkish eggplant kebab"], ingredients: [primaryIngredient], missingIngredients: ["eggplant", "tomato", "pepper", "onion"], name: "Patlican Kebabi", visualKeywords: ["eggplant kebab", "turkish patlican"] }),
+      make({ cuisine: "Turkish", dishName: "karniyarik", excludeKeywords: ["generic stuffed eggplant"], imageSearchIndices: ["karniyarik", "turkish stuffed eggplant"], ingredients: [primaryIngredient], missingIngredients: ["eggplant", "tomato", "pepper", "parsley"], name: "Karniyarik", visualKeywords: ["split eggplant", "minced filling"] }),
+      make({ cuisine: "Turkish", dishName: "turkish et sote", excludeKeywords: ["generic skillet"], imageSearchIndices: ["turkish et sote", "turkish beef saute"], ingredients: [primaryIngredient], missingIngredients: ["pepper", "tomato", "onion", "paprika"], name: "Turkish Et Sote", visualKeywords: ["turkish beef saute", "peppers tomato"] }),
+      make({ cuisine: "Turkish", dishName: "kiymali kabak dolma", excludeKeywords: ["rice heavy dolma"], imageSearchIndices: ["kiymali kabak dolma", "turkish stuffed zucchini meat"], ingredients: [primaryIngredient], missingIngredients: ["zucchini", "tomato", "parsley", "pepper"], name: "Kiymali Kabak Dolma", visualKeywords: ["stuffed zucchini", "turkish kabak dolma"] }),
+      make({ cuisine: "Turkish", dishName: "saksuka", excludeKeywords: ["generic vegetables"], imageSearchIndices: ["turkish saksuka", "saksuka eggplant tomato"], ingredients: [primaryIngredient], missingIngredients: ["eggplant", "zucchini", "tomato", "pepper"], name: "Saksuka", visualKeywords: ["turkish saksuka", "eggplant tomato"] }),
+      make({ cuisine: "Turkish", dishName: "biber dolmasi", excludeKeywords: ["rice heavy dolma"], imageSearchIndices: ["biber dolmasi", "turkish stuffed peppers"], ingredients: [primaryIngredient], missingIngredients: ["bell pepper", "tomato", "parsley", "onion"], name: "Biber Dolmasi", visualKeywords: ["stuffed peppers", "turkish dolma"] })
+    ];
+  }
+
+  if (cuisine === "mexican") {
+    return [
+      make({ cuisine: "Mexican", dishName: "tinga de pollo", excludeKeywords: ["generic chicken bowl"], imageSearchIndices: ["tinga de pollo", "mexican chicken tinga"], ingredients: [primaryIngredient], missingIngredients: ["tomato", "chipotle", "onion", "corn tortilla"], name: "Tinga de Pollo", visualKeywords: ["shredded chicken tinga", "chipotle tomato sauce"] }),
+      make({ cuisine: "Mexican", dishName: "chicken tostadas", excludeKeywords: ["generic toast"], imageSearchIndices: ["chicken tostadas", "mexican chicken tostada"], ingredients: [primaryIngredient], missingIngredients: ["corn tostadas", "black beans", "tomato", "avocado"], name: "Chicken Tostadas", visualKeywords: ["crisp corn tostada", "chicken beans avocado"] }),
+      make({ cuisine: "Mexican", dishName: "enchiladas verdes", excludeKeywords: ["flour tortilla"], imageSearchIndices: ["enchiladas verdes", "mexican green enchiladas"], ingredients: [primaryIngredient], missingIngredients: ["corn tortillas", "tomatillo salsa", "cilantro", "onion"], name: "Enchiladas Verdes", visualKeywords: ["green salsa enchiladas", "corn tortillas"] }),
+      make({ cuisine: "Mexican", dishName: "caldo tlalpeno", excludeKeywords: ["generic chicken soup"], imageSearchIndices: ["caldo tlalpeno", "mexican chicken vegetable soup"], ingredients: [primaryIngredient], missingIngredients: ["chickpeas", "tomato", "chipotle", "zucchini"], name: "Caldo Tlalpeno", visualKeywords: ["mexican chicken soup", "chipotle broth"] }),
+      make({ cuisine: "Mexican", dishName: "sopa de tortilla", excludeKeywords: ["flour tortilla"], imageSearchIndices: ["sopa de tortilla", "mexican tortilla soup"], ingredients: [primaryIngredient], missingIngredients: ["corn tortilla strips", "tomato", "chili", "avocado"], name: "Sopa de Tortilla", visualKeywords: ["tomato chili soup", "corn tortilla strips"] }),
+      make({ cuisine: "Mexican", dishName: "pescado a la veracruzana", excludeKeywords: ["generic fish"], imageSearchIndices: ["pescado a la veracruzana", "veracruz style fish"], ingredients: [primaryIngredient], missingIngredients: ["tomato", "olive", "capers", "pepper"], name: "Pescado a la Veracruzana", visualKeywords: ["veracruz fish", "tomato olive sauce"] }),
+      make({ cuisine: "Mexican", dishName: "chicken fajitas", excludeKeywords: ["generic grilled chicken"], imageSearchIndices: ["mexican chicken fajitas", "chicken fajitas peppers"], ingredients: [primaryIngredient], missingIngredients: ["pepper", "onion", "lime", "corn tortillas"], name: "Chicken Fajitas", visualKeywords: ["sliced chicken peppers", "fajita skillet"] }),
+      make({ cuisine: "Mexican", dishName: "huevos a la mexicana", excludeKeywords: ["generic eggs"], imageSearchIndices: ["huevos a la mexicana", "mexican style eggs"], ingredients: [primaryIngredient], missingIngredients: ["egg", "tomato", "onion", "chili"], name: "Huevos a la Mexicana", visualKeywords: ["tomato chili eggs", "mexican breakfast"] }),
+      make({ cuisine: "Mexican", dishName: "black bean tacos", excludeKeywords: ["flour tortilla"], imageSearchIndices: ["black bean tacos", "mexican black bean tacos"], ingredients: [primaryIngredient], missingIngredients: ["corn tortillas", "black beans", "tomato", "avocado"], name: "Black Bean Tacos", visualKeywords: ["corn tortilla tacos", "black beans avocado"] }),
+      make({ cuisine: "Mexican", dishName: "chile relleno", excludeKeywords: ["breaded fried"], imageSearchIndices: ["chile relleno", "mexican stuffed poblano"], ingredients: [primaryIngredient], missingIngredients: ["poblano pepper", "tomato sauce", "beans", "cilantro"], name: "Chile Relleno", visualKeywords: ["stuffed poblano", "tomato sauce"] }),
+      make({ cuisine: "Mexican", dishName: "pozole verde", excludeKeywords: ["generic soup"], imageSearchIndices: ["pozole verde", "mexican green pozole"], ingredients: [primaryIngredient], missingIngredients: ["hominy", "tomatillo", "cilantro", "radish"], name: "Pozole Verde", visualKeywords: ["green pozole", "hominy tomatillo broth"] })
+    ];
+  }
+
+  if (cuisine === "middleeastern") {
+    return [
+      make({ cuisine: "Middle Eastern", dishName: "mansaf", excludeKeywords: ["generic lamb rice"], imageSearchIndices: ["mansaf", "jordanian mansaf"], ingredients: [primaryIngredient], missingIngredients: ["rice", "yogurt sauce", "almonds", "parsley"], name: "Mansaf", visualKeywords: ["jordanian mansaf", "rice yogurt sauce"] }),
+      make({ cuisine: "Middle Eastern", dishName: "maqluba", excludeKeywords: ["generic rice"], imageSearchIndices: ["maqluba", "middle eastern upside down rice"], ingredients: [primaryIngredient], missingIngredients: ["rice", "eggplant", "cauliflower", "tomato"], name: "Maqluba", visualKeywords: ["upside down rice", "eggplant cauliflower"] }),
+      make({ cuisine: "Middle Eastern", dishName: "fatteh", excludeKeywords: ["generic chickpea bowl"], imageSearchIndices: ["chickpea fatteh", "middle eastern fatteh"], ingredients: [primaryIngredient], missingIngredients: ["chickpeas", "toasted bread", "yogurt", "tahini"], name: "Fatteh", visualKeywords: ["chickpea fatteh", "tahini yogurt"] }),
+      make({ cuisine: "Middle Eastern", dishName: "mujadara", excludeKeywords: ["generic lentils"], imageSearchIndices: ["mujadara", "lentils rice onions"], ingredients: [primaryIngredient], missingIngredients: ["lentils", "rice", "onion", "olive oil"], name: "Mujadara", visualKeywords: ["lentils rice onions", "middle eastern mujadara"] }),
+      make({ cuisine: "Middle Eastern", dishName: "shawarma", excludeKeywords: ["generic wrap"], imageSearchIndices: ["middle eastern shawarma", "shawarma plate"], ingredients: [primaryIngredient], missingIngredients: ["shawarma spices", "tahini", "cucumber", "tomato"], name: "Shawarma Plate", visualKeywords: ["shawarma spices", "tahini salad"] }),
+      make({ cuisine: "Middle Eastern", dishName: "kofta kebab", excludeKeywords: ["generic meatballs"], imageSearchIndices: ["middle eastern kofta kebab", "kofta kebab"], ingredients: [primaryIngredient], missingIngredients: ["parsley", "onion", "cumin", "tahini"], name: "Kofta Kebab", visualKeywords: ["kofta skewers", "middle eastern kebab"] }),
+      make({ cuisine: "Middle Eastern", dishName: "hummus", excludeKeywords: ["generic dip"], imageSearchIndices: ["hummus", "middle eastern hummus"], ingredients: [primaryIngredient], missingIngredients: ["chickpeas", "tahini", "lemon", "olive oil"], name: "Hummus", visualKeywords: ["chickpea tahini dip", "hummus"] }),
+      make({ cuisine: "Middle Eastern", dishName: "tabbouleh", excludeKeywords: ["generic salad"], imageSearchIndices: ["tabbouleh", "parsley bulgur salad"], ingredients: [primaryIngredient], missingIngredients: ["parsley", "bulgur", "tomato", "lemon"], name: "Tabbouleh", visualKeywords: ["parsley salad", "bulgur tomato"] }),
+      make({ cuisine: "Middle Eastern", dishName: "kibbeh", excludeKeywords: ["generic croquette"], imageSearchIndices: ["kibbeh", "middle eastern kibbeh"], ingredients: [primaryIngredient], missingIngredients: ["bulgur", "onion", "mint", "cumin"], name: "Kibbeh", visualKeywords: ["bulgur meat shells", "middle eastern kibbeh"] }),
+      make({ cuisine: "Middle Eastern", dishName: "musakhan", excludeKeywords: ["generic chicken bread"], imageSearchIndices: ["musakhan", "palestinian sumac chicken"], ingredients: [primaryIngredient], missingIngredients: ["sumac", "onion", "flatbread", "pine nuts"], name: "Musakhan", visualKeywords: ["sumac chicken", "flatbread onions"] })
+    ];
+  }
+
+  return [];
+}
+
+function getCuisineLabelFromCandidate(cuisine: string) {
+  const labels: Record<string, string> = {
+    american: "American",
+    asian: "Asian",
+    egyptian: "Egyptian",
+    indian: "Indian",
+    italian: "Italian",
+    mediterranean: "Mediterranean",
+    mexican: "Mexican",
+    middleEastern: "Middle Eastern",
+    thai: "Thai",
+    turkish: "Turkish"
+  };
+  return labels[cuisine] ?? cuisine;
 }
 
 interface SparseFillerRecipeInput {
@@ -2085,7 +2533,7 @@ async function generateRecipesWithTransientRetry(
       return await generateFallbackRecipes(prompt, traceForAttempt(attempt));
     } catch (error) {
       lastError = error;
-      if (!isTransientAiOverload(error) || attempt === AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS) {
+      if (isAiTimeoutError(error) || !isTransientAiOverload(error) || attempt === AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS) {
         break;
       }
 
@@ -2104,6 +2552,11 @@ async function generateRecipesWithTransientRetry(
 
 function isTransientAiOverload(error: unknown) {
   return isTransientModelError(error);
+}
+
+function isAiTimeoutError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|abort/i.test(message);
 }
 
 async function queueRecipeCachePersist(input: {
@@ -2356,6 +2809,226 @@ function enforcePreferredCuisineRecipes(
   }
 
   return filtered.slice(0, recipeCount);
+}
+
+function filterWeakSpecificCuisineRecipes(
+  recipes: Recipe[],
+  input: {
+    availableIngredients: string[];
+    preferredCuisine?: string;
+    recipeCount: number;
+    requestId: string;
+  }
+) {
+  if (!input.preferredCuisine || input.preferredCuisine === "Any") return recipes.slice(0, input.recipeCount);
+
+  const accepted: Recipe[] = [];
+  const rejected: Array<{ cuisine?: string; name: string }> = [];
+  for (const recipe of recipes) {
+    if (recipe.recipe_origin === "exact_scan_match") {
+      accepted.push(recipe);
+      continue;
+    }
+
+    if (
+      cuisineMatchesPreference(recipe.cuisine ?? "", input.preferredCuisine) &&
+      hasStrongSpecificCuisineIdentity(recipe, input.preferredCuisine, input.availableIngredients)
+    ) {
+      accepted.push(recipe);
+    } else {
+      rejected.push({ cuisine: recipe.cuisine, name: recipe.name });
+    }
+  }
+
+  if (rejected.length) {
+    logger.warn("Weak specific-cuisine recipe identities filtered", {
+      requestId: input.requestId,
+      preferredCuisine: input.preferredCuisine,
+      rejectedCount: rejected.length,
+      rejected: rejected.slice(0, 8)
+    });
+  }
+
+  return accepted.slice(0, input.recipeCount);
+}
+
+function filterGenericAnyCuisineRecipes(
+  recipes: Recipe[],
+  input: {
+    recipeCount: number;
+    requestId: string;
+  }
+) {
+  const accepted: Recipe[] = [];
+  const rejected: string[] = [];
+
+  for (const recipe of recipes) {
+    if (recipe.recipe_origin === "exact_scan_match" || !isGenericAnyCuisineRecipe(recipe)) {
+      accepted.push(recipe);
+    } else {
+      rejected.push(recipe.name);
+    }
+  }
+
+  if (rejected.length) {
+    logger.warn("Any-cuisine generic recipe identities filtered", {
+      requestId: input.requestId,
+      rejectedCount: rejected.length,
+      rejected: rejected.slice(0, 8)
+    });
+  }
+
+  return accepted.slice(0, input.recipeCount);
+}
+
+function isGenericAnyCuisineRecipe(recipe: Recipe) {
+  const display = normalizeCuisineIdentityText([
+    recipe.name,
+    recipe.localized?.English?.name,
+    recipe.image_search_index,
+    recipe.dish_intent?.dish_name
+  ].filter(Boolean).join(" "));
+
+  if (!display) return true;
+  return /\b(generic|skillet|plate|bowl|power|lemon herb|garlic chicken|grilled salmon|salmon rice|chickpea tomato stew|chicken rice|rice and bean pantry)\b/u.test(display);
+}
+
+function hasStrongSpecificCuisineIdentity(recipe: Recipe, preferredCuisine: string, availableIngredients: string[]) {
+  const displayHaystack = normalizeCuisineIdentityText([
+    recipe.name,
+    recipe.localized?.English?.name,
+    recipe.localized?.Arabic?.name
+  ].filter(Boolean).join(" "));
+  if (hasConflictingCuisineDisplaySignal(displayHaystack, preferredCuisine)) return false;
+  if (isGenericSpecificCuisineDisplayName(displayHaystack) && !hasCuisineSpecificIdentitySignal(displayHaystack, preferredCuisine)) {
+    return false;
+  }
+
+  const haystack = normalizeCuisineIdentityText([
+    recipe.name,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    recipe.photo_identity?.dish_slug,
+    recipe.photo_identity?.english_name,
+    recipe.dish_intent?.dish_name,
+    ...(recipe.dish_intent?.visual_keywords ?? []),
+    recipe.localized?.English?.name,
+    recipe.localized?.English?.dish_intent?.dish_name
+  ].filter(Boolean).join(" "));
+
+  if (!haystack) return false;
+  if (!hasCuisineSpecificIdentitySignal(displayHaystack || haystack, preferredCuisine)) return false;
+
+  if (getSpecificCuisineDishAliases(preferredCuisine).some((alias) => identityTextIncludesAlias(haystack, alias))) {
+    return true;
+  }
+
+  return resolveAuthenticCuisineDishes({
+    cuisine: preferredCuisine,
+    ingredients: [
+      ...availableIngredients,
+      ...(recipe.ingredients ?? []),
+      ...(recipe.missing_ingredients ?? [])
+    ],
+    mealType: recipe.dish_intent?.meal_type
+  }, 12).some((candidate) =>
+    candidate.aliases
+      .map(normalizeCuisineIdentityText)
+      .filter((alias) => alias.length >= 4)
+      .some((alias) => identityTextIncludesAlias(haystack, alias))
+  );
+}
+
+function isGenericSpecificCuisineDisplayName(displayHaystack: string) {
+  return /\b(bowl|plate|skillet|tray|grain bowl|vegetable soup|herb tray|rice bowl|pasta skillet|mixed grill)\b/u.test(displayHaystack);
+}
+
+function hasConflictingCuisineDisplaySignal(displayHaystack: string, preferredCuisine: string) {
+  if (!displayHaystack) return false;
+  const preferred = normalizeCuisinePreference(preferredCuisine);
+  const conflictingSignals: Record<string, string[]> = {
+    egyptian: ["alexandrian", "egyptian", "hawawshi", "koshary", "molokhia", "sayadeya"],
+    indian: ["baingan", "biryani", "chana", "dal", "gobi", "masala", "palak", "sambar", "tikka"],
+    italian: ["arrabbiata", "caponata", "ciambotta", "italian", "margherita", "minestrone", "polenta", "ribollita"],
+    mexican: ["caldo", "chile", "enchilada", "fajita", "fajitas", "huevos", "mexican", "mole", "pescado", "pozole", "sopa", "taco", "tinga", "tostada", "tostadas", "veracruzana"],
+    middleeastern: ["fatteh", "hummus", "kibbeh", "maqluba", "mansaf", "middle eastern", "mujadara", "shawarma"],
+    thai: ["gaeng", "goong", "krapow", "massaman", "pad thai", "panang", "pla ", "thai", "tom kha", "tom yum"],
+    turkish: ["adana", "biber", "borek", "dolma", "izgara", "karniyarik", "kebab", "kofte", "lahmacun", "menemen", "patlican", "pide", "saksuka", "turkish"]
+  };
+
+  return Object.entries(conflictingSignals).some(([cuisine, signals]) => {
+    if (cuisine === preferred) return false;
+    return signals.some((signal) => identityTextIncludesAlias(displayHaystack, signal.trim()));
+  });
+}
+
+function hasCuisineSpecificIdentitySignal(haystack: string, preferredCuisine: string) {
+  const signals: Record<string, string[]> = {
+    egyptian: ["alexandrian", "baladi", "basha", "egyptian", "fattah", "hawawshi", "kofta", "koshary", "molokhia", "sayadeya"],
+    indian: ["baingan", "biryani", "chana", "curry", "dal", "gobi", "indian", "masala", "palak", "rajma", "rasam", "saag", "sambar", "tadka", "tikka"],
+    italian: ["arrabbiata", "caponata", "ciambotta", "fagioli", "italian", "margherita", "melanzane", "minestrone", "norma", "polenta", "pomodoro", "ribollita", "risotto"],
+    mediterranean: ["briam", "caponata", "dolma", "fasolada", "gemista", "greek", "mediterranean", "moussaka", "ratatouille", "saganaki", "souvlaki"],
+    mexican: ["caldo", "chilaquiles", "chile", "enchilada", "fajita", "fajitas", "huevos", "mexican", "mole", "pescado", "pozole", "quesadilla", "sopa", "taco", "tinga", "tostada", "tostadas", "veracruzana"],
+    middleeastern: ["fatteh", "hummus", "kibbeh", "maqluba", "mansaf", "middle eastern", "mujadara", "shawarma", "tabbouleh"],
+    thai: ["gaeng", "goong", "khao", "krapow", "larb", "massaman", "pad", "panang", "pla", "prik", "sen", "sticky rice", "thai", "tom kha", "tom yum", "woon", "yum"],
+    turkish: ["adana", "biber", "borek", "dolma", "izgara", "karniyarik", "kebab", "kofte", "lahmacun", "menemen", "patlican", "pide", "saksuka", "turkish"]
+  };
+  const key = normalizeCuisinePreference(preferredCuisine);
+  return (signals[key] ?? [key]).some((signal) => identityTextIncludesAlias(haystack, signal));
+}
+
+function identityTextIncludesAlias(haystack: string, alias: string) {
+  if (!haystack || !alias) return false;
+  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\s)${escaped}(\\s|$)`, "u").test(haystack);
+}
+
+function getSpecificCuisineDishAliases(preferredCuisine: string) {
+  const oneWordSignals = new Set([
+    "arrabbiata",
+    "biryani",
+    "caponata",
+    "chana",
+    "ciambotta",
+    "dal",
+    "dolma",
+    "fagioli",
+    "gobi",
+    "hawawshi",
+    "kofta",
+    "koshary",
+    "kofte",
+    "menemen",
+    "minestrone",
+    "palak",
+    "polenta",
+    "pozole",
+    "ribollita",
+    "risotto",
+    "sambar",
+    "shawarma"
+  ]);
+
+  return (getCompleteCuisineCatalog(preferredCuisine) ?? [])
+    .flatMap((dish) => [
+      dish.id.replace(/-/g, " "),
+      ...dish.names.english,
+      ...dish.names.native,
+      ...(dish.names.other ?? [])
+    ])
+    .map(normalizeCuisineIdentityText)
+    .filter((alias) => alias.length >= 4)
+    .filter((alias) => alias.includes(" ") || oneWordSignals.has(alias));
+}
+
+function normalizeCuisineIdentityText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildHardRequestRestrictionContext(

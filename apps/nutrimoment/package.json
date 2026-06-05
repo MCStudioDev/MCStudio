@@ -12,6 +12,7 @@
     "predeploy:check": "npm run lint && npm run build && npm run validate:prod-env",
     "test": "vitest run",
     "qa:matrix": "tsx scripts/run-qa-matrix.ts",
+    "qa:launch-recipes": "tsx scripts/launch-recipe-audit.ts",
     "test:rules": "firebase emulators:exec --only firestore --project nutrimoment-rules-test \"vitest run\"",
     "seed:offline-catalog": "tsx scripts/seed-offline-catalog.ts",
     "backfill:bilingual-recipes": "tsx scripts/backfill-bilingual-recipes.ts",

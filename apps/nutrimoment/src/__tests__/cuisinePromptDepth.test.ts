@@ -454,6 +454,31 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("BBQ chicken");
   });
 
+  it("keeps missing ingredients from replacing the scanned chicken protein", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [
+        { name: "فراخ", quantity: "1 kg" },
+        { name: "عيش", quantity: "4 pieces" },
+        { name: "طماطم", quantity: "3 whole" },
+        { name: "بصل", quantity: "2 whole" }
+      ],
+      {
+        recipeLanguage: "Arabic",
+        preferredCuisine: "Egyptian",
+        calorieTarget: 2000,
+        maxMissingIngredients: 5,
+        recipeCount: 5,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Missing-ingredient boundary");
+    expect(prompt).toContain("If the pantry contains chicken, keep chicken-centered recipes");
+    expect(prompt).toContain("do not output ground meat, beef, lamb, fish, shrimp, egg, or dairy-centered dishes");
+  });
+
   it("requires exact potato forms in generated recipe photo identities", () => {
     const prompt = buildRecipeGenerationPrompt(
       [{ name: "potatoes", quantity: "1 kg" }],

@@ -134,14 +134,14 @@ export function MealRevealCard({
   const queryCandidates = useMemo(() => normalizeRecipePhotoQueries(imageQuery), [imageQuery]);
   const primaryQuery = queryCandidates[0] ?? "";
   const exactNamesForLookup = useMemo(
-    () => (imageExactNames?.length ? imageExactNames : [name]).map((value) => value.trim()).filter(Boolean),
+    () => (imageExactNames?.length ? imageExactNames : [name]).map(normalizeRecipePhotoParam).filter(Boolean),
     [imageExactNames, name]
   );
   const queryKey = [
     queryCandidates.join(" || "),
     exactNamesForLookup.join(" || "),
-    imageCuisine?.trim() ?? "",
-    imagePhotoIdentity?.dish_slug ?? ""
+    normalizeRecipePhotoParam(imageCuisine),
+    normalizeRecipePhotoParam(imagePhotoIdentity?.dish_slug)
   ]
     .filter(Boolean)
     .join(" ## ");
@@ -925,7 +925,7 @@ function normalizeRecipePhotoQueries(query?: string | string[]) {
   return Array.from(
     new Set(
       values
-        .map((value) => value.trim().toLowerCase().replace(/\s+/g, " "))
+        .map((value) => normalizeRecipePhotoParam(value).toLowerCase().replace(/\s+/g, " "))
         .filter((value) => value.length >= 3)
     )
   ).slice(0, 5);
@@ -946,17 +946,18 @@ function buildRecipePhotoRequestUrl(
     }
   });
   ingredients
-    .map((value) => value.trim())
+    .map(normalizeRecipePhotoParam)
     .filter(Boolean)
     .slice(0, 10)
     .forEach((ingredient) => params.append("ingredient", ingredient));
   exactContext.exactNames
-    ?.map((value) => value.trim())
+    ?.map(normalizeRecipePhotoParam)
     .filter(Boolean)
     .slice(0, 8)
     .forEach((name) => params.append("exact", name));
-  if (exactContext.cuisine?.trim()) {
-    params.set("cuisine", exactContext.cuisine.trim());
+  const cuisine = normalizeRecipePhotoParam(exactContext.cuisine);
+  if (cuisine) {
+    params.set("cuisine", cuisine);
   }
   appendPhotoIdentityParams(params, exactContext.photoIdentity);
   excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
@@ -965,13 +966,23 @@ function buildRecipePhotoRequestUrl(
 }
 
 function appendPhotoIdentityParams(params: URLSearchParams, identity: PhotoIdentity | undefined) {
-  if (!identity?.dish_slug) return;
-  params.set("photoSlug", identity.dish_slug);
-  if (identity.cuisine_key) params.set("photoCuisineKey", identity.cuisine_key);
-  if (identity.protein) params.set("photoProtein", identity.protein);
-  if (identity.starch) params.set("photoStarch", identity.starch);
-  if (identity.sauce) params.set("photoSauce", identity.sauce);
-  if (identity.method) params.set("photoMethod", identity.method);
+  const photoSlug = normalizeRecipePhotoParam(identity?.dish_slug);
+  if (!photoSlug) return;
+  params.set("photoSlug", photoSlug);
+  const photoCuisineKey = normalizeRecipePhotoParam(identity?.cuisine_key);
+  const photoProtein = normalizeRecipePhotoParam(identity?.protein);
+  const photoStarch = normalizeRecipePhotoParam(identity?.starch);
+  const photoSauce = normalizeRecipePhotoParam(identity?.sauce);
+  const photoMethod = normalizeRecipePhotoParam(identity?.method);
+  if (photoCuisineKey) params.set("photoCuisineKey", photoCuisineKey);
+  if (photoProtein) params.set("photoProtein", photoProtein);
+  if (photoStarch) params.set("photoStarch", photoStarch);
+  if (photoSauce) params.set("photoSauce", photoSauce);
+  if (photoMethod) params.set("photoMethod", photoMethod);
+}
+
+function normalizeRecipePhotoParam(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function buildRecipePlaceholderStyle(seed: string): CSSProperties {

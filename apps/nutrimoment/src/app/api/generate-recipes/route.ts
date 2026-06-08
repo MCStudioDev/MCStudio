@@ -333,7 +333,12 @@ export async function POST(request: Request) {
         recipeCount,
         requestId
       });
-      const pantryPrioritized = prioritizePantryUsageRecipes(cuisineQualitySelected, scoringIngredients);
+      const proteinAlignedSelected = filterRecipesByInputMainProtein(cuisineQualitySelected, {
+        availableIngredients,
+        ingredients,
+        scoringIngredients
+      });
+      const pantryPrioritized = prioritizePantryUsageRecipes(proteinAlignedSelected, scoringIngredients);
       const varied = enforceDistinctRecipeVariety(pantryPrioritized, recipeCount);
       const finalized = ensureRequestedRecipeCount(varied, {
         availableIngredients,
@@ -368,8 +373,13 @@ export async function POST(request: Request) {
               recipeCount,
               requestId
             });
+      const finalProteinAlignedSelected = filterRecipesByInputMainProtein(finalQualitySelected, {
+        availableIngredients,
+        ingredients,
+        scoringIngredients
+      });
       const finalCountRepaired = ensureRequestedRecipeCount(
-        enforceDistinctRecipeVariety(prioritizePantryUsageRecipes(finalQualitySelected, scoringIngredients), recipeCount),
+        enforceDistinctRecipeVariety(prioritizePantryUsageRecipes(finalProteinAlignedSelected, scoringIngredients), recipeCount),
         {
           availableIngredients,
           calorieTarget: parsed.data.calorieTarget ?? 2000,
@@ -1091,14 +1101,17 @@ function ensureRequestedRecipeCount(
     scoringIngredients: string[];
   }
 ) {
-  const fillers = buildSparseIngredientRecipeFillers(context);
-  if (recipes.length >= context.recipeCount) {
-    return shouldBlendSparseFillerVariety(recipes, context)
-      ? blendSparseFillerVariety(recipes, fillers, context.recipeCount)
-      : recipes.slice(0, context.recipeCount);
+  const hasInputMainProtein = getInputMainProteinCategories(context).size > 0;
+  const proteinAlignedRecipes = filterRecipesByInputMainProtein(recipes, context);
+  const fillers = filterRecipesByInputMainProtein(buildSparseIngredientRecipeFillers(context), context);
+  const sourceRecipes = hasInputMainProtein ? proteinAlignedRecipes : recipes;
+  if (sourceRecipes.length >= context.recipeCount) {
+    return shouldBlendSparseFillerVariety(sourceRecipes, context)
+      ? blendSparseFillerVariety(sourceRecipes, fillers, context.recipeCount)
+      : sourceRecipes.slice(0, context.recipeCount);
   }
 
-  const merged = [...recipes];
+  const merged = [...sourceRecipes];
   const seen = new Set(merged.map(getRecipeSelectionKey));
   for (const filler of fillers) {
     if (merged.length >= context.recipeCount) break;
@@ -1239,7 +1252,86 @@ function filterSparseFillersForPreferences(
 }
 
 function choosePrimarySparseIngredient(rawIngredients: string[], scoringIngredients: string[]) {
+  const candidates = [...rawIngredients, ...scoringIngredients].filter(Boolean);
+  const proteinAnchor = candidates.find((ingredient) => getMainProteinCategoriesFromText(ingredient).size > 0);
+  if (proteinAnchor) return proteinAnchor;
+
   return rawIngredients.find(Boolean) ?? scoringIngredients.find(Boolean) ?? "main ingredient";
+}
+
+type MainProteinCategory = "chicken" | "groundMeat" | "beefOrLamb" | "fish" | "shrimp" | "seafood" | "egg";
+
+function filterRecipesByInputMainProtein(
+  recipes: Recipe[],
+  context: { availableIngredients: Set<string>; ingredients: string[]; scoringIngredients: string[] }
+) {
+  const inputProteins = getInputMainProteinCategories(context);
+  if (!inputProteins.size) return recipes;
+
+  const filtered = recipes.filter((recipe) => {
+    const recipeProteins = getRecipeMainProteinCategories(recipe);
+    if (!recipeProteins.size) return true;
+
+    return Array.from(recipeProteins).every((category) => isProteinCategoryAllowed(category, inputProteins));
+  });
+
+  return filtered;
+}
+
+function getInputMainProteinCategories(context: { availableIngredients: Set<string>; ingredients: string[]; scoringIngredients: string[] }) {
+  return getMainProteinCategoriesFromText([
+    ...context.ingredients,
+    ...context.scoringIngredients,
+    ...Array.from(context.availableIngredients)
+  ].join(" "));
+}
+
+function getRecipeMainProteinCategories(recipe: Recipe) {
+  return getMainProteinCategoriesFromText([
+    recipe.name,
+    recipe.cuisine,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    ...(recipe.ingredients ?? []),
+    ...(recipe.missing_ingredients ?? []),
+    recipe.dish_intent?.dish_name,
+    ...(recipe.dish_intent?.visual_keywords ?? [])
+  ].filter(Boolean).join(" "));
+}
+
+function getMainProteinCategoriesFromText(value: string) {
+  const normalized = value.toLowerCase();
+  const categories = new Set<MainProteinCategory>();
+
+  if (/(?:\bground\s+(?:beef|meat|lamb|turkey|chicken)\b|\bminced?\s+(?:beef|meat|lamb|turkey|chicken)\b|\b(?:beef|lamb)\s+mince\b|لحم\s*مفروم|لحمة\s*مفرومة|مفروم)/iu.test(normalized)) {
+    categories.add("groundMeat");
+  }
+  if (/(?:\bchicken\b|\bhen\b|\bpoultry\b|دجاج|فراخ|فراخة|فرخة|صدور\s*(?:دجاج|فراخ))/iu.test(normalized)) {
+    categories.add("chicken");
+  }
+  if (/(?:\bbeef\b|\blamb\b|\bmutton\b|\bveal\b|\bmeat\b|لحم|لحمة|بقري|ضاني|غنم|عجل)/iu.test(normalized) && !categories.has("groundMeat")) {
+    categories.add("beefOrLamb");
+  }
+  if (/(?:\bfish\b|\bsalmon\b|\btilapia\b|\bcod\b|\bseabass\b|\btuna\b|\bseafood\b|سمك|سمكة|بلطي|دنيس|سلمون|تونة|مأكولات\s*بحرية|سي\s*فود)/iu.test(normalized)) {
+    categories.add(normalized.includes("seafood") || /مأكولات\s*بحرية|سي\s*فود/iu.test(normalized) ? "seafood" : "fish");
+  }
+  if (/(?:\bshrimp\b|\bprawn\b|\bgoong\b|جمبري|روبيان|قريدس)/iu.test(normalized)) {
+    categories.add("shrimp");
+  }
+  if (/(?:\begg\b|\beggs\b|بيض)/iu.test(normalized)) {
+    categories.add("egg");
+  }
+
+  return categories;
+}
+
+function isProteinCategoryAllowed(category: MainProteinCategory, allowed: Set<MainProteinCategory>) {
+  if (allowed.has(category)) return true;
+  if (category === "fish" && allowed.has("seafood")) return true;
+  if (category === "shrimp" && allowed.has("seafood")) return true;
+  if (category === "seafood" && (allowed.has("fish") || allowed.has("shrimp"))) return true;
+  if (category === "beefOrLamb" && allowed.has("groundMeat")) return true;
+  return false;
 }
 
 function buildGroundMeatSparseFillers(
@@ -1615,8 +1707,16 @@ function buildAnyCuisineSparseFillers(
   targetCalories: number
 ) {
   const source = `${context.ingredients.join(" ")} ${context.scoringIngredients.join(" ")}`.toLowerCase();
-  const hasSeafood = /\b(shrimp|fish|seafood|salmon|tilapia|cod|prawn)\b/.test(source);
+  const inputProteins = getInputMainProteinCategories(context);
+  const hasSeafood =
+    inputProteins.has("fish") ||
+    inputProteins.has("shrimp") ||
+    inputProteins.has("seafood") ||
+    /\b(shrimp|fish|seafood|salmon|tilapia|cod|prawn)\b/.test(source);
   const hasGrain = /\b(rice|quinoa|bulgur|farro|barley|freekeh)\b/.test(source);
+  if (inputProteins.has("chicken")) {
+    return buildAnyCuisineChickenSparseFillers(primaryIngredient, context, targetCalories);
+  }
   const baseIngredient = primaryIngredient || (hasSeafood ? "seafood" : hasGrain ? "rice" : "vegetables");
   const templates: SparseFillerRecipeInput[] = [
     {
@@ -1762,6 +1862,162 @@ function buildAnyCuisineSparseFillers(
       sodium: "620mg",
       sugar: "5g",
       visualKeywords: ["turkish fish rice", "hamsili pilav"]
+    }
+  ];
+
+  return templates.map((input) => makeSparseFillerRecipe(input, context));
+}
+
+function buildAnyCuisineChickenSparseFillers(
+  primaryIngredient: string,
+  context: { allergens: string[]; availableIngredients: Set<string>; conditions: string[]; diets: string[] },
+  targetCalories: number
+) {
+  const chickenIngredient = primaryIngredient || "chicken";
+  const templates: SparseFillerRecipeInput[] = [
+    {
+      calories: targetCalories + 20,
+      carbs: "32g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "chicken fattah",
+      excludeKeywords: ["beef fattah", "lamb fattah", "kofta", "ground meat"],
+      fat: "15g",
+      fiber: "4g",
+      imageSearchIndices: ["egyptian chicken fattah", "chicken fattah rice bread", "fatta chicken egyptian"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["rice", "baladi bread", "garlic", "vinegar", "tomato sauce"],
+      name: "Egyptian Chicken Fattah",
+      protein: "34g",
+      sodium: "620mg",
+      sugar: "5g",
+      visualKeywords: ["chicken over rice", "toasted bread", "garlic tomato sauce"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "26g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "farakh meshwi",
+      excludeKeywords: ["kofta", "ground meat", "beef kebab"],
+      fat: "14g",
+      fiber: "4g",
+      imageSearchIndices: ["farakh meshwi", "egyptian grilled chicken", "grilled chicken baladi bread"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["lemon", "cumin", "garlic", "baladi bread", "salad"],
+      name: "Farakh Meshwi",
+      protein: "36g",
+      sodium: "580mg",
+      sugar: "4g",
+      visualKeywords: ["charred grilled chicken", "baladi bread", "lemon cumin"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "24g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "chicken molokhia",
+      excludeKeywords: ["beef molokhia", "rabbit molokhia", "ground meat"],
+      fat: "13g",
+      fiber: "5g",
+      imageSearchIndices: ["chicken molokhia egyptian", "molokhia with chicken", "egyptian molokhia chicken"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["molokhia", "garlic", "coriander", "rice"],
+      name: "Chicken Molokhia",
+      protein: "34g",
+      sodium: "600mg",
+      sugar: "4g",
+      visualKeywords: ["green molokhia soup", "chicken pieces", "rice"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "28g",
+      cuisine: "Middle Eastern",
+      difficulty: "Easy",
+      dishName: "chicken shawarma",
+      excludeKeywords: ["beef shawarma", "kofta", "ground meat"],
+      fat: "14g",
+      fiber: "4g",
+      imageSearchIndices: ["chicken shawarma plate", "middle eastern chicken shawarma", "chicken shawarma wrap"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["shawarma spices", "garlic sauce", "flatbread", "cucumber"],
+      name: "Chicken Shawarma Plate",
+      protein: "35g",
+      sodium: "610mg",
+      sugar: "4g",
+      visualKeywords: ["sliced chicken shawarma", "flatbread", "garlic sauce"]
+    },
+    {
+      calories: targetCalories + 20,
+      carbs: "34g",
+      cuisine: "Mexican",
+      difficulty: "Medium",
+      dishName: "tinga de pollo",
+      excludeKeywords: ["beef tinga", "ground beef", "generic chicken bowl"],
+      fat: "13g",
+      fiber: "6g",
+      imageSearchIndices: ["tinga de pollo", "mexican chicken tinga", "chipotle chicken tostadas"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["chipotle", "tomato", "corn tortilla", "avocado"],
+      name: "Tinga de Pollo",
+      protein: "34g",
+      sodium: "620mg",
+      sugar: "6g",
+      visualKeywords: ["shredded chicken", "chipotle tomato sauce", "tostada"]
+    },
+    {
+      calories: targetCalories + 25,
+      carbs: "36g",
+      cuisine: "Italian",
+      difficulty: "Medium",
+      dishName: "chicken cacciatore",
+      excludeKeywords: ["beef stew", "ground meat", "meatballs"],
+      fat: "14g",
+      fiber: "5g",
+      imageSearchIndices: ["chicken cacciatore", "pollo alla cacciatora", "italian tomato braised chicken"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["tomato", "pepper", "oregano", "olive oil"],
+      name: "Chicken Cacciatore",
+      protein: "35g",
+      sodium: "610mg",
+      sugar: "6g",
+      visualKeywords: ["tomato braised chicken", "peppers", "italian herbs"]
+    },
+    {
+      calories: targetCalories + 30,
+      carbs: "36g",
+      cuisine: "Indian",
+      difficulty: "Medium",
+      dishName: "tandoori chicken",
+      excludeKeywords: ["beef curry", "lamb curry", "ground meat"],
+      fat: "15g",
+      fiber: "4g",
+      imageSearchIndices: ["tandoori chicken", "indian grilled chicken", "tandoori chicken plate"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["yogurt", "turmeric", "garam masala", "lemon"],
+      name: "Tandoori Chicken",
+      protein: "36g",
+      sodium: "620mg",
+      sugar: "5g",
+      visualKeywords: ["red grilled chicken", "tandoori spices", "lemon"]
+    },
+    {
+      calories: targetCalories + 15,
+      carbs: "32g",
+      cuisine: "Thai",
+      difficulty: "Medium",
+      dishName: "gai pad krapow",
+      excludeKeywords: ["pork basil", "beef basil", "ground meat"],
+      fat: "13g",
+      fiber: "4g",
+      imageSearchIndices: ["gai pad krapow", "thai basil chicken", "pad kra pao chicken"],
+      ingredients: [chickenIngredient],
+      missingIngredients: ["thai basil", "chili", "garlic", "rice"],
+      name: "Gai Pad Krapow",
+      protein: "34g",
+      sodium: "650mg",
+      sugar: "5g",
+      visualKeywords: ["thai basil chicken", "chili garlic", "rice"]
     }
   ];
 

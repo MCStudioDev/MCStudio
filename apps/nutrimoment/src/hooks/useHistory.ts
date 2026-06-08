@@ -146,15 +146,39 @@ function isRenderableImage(imageUrl?: string) {
 }
 
 function getRecipeImageIdentity(recipe: Recipe) {
+  const photoIdentity = getRecipePhotoIdentityKey(recipe);
+  if (photoIdentity) return photoIdentity;
+
   return [
     recipe.id,
     recipe.name,
     recipe.image_search_index,
     ...(recipe.image_search_indices ?? [])
   ]
-    .map((value) => value?.trim().toLowerCase())
+    .map(normalizeHistoryIdentityPart)
     .filter(Boolean)
     .join("::");
+}
+
+function getRecipePhotoIdentityKey(recipe: Recipe) {
+  const identity = recipe.photo_identity;
+  if (!identity || !normalizeHistoryIdentityPart(identity.dish_slug)) return "";
+
+  return [
+    identity.dish_slug,
+    identity.cuisine_key,
+    identity.protein,
+    identity.starch,
+    identity.sauce,
+    identity.method
+  ]
+    .map(normalizeHistoryIdentityPart)
+    .filter(Boolean)
+    .join("::");
+}
+
+function normalizeHistoryIdentityPart(value: unknown) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 function sanitizeHistoryRecipeImage(recipe: Recipe): Recipe {
@@ -225,6 +249,15 @@ function preserveExistingRecipeImage(nextRecipe: Recipe, existingRecipe?: Recipe
   const nextIdentity = getRecipeImageIdentity(sanitizedNextRecipe);
   const existingIdentity = getRecipeImageIdentity(existingRecipe);
   if (!nextIdentity || !existingIdentity || nextIdentity !== existingIdentity) {
+    return sanitizedNextRecipe;
+  }
+
+  const nextPhotoIdentity = getRecipePhotoIdentityKey(sanitizedNextRecipe);
+  const existingPhotoIdentity = getRecipePhotoIdentityKey(existingRecipe);
+  if (
+    (nextPhotoIdentity || existingPhotoIdentity) &&
+    nextPhotoIdentity !== existingPhotoIdentity
+  ) {
     return sanitizedNextRecipe;
   }
 

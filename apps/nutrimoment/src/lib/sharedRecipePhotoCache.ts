@@ -22,22 +22,29 @@ export async function getSharedRecipePhoto(signature: string): Promise<SharedRec
   const snapshot = await getAdminDb().collection(COLLECTION_NAME).doc(signature).get();
   if (!snapshot.exists) return null;
 
-  const data = snapshot.data();
+  return mapSharedRecipePhotoData(snapshot.data(), signature);
+}
+
+function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefined, fallbackSignature: string): SharedRecipePhotoEntry | null {
   if (!data?.imageUrl || !data?.source) return null;
   if (data.source !== "generated") {
     logger.info("Ignoring non-generated shared recipe photo cache entry", {
-      signature,
+      signature: fallbackSignature,
       source: String(data.source)
     });
     return null;
   }
   if (!isDurableRecipeImageUrl(String(data.imageUrl))) {
     logger.warn("Ignoring transient generated recipe photo cache URL", {
-      signature,
+      signature: fallbackSignature,
       imageUrlHost: safeImageUrlHost(String(data.imageUrl))
     });
     return null;
   }
+
+  const signature = typeof data.signature === "string" && data.signature.trim()
+    ? data.signature.trim()
+    : fallbackSignature;
 
   return {
     imageAttributionName: typeof data.imageAttributionName === "string" ? data.imageAttributionName : undefined,
@@ -72,6 +79,48 @@ export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
 
 export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
   return getSharedRecipePhotoBySignatures(aliases);
+}
+
+export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) {
+  if (!hasFirebaseAdminConfig()) return null;
+
+  const normalizedQueries = Array.from(
+    new Set(
+      queries
+        .flatMap((query) => {
+          if (typeof query !== "string") return [];
+          const trimmed = query.trim();
+          return trimmed ? [trimmed, trimmed.toLowerCase()] : [];
+        })
+        .filter(Boolean)
+    )
+  ).slice(0, 20);
+  if (!normalizedQueries.length) return null;
+
+  const db = getAdminDb();
+  for (let index = 0; index < normalizedQueries.length; index += 10) {
+    const chunk = normalizedQueries.slice(index, index + 10);
+    let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
+    try {
+      snapshot = await db
+        .collection(COLLECTION_NAME)
+        .where("query", "in", chunk)
+        .limit(10)
+        .get();
+    } catch (error) {
+      logger.warn("Shared generated recipe photo query lookup failed", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      continue;
+    }
+
+    for (const docSnap of snapshot.docs) {
+      const entry = mapSharedRecipePhotoData(docSnap.data(), docSnap.id);
+      if (entry) return entry;
+    }
+  }
+
+  return null;
 }
 
 export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {

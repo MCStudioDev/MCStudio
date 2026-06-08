@@ -1141,7 +1141,7 @@ function buildMealSummary(
 
 function buildMealPlanPhotoQuery(meal: MealPlanMeal) {
   const translatedIngredients = buildEnglishMealIngredients(meal.ingredients);
-  const identityEnglishName = meal.photo_identity?.english_name?.trim();
+  const identityEnglishName = normalizeMealPlanPhotoParam(meal.photo_identity?.english_name);
   const englishMealName = identityEnglishName || translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
   const imageSearchIndices = Array.from(
     new Set(
@@ -1150,7 +1150,7 @@ function buildMealPlanPhotoQuery(meal: MealPlanMeal) {
         meal.image_search_index,
         ...(meal.image_search_indices ?? [])
       ]
-        .map((value) => value?.trim())
+        .map(normalizeMealPlanPhotoParam)
         .filter((value): value is string => Boolean(value))
     )
   );
@@ -1167,7 +1167,7 @@ function serializeRecipePhotoQuery(queries: string[]) {
 }
 
 function buildMealPlanPhotoExactNames(meal: MealPlanMeal) {
-  const identityEnglishName = meal.photo_identity?.english_name?.trim();
+  const identityEnglishName = normalizeMealPlanPhotoParam(meal.photo_identity?.english_name);
   const englishMealName = identityEnglishName || translateRecipeTitleToEnglish(meal.name, meal.image_search_index);
   return Array.from(
     new Set(
@@ -1178,7 +1178,7 @@ function buildMealPlanPhotoExactNames(meal: MealPlanMeal) {
         meal.image_search_index,
         ...(meal.image_search_indices ?? [])
       ]
-        .map((value) => value?.trim())
+        .map(normalizeMealPlanPhotoParam)
         .filter((value): value is string => Boolean(value))
     )
   ).slice(0, 8);
@@ -1195,15 +1195,20 @@ type MealPlanPhotoIdentityParams = {
 
 function buildMealPlanPhotoIdentityParams(meal: MealPlanMeal): MealPlanPhotoIdentityParams {
   const identity = meal.photo_identity;
-  if (!identity?.dish_slug) return {};
+  const photoSlug = normalizeMealPlanPhotoParam(identity?.dish_slug);
+  if (!photoSlug) return {};
   return {
-    photoSlug: identity.dish_slug,
-    photoCuisineKey: identity.cuisine_key,
-    photoProtein: identity.protein,
-    photoStarch: identity.starch,
-    photoSauce: identity.sauce,
-    photoMethod: identity.method
+    photoSlug,
+    photoCuisineKey: normalizeMealPlanPhotoParam(identity?.cuisine_key) || undefined,
+    photoProtein: normalizeMealPlanPhotoParam(identity?.protein) || undefined,
+    photoStarch: normalizeMealPlanPhotoParam(identity?.starch) || undefined,
+    photoSauce: normalizeMealPlanPhotoParam(identity?.sauce) || undefined,
+    photoMethod: normalizeMealPlanPhotoParam(identity?.method) || undefined
   };
+}
+
+function normalizeMealPlanPhotoParam(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function buildMealPlanRecipePhotoRequestUrl(
@@ -1221,17 +1226,18 @@ function buildMealPlanRecipePhotoRequestUrl(
     }
   });
   ingredients
-    .map((value) => value.trim())
+    .map(normalizeMealPlanPhotoParam)
     .filter(Boolean)
     .slice(0, 10)
     .forEach((ingredient) => params.append("ingredient", ingredient));
   exactContext.exactNames
-    ?.map((value) => value.trim())
+    ?.map(normalizeMealPlanPhotoParam)
     .filter(Boolean)
     .slice(0, 8)
     .forEach((name) => params.append("exact", name));
-  if (exactContext.cuisine?.trim()) {
-    params.set("cuisine", exactContext.cuisine.trim());
+  const cuisine = normalizeMealPlanPhotoParam(exactContext.cuisine);
+  if (cuisine) {
+    params.set("cuisine", cuisine);
   }
   if (exactContext.identity) {
     const { photoSlug, photoCuisineKey, photoProtein, photoStarch, photoSauce, photoMethod } = exactContext.identity;

@@ -567,7 +567,7 @@ function buildRecipePhotoExactNames(recipe: Recipe) {
         recipe.localized?.English?.image_search_index,
         recipe.localized?.Arabic?.image_search_index
       ]
-        .map((value) => value?.trim())
+        .map(normalizeHistoryRecipePhotoParam)
         .filter((value): value is string => Boolean(value))
     )
   ).slice(0, 8);
@@ -579,15 +579,20 @@ function buildRecipePhotoCuisine(recipe: Recipe) {
 
 function buildRecipePhotoIdentityBatchParams(recipe: Recipe) {
   const identity = recipe.photo_identity;
-  if (!identity?.dish_slug) return {};
+  const photoSlug = normalizeHistoryRecipePhotoParam(identity?.dish_slug);
+  if (!photoSlug) return {};
   return {
-    photoSlug: identity.dish_slug,
-    photoCuisineKey: identity.cuisine_key,
-    photoProtein: identity.protein,
-    photoStarch: identity.starch,
-    photoSauce: identity.sauce,
-    photoMethod: identity.method
+    photoSlug,
+    photoCuisineKey: normalizeHistoryRecipePhotoParam(identity?.cuisine_key) || undefined,
+    photoProtein: normalizeHistoryRecipePhotoParam(identity?.protein) || undefined,
+    photoStarch: normalizeHistoryRecipePhotoParam(identity?.starch) || undefined,
+    photoSauce: normalizeHistoryRecipePhotoParam(identity?.sauce) || undefined,
+    photoMethod: normalizeHistoryRecipePhotoParam(identity?.method) || undefined
   };
+}
+
+function normalizeHistoryRecipePhotoParam(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function buildRecipeStats(recipe: Recipe) {

@@ -3,7 +3,8 @@ import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/l
 const KNOWN_RAW_INGREDIENT_PROVIDER_IMAGE_MARKERS = [
   "photo-1633096013004-e2cb4023b560",
   "photos/20350156/",
-  "photos/34831931/"
+  "photos/34831931/",
+  "israa_abdel_fattah"
 ];
 
 export function isKnownWeakRecipeProviderImageUrl(imageUrl?: string | null) {

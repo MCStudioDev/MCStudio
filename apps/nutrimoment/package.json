@@ -20,6 +20,8 @@
     "delete:shared-recipe-pool": "tsx scripts/delete-shared-recipe-pool.ts",
     "cleanup:shared-recipe-cache-quality": "tsx scripts/cleanup-shared-recipe-cache-quality.ts",
     "clear:recipe-photo-cache": "tsx scripts/clear-recipe-photo-cache.ts",
+    "categorize:recipe-photo-cache": "tsx scripts/categorize-recipe-photo-cache.ts",
+    "dedupe:recipe-photo-cache-urls": "tsx scripts/dedupe-recipe-photo-cache-urls.ts",
     "backfill:transient-recipe-images": "tsx scripts/backfill-transient-recipe-images.ts",
     "normalize:cached-recipe-languages": "tsx scripts/normalize-cached-recipe-languages.ts",
     "prune:user-history": "tsx scripts/prune-user-history.ts",

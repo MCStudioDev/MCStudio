@@ -980,7 +980,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   {
     aliases: [
       /\b(alexandrian liver|kibda iskandarani|kibda eskandarani|kebda iskandarani|kebda eskandarani|iskandarani liver)\b/i,
-      /\begyptian liver sandwiches?\b/i,
       /\u0643\u0628\u062f[ةه]\s+(?:\u0625\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a|\u0627\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a)/iu
     ],
     canonicalName: "alexandrian liver",
@@ -2580,6 +2579,13 @@ function detectRecipePhotoFamily(
   if (details.mainIngredientKey === "tuna" && details.mealTypeKey === "salad") return "tuna-rice-salad";
   if (details.mainIngredientKey === "chicken" && details.mealTypeKey === "salad") {
     return "chicken-rice-salad";
+  }
+  if (
+    details.mainIngredientKey === "liver" &&
+    details.cuisineKey === "egyptian" &&
+    /\b(sandwich|sandwiches|sub|roll)\b|ساندويتش|سندويتش/iu.test(cleanQuery)
+  ) {
+    return "egyptian-liver-sandwiches";
   }
   if (details.mainIngredientKey === "liver" && details.cuisineKey === "egyptian") return "alexandrian-liver";
 

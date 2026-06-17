@@ -29,9 +29,11 @@ import { buildPhotoIdentityFromCatalog } from "@/lib/photoIdentityBuilders";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { rankRecipes } from "@/services/rankingService";
 import {
+  getWarmSharedRecipeCacheSnapshot,
   listSharedCachedRecipes,
   listSharedCachedRecipesForIngredients,
-  listUserCachedRecipes
+  listUserCachedRecipes,
+  primeFullSharedRecipeCache
 } from "@/services/userRecipeCacheService";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 
@@ -65,13 +67,20 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     allergens: input.allergens ?? []
   } satisfies UserPreferenceSnapshot);
 
+  primeFullSharedRecipeCache();
+  const warmSharedRecipeCache = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
   const [userCachedRecipes, ingredientSharedCachedRecipes] = await Promise.all([
     listUserCachedRecipes(input.uid),
-    listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients)
+    warmSharedRecipeCache.length
+      ? Promise.resolve([])
+      : listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients)
   ]);
-  const sharedCachedRecipes = ingredientSharedCachedRecipes.length
-    ? ingredientSharedCachedRecipes
-    : await listSharedCachedRecipes();
+  const sharedCachedRecipes =
+    warmSharedRecipeCache.length
+      ? warmSharedRecipeCache
+      : ingredientSharedCachedRecipes.length
+        ? ingredientSharedCachedRecipes
+        : await listSharedCachedRecipes();
   const seededRecipes = OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe));
   const primaryRecipePool = dedupeCatalogRecipes([...userCachedRecipes, ...sharedCachedRecipes, ...seededRecipes]);
   const ranked = rankRecipes({
@@ -418,7 +427,7 @@ function hasSpecificCuisineDishSignal(recipe: RecipeCatalogDoc, preferredCuisine
 
 function hasCuisineSpecificIdentitySignal(haystack: string, preferredCuisine: string) {
   const signals: Record<string, string[]> = {
-    egyptian: ["alexandrian", "baladi", "basha", "egyptian", "fattah", "hawawshi", "kofta", "koshary", "molokhia", "sayadeya"],
+    egyptian: ["alexandrian", "baladi", "basha", "egyptian", "fattah", "hawawshi", "kebda", "kofta", "koshary", "liver", "molokhia", "sayadeya"],
     indian: ["baingan", "biryani", "chana", "dal", "gobi", "indian", "masala", "palak", "rajma", "rasam", "saag", "sambar", "tadka", "tikka"],
     italian: ["arrabbiata", "caponata", "ciambotta", "fagioli", "italian", "margherita", "melanzane", "minestrone", "norma", "polenta", "pomodoro", "ribollita", "risotto"],
     mediterranean: ["briam", "caponata", "dolma", "fasolada", "gemista", "greek", "mediterranean", "moussaka", "ratatouille", "saganaki", "souvlaki"],
@@ -449,9 +458,11 @@ function getCuisineDishAliases(preferredCuisine: string) {
     "fagioli",
     "gobi",
     "hawawshi",
+    "kebda",
     "kofta",
     "koshary",
     "kofte",
+    "liver",
     "menemen",
     "minestrone",
     "palak",
@@ -463,16 +474,36 @@ function getCuisineDishAliases(preferredCuisine: string) {
     "shawarma"
   ]);
 
-  return (getCompleteCuisineCatalog(preferredCuisine) ?? [])
-    .flatMap((dish) => [
+  return [
+    ...getManualCuisineDishAliases(preferredCuisine),
+    ...(getCompleteCuisineCatalog(preferredCuisine) ?? [])
+      .flatMap((dish) => [
       dish.id.replace(/-/g, " "),
       ...dish.names.english,
       ...dish.names.native,
       ...(dish.names.other ?? [])
-    ])
+      ])
+  ]
     .map(normalizeCuisineIdentityText)
     .filter((alias) => alias.length >= 4)
     .filter((alias) => alias.includes(" ") || oneWordSignals.has(alias));
+}
+
+function getManualCuisineDishAliases(preferredCuisine: string) {
+  const key = preferredCuisine.toLowerCase().replace(/[^a-z]/g, "");
+  if (key === "egyptian") {
+    return [
+      "alexandrian kebda",
+      "alexandrian liver",
+      "egyptian kebda",
+      "egyptian liver",
+      "kebda eskandarani",
+      "kebda sandwiches",
+      "liver and rice",
+      "liver sandwiches"
+    ];
+  }
+  return [];
 }
 
 function normalizeCuisineIdentityText(value: string) {

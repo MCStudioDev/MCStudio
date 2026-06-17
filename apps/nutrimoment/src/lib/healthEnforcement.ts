@@ -88,6 +88,10 @@ const WEIGHT_LOSS_HEAVY_TERMS = [
   "sausage"
 ];
 
+const DEEP_FRYING_PATTERN = /\b(deep[-\s]?fried|deep[-\s]?fry|deep[-\s]?frying|battered|breaded)\b/i;
+const CONTROLLED_HEART_SMART_PREPARATION_PATTERN =
+  /\b(pan[-\s]?fried|pan[-\s]?seared|sauteed|sautéed|skillet|stir[-\s]?fried|lightly fried|air[-\s]?fried|grilled|baked|roasted|broiled|steamed|olive oil|small amount of oil|nonstick|trimmed|lean|skinless|low[-\s]?fat|reduced[-\s]?fat)\b/i;
+
 export function findRecipeHealthViolation(
   subject: HealthEnforcementSubject,
   conditions: string[] = []
@@ -116,7 +120,7 @@ export function findRecipeHealthViolation(
 
   if (normalizedConditions.has("cholesterol")) {
     const match = findTerm(haystack, HEART_SATURATED_FAT_TERMS);
-    if (match && !(isAdaptableDairyFatTerm(match) && adaptation.heartSmartPreparation)) {
+    if (match && !isAdaptedCholesterolTermAllowed(match, haystack, nutrition, adaptation)) {
       return { condition: "cholesterol", match };
     }
     const richMeatMatch = findTerm(haystack, HEART_RICH_MEAT_TERMS);
@@ -157,7 +161,7 @@ export function findRecipeHealthViolation(
 
   if (normalizedConditions.has("weightLoss")) {
     const match = findTerm(haystack, WEIGHT_LOSS_HEAVY_TERMS);
-    if (match && !(isAdaptableDairyFatTerm(match) && adaptation.heartSmartPreparation)) {
+    if (match && !isAdaptedWeightLossTermAllowed(match, haystack, nutrition, adaptation)) {
       return { condition: "weightLoss", match };
     }
     if (nutrition.calories != null && nutrition.calories > 700) return { condition: "weightLoss", match: `calories>${700}` };
@@ -169,6 +173,42 @@ export function findRecipeHealthViolation(
 
 function isAdaptableDairyFatTerm(term: string) {
   return /^(cheese|ricotta|mozzarella|parmesan)$/i.test(term);
+}
+
+function isAdaptedCholesterolTermAllowed(
+  term: string,
+  text: string,
+  nutrition: ReturnType<typeof readNutritionNumbers>,
+  adaptation: ReturnType<typeof readHealthAdaptationSignals>
+) {
+  if (isAdaptableDairyFatTerm(term)) return adaptation.heartSmartPreparation;
+  if (!/^fried$/i.test(term)) return false;
+  return isControlledHeartSmartFrying(text, nutrition, adaptation);
+}
+
+function isAdaptedWeightLossTermAllowed(
+  term: string,
+  text: string,
+  nutrition: ReturnType<typeof readNutritionNumbers>,
+  adaptation: ReturnType<typeof readHealthAdaptationSignals>
+) {
+  if (isAdaptableDairyFatTerm(term)) return adaptation.heartSmartPreparation;
+  if (!/^fried$/i.test(term)) return false;
+  return isControlledHeartSmartFrying(text, nutrition, adaptation) && (nutrition.calories ?? 0) <= 620;
+}
+
+function isControlledHeartSmartFrying(
+  text: string,
+  nutrition: ReturnType<typeof readNutritionNumbers>,
+  adaptation: ReturnType<typeof readHealthAdaptationSignals>
+) {
+  if (DEEP_FRYING_PATTERN.test(text)) return false;
+  if (!CONTROLLED_HEART_SMART_PREPARATION_PATTERN.test(text)) return false;
+
+  const fatOk = nutrition.fat == null || nutrition.fat <= 24;
+  const sodiumOk = nutrition.sodium == null || nutrition.sodium <= 700;
+  const fiberOk = nutrition.fiber == null || nutrition.fiber >= 3 || nutrition.fat == null || nutrition.fat <= 18;
+  return adaptation.heartSmartPreparation && fatOk && sodiumOk && fiberOk;
 }
 
 function normalizeConditions(conditions: string[]) {

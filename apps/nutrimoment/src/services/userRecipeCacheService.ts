@@ -25,7 +25,7 @@ import {
 import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { logger } from "@/lib/logger";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 type CacheRecipeLanguage = "English" | "Arabic";
 
@@ -37,11 +37,18 @@ const MAX_SHARED_CACHE_INGREDIENT_DOCS = 160;
 const MAX_SHARED_CACHE_INGREDIENT_QUERIES = 6;
 const CACHE_READ_TIMEOUT_MS = 6000;
 const SHARED_CACHE_STALE_TTL_MS = 30 * 60 * 1000;
+const FULL_SHARED_CACHE_STALE_TTL_MS = 60 * 60 * 1000;
+const FULL_SHARED_CACHE_MAX_STALE_TTL_MS = 6 * 60 * 60 * 1000;
+const FULL_SHARED_CACHE_RETRY_COOLDOWN_MS = 60 * 1000;
 const USER_RECIPE_CACHE_DISABLED = process.env.DISABLE_USER_RECIPE_CACHE === "true";
 const SHARED_RECIPE_POOL_DISABLED = process.env.DISABLE_SHARED_RECIPE_POOL === "true";
 
 let sharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
 let sharedRecipeCacheUpdatedAt = 0;
+let fullSharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
+let fullSharedRecipeCacheUpdatedAt = 0;
+let fullSharedRecipeCacheLoadPromise: Promise<RecipeCatalogDoc[]> | null = null;
+let fullSharedRecipeCacheLastAttemptAt = 0;
 
 export async function listUserCachedRecipes(uid?: string | null): Promise<RecipeCatalogDoc[]> {
   if (!uid) return [];
@@ -88,6 +95,10 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
     logger.info("Shared recipe pool reads are disabled by environment flag");
     return [];
   }
+
+  primeFullSharedRecipeCache();
+  const fullSnapshot = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
+  if (fullSnapshot.length) return fullSnapshot;
 
   const db = getAdminDb();
   try {
@@ -146,11 +157,48 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
   }
 }
 
+export function getWarmSharedRecipeCacheSnapshot(options: { allowStale?: boolean } = {}) {
+  if (!fullSharedRecipeCacheSnapshot.length) return [];
+  const ageMs = Date.now() - fullSharedRecipeCacheUpdatedAt;
+  if (ageMs <= FULL_SHARED_CACHE_STALE_TTL_MS) return fullSharedRecipeCacheSnapshot;
+  if (options.allowStale && ageMs <= FULL_SHARED_CACHE_MAX_STALE_TTL_MS) {
+    primeFullSharedRecipeCache();
+    return fullSharedRecipeCacheSnapshot;
+  }
+  return [];
+}
+
+export function primeFullSharedRecipeCache(options: { force?: boolean } = {}) {
+  if (SHARED_RECIPE_POOL_DISABLED) return;
+  if (!options.force && hasFreshFullSharedRecipeSnapshot()) return;
+  if (fullSharedRecipeCacheLoadPromise) return;
+
+  const now = Date.now();
+  if (!options.force && now - fullSharedRecipeCacheLastAttemptAt < FULL_SHARED_CACHE_RETRY_COOLDOWN_MS) {
+    return;
+  }
+
+  fullSharedRecipeCacheLastAttemptAt = now;
+  fullSharedRecipeCacheLoadPromise = loadFullSharedRecipeCache()
+    .catch((error) => {
+      logger.warn("Full shared recipe pool warm load failed", {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        staleSnapshotCount: fullSharedRecipeCacheSnapshot.length
+      });
+      return fullSharedRecipeCacheSnapshot;
+    })
+    .finally(() => {
+      fullSharedRecipeCacheLoadPromise = null;
+    });
+}
+
 export async function listSharedCachedRecipesForIngredients(ingredients: string[]): Promise<RecipeCatalogDoc[]> {
   if (SHARED_RECIPE_POOL_DISABLED) {
     logger.info("Shared recipe pool reads are disabled by environment flag");
     return [];
   }
+
+  primeFullSharedRecipeCache();
 
   const canonicalIngredients = Array.from(
     new Set(ingredients.map((ingredient) => ingredient.trim().toLowerCase()).filter(Boolean))
@@ -188,6 +236,32 @@ export async function listSharedCachedRecipesForIngredients(ingredients: string[
   );
 
   return Array.from(recipesById.values());
+}
+
+async function loadFullSharedRecipeCache() {
+  const startTime = Date.now();
+  const db = getAdminDb();
+  const snapshot = await db
+    .collection(SHARED_CACHE_COLLECTION)
+    .orderBy("updatedAt", "desc")
+    .get();
+  const recipes = snapshot.docs
+    .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+    .map(stripSharedGeneratedCacheRecipeImages)
+    .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe));
+
+  fullSharedRecipeCacheSnapshot = recipes;
+  fullSharedRecipeCacheUpdatedAt = Date.now();
+  sharedRecipeCacheSnapshot = recipes.slice(0, MAX_SHARED_CACHE_DOCS);
+  sharedRecipeCacheUpdatedAt = fullSharedRecipeCacheUpdatedAt;
+
+  logger.info("Full shared recipe pool warmed", {
+    docCount: snapshot.size,
+    recipeCount: recipes.length,
+    durationMs: Date.now() - startTime
+  });
+
+  return recipes;
 }
 
 export async function persistGeneratedRecipeCache(input: {
@@ -487,7 +561,7 @@ function sanitizeRecipeImageFields<T extends Pick<Recipe, "image_url" | "image_s
 }
 
 function stripSharedGeneratedCacheRecipeImages(recipe: RecipeCatalogDoc) {
-  return recipe.source?.provider === "shared-user-cache" ? stripGeneratedCacheRecipeImages(recipe) : recipe;
+  return recipe.source?.provider === "shared-user-cache" ? preserveOnlyGeneratedSharedCacheRecipeImages(recipe) : recipe;
 }
 
 function stripGeneratedCacheRecipeImages(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
@@ -505,6 +579,41 @@ function stripGeneratedCacheRecipeImages(recipe: RecipeCatalogDoc): RecipeCatalo
           Arabic: recipe.localized.Arabic ? sanitizeRecipeImageFields(recipe.localized.Arabic) : recipe.localized.Arabic
         }
       : recipe.localized
+  };
+}
+
+function preserveOnlyGeneratedSharedCacheRecipeImages(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
+  return {
+    ...recipe,
+    image: {
+      ...recipe.image,
+      storagePath: isReplicateGeneratedRecipeImageUrl(recipe.image.storagePath) ? recipe.image.storagePath : "",
+      thumbPath: isReplicateGeneratedRecipeImageUrl(recipe.image.thumbPath) ? recipe.image.thumbPath : undefined
+    },
+    localized: recipe.localized
+      ? {
+          ...recipe.localized,
+          English: recipe.localized.English
+            ? sanitizeGeneratedCacheRecipeImageFields(recipe.localized.English)
+            : recipe.localized.English,
+          Arabic: recipe.localized.Arabic
+            ? sanitizeGeneratedCacheRecipeImageFields(recipe.localized.Arabic)
+            : recipe.localized.Arabic
+        }
+      : recipe.localized
+  };
+}
+
+function sanitizeGeneratedCacheRecipeImageFields<
+  T extends Pick<Recipe, "image_url" | "image_source" | "image_attribution_name" | "image_attribution_url">
+>(recipe: T) {
+  const imageUrl = isReplicateGeneratedRecipeImageUrl(recipe.image_url) ? recipe.image_url : undefined;
+  return {
+    ...recipe,
+    image_url: imageUrl,
+    image_source: imageUrl ? recipe.image_source : undefined,
+    image_attribution_name: imageUrl ? recipe.image_attribution_name : undefined,
+    image_attribution_url: imageUrl ? recipe.image_attribution_url : undefined
   };
 }
 
@@ -907,4 +1016,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 
 function hasFreshSharedRecipeSnapshot() {
   return sharedRecipeCacheSnapshot.length > 0 && Date.now() - sharedRecipeCacheUpdatedAt <= SHARED_CACHE_STALE_TTL_MS;
+}
+
+function hasFreshFullSharedRecipeSnapshot() {
+  return (
+    fullSharedRecipeCacheSnapshot.length > 0 &&
+    Date.now() - fullSharedRecipeCacheUpdatedAt <= FULL_SHARED_CACHE_STALE_TTL_MS
+  );
 }

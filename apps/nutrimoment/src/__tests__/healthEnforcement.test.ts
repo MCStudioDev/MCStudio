@@ -82,6 +82,38 @@ describe("health enforcement", () => {
     ).toEqual({ condition: "cholesterol", match: "butter" });
   });
 
+  it("allows controlled pan-fried liver when cholesterol numbers are heart-smart", () => {
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Alexandrian pan-fried kebda",
+          ingredients: ["beef liver", "onion", "green pepper", "garlic", "olive oil"],
+          steps: ["Lightly pan-fry thin liver slices in a nonstick pan with a small amount of olive oil."],
+          calories: 470,
+          fat: "18g",
+          fiber: "4g",
+          sodium: "620mg",
+          protein: "34g"
+        },
+        ["cholesterol", "highBloodPressure"]
+      )
+    ).toBeNull();
+
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Deep fried breaded liver",
+          ingredients: ["beef liver", "bread crumbs", "oil"],
+          steps: ["Deep fry the breaded liver pieces."],
+          calories: 760,
+          fat: "38g",
+          sodium: "780mg"
+        },
+        ["cholesterol"]
+      )
+    ).toEqual({ condition: "cholesterol", match: "fried" });
+  });
+
   it("blocks processed salty foods for high blood pressure profiles", () => {
     expect(
       findRecipeHealthViolation(

@@ -60,6 +60,11 @@ import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import {
+  getSharedGeneratedRecipePhotoByCategory,
+  getSharedRecipePhotoByQueryOrSignature,
+  type SharedRecipePhotoEntry
+} from "@/lib/sharedRecipePhotoCache";
+import {
   findRecipeDietViolation,
   filterRecipesByDiet,
   type DietEnforcementContext
@@ -184,9 +189,9 @@ export async function POST(request: Request) {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
     const hasGeneratedImageAccess = hasGeneratedRecipeImageAccess(requestAccess);
-    // Free tier (no premium, no admin) is served entirely from the curated
-    // catalog / shared recipe pool. Premium and admin users continue to use
-    // Gemini as the primary recipe source.
+    // Free users with remaining trial credits should still receive fresh
+    // Gemini recipes. The shared pool is the fallback for exhausted credits
+    // or AI failures, not the default for every free account.
     const isFreeTier = !requestAccess.isPremium && !requestAccess.isAdmin;
     const rl = applyRateLimit({
       uid: requestAccess.uid,
@@ -393,10 +398,52 @@ export async function POST(request: Request) {
         }
       );
 
-      return prepareRecipes(finalCountRepaired.slice(0, recipeCount));
+      const prepared = enforceDistinctPreparedRecipeDisplay(filterRecipesByInputMainProtein(
+        prepareRecipes(finalCountRepaired),
+        {
+          availableIngredients,
+          ingredients,
+          scoringIngredients
+        }
+      ), recipeCount);
+      if (prepared.length >= recipeCount) {
+        return prepared.slice(0, recipeCount);
+      }
+
+      const preparedFillers = filterRecipesByInputMainProtein(
+        prepareRecipes(filterRecipesByInputMainProtein(
+          buildSparseIngredientRecipeFillers({
+            availableIngredients,
+            calorieTarget: parsed.data.calorieTarget ?? 2000,
+            ingredients,
+            allergens: parsed.data.allergens ?? [],
+            preferredCuisine: parsed.data.preferredCuisine ?? "Any",
+            recipeCount,
+            scoringIngredients,
+            diets: parsed.data.diets ?? [],
+            conditions: parsed.data.conditions ?? []
+          }),
+          {
+            availableIngredients,
+            ingredients,
+            scoringIngredients
+          }
+        )),
+        {
+          availableIngredients,
+          ingredients,
+          scoringIngredients
+        }
+      );
+
+      return enforceDistinctPreparedRecipeDisplay([...prepared, ...preparedFillers], recipeCount).slice(0, recipeCount);
     };
     const deliverRecipes = (recipes: Recipe[]) =>
       hasGeneratedImageAccess ? stripPremiumDeliveredImages(recipes) : recipes;
+    const finalizeRecipeResponse = async (recipes: Recipe[]) =>
+      deliverRecipes(await attachRecipePhotosPreservingOrder(finalizeRecipes(recipes), {
+        allowProviderLookup: !hasGeneratedImageAccess
+      }));
 
     if (USE_MOCK && accessCheck.allowed) {
       const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
@@ -418,9 +465,9 @@ export async function POST(request: Request) {
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
         allowProviderLookup: !hasGeneratedImageAccess
       });
-      const finalRecipes = deliverRecipes(finalizeRecipes(
+      const finalRecipes = await finalizeRecipeResponse(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
-      ));
+      );
       await queueRecipeCachePersist({
         uid: requestAccess.uid,
         recipeLanguage,
@@ -441,7 +488,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const exactScanMatch = !isFreeTier && accessCheck.allowed && parsed.data.referenceImage
+    const exactScanMatch = accessCheck.allowed && parsed.data.referenceImage
       ? await buildExactScanMatchRecipe({
           availableIngredients,
           image: parsed.data.referenceImage,
@@ -451,23 +498,30 @@ export async function POST(request: Request) {
       : null;
 
     const catalogSearchLimit = Math.max(recipeCount, Math.min(MAX_SHARED_POOL_RECIPE_RESULT_COUNT * 3, recipeCount * 3));
-    const searchResult = await searchCatalogRecipes({
-      ingredients,
-      preferredCuisine: parsed.data.preferredCuisine,
-      calorieTarget: parsed.data.calorieTarget,
-      diets: parsed.data.diets,
-      conditions: parsed.data.conditions,
-      allergens: parsed.data.allergens,
-      maxResults: catalogSearchLimit,
-      recipeLanguage,
-      uid: requestAccess.uid
-    });
+    let sharedRecipeSearchPromise: ReturnType<typeof searchCatalogRecipes> | null = null;
+    const loadSharedRecipeSearchResult = () => {
+      if (!sharedRecipeSearchPromise) {
+        sharedRecipeSearchPromise = searchCatalogRecipes({
+          ingredients,
+          preferredCuisine: parsed.data.preferredCuisine,
+          calorieTarget: parsed.data.calorieTarget,
+          diets: parsed.data.diets,
+          conditions: parsed.data.conditions,
+          allergens: parsed.data.allergens,
+          maxResults: catalogSearchLimit,
+          recipeLanguage,
+          uid: requestAccess.uid
+        });
+      }
+      return sharedRecipeSearchPromise;
+    };
 
-    // Free-tier users are served from the curated catalog / shared recipe
-    // pool exclusively. Gemini is only used for premium and admin callers.
-    // Credit-exhausted users (any tier) also fall through here.
-    if (!accessCheck.allowed || isFreeTier) {
-      const reasonKind = !accessCheck.allowed ? "credits_used_shared_pool" : "free_plan_shared_pool";
+    // Credit-exhausted users fall through to the curated catalog / shared
+    // recipe pool. Users with remaining free trial credits continue below
+    // into the Gemini generation path.
+    if (!accessCheck.allowed) {
+      const searchResult = await loadSharedRecipeSearchResult();
+      const reasonKind = "credits_used_shared_pool";
       logger.info("Recipe generation served from shared recipe pool", {
         reason: reasonKind,
         accessReason: accessCheck.reason,
@@ -489,9 +543,9 @@ export async function POST(request: Request) {
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
         allowProviderLookup: !hasGeneratedImageAccess
       });
-      const finalRecipes = deliverRecipes(finalizeRecipes(
+      const finalRecipes = await finalizeRecipeResponse(
         mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
-      ));
+      );
       await queueRecipeCachePersist({
         uid: requestAccess.uid,
         recipeLanguage,
@@ -511,6 +565,7 @@ export async function POST(request: Request) {
         isFreeTier
       });
       return Response.json({
+        recipes: finalRecipes,
         result: JSON.stringify(finalRecipes),
         servedFrom: searchResult.servedFrom,
         canLoadMore: searchResult.canLoadMore,
@@ -641,9 +696,9 @@ export async function POST(request: Request) {
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
           allowProviderLookup: !hasGeneratedImageAccess
         });
-        const finalRecipes = deliverRecipes(finalizeRecipes(
+        const finalRecipes = await finalizeRecipeResponse(
           mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
-        ));
+        );
         await queueRecipeCachePersist({
           uid: requestAccess.uid,
           recipeLanguage,
@@ -682,6 +737,7 @@ export async function POST(request: Request) {
       logger.error("AI recipe generation failed; using shared recipe pool fallback", aiError);
     }
 
+    const searchResult = await loadSharedRecipeSearchResult();
     logger.info("Recipe generation served from shared recipe pool after AI failure", {
       recipeCount: searchResult.recipes.length,
       canLoadMore: searchResult.canLoadMore
@@ -701,9 +757,9 @@ export async function POST(request: Request) {
     const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
       allowProviderLookup: !hasGeneratedImageAccess
     });
-    const finalRecipes = deliverRecipes(finalizeRecipes(
+    const finalRecipes = await finalizeRecipeResponse(
       mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
-    ));
+    );
     await queueRecipeCachePersist({
       uid: requestAccess.uid,
       recipeLanguage,
@@ -726,6 +782,7 @@ export async function POST(request: Request) {
         ? undefined
         : buildRecipeFallbackNotice(offlineFallbackKind, recipeLanguage);
     return Response.json({
+      recipes: finalRecipes,
       result: JSON.stringify(finalRecipes),
       servedFrom: "shared_pool",
       canLoadMore: searchResult.canLoadMore,
@@ -1087,6 +1144,26 @@ function mergeRecipeResults(
   return prioritizePantryBalancedRecipes(merged).slice(0, recipeCount);
 }
 
+function enforceDistinctPreparedRecipeDisplay(recipes: Recipe[], recipeCount: number) {
+  const selected: Recipe[] = [];
+  const seenDisplayNames = new Set<string>();
+  const seenSelectionKeys = new Set<string>();
+
+  for (const recipe of recipes) {
+    if (selected.length >= recipeCount) break;
+    const displayKey = buildNormalizedRecipeNameSignature(recipe.name) || normalizeDishRestrictionKey(recipe.name);
+    const selectionKey = getRecipeSelectionKey(recipe);
+    if (displayKey && seenDisplayNames.has(displayKey)) continue;
+    if (selectionKey && seenSelectionKeys.has(selectionKey)) continue;
+
+    selected.push(recipe);
+    if (displayKey) seenDisplayNames.add(displayKey);
+    if (selectionKey) seenSelectionKeys.add(selectionKey);
+  }
+
+  return selected;
+}
+
 function ensureRequestedRecipeCount(
   recipes: Recipe[],
   context: {
@@ -1101,7 +1178,7 @@ function ensureRequestedRecipeCount(
     scoringIngredients: string[];
   }
 ) {
-  const hasInputMainProtein = getInputMainProteinCategories(context).size > 0;
+  const hasInputMainProtein = getEffectiveInputMainProteinCategories(context).size > 0;
   const proteinAlignedRecipes = filterRecipesByInputMainProtein(recipes, context);
   const fillers = filterRecipesByInputMainProtein(buildSparseIngredientRecipeFillers(context), context);
   const sourceRecipes = hasInputMainProtein ? proteinAlignedRecipes : recipes;
@@ -1259,20 +1336,22 @@ function choosePrimarySparseIngredient(rawIngredients: string[], scoringIngredie
   return rawIngredients.find(Boolean) ?? scoringIngredients.find(Boolean) ?? "main ingredient";
 }
 
-type MainProteinCategory = "chicken" | "groundMeat" | "beefOrLamb" | "fish" | "shrimp" | "seafood" | "egg";
+type MainProteinCategory = "chicken" | "groundMeat" | "beefOrLamb" | "liver" | "fish" | "shrimp" | "seafood" | "egg";
 
 function filterRecipesByInputMainProtein(
   recipes: Recipe[],
   context: { availableIngredients: Set<string>; ingredients: string[]; scoringIngredients: string[] }
 ) {
-  const inputProteins = getInputMainProteinCategories(context);
+  const inputProteins = getEffectiveInputMainProteinCategories(context);
   if (!inputProteins.size) return recipes;
 
   const filtered = recipes.filter((recipe) => {
     const recipeProteins = getRecipeMainProteinCategories(recipe);
-    if (!recipeProteins.size) return true;
+    if (!recipeProteins.size) return false;
+    if (isShrimpOnlyInputProteinSet(inputProteins) && !recipeHasShrimpIdentity(recipe)) return false;
+    if (isShrimpOnlyInputProteinSet(inputProteins) && recipeHasFishIdentityConflict(recipe)) return false;
 
-    return Array.from(recipeProteins).every((category) => isProteinCategoryAllowed(category, inputProteins));
+    return recipeProteinSetMatchesInput(recipeProteins, inputProteins);
   });
 
   return filtered;
@@ -1284,6 +1363,15 @@ function getInputMainProteinCategories(context: { availableIngredients: Set<stri
     ...context.scoringIngredients,
     ...Array.from(context.availableIngredients)
   ].join(" "));
+}
+
+function getRequestedMainProteinCategories(context: { ingredients: string[] }) {
+  return getMainProteinCategoriesFromText(context.ingredients.join(" "));
+}
+
+function getEffectiveInputMainProteinCategories(context: { availableIngredients: Set<string>; ingredients: string[]; scoringIngredients: string[] }) {
+  const requestedProteins = getRequestedMainProteinCategories(context);
+  return requestedProteins.size ? requestedProteins : getInputMainProteinCategories(context);
 }
 
 function getRecipeMainProteinCategories(recipe: Recipe) {
@@ -1299,6 +1387,39 @@ function getRecipeMainProteinCategories(recipe: Recipe) {
   ].filter(Boolean).join(" "));
 }
 
+function getRecipeNamedIdentityText(recipe: Recipe) {
+  const localized = recipe.localized ?? {};
+  return [
+    recipe.name,
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    recipe.dish_intent?.dish_name,
+    ...(recipe.dish_intent?.visual_keywords ?? []),
+    localized.English?.name,
+    localized.English?.image_search_index,
+    ...(localized.English?.image_search_indices ?? []),
+    localized.English?.dish_intent?.dish_name,
+    ...(localized.English?.dish_intent?.visual_keywords ?? []),
+    localized.Arabic?.name,
+    localized.Arabic?.image_search_index,
+    ...(localized.Arabic?.image_search_indices ?? []),
+    localized.Arabic?.dish_intent?.dish_name,
+    ...(localized.Arabic?.dish_intent?.visual_keywords ?? [])
+  ].filter(Boolean).join(" ");
+}
+
+function recipeHasShrimpIdentity(recipe: Recipe) {
+  return /(?:\bshrimp\b|\bprawn\b|\bgoong\b|\bgamberi\b|\bcamarones\b|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0642\u0631\u064a\u062f\u0633)/iu.test(
+    getRecipeNamedIdentityText(recipe)
+  );
+}
+
+function recipeHasFishIdentityConflict(recipe: Recipe) {
+  return /(?:\bfish\b|\bsalmon\b|\btilapia\b|\bcod\b|\bseabass\b|\btuna\b|\bseafood\b|\banchov(?:y|ies)\b|\bhamsi(?:li)?\b|\bpescado\b|\bsamke\b|\u0633\u0645\u0643|\u0633\u0645\u0643\u0629|\u0628\u0644\u0637\u064a|\u062f\u0646\u064a\u0633|\u0633\u0644\u0645\u0648\u0646|\u062a\u0648\u0646\u0629|\u0645\u0623\u0643\u0648\u0644\u0627\u062a|\u0628\u062d\u0631\u064a|\u0633\u064a\s*\u0641\u0648\u062f)/iu.test(
+    getRecipeNamedIdentityText(recipe)
+  );
+}
+
 function getMainProteinCategoriesFromText(value: string) {
   const normalized = value.toLowerCase();
   const categories = new Set<MainProteinCategory>();
@@ -1306,14 +1427,17 @@ function getMainProteinCategoriesFromText(value: string) {
   if (/(?:\bground\s+(?:beef|meat|lamb|turkey|chicken)\b|\bminced?\s+(?:beef|meat|lamb|turkey|chicken)\b|\b(?:beef|lamb)\s+mince\b|لحم\s*مفروم|لحمة\s*مفرومة|مفروم)/iu.test(normalized)) {
     categories.add("groundMeat");
   }
+  if (/(?:\bliver\b|\bkebda\b|\bkibda\b|\bcigeri?\b|\u0643\u0628\u062f(?:\u0629|\u0647)?)/iu.test(normalized)) {
+    categories.add("liver");
+  }
   if (/(?:\bchicken\b|\bhen\b|\bpoultry\b|دجاج|فراخ|فراخة|فرخة|صدور\s*(?:دجاج|فراخ))/iu.test(normalized)) {
     categories.add("chicken");
   }
-  if (/(?:\bbeef\b|\blamb\b|\bmutton\b|\bveal\b|\bmeat\b|لحم|لحمة|بقري|ضاني|غنم|عجل)/iu.test(normalized) && !categories.has("groundMeat")) {
+  if (/(?:\bbeef\b|\blamb\b|\bmutton\b|\bveal\b|\bmeat\b|لحم|لحمة|بقري|ضاني|غنم|عجل)/iu.test(normalized) && !categories.has("groundMeat") && !categories.has("liver")) {
     categories.add("beefOrLamb");
   }
-  if (/(?:\bfish\b|\bsalmon\b|\btilapia\b|\bcod\b|\bseabass\b|\btuna\b|\bseafood\b|سمك|سمكة|بلطي|دنيس|سلمون|تونة|مأكولات\s*بحرية|سي\s*فود)/iu.test(normalized)) {
-    categories.add(normalized.includes("seafood") || /مأكولات\s*بحرية|سي\s*فود/iu.test(normalized) ? "seafood" : "fish");
+  if (/(?:\bfish\b|\bsalmon\b|\btilapia\b|\bcod\b|\bseabass\b|\btuna\b|\bseafood\b|سمك|سمكة|بلطي|دنيس|سلمون|تونة|مأكولات|بحري|سي\s*فود)/iu.test(normalized)) {
+    categories.add(normalized.includes("seafood") || /مأكولات|بحري|سي\s*فود/iu.test(normalized) ? "seafood" : "fish");
   }
   if (/(?:\bshrimp\b|\bprawn\b|\bgoong\b|جمبري|روبيان|قريدس)/iu.test(normalized)) {
     categories.add("shrimp");
@@ -1332,6 +1456,30 @@ function isProteinCategoryAllowed(category: MainProteinCategory, allowed: Set<Ma
   if (category === "seafood" && (allowed.has("fish") || allowed.has("shrimp"))) return true;
   if (category === "beefOrLamb" && allowed.has("groundMeat")) return true;
   return false;
+}
+
+function recipeProteinSetMatchesInput(recipeProteins: Set<MainProteinCategory>, inputProteins: Set<MainProteinCategory>) {
+  if (isShrimpOnlyInputProteinSet(inputProteins)) {
+    return recipeProteins.has("shrimp") && Array.from(recipeProteins).every((category) => (
+      category === "shrimp" || category === "seafood"
+    ));
+  }
+
+  if (isFishOnlyInputProteinSet(inputProteins)) {
+    return recipeProteins.has("fish") && Array.from(recipeProteins).every((category) => (
+      category === "fish" || category === "seafood"
+    ));
+  }
+
+  return Array.from(recipeProteins).every((category) => isProteinCategoryAllowed(category, inputProteins));
+}
+
+function isShrimpOnlyInputProteinSet(inputProteins: Set<MainProteinCategory>) {
+  return inputProteins.has("shrimp") && !inputProteins.has("fish") && !inputProteins.has("seafood");
+}
+
+function isFishOnlyInputProteinSet(inputProteins: Set<MainProteinCategory>) {
+  return inputProteins.has("fish") && !inputProteins.has("shrimp") && !inputProteins.has("seafood");
 }
 
 function buildGroundMeatSparseFillers(
@@ -1646,10 +1794,313 @@ function buildLiverSparseFillers(
       sodium: "690mg",
       sugar: "5g",
       visualKeywords: ["chopped liver filling", "bread", "peppers and onion"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 20,
+      carbs: "42g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "liver and rice",
+      excludeKeywords: ["beef steak", "kofta", "meatballs", "pasta", "random rice bowl"],
+      fat: "16g",
+      fiber: "4g",
+      imageSearchIndices: ["egyptian liver and rice", "kebda rice egyptian", "liver rice plate"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["rice", "onion", "garlic", "tomato", "cumin"],
+      name: "Egyptian Liver and Rice",
+      protein: "33g",
+      sodium: "640mg",
+      sugar: "5g",
+      visualKeywords: ["sliced liver", "rice", "egyptian spices"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories,
+      carbs: "22g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "grilled kebda plate",
+      excludeKeywords: ["ground meat", "meatballs", "burger", "steak", "pasta"],
+      fat: "15g",
+      fiber: "4g",
+      imageSearchIndices: ["grilled kebda plate", "egyptian grilled liver", "kebda salad bread"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["lemon", "onion", "parsley", "baladi bread", "green pepper"],
+      name: "Grilled Egyptian Kebda Plate",
+      protein: "35g",
+      sodium: "600mg",
+      sugar: "4g",
+      visualKeywords: ["grilled liver slices", "lemon", "baladi bread"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories - 10,
+      carbs: "20g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "liver vegetable stew",
+      excludeKeywords: ["beef cubes", "kofta", "meatballs", "pasta", "cream"],
+      fat: "14g",
+      fiber: "6g",
+      imageSearchIndices: ["egyptian liver stew", "kebda tomato stew", "liver vegetables stew"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["tomato", "zucchini", "onion", "garlic", "coriander"],
+      name: "Egyptian Liver Vegetable Stew",
+      protein: "32g",
+      sodium: "610mg",
+      sugar: "7g",
+      visualKeywords: ["liver pieces", "tomato stew", "vegetables"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 10,
+      carbs: "18g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "smoked paprika kebda",
+      excludeKeywords: ["smoked processed meat", "sausage", "kofta", "burger", "pasta"],
+      fat: "16g",
+      fiber: "4g",
+      imageSearchIndices: ["smoked paprika kebda", "egyptian liver peppers", "spiced liver slices"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["smoked paprika", "green pepper", "onion", "garlic", "lemon"],
+      name: "Smoked-Paprika Egyptian Kebda",
+      protein: "34g",
+      sodium: "620mg",
+      sugar: "4g",
+      visualKeywords: ["dark liver slices", "peppers", "smoked paprika"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 35,
+      carbs: "36g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "liver shawarma",
+      excludeKeywords: ["chicken shawarma", "beef shawarma", "kofta", "burger", "ground meat"],
+      fat: "17g",
+      fiber: "5g",
+      imageSearchIndices: ["egyptian liver shawarma", "kebda shawarma plate", "liver shawarma wrap"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["flatbread", "tahini", "onion", "parsley", "sumac"],
+      name: "Egyptian Liver Shawarma Plate",
+      protein: "34g",
+      sodium: "660mg",
+      sugar: "5g",
+      visualKeywords: ["thin liver strips", "flatbread", "tahini"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 15,
+      carbs: "30g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "baked kebda tray",
+      excludeKeywords: ["fried cutlet", "kofta tray", "meatballs", "pasta", "cream"],
+      fat: "15g",
+      fiber: "5g",
+      imageSearchIndices: ["baked kebda tray", "egyptian liver tray", "liver peppers tray"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["potato", "green pepper", "tomato", "onion", "garlic"],
+      name: "Baked Egyptian Kebda Tray",
+      protein: "33g",
+      sodium: "630mg",
+      sugar: "5g",
+      visualKeywords: ["baked liver slices", "pepper tray", "tomato"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories,
+      carbs: "24g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "liver soup",
+      excludeKeywords: ["cream soup", "meatball soup", "beef stew cubes", "pasta", "burger"],
+      fat: "12g",
+      fiber: "4g",
+      imageSearchIndices: ["egyptian liver soup", "kebda broth", "liver vegetable soup"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["broth", "carrot", "celery", "onion", "parsley"],
+      name: "Egyptian Liver Soup",
+      protein: "31g",
+      sodium: "580mg",
+      sugar: "5g",
+      visualKeywords: ["clear broth", "liver pieces", "vegetables"]
+    }, context),
+    makeSparseFillerRecipe({
+      calories: targetCalories + 25,
+      carbs: "28g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "sliced kebda with onions",
+      excludeKeywords: ["ground meat", "kofta", "meatballs", "beef steak", "pasta"],
+      fat: "16g",
+      fiber: "5g",
+      imageSearchIndices: ["sliced kebda onions", "egyptian liver onions", "liver peppers onions"],
+      ingredients: [primaryIngredient],
+      missingIngredients: ["onion", "green pepper", "lemon", "cumin", "whole wheat bread"],
+      name: "Sliced Egyptian Kebda With Onions",
+      protein: "34g",
+      sodium: "620mg",
+      sugar: "5g",
+      visualKeywords: ["sliced liver", "onions", "green peppers"]
     }, context)
   ];
 
+  if (preferred === "any") {
+    const anyCuisineFillers = buildAnyCuisineLiverSparseFillerInputs(primaryIngredient, targetCalories)
+      .map((input) => makeSparseFillerRecipe(input, context));
+    return dedupeSparseFillerRecipes([...all.slice(0, 2), ...anyCuisineFillers]);
+  }
+
   return orderSparseFillersByCuisine(all, preferred);
+}
+
+function buildAnyCuisineLiverSparseFillerInputs(
+  liverIngredient: string,
+  targetCalories: number
+): SparseFillerRecipeInput[] {
+  const primary = liverIngredient || "liver";
+  return [
+    {
+      calories: targetCalories + 10,
+      carbs: "20g",
+      cuisine: "Turkish",
+      difficulty: "Medium",
+      dishName: "arnavut cigeri",
+      excludeKeywords: ["fried chicken", "chicken cutlet", "rice only", "steak", "kofta"],
+      fat: "16g",
+      fiber: "4g",
+      imageSearchIndices: ["arnavut cigeri liver", "turkish liver arnavut cigeri", "cigeri liver cubes onions"],
+      ingredients: [primary],
+      missingIngredients: ["onion", "sumac", "parsley", "lemon", "paprika"],
+      name: "Turkish Arnavut Cigeri",
+      protein: "34g",
+      sodium: "610mg",
+      sugar: "4g",
+      visualKeywords: ["liver cubes", "sumac onions", "turkish liver"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "18g",
+      cuisine: "Moroccan",
+      difficulty: "Medium",
+      dishName: "moroccan kebda chermoula",
+      excludeKeywords: ["fried chicken", "rice only", "steak", "ground meat", "kofta"],
+      fat: "15g",
+      fiber: "5g",
+      imageSearchIndices: ["moroccan kebda chermoula liver", "kebda mchermla liver", "moroccan liver chermoula"],
+      ingredients: [primary],
+      missingIngredients: ["cilantro", "parsley", "garlic", "lemon", "paprika"],
+      name: "Moroccan Kebda Chermoula",
+      protein: "33g",
+      sodium: "600mg",
+      sugar: "4g",
+      visualKeywords: ["liver pieces", "chermoula sauce", "moroccan liver"]
+    },
+    {
+      calories: targetCalories + 20,
+      carbs: "28g",
+      cuisine: "Indian",
+      difficulty: "Medium",
+      dishName: "kaleji masala",
+      excludeKeywords: ["fried chicken", "butter chicken", "rice only", "kofta", "steak"],
+      fat: "17g",
+      fiber: "5g",
+      imageSearchIndices: ["kaleji masala liver", "indian liver masala", "spiced liver kaleji"],
+      ingredients: [primary],
+      missingIngredients: ["tomato", "onion", "ginger", "garam masala", "cilantro"],
+      name: "Kaleji Masala",
+      protein: "34g",
+      sodium: "630mg",
+      sugar: "6g",
+      visualKeywords: ["liver masala", "spiced tomato onion sauce", "kaleji"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "22g",
+      cuisine: "Italian",
+      difficulty: "Medium",
+      dishName: "fegato alla veneziana",
+      excludeKeywords: ["fried chicken", "rice only", "pasta", "steak", "meatballs"],
+      fat: "16g",
+      fiber: "4g",
+      imageSearchIndices: ["fegato alla veneziana liver onions", "venetian liver onions", "italian liver onions"],
+      ingredients: [primary],
+      missingIngredients: ["onion", "parsley", "lemon", "olive oil", "polenta"],
+      name: "Fegato Alla Veneziana",
+      protein: "33g",
+      sodium: "590mg",
+      sugar: "5g",
+      visualKeywords: ["thin liver slices", "soft onions", "venetian liver"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "24g",
+      cuisine: "Mexican",
+      difficulty: "Easy",
+      dishName: "higado encebollado",
+      excludeKeywords: ["fried chicken", "rice only", "taco filling only", "steak", "ground meat"],
+      fat: "15g",
+      fiber: "5g",
+      imageSearchIndices: ["higado encebollado liver onions", "mexican liver onions", "liver with onions mexican"],
+      ingredients: [primary],
+      missingIngredients: ["onion", "tomato", "jalapeno", "lime", "cilantro"],
+      name: "Higado Encebollado",
+      protein: "34g",
+      sodium: "600mg",
+      sugar: "5g",
+      visualKeywords: ["liver strips", "onions", "mexican higado"]
+    },
+    {
+      calories: targetCalories + 25,
+      carbs: "34g",
+      cuisine: "Middle Eastern",
+      difficulty: "Easy",
+      dishName: "liver shawarma plate",
+      excludeKeywords: ["chicken shawarma", "beef shawarma", "fried chicken", "kofta", "rice only"],
+      fat: "16g",
+      fiber: "5g",
+      imageSearchIndices: ["liver shawarma plate", "kebda shawarma liver", "middle eastern liver shawarma"],
+      ingredients: [primary],
+      missingIngredients: ["flatbread", "tahini", "sumac", "onion", "parsley"],
+      name: "Liver Shawarma Plate",
+      protein: "34g",
+      sodium: "640mg",
+      sugar: "5g",
+      visualKeywords: ["liver strips", "flatbread", "shawarma spices"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "18g",
+      cuisine: "American",
+      difficulty: "Easy",
+      dishName: "grilled liver and onions",
+      excludeKeywords: ["fried chicken", "rice only", "steak", "burger", "meatloaf"],
+      fat: "14g",
+      fiber: "4g",
+      imageSearchIndices: ["grilled liver and onions", "healthy liver onions", "pan seared liver onions"],
+      ingredients: [primary],
+      missingIngredients: ["onion", "garlic", "parsley", "lemon", "green beans"],
+      name: "Grilled Liver and Onions",
+      protein: "35g",
+      sodium: "560mg",
+      sugar: "4g",
+      visualKeywords: ["liver slices", "onions", "pan seared liver"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "20g",
+      cuisine: "Mediterranean",
+      difficulty: "Medium",
+      dishName: "lemon oregano liver skewers",
+      excludeKeywords: ["fried chicken", "rice only", "kofta", "steak cubes", "kebab without liver"],
+      fat: "15g",
+      fiber: "4g",
+      imageSearchIndices: ["liver skewers lemon oregano", "mediterranean grilled liver skewers", "grilled liver kebab"],
+      ingredients: [primary],
+      missingIngredients: ["lemon", "oregano", "onion", "pepper", "parsley"],
+      name: "Lemon-Oregano Liver Skewers",
+      protein: "35g",
+      sodium: "590mg",
+      sugar: "4g",
+      visualKeywords: ["liver skewers", "lemon oregano", "grilled liver"]
+    }
+  ];
 }
 
 function buildGenericSparseFillers(
@@ -1669,6 +2120,9 @@ function buildGenericSparseFillers(
   const authenticFillers = preferred === "any"
     ? buildAnyCuisineSparseFillers(primaryIngredient, context, targetCalories)
     : buildAuthenticCuisineSparseFillers(primaryIngredient, context, targetCalories);
+  const cuisineProteinFillers = preferred === "any"
+    ? []
+    : buildPreferredCuisineProteinSparseFillers(primaryIngredient, context, targetCalories);
   const fallbackFillers = [
     makeSparseFillerRecipe({
       calories: targetCalories,
@@ -1690,7 +2144,42 @@ function buildGenericSparseFillers(
     }, context)
   ];
 
-  return authenticFillers.length ? authenticFillers : fallbackFillers;
+  const mergedFillers = dedupeSparseFillerRecipes([...authenticFillers, ...cuisineProteinFillers]);
+  return mergedFillers.length ? mergedFillers : fallbackFillers;
+}
+
+function buildPreferredCuisineProteinSparseFillers(
+  primaryIngredient: string,
+  context: {
+    allergens: string[];
+    availableIngredients: Set<string>;
+    conditions: string[];
+    diets: string[];
+    ingredients: string[];
+    preferredCuisine: string;
+    scoringIngredients: string[];
+  },
+  targetCalories: number
+) {
+  const inputProteins = getEffectiveInputMainProteinCategories(context);
+  if (inputProteins.has("chicken")) {
+    return buildAnyCuisineChickenSparseFillers(primaryIngredient, context, targetCalories)
+      .filter((recipe) => cuisineMatchesPreference(recipe.cuisine, context.preferredCuisine));
+  }
+
+  return [];
+}
+
+function dedupeSparseFillerRecipes(recipes: Recipe[]) {
+  const seen = new Set<string>();
+  const deduped: Recipe[] = [];
+  for (const recipe of recipes) {
+    const key = getRecipeSelectionKey(recipe);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(recipe);
+  }
+  return deduped;
 }
 
 function buildAnyCuisineSparseFillers(
@@ -1707,7 +2196,7 @@ function buildAnyCuisineSparseFillers(
   targetCalories: number
 ) {
   const source = `${context.ingredients.join(" ")} ${context.scoringIngredients.join(" ")}`.toLowerCase();
-  const inputProteins = getInputMainProteinCategories(context);
+  const inputProteins = getEffectiveInputMainProteinCategories(context);
   const hasSeafood =
     inputProteins.has("fish") ||
     inputProteins.has("shrimp") ||
@@ -1716,6 +2205,9 @@ function buildAnyCuisineSparseFillers(
   const hasGrain = /\b(rice|quinoa|bulgur|farro|barley|freekeh)\b/.test(source);
   if (inputProteins.has("chicken")) {
     return buildAnyCuisineChickenSparseFillers(primaryIngredient, context, targetCalories);
+  }
+  if (isShrimpOnlyInputProteinSet(inputProteins)) {
+    return buildAnyCuisineShrimpSparseFillers(primaryIngredient, context, targetCalories);
   }
   const baseIngredient = primaryIngredient || (hasSeafood ? "seafood" : hasGrain ? "rice" : "vegetables");
   const templates: SparseFillerRecipeInput[] = [
@@ -1868,6 +2360,202 @@ function buildAnyCuisineSparseFillers(
   return templates.map((input) => makeSparseFillerRecipe(input, context));
 }
 
+function buildAnyCuisineShrimpSparseFillers(
+  primaryIngredient: string,
+  context: { allergens: string[]; availableIngredients: Set<string>; conditions: string[]; diets: string[] },
+  targetCalories: number
+) {
+  const shrimpIngredient = isShrimpIngredientText(primaryIngredient) ? primaryIngredient : "shrimp";
+  const templates: SparseFillerRecipeInput[] = [
+    {
+      calories: targetCalories,
+      carbs: "34g",
+      cuisine: "Thai",
+      difficulty: "Medium",
+      dishName: "tom yum goong",
+      excludeKeywords: ["fish", "salmon", "anchovy", "hamsi", "generic seafood soup"],
+      fat: "10g",
+      fiber: "4g",
+      imageSearchIndices: ["tom yum goong", "thai tom yum shrimp soup", "spicy thai shrimp soup"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["lemongrass", "lime", "chili", "mushrooms"],
+      name: "Tom Yum Goong",
+      protein: "32g",
+      sodium: "600mg",
+      sugar: "5g",
+      visualKeywords: ["shrimp", "tom yum", "clear spicy shrimp soup"]
+    },
+    {
+      calories: targetCalories + 30,
+      carbs: "52g",
+      cuisine: "Thai",
+      difficulty: "Medium",
+      dishName: "pad thai goong",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic noodles"],
+      fat: "15g",
+      fiber: "5g",
+      imageSearchIndices: ["pad thai goong", "shrimp pad thai", "thai shrimp noodles"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["rice noodles", "tamarind", "bean sprouts", "lime"],
+      name: "Pad Thai Goong",
+      protein: "33g",
+      sodium: "620mg",
+      sugar: "7g",
+      visualKeywords: ["shrimp", "rice noodles", "pad thai"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "38g",
+      cuisine: "Thai",
+      difficulty: "Medium",
+      dishName: "goong ob woon sen",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic rice bowl"],
+      fat: "12g",
+      fiber: "4g",
+      imageSearchIndices: ["goong ob woon sen", "thai shrimp glass noodles", "shrimp glass noodle clay pot"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["glass noodles", "ginger", "celery", "garlic"],
+      name: "Goong Ob Woon Sen",
+      protein: "34g",
+      sodium: "610mg",
+      sugar: "5g",
+      visualKeywords: ["shrimp", "glass noodles", "clay pot noodles"]
+    },
+    {
+      calories: targetCalories + 20,
+      carbs: "42g",
+      cuisine: "Italian",
+      difficulty: "Medium",
+      dishName: "risotto ai gamberi",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic seafood risotto"],
+      fat: "13g",
+      fiber: "4g",
+      imageSearchIndices: ["risotto ai gamberi", "italian shrimp risotto", "shrimp risotto"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["arborio rice", "tomato", "parsley", "olive oil"],
+      name: "Risotto Ai Gamberi",
+      protein: "31g",
+      sodium: "620mg",
+      sugar: "5g",
+      visualKeywords: ["shrimp", "italian shrimp risotto", "creamy rice"]
+    },
+    {
+      calories: targetCalories + 15,
+      carbs: "24g",
+      cuisine: "Mexican",
+      difficulty: "Medium",
+      dishName: "camarones a la diabla",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic spicy plate"],
+      fat: "14g",
+      fiber: "5g",
+      imageSearchIndices: ["camarones a la diabla", "mexican spicy shrimp", "shrimp diabla"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["tomato", "chili", "garlic", "lime"],
+      name: "Camarones A La Diabla",
+      protein: "35g",
+      sodium: "620mg",
+      sugar: "6g",
+      visualKeywords: ["shrimp", "red chili sauce", "mexican shrimp"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "32g",
+      cuisine: "Indian",
+      difficulty: "Medium",
+      dishName: "prawn masala",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic curry bowl"],
+      fat: "15g",
+      fiber: "6g",
+      imageSearchIndices: ["prawn masala", "indian shrimp curry", "shrimp masala"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["tomato", "ginger", "turmeric", "cumin"],
+      name: "Prawn Masala",
+      protein: "33g",
+      sodium: "620mg",
+      sugar: "6g",
+      visualKeywords: ["shrimp", "prawn masala", "spiced tomato sauce"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "28g",
+      cuisine: "Mediterranean",
+      difficulty: "Easy",
+      dishName: "shrimp souvlaki",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic skewer"],
+      fat: "14g",
+      fiber: "5g",
+      imageSearchIndices: ["shrimp souvlaki", "mediterranean shrimp skewers", "greek shrimp souvlaki"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["lemon", "oregano", "cucumber", "tomato"],
+      name: "Shrimp Souvlaki",
+      protein: "34g",
+      sodium: "590mg",
+      sugar: "5g",
+      visualKeywords: ["shrimp", "grilled shrimp skewers", "lemon oregano"]
+    },
+    {
+      calories: targetCalories + 30,
+      carbs: "44g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "egyptian shrimp rice",
+      excludeKeywords: ["fish sayadeya", "whole fish", "salmon", "anchovy", "hamsi", "seafood rice"],
+      fat: "13g",
+      fiber: "5g",
+      imageSearchIndices: ["egyptian shrimp rice", "gambari rice", "egyptian tomato shrimp rice"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["rice", "onion", "tomato", "cumin"],
+      name: "Egyptian Shrimp Rice",
+      protein: "33g",
+      sodium: "640mg",
+      sugar: "5g",
+      visualKeywords: ["shrimp", "egyptian shrimp rice", "tomato onion rice"]
+    },
+    {
+      calories: targetCalories + 20,
+      carbs: "40g",
+      cuisine: "Middle Eastern",
+      difficulty: "Medium",
+      dishName: "shrimp kabsa",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic rice"],
+      fat: "14g",
+      fiber: "5g",
+      imageSearchIndices: ["shrimp kabsa", "middle eastern shrimp rice", "gulf shrimp kabsa"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["rice", "tomato", "cardamom", "cumin"],
+      name: "Shrimp Kabsa",
+      protein: "34g",
+      sodium: "630mg",
+      sugar: "5g",
+      visualKeywords: ["shrimp", "spiced rice", "kabsa"]
+    },
+    {
+      calories: targetCalories + 5,
+      carbs: "20g",
+      cuisine: "American",
+      difficulty: "Easy",
+      dishName: "garlic lemon shrimp skillet",
+      excludeKeywords: ["fish", "salmon", "anchovy", "generic seafood skillet"],
+      fat: "13g",
+      fiber: "4g",
+      imageSearchIndices: ["garlic lemon shrimp skillet", "healthy shrimp skillet", "shrimp with lemon garlic"],
+      ingredients: [shrimpIngredient],
+      missingIngredients: ["garlic", "lemon", "parsley", "olive oil"],
+      name: "Garlic Lemon Shrimp Skillet",
+      protein: "34g",
+      sodium: "560mg",
+      sugar: "4g",
+      visualKeywords: ["shrimp", "lemon garlic", "skillet"]
+    }
+  ];
+
+  return templates.map((input) => makeSparseFillerRecipe(input, context));
+}
+
+function isShrimpIngredientText(value: string) {
+  return /(?:\bshrimp\b|\bprawn\b|\bgoong\b|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0642\u0631\u064a\u062f\u0633)/iu.test(value);
+}
+
 function buildAnyCuisineChickenSparseFillers(
   primaryIngredient: string,
   context: { allergens: string[]; availableIngredients: Set<string>; conditions: string[]; diets: string[] },
@@ -1928,6 +2616,96 @@ function buildAnyCuisineChickenSparseFillers(
       sodium: "600mg",
       sugar: "4g",
       visualKeywords: ["green molokhia soup", "chicken pieces", "rice"]
+    },
+    {
+      calories: targetCalories + 15,
+      carbs: "34g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "chicken hawawshi",
+      excludeKeywords: ["beef hawawshi", "ground meat hawawshi", "kofta", "liver"],
+      fat: "15g",
+      fiber: "5g",
+      imageSearchIndices: ["egyptian chicken hawawshi", "chicken hawawshi baladi bread", "hawawshi chicken"],
+      ingredients: [chickenIngredient, "bread", "onion", "tomato"],
+      missingIngredients: ["green pepper", "parsley", "cumin"],
+      name: "Egyptian Chicken Hawawshi",
+      protein: "35g",
+      sodium: "620mg",
+      sugar: "5g",
+      visualKeywords: ["stuffed baladi bread", "chicken filling", "onion tomato"]
+    },
+    {
+      calories: targetCalories + 20,
+      carbs: "30g",
+      cuisine: "Egyptian",
+      difficulty: "Medium",
+      dishName: "chicken tomato tray",
+      excludeKeywords: ["beef tray", "kofta tray", "liver tray", "ground meat"],
+      fat: "14g",
+      fiber: "5g",
+      imageSearchIndices: ["egyptian chicken tomato tray", "chicken tomato onion tray", "egyptian baked chicken tray"],
+      ingredients: [chickenIngredient, "onion", "tomato"],
+      missingIngredients: ["potato", "green pepper", "garlic", "cumin"],
+      name: "Egyptian Chicken Tomato Tray",
+      protein: "35g",
+      sodium: "600mg",
+      sugar: "6g",
+      visualKeywords: ["baked chicken", "tomato onion sauce", "egyptian tray"]
+    },
+    {
+      calories: targetCalories + 10,
+      carbs: "32g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "baladi chicken shawarma",
+      excludeKeywords: ["beef shawarma", "liver shawarma", "kofta", "ground meat"],
+      fat: "14g",
+      fiber: "4g",
+      imageSearchIndices: ["egyptian chicken shawarma baladi bread", "baladi chicken shawarma", "chicken shawarma tomato onion"],
+      ingredients: [chickenIngredient, "bread", "onion", "tomato"],
+      missingIngredients: ["lemon", "tahini", "cumin"],
+      name: "Baladi Chicken Shawarma",
+      protein: "35g",
+      sodium: "610mg",
+      sugar: "5g",
+      visualKeywords: ["sliced chicken", "baladi bread", "tomato onion"]
+    },
+    {
+      calories: targetCalories,
+      carbs: "28g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "chicken tomato stew",
+      excludeKeywords: ["beef stew", "liver stew", "kofta", "ground meat"],
+      fat: "12g",
+      fiber: "5g",
+      imageSearchIndices: ["egyptian chicken tomato stew", "chicken onion tomato stew", "egyptian chicken stew"],
+      ingredients: [chickenIngredient, "onion", "tomato"],
+      missingIngredients: ["garlic", "coriander", "carrot"],
+      name: "Egyptian Chicken Tomato Stew",
+      protein: "34g",
+      sodium: "580mg",
+      sugar: "6g",
+      visualKeywords: ["chicken pieces", "tomato stew", "onion"]
+    },
+    {
+      calories: targetCalories + 5,
+      carbs: "30g",
+      cuisine: "Egyptian",
+      difficulty: "Easy",
+      dishName: "grilled chicken baladi plate",
+      excludeKeywords: ["beef kebab", "kofta", "liver", "ground meat"],
+      fat: "13g",
+      fiber: "4g",
+      imageSearchIndices: ["grilled chicken baladi plate", "egyptian grilled chicken bread tomato", "farakh meshwi baladi plate"],
+      ingredients: [chickenIngredient, "bread", "tomato", "onion"],
+      missingIngredients: ["lemon", "cumin", "parsley"],
+      name: "Grilled Chicken Baladi Plate",
+      protein: "36g",
+      sodium: "590mg",
+      sugar: "4g",
+      visualKeywords: ["grilled chicken", "baladi bread", "tomato onion salad"]
     },
     {
       calories: targetCalories,
@@ -2274,7 +3052,7 @@ function makeSparseFillerRecipe(input: SparseFillerRecipeInput, context: { aller
     .map(getRecipeIngredientLabel)
     .filter((ingredient) => !isIngredientAvailable(ingredient, context.availableIngredients));
 
-  return enrichRecipeWithDishIntent({
+  const enriched = enrichRecipeWithDishIntent({
     name: adapted.name,
     cuisine: input.cuisine,
     dish_intent: {
@@ -2305,6 +3083,12 @@ function makeSparseFillerRecipe(input: SparseFillerRecipeInput, context: { aller
     availableIngredients: [...owned, ...missing],
     preferredCuisine: input.cuisine
   });
+
+  return {
+    ...enriched,
+    image_search_index: input.imageSearchIndices[0],
+    image_search_indices: input.imageSearchIndices
+  };
 }
 
 function adaptSparseFillerForDiet(
@@ -2317,7 +3101,7 @@ function adaptSparseFillerForDiet(
   const wantsLowCarb = /\b(keto|low carb|diabetes|diabetic|blood sugar)\b/.test(dietText);
   const wantsGlutenFree = /\b(gluten|celiac|coeliac)\b/.test(dietText);
   const wantsDairyFree = /\b(dairy|lactose)\b/.test(dietText);
-  const wantsLowSodium = /\b(low sodium|hypertension|blood pressure|heart)\b/.test(dietText);
+  const wantsLowSodium = /\b(low sodium|hypertension|blood pressure|highbloodpressure|high blood pressure|heart)\b/.test(dietText);
   const wantsHighProtein = /\b(high protein|muscle|protein)\b/.test(dietText);
   const activeLabels = [
     wantsLowCarb ? "low carb" : "",
@@ -3220,7 +4004,7 @@ function hasConflictingCuisineDisplaySignal(displayHaystack: string, preferredCu
 
 function hasCuisineSpecificIdentitySignal(haystack: string, preferredCuisine: string) {
   const signals: Record<string, string[]> = {
-    egyptian: ["alexandrian", "baladi", "basha", "egyptian", "fattah", "hawawshi", "kofta", "koshary", "molokhia", "sayadeya"],
+    egyptian: ["alexandrian", "baladi", "basha", "egyptian", "fattah", "hawawshi", "kebda", "kofta", "koshary", "liver", "molokhia", "sayadeya"],
     indian: ["baingan", "biryani", "chana", "curry", "dal", "gobi", "indian", "masala", "palak", "rajma", "rasam", "saag", "sambar", "tadka", "tikka"],
     italian: ["arrabbiata", "caponata", "ciambotta", "fagioli", "italian", "margherita", "melanzane", "minestrone", "norma", "polenta", "pomodoro", "ribollita", "risotto"],
     mediterranean: ["briam", "caponata", "dolma", "fasolada", "gemista", "greek", "mediterranean", "moussaka", "ratatouille", "saganaki", "souvlaki"],
@@ -3251,9 +4035,11 @@ function getSpecificCuisineDishAliases(preferredCuisine: string) {
     "fagioli",
     "gobi",
     "hawawshi",
+    "kebda",
     "kofta",
     "koshary",
     "kofte",
+    "liver",
     "menemen",
     "minestrone",
     "palak",
@@ -3265,16 +4051,36 @@ function getSpecificCuisineDishAliases(preferredCuisine: string) {
     "shawarma"
   ]);
 
-  return (getCompleteCuisineCatalog(preferredCuisine) ?? [])
-    .flatMap((dish) => [
+  return [
+    ...getManualSpecificCuisineDishAliases(preferredCuisine),
+    ...(getCompleteCuisineCatalog(preferredCuisine) ?? [])
+      .flatMap((dish) => [
       dish.id.replace(/-/g, " "),
       ...dish.names.english,
       ...dish.names.native,
       ...(dish.names.other ?? [])
-    ])
+      ])
+  ]
     .map(normalizeCuisineIdentityText)
     .filter((alias) => alias.length >= 4)
     .filter((alias) => alias.includes(" ") || oneWordSignals.has(alias));
+}
+
+function getManualSpecificCuisineDishAliases(preferredCuisine: string) {
+  const key = normalizeCuisinePreference(preferredCuisine);
+  if (key === "egyptian") {
+    return [
+      "alexandrian kebda",
+      "alexandrian liver",
+      "egyptian kebda",
+      "egyptian liver",
+      "kebda eskandarani",
+      "kebda sandwiches",
+      "liver and rice",
+      "liver sandwiches"
+    ];
+  }
+  return [];
 }
 
 function normalizeCuisineIdentityText(value: string) {
@@ -3398,13 +4204,14 @@ function enforceHardRequestRecipes(
  */
 function buildNormalizedRecipeNameSignature(name: string | undefined): string {
   if (!name) return "";
-  const cleaned = name
+  const cleaned = normalizeDishRestrictionSynonyms(name)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(
       /\b(with|and|in|over|on|by|the|a|an|of|to|for|من|مع|و|في|على|إلى|الى|الـ|بال|طبق|وصفة|recipe|plate|dish|food)\b/giu,
       " "
     )
+    .replace(/\b(egyptian|arabic|middle|eastern|mediterranean|masri|baladi)\b/giu, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return "";
@@ -3502,7 +4309,7 @@ function enforceDistinctRecipeVariety(recipes: Recipe[], recipeCount: number) {
     if (selected.length >= recipeCount) return false;
 
     const idKey = recipe.id || "";
-    const nameKey = normalizeDishRestrictionKey(recipe.name);
+    const nameKey = buildNormalizedRecipeNameSignature(recipe.name) || normalizeDishRestrictionKey(recipe.name);
     const familyKey = getRecipeVarietyFamilyKey(recipe);
     const structureKey = buildRecipeStructureSignature(recipe);
     const imageIdentityKey = getRecipeImageIdentityKey(recipe);
@@ -3655,9 +4462,9 @@ function isLiverRecipeCandidate(recipe: Recipe) {
 }
 
 function getRecipeVarietyFamilyKey(recipe: Recipe) {
-  const candidate = normalizeDishRestrictionKey(
+  const candidateSource =
     recipe.dish_intent?.dish_name || buildRecipeDishFamilyKey(recipe) || recipe.name
-  );
+  const candidate = buildNormalizedRecipeNameSignature(candidateSource) || normalizeDishRestrictionKey(candidateSource);
 
   if (!candidate) return "";
 
@@ -3731,12 +4538,29 @@ function isRecipeCompliantWithHardRestriction(
 }
 
 function normalizeDishRestrictionKey(value: string) {
-  return value
+  return normalizeDishRestrictionSynonyms(value)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\b(any|food|dish|meal|plate|bowl|dinner|lunch|breakfast|snack|style|inspired)\b/g, " ")
+    .replace(/\b(any|food|dish|meal|plate|bowl|dinner|lunch|breakfast|snack|style|inspired|egyptian|arabic|middle eastern|mediterranean|masri|baladi)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeDishRestrictionSynonyms(value: string) {
+  return value
+    .replace(/\u0641\u062a\u0629/giu, " fattah ")
+    .replace(/\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e|\u0641\u0631\u062e\u0629?/giu, " chicken ")
+    .replace(/\u0643\u0628\u062f(?:\u0629|\u0647)?/giu, " liver ")
+    .replace(/\u0634\u0627\u0648\u0631\u0645\u0627/giu, " shawarma ")
+    .replace(/\u0645\u0644\u0648\u062e\u064a\u0629/giu, " molokhia ")
+    .replace(/\u0645\u0634\u0648\u064a(?:\u0629)?/giu, " grilled ")
+    .replace(/\u0635\u064a\u0646\u064a\u0629/giu, " tray ")
+    .replace(/\u0634\u0648\u0631\u0628\u0629|\u0634\u0631\u0628\u0629/giu, " soup ")
+    .replace(/\u0623\u0631\u0632|\u0627\u0631\u0632/giu, " rice ")
+    .replace(/\u062e\u0628\u0632|\u0639\u064a\u0634/giu, " bread ")
+    .replace(/\u0628\u0635\u0644/giu, " onion ")
+    .replace(/\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631\u0629/giu, " tomato ")
+    .replace(/\u0645\u0635\u0631\u064a(?:\u0629)?|\u0628\u0644\u062f\u064a(?:\u0629)?/giu, " egyptian ");
 }
 
 function sharesDishRestrictionTokens(left: string, right: string) {
@@ -4119,6 +4943,53 @@ async function applyImageFirstRecipeRanking(
   return ensureUniqueRecipePhotos(sortedRecipes.map(({ recipe }) => recipe));
 }
 
+async function attachRecipePhotosPreservingOrder(
+  recipes: Recipe[],
+  options?: {
+    allowProviderLookup?: boolean;
+  }
+) {
+  const usedImageUrls = new Set<string>();
+  const attached: Recipe[] = [];
+
+  for (const recipe of recipes) {
+    const currentImageUrl = recipe.image_url;
+    if (isDurableRecipeImageUrl(currentImageUrl) && !usedImageUrls.has(currentImageUrl)) {
+      usedImageUrls.add(currentImageUrl);
+      attached.push(recipe);
+      continue;
+    }
+
+    try {
+      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls, options);
+      const candidateImageUrl = resolvedPhoto.recipePatch?.image_url;
+      if (isDurableRecipeImageUrl(candidateImageUrl) && !usedImageUrls.has(candidateImageUrl)) {
+        usedImageUrls.add(candidateImageUrl);
+        attached.push({
+          ...recipe,
+          ...(resolvedPhoto.recipePatch ?? {})
+        });
+        continue;
+      }
+    } catch (error) {
+      logger.warn("Recipe final photo attachment failed", {
+        recipeName: recipe.name,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    attached.push({
+      ...recipe,
+      image_attribution_name: undefined,
+      image_attribution_url: undefined,
+      image_source: undefined,
+      image_url: undefined
+    });
+  }
+
+  return attached;
+}
+
 async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
   const usedImageUrls = new Set<string>();
   const uniqueRecipes: Recipe[] = [];
@@ -4210,15 +5081,21 @@ async function resolveRecipePhotoCandidate(
     };
   }
 
+  const queries = buildRecipePhotoQueriesForRanking(recipe);
+  const generatedCachedPhoto = await resolveGeneratedRecipePhotoCacheCandidate(recipe, queries, excludedUrls);
+  if (generatedCachedPhoto) {
+    return generatedCachedPhoto;
+  }
+
   if (options?.allowProviderLookup === false) {
     return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
   }
 
-  const queries = buildRecipePhotoQueriesForRanking(recipe);
   const baseIdentity = buildRecipePhotoIdentity(recipe.image_search_index ?? queries[0] ?? recipe.name);
   if (isStrictVisualRecipePhotoRequest(recipe, [baseIdentity, ...queries.map((query) => buildRecipePhotoIdentity(query))])) {
     return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
   }
+
   let bestScore = 0;
   let bestSource: keyof typeof MIN_ACCEPTED_PROVIDER_SCORE | null = null;
   let bestSourceScore = 0;
@@ -4281,6 +5158,101 @@ async function resolveRecipePhotoCandidate(
   }
 
   return { photoFitScore: bestScore, recipePatch };
+}
+
+async function resolveGeneratedRecipePhotoCacheCandidate(
+  recipe: Recipe,
+  queries: string[],
+  excludedUrls: Set<string>
+) {
+  const recipePhotoTexts = collectRecipePhotoTextCandidates(recipe);
+  const identities = recipePhotoTexts
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => buildRecipePhotoIdentity(value));
+  const signatureCandidates = Array.from(new Set([
+    ...identities.map((identity) => identity.signature),
+    ...identities.map((identity) => `generated:${identity.canonicalDishKey}`).filter((value) => value !== "generated:"),
+    ...identities.map((identity) => `generated:${identity.familyKey}`).filter((value) => value !== "generated:")
+  ]));
+  const queryCandidates = Array.from(new Set([
+    ...queries,
+    ...recipePhotoTexts
+  ].filter((value): value is string => Boolean(value?.trim()))));
+
+  let cached = await getSharedRecipePhotoByQueryOrSignature({
+    queries: queryCandidates,
+    signatures: signatureCandidates
+  });
+  const isLiverCandidate = isLiverRecipePhotoCandidate(recipe, queries);
+  if (!isUsableGeneratedRecipePhotoCacheEntry(cached, excludedUrls)) {
+    cached = isLiverCandidate
+      ? await getSharedGeneratedRecipePhotoByCategory({
+          cuisineKeys: identities.map((identity) => identity.cuisineKey),
+          excludeImageUrls: Array.from(excludedUrls),
+          familyKeys: identities.map((identity) => identity.familyKey),
+          mainIngredientKey: "liver",
+          requestTexts: queryCandidates
+        })
+      : null;
+  }
+  if (!isUsableGeneratedRecipePhotoCacheEntry(cached, excludedUrls)) return null;
+  if (isLiverCandidate && !isLiverRecipePhotoCacheEntry(cached)) return null;
+
+  return {
+    photoFitScore: 80,
+    recipePatch: {
+      image_attribution_name: undefined,
+      image_attribution_url: undefined,
+      image_source: "cache" as const,
+      image_url: cached.imageUrl
+    } satisfies Partial<Recipe>
+  };
+}
+
+function collectRecipePhotoTextCandidates(recipe: Recipe) {
+  const localizedVariants = Object.values(recipe.localized ?? {});
+  return [
+    recipe.image_search_index,
+    ...(recipe.image_search_indices ?? []),
+    recipe.dish_intent?.dish_name,
+    ...(recipe.dish_intent?.visual_keywords ?? []),
+    recipe.name,
+    ...localizedVariants.flatMap((variant) => [
+      variant?.image_search_index,
+      ...(variant?.image_search_indices ?? []),
+      variant?.dish_intent?.dish_name,
+      ...(variant?.dish_intent?.visual_keywords ?? []),
+      variant?.name
+    ])
+  ];
+}
+
+function isUsableGeneratedRecipePhotoCacheEntry(
+  entry: SharedRecipePhotoEntry | null,
+  excludedUrls: Set<string>
+): entry is SharedRecipePhotoEntry {
+  return Boolean(
+    entry &&
+      entry.source === "generated" &&
+      isDurableRecipeImageUrl(entry.imageUrl) &&
+      !excludedUrls.has(entry.imageUrl)
+  );
+}
+
+function isLiverRecipePhotoCandidate(recipe: Recipe, queries: string[]) {
+  return [
+    ...collectRecipePhotoTextCandidates(recipe),
+    ...(recipe.ingredients ?? []),
+    ...(recipe.missing_ingredients ?? []),
+    ...queries
+  ].filter((value): value is string => typeof value === "string")
+    .some((value) => /\b(liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato)\b|\u0643\u0628\u062f(?:\u0629|\u0647)?/iu.test(value));
+}
+
+function isLiverRecipePhotoCacheEntry(entry: SharedRecipePhotoEntry) {
+  return /\b(liver|kebda|kibda|ciger|cigeri|kaleji|higado|fegato)\b|\u0643\u0628\u062f(?:\u0629|\u0647)?/iu.test(
+    [entry.query, entry.signature].filter(Boolean).join(" ")
+  );
 }
 
 function isStrictVisualRecipePhotoRequest(

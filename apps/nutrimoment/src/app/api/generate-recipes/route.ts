@@ -58,12 +58,14 @@ import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/lang
 import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 import {
   getSharedGeneratedRecipePhotoByCategory,
+  getSharedRecipePhotoByApproximateCategory,
   getSharedRecipePhotoByQueryOrSignature,
   type SharedRecipePhotoEntry
 } from "@/lib/sharedRecipePhotoCache";
+import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
 import {
   findRecipeDietViolation,
   filterRecipesByDiet,
@@ -5184,18 +5186,37 @@ async function resolveGeneratedRecipePhotoCacheCandidate(
     signatures: signatureCandidates
   });
   const isLiverCandidate = isLiverRecipePhotoCandidate(recipe, queries);
-  if (!isUsableGeneratedRecipePhotoCacheEntry(cached, excludedUrls)) {
-    cached = isLiverCandidate
-      ? await getSharedGeneratedRecipePhotoByCategory({
+  const ingredientTexts = collectRecipePhotoIngredientTextCandidates(recipe);
+  if (!isUsableSharedRecipePhotoCacheEntry(cached, excludedUrls)) {
+    const approximateMainIngredientKeys = buildApproximateRecipePhotoMainIngredientKeys(
+      identities,
+      ingredientTexts,
+      isLiverCandidate
+    );
+    cached = approximateMainIngredientKeys.length
+      ? await getSharedRecipePhotoByApproximateCategory({
+          allowProviderPhotos: true,
           cuisineKeys: identities.map((identity) => identity.cuisineKey),
           excludeImageUrls: Array.from(excludedUrls),
           familyKeys: identities.map((identity) => identity.familyKey),
-          mainIngredientKey: "liver",
+          ingredientTexts,
+          mainIngredientKeys: approximateMainIngredientKeys,
           requestTexts: queryCandidates
         })
       : null;
   }
-  if (!isUsableGeneratedRecipePhotoCacheEntry(cached, excludedUrls)) return null;
+  if (!isUsableSharedRecipePhotoCacheEntry(cached, excludedUrls) && isLiverCandidate) {
+    cached = await getSharedGeneratedRecipePhotoByCategory({
+      allowProviderPhotos: true,
+      cuisineKeys: identities.map((identity) => identity.cuisineKey),
+      excludeImageUrls: Array.from(excludedUrls),
+      familyKeys: identities.map((identity) => identity.familyKey),
+      ingredientTexts,
+      mainIngredientKey: "liver",
+      requestTexts: queryCandidates
+    });
+  }
+  if (!isUsableSharedRecipePhotoCacheEntry(cached, excludedUrls)) return null;
   if (isLiverCandidate && !isLiverRecipePhotoCacheEntry(cached)) return null;
 
   return {
@@ -5227,16 +5248,53 @@ function collectRecipePhotoTextCandidates(recipe: Recipe) {
   ];
 }
 
-function isUsableGeneratedRecipePhotoCacheEntry(
+function collectRecipePhotoIngredientTextCandidates(recipe: Recipe) {
+  const localizedVariants = Object.values(recipe.localized ?? {});
+  return Array.from(
+    new Set(
+      [
+        ...(recipe.ingredients ?? []),
+        ...(recipe.missing_ingredients ?? []),
+        ...localizedVariants.flatMap((variant) => [
+          ...(variant?.ingredients ?? []),
+          ...(variant?.missing_ingredients ?? [])
+        ])
+      ]
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function buildApproximateRecipePhotoMainIngredientKeys(
+  identities: Array<ReturnType<typeof buildRecipePhotoIdentity>>,
+  ingredientTexts: string[],
+  isLiverCandidate: boolean
+) {
+  const ingredientIdentities = ingredientTexts.map((ingredient) => buildRecipePhotoIdentity(ingredient));
+  return Array.from(
+    new Set(
+      [
+        isLiverCandidate ? "liver" : null,
+        ...identities.map((identity) => identity.mainIngredientKey),
+        ...ingredientIdentities.map((identity) => identity.mainIngredientKey)
+      ]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value && value !== "general" && value !== "food" && value !== "meal")
+    )
+  ).slice(0, 6);
+}
+
+function isUsableSharedRecipePhotoCacheEntry(
   entry: SharedRecipePhotoEntry | null,
   excludedUrls: Set<string>
 ): entry is SharedRecipePhotoEntry {
-  return Boolean(
-    entry &&
-      entry.source === "generated" &&
-      isDurableRecipeImageUrl(entry.imageUrl) &&
-      !excludedUrls.has(entry.imageUrl)
-  );
+  if (!entry || !isDurableRecipeImageUrl(entry.imageUrl) || excludedUrls.has(entry.imageUrl)) return false;
+  if (isKnownWeakRecipeProviderImageUrl(entry.imageUrl)) return false;
+  if (entry.source === "generated") return isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
+  return true;
 }
 
 function isLiverRecipePhotoCandidate(recipe: Recipe, queries: string[]) {

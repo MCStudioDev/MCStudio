@@ -17,6 +17,14 @@ export interface SharedRecipePhotoEntry {
 
 const COLLECTION_NAME = "recipePhotoCache";
 const CATEGORY_VERSION = 2;
+const APPROXIMATE_CATEGORY_SCAN_LIMIT = 500;
+const SHARED_RECIPE_PHOTO_SOURCES = new Set<SharedRecipePhotoEntry["source"]>([
+  "generated",
+  "google_search",
+  "pexels_search",
+  "unsplash_search",
+  "wikimedia"
+]);
 
 export async function getSharedRecipePhoto(signature: string): Promise<SharedRecipePhotoEntry | null> {
   if (!hasFirebaseAdminConfig()) return null;
@@ -29,16 +37,18 @@ export async function getSharedRecipePhoto(signature: string): Promise<SharedRec
 
 function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefined, fallbackSignature: string): SharedRecipePhotoEntry | null {
   if (!data?.imageUrl || !data?.source) return null;
-  if (data.source !== "generated") {
-    logger.info("Ignoring non-generated shared recipe photo cache entry", {
+  const source = normalizeSharedRecipePhotoSource(data.source);
+  if (!source) {
+    logger.info("Ignoring shared recipe photo cache entry with unsupported source", {
       signature: fallbackSignature,
       source: String(data.source)
     });
     return null;
   }
   if (!isDurableRecipeImageUrl(String(data.imageUrl))) {
-    logger.warn("Ignoring transient generated recipe photo cache URL", {
+    logger.warn("Ignoring transient shared recipe photo cache URL", {
       signature: fallbackSignature,
+      source,
       imageUrlHost: safeImageUrlHost(String(data.imageUrl))
     });
     return null;
@@ -55,16 +65,7 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
     model: typeof data.model === "string" ? data.model : undefined,
     query: typeof data.query === "string" ? data.query : "",
     signature,
-    source:
-      data.source === "generated"
-        ? "generated"
-        : data.source === "google_search"
-          ? "google_search"
-          : data.source === "unsplash_search"
-            ? "unsplash_search"
-          : data.source === "pexels_search"
-            ? "pexels_search"
-            : "wikimedia"
+    source
   };
 }
 
@@ -107,27 +108,26 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
   const normalizedSignatureMatch = await getSharedGeneratedRecipePhotoByFieldValues("signatureKey", signatures.map(normalizeRecipePhotoCacheLookupKey));
   if (normalizedSignatureMatch) return normalizedSignatureMatch;
 
-  // Backward-compatible scan for very old generated docs whose query/signature
+  // Backward-compatible scan for very old docs whose query/signature
   // fields contain stray whitespace or casing differences and do not yet have
   // normalized lookup keys. Keep this bounded so a photo request never walks the
   // full collection.
-  const generatedSnapshot = await db
+  const snapshot = await db
     .collection(COLLECTION_NAME)
-    .where("source", "==", "generated")
     .limit(250)
     .get()
     .catch((error) => {
-      logger.warn("Shared generated recipe photo normalized lookup scan failed", {
+      logger.warn("Shared recipe photo normalized lookup scan failed", {
         error: error instanceof Error ? error.message : String(error)
       });
       return null;
     });
 
-  if (!generatedSnapshot) return null;
+  if (!snapshot) return null;
 
   const queryKeys = new Set(queries.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
   const signatureKeys = new Set(signatures.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
-  for (const docSnap of generatedSnapshot.docs) {
+  for (const docSnap of snapshot.docs) {
     const data = docSnap.data();
     const docKeys = [
       docSnap.id,
@@ -196,16 +196,39 @@ export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) 
 }
 
 export async function getSharedGeneratedRecipePhotoByCategory(input: {
+  allowProviderPhotos?: boolean;
   cuisineKeys?: Array<string | null | undefined>;
   excludeImageUrls?: string[];
   familyKeys?: Array<string | null | undefined>;
+  ingredientTexts?: string[];
   mainIngredientKey: string;
+  requestTexts?: string[];
+}) {
+  return getSharedRecipePhotoByApproximateCategory({
+    ...input,
+    mainIngredientKeys: [input.mainIngredientKey]
+  });
+}
+
+export async function getSharedRecipePhotoByApproximateCategory(input: {
+  allowProviderPhotos?: boolean;
+  cuisineKeys?: Array<string | null | undefined>;
+  excludeImageUrls?: string[];
+  familyKeys?: Array<string | null | undefined>;
+  ingredientTexts?: string[];
+  mainIngredientKeys: Array<string | null | undefined>;
   requestTexts?: string[];
 }) {
   if (!hasFirebaseAdminConfig()) return null;
 
-  const mainIngredientKey = input.mainIngredientKey.trim().toLowerCase();
-  if (!mainIngredientKey) return null;
+  const mainIngredientKeys = Array.from(
+    new Set(
+      input.mainIngredientKeys
+        .map((value) => value?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value))
+    )
+  ).slice(0, 6);
+  if (!mainIngredientKeys.length) return null;
 
   const excluded = new Set((input.excludeImageUrls ?? []).filter(Boolean));
   const familyKeys = new Set(
@@ -229,33 +252,43 @@ export async function getSharedGeneratedRecipePhotoByCategory(input: {
       .map(normalizeRecipePhotoCacheToken)
       .filter(isStrongRecipePhotoCacheToken)
   );
-  let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
-  try {
-    snapshot = await getAdminDb()
-      .collection(COLLECTION_NAME)
-      .where("mainIngredientKey", "==", mainIngredientKey)
-      .limit(80)
-      .get();
-  } catch (error) {
-    logger.warn("Shared generated recipe photo category lookup failed", {
-      error: error instanceof Error ? error.message : String(error),
-      mainIngredientKey
-    });
-    return null;
+  const ingredientTokens = new Set(
+    (input.ingredientTexts ?? [])
+      .flatMap((value) => normalizeRecipePhotoCacheLookupKey(value).split(/\s+/g))
+      .map(normalizeRecipePhotoCacheToken)
+      .filter(isStrongRecipePhotoCacheToken)
+  );
+  const snapshots = await Promise.all(
+    mainIngredientKeys.flatMap((mainIngredientKey) => [
+      getRecipePhotoCacheCategorySnapshot("mainIngredientKey", mainIngredientKey),
+      getRecipePhotoCacheCategorySnapshot("queryMainIngredientKey", mainIngredientKey)
+    ])
+  );
+  const docsById = new Map<string, FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>>();
+  snapshots.forEach((snapshot) => {
+    snapshot?.docs.forEach((docSnap) => docsById.set(docSnap.id, docSnap));
+  });
+  if (docsById.size < 40) {
+    const scanSnapshot = await getRecipePhotoCacheApproximateScanSnapshot();
+    scanSnapshot?.docs.forEach((docSnap) => docsById.set(docSnap.id, docSnap));
   }
 
-  const candidates = snapshot.docs
+  const candidates = Array.from(docsById.values())
     .map((docSnap) => ({
       docId: docSnap.id,
       entry: mapSharedRecipePhotoData(docSnap.data(), docSnap.id),
       raw: docSnap.data()
     }))
     .filter((candidate): candidate is { docId: string; entry: SharedRecipePhotoEntry; raw: FirebaseFirestore.DocumentData } =>
-      Boolean(candidate.entry && candidate.entry.source === "generated" && !excluded.has(candidate.entry.imageUrl))
+      Boolean(
+        candidate.entry &&
+          (candidate.entry.source === "generated" || input.allowProviderPhotos) &&
+          !excluded.has(candidate.entry.imageUrl)
+      )
     )
     .sort((left, right) =>
-      scoreSharedRecipePhotoCategoryMatch(right.raw, right.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, mainIngredientKey) -
-        scoreSharedRecipePhotoCategoryMatch(left.raw, left.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, mainIngredientKey) ||
+      scoreSharedRecipePhotoCategoryMatch(right.raw, right.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, ingredientTokens, mainIngredientKeys) -
+        scoreSharedRecipePhotoCategoryMatch(left.raw, left.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, ingredientTokens, mainIngredientKeys) ||
       left.docId.localeCompare(right.docId)
     );
 
@@ -269,13 +302,46 @@ export async function getSharedGeneratedRecipePhotoByCategory(input: {
     cuisineKeys,
     requestKeys,
     requestTokens,
-    mainIngredientKey
+    ingredientTokens,
+    mainIngredientKeys
   );
-  if (requestTokens.size > 1 && bestScore < 18) {
+  const minimumScore = ingredientTokens.size ? 24 : 18;
+  if (requestTokens.size > 1 && bestScore < minimumScore) {
     return null;
   }
 
   return best.entry;
+}
+
+async function getRecipePhotoCacheApproximateScanSnapshot() {
+  try {
+    return await getAdminDb()
+      .collection(COLLECTION_NAME)
+      .limit(APPROXIMATE_CATEGORY_SCAN_LIMIT)
+      .get();
+  } catch (error) {
+    logger.warn("Shared recipe photo approximate scan failed", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+async function getRecipePhotoCacheCategorySnapshot(field: string, mainIngredientKey: string) {
+  try {
+    return await getAdminDb()
+      .collection(COLLECTION_NAME)
+      .where(field, "==", mainIngredientKey)
+      .limit(120)
+      .get();
+  } catch (error) {
+    logger.warn("Shared recipe photo category lookup failed", {
+      error: error instanceof Error ? error.message : String(error),
+      field,
+      mainIngredientKey
+    });
+    return null;
+  }
 }
 
 function scoreSharedRecipePhotoCategoryMatch(
@@ -285,9 +351,12 @@ function scoreSharedRecipePhotoCategoryMatch(
   cuisineKeys: Set<string>,
   requestKeys: Set<string>,
   requestTokens: Set<string>,
-  mainIngredientKey: string
+  ingredientTokens: Set<string>,
+  mainIngredientKeys: string[]
 ) {
   let score = 0;
+  if (typeof data.mainIngredientKey === "string" && mainIngredientKeys.includes(data.mainIngredientKey.toLowerCase())) score += 35;
+  if (typeof data.queryMainIngredientKey === "string" && mainIngredientKeys.includes(data.queryMainIngredientKey.toLowerCase())) score += 38;
   if (typeof data.familyKey === "string" && familyKeys.has(data.familyKey.toLowerCase())) score += 50;
   if (typeof data.queryFamilyKey === "string" && familyKeys.has(data.queryFamilyKey.toLowerCase())) score += 45;
   if (typeof data.cuisineKey === "string" && cuisineKeys.has(data.cuisineKey.toLowerCase())) score += 20;
@@ -299,7 +368,14 @@ function scoreSharedRecipePhotoCategoryMatch(
       data.signature,
       data.queryKey,
       data.signatureKey,
+      data.mainIngredientKey,
+      data.queryMainIngredientKey,
+      data.familyKey,
+      data.queryFamilyKey,
+      data.cuisineKey,
+      data.queryCuisineKey,
       data.categoryPath,
+      ...(Array.isArray(data.coreTokenKeys) ? data.coreTokenKeys.filter((value): value is string => typeof value === "string") : []),
       docId
     ]
       .filter((value): value is string => typeof value === "string")
@@ -317,10 +393,19 @@ function scoreSharedRecipePhotoCategoryMatch(
   for (const requestToken of requestTokens) {
     if (cacheTokens.has(requestToken)) score += 12;
   }
+  for (const ingredientToken of ingredientTokens) {
+    if (cacheTokens.has(ingredientToken)) {
+      score += 18;
+      continue;
+    }
+    if (ingredientToken.length >= 4 && Array.from(cacheTokens).some((cacheToken) => cacheToken.includes(ingredientToken) || ingredientToken.includes(cacheToken))) {
+      score += 7;
+    }
+  }
 
   if (docId.startsWith("generated:")) score += 8;
   if (typeof data.query === "string" && /\b(grilled|pan|sliced|sandwich|kebda|liver|ciger|kaleji|higado|fegato)\b/i.test(data.query)) score += 5;
-  if (mainIngredientKey === "liver" && hasGeneratedLiverQueryWithNonLiverSignature(data, docId)) score -= 70;
+  if (mainIngredientKeys.includes("liver") && hasGeneratedLiverQueryWithNonLiverSignature(data, docId)) score -= 70;
   return score;
 }
 
@@ -364,6 +449,13 @@ function hasGeneratedLiverQueryWithNonLiverSignature(data: FirebaseFirestore.Doc
 
   const signatureText = normalizeRecipePhotoCacheLookupKey(`${signature} ${docId}`);
   return /\b(pancake|waffle|dessert|cake|cookie|rice-only)\b/i.test(signatureText);
+}
+
+function normalizeSharedRecipePhotoSource(source: unknown): SharedRecipePhotoEntry["source"] | null {
+  if (typeof source !== "string") return null;
+  return SHARED_RECIPE_PHOTO_SOURCES.has(source as SharedRecipePhotoEntry["source"])
+    ? source as SharedRecipePhotoEntry["source"]
+    : null;
 }
 
 async function getSharedGeneratedRecipePhotoByFieldValues(field: string, values: string[]) {

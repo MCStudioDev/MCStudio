@@ -228,6 +228,14 @@ export async function GET(request: Request) {
     : null;
   const selectedReplicateSignature = selectedReplicateQuery ? buildGeneratedRecipePhotoSignature(selectedReplicateQuery, photoIdentityOverride) : null;
   const allowProviderPhotoSearch = !useReplicateGeneration && accessCheck.allowed && !liverVisualRequest;
+  const requireFirestoreCachePhoto =
+    !useReplicateGeneration &&
+    collectRecipePhotoMainIngredientKeys([
+      ...queryCandidates,
+      ...replicateQueryCandidates,
+      ...exactNameHints,
+      ...ingredientHints
+    ]).size > 0;
   const generatedAliasCandidates = buildGeneratedRecipePhotoCacheAliasCandidates([...replicateIdentities, ...identities]);
   const signatureCandidates = useReplicateGeneration
     ? Array.from(new Set([...(selectedReplicateSignature ? [selectedReplicateSignature] : []), ...generatedAliasCandidates]))
@@ -610,11 +618,13 @@ export async function GET(request: Request) {
     );
   }
 
-  if (cacheOnly) {
+  if (cacheOnly || requireFirestoreCachePhoto) {
     return Response.json(
       {
         access: accessPayload(accessCheck.access),
-        error: "No cached recipe photo matched this exact recipe.",
+        error: requireFirestoreCachePhoto
+          ? "No compatible Firestore recipe photo cache entry matched this recipe."
+          : "No cached recipe photo matched this exact recipe.",
         source: "unavailable"
       },
       { headers: buildRecipePhotoResponseHeaders("failure"), status: 404 }
@@ -778,6 +788,9 @@ function canUseGeneratedRecipePhotoCacheForRequest(
     selectedReplicateQuery: string | null;
   }
 ) {
+  if (!isRecipePhotoCacheEntryCompatibleWithRequestMainIngredient(entry, queryCandidates)) return false;
+  if (isChickenRecipePhotoRequest(queryCandidates) && !isChickenRecipePhotoCacheEntry(entry)) return false;
+  if (isShrimpRecipePhotoRequest(queryCandidates) && !isShrimpRecipePhotoCacheEntry(entry)) return false;
   if (entry.source !== "generated") return true;
   if (!isReplicateGeneratedRecipeImageUrl(entry.imageUrl)) return false;
 
@@ -816,12 +829,75 @@ function canUseGeneratedRecipePhotoCacheForRequest(
 }
 
 function canUseApproximateSharedRecipePhotoForRequest(entry: SharedRecipePhotoEntry, queryCandidates: string[]) {
+  if (!isRecipePhotoCacheEntryCompatibleWithRequestMainIngredient(entry, queryCandidates)) return false;
+  if (isChickenRecipePhotoRequest(queryCandidates) && !isChickenRecipePhotoCacheEntry(entry)) return false;
+  if (isShrimpRecipePhotoRequest(queryCandidates) && !isShrimpRecipePhotoCacheEntry(entry)) return false;
   if (entry.source !== "generated") return true;
   if (!isReplicateGeneratedRecipeImageUrl(entry.imageUrl)) return false;
 
   const cachedQuery = normalizeGeneratedCacheQuery(entry.query || getGeneratedRecipePhotoUrlSignature(entry.imageUrl) || entry.signature);
   if (!cachedQuery) return false;
   return !hasGeneratedRecipePhotoCacheTextConflict(cachedQuery, queryCandidates);
+}
+
+function isRecipePhotoCacheEntryCompatibleWithRequestMainIngredient(
+  entry: Pick<CachedRecipePhoto | SharedRecipePhotoEntry, "query" | "signature">,
+  queryCandidates: string[]
+) {
+  const requestedKeys = collectRecipePhotoMainIngredientKeys(queryCandidates);
+  if (!requestedKeys.size) return true;
+
+  const cacheKeys = collectRecipePhotoMainIngredientKeys([entry.query, entry.signature]);
+  if (!cacheKeys.size) return false;
+
+  for (const requestedKey of requestedKeys) {
+    if (cacheKeys.has(requestedKey)) return true;
+    if (requestedKey === "seafood" && (cacheKeys.has("fish") || cacheKeys.has("shrimp"))) return true;
+    if ((requestedKey === "fish" || requestedKey === "shrimp") && cacheKeys.has("seafood")) return true;
+    if (requestedKey === "bean" && (cacheKeys.has("chickpea") || cacheKeys.has("lentil"))) return true;
+  }
+
+  return false;
+}
+
+function collectRecipePhotoMainIngredientKeys(values: Array<string | null | undefined>) {
+  const keys = new Set<string>();
+  for (const value of values) {
+    if (!value?.trim()) continue;
+    const identity = buildRecipePhotoIdentity(value);
+    if (identity.mainIngredientKey && !isGenericRecipePhotoMainIngredientKey(identity.mainIngredientKey)) {
+      keys.add(identity.mainIngredientKey);
+    }
+  }
+  return keys;
+}
+
+function isGenericRecipePhotoMainIngredientKey(value: string) {
+  return value === "general" || value === "food" || value === "meal";
+}
+
+function isChickenRecipePhotoRequest(values: string[]) {
+  return values.some((value) =>
+    /(?:\b(?:chicken|hen|poultry|farakh|farkh|pollo|tavuk|gai|murgh)\b|\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e|\u0641\u0631\u062e(?:\u0629)?)/iu.test(value)
+  );
+}
+
+function isChickenRecipePhotoCacheEntry(entry: Pick<CachedRecipePhoto | SharedRecipePhotoEntry, "query" | "signature">) {
+  const text = [entry.query, entry.signature].filter(Boolean).join(" ").toLowerCase();
+  if (!isChickenRecipePhotoRequest([text])) return false;
+  return !/(?:\b(?:kofta|kafta|kofte|kefta|meatball|meatballs|beef|lamb|meat|kebab|shrimp|prawn|fish|salmon|tilapia|anchovy|hamsi|pescado|samke|black\s+bean|bean\s+taco|chile\s+relleno)\b|\u0643\u0641\u062a(?:\u0629|\u0647)|\u0644\u062d\u0645|\u0633\u0645\u0643|\u062c\u0645\u0628\u0631\u064a)/iu.test(text);
+}
+
+function isShrimpRecipePhotoRequest(values: string[]) {
+  return values.some((value) =>
+    /(?:\b(?:shrimp|prawn|goong|gamberi|camarones)\b|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0642\u0631\u064a\u062f\u0633)/iu.test(value)
+  );
+}
+
+function isShrimpRecipePhotoCacheEntry(entry: Pick<CachedRecipePhoto | SharedRecipePhotoEntry, "query" | "signature">) {
+  const text = [entry.query, entry.signature].filter(Boolean).join(" ").toLowerCase();
+  if (!isShrimpRecipePhotoRequest([text])) return false;
+  return !/(?:\b(?:kofta|kafta|kofte|kefta|meatball|meatballs|beef|lamb|meat|kebab|fish|salmon|tilapia|anchovy|hamsi|pescado|samke)\b|\u0643\u0641\u062a(?:\u0629|\u0647)|\u0644\u062d\u0645|\u0633\u0645\u0643)/iu.test(text);
 }
 
 function canUseGeneratedRecipePhotoUrlForRequest(

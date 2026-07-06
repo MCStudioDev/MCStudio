@@ -501,4 +501,39 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("potato bechamel casserole");
     expect(prompt).toContain("do not use generic potato recipe");
   });
+
+  it("treats empty or sparse pantry as a varied cuisine and diet brief", () => {
+    const emptyPantryPrompt = buildRecipeGenerationPrompt([], {
+      recipeLanguage: "English",
+      preferredCuisine: "Italian",
+      calorieTarget: 1800,
+      maxMissingIngredients: 5,
+      recipeCount: 10,
+      diets: ["heartHealthy"],
+      conditions: ["high cholesterol"],
+      allergens: []
+    });
+    const shrimpPrompt = buildRecipeGenerationPrompt(
+      [{ name: "shrimp", quantity: "1 kg" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 10,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(emptyPantryPrompt).toContain("Sparse/empty pantry productivity rule");
+    expect(emptyPantryPrompt).toContain("treat Italian, diets, allergens, health conditions, and calorie target as creative design constraints");
+    expect(emptyPantryPrompt).toContain("Health adaptation rule");
+    expect(emptyPantryPrompt).toContain("Dish-promise integrity rule");
+    expect(shrimpPrompt).toContain("at least 6 visible forms");
+    expect(shrimpPrompt).toContain("BBQ or smoked");
+    expect(shrimpPrompt).toContain("breaded or crusted");
+    expect(shrimpPrompt).toContain("saucy or glazed");
+  });
 });

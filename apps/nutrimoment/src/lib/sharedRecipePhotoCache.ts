@@ -15,6 +15,13 @@ export interface SharedRecipePhotoEntry {
   source: "generated" | "google_search" | "pexels_search" | "unsplash_search" | "wikimedia";
 }
 
+type SharedRecipePhotoCandidate = {
+  docId: string;
+  entry: SharedRecipePhotoEntry;
+  lookupIndex: number;
+  raw: FirebaseFirestore.DocumentData;
+};
+
 const COLLECTION_NAME = "recipePhotoCache";
 const CATEGORY_VERSION = 2;
 const APPROXIMATE_CATEGORY_SCAN_LIMIT = 500;
@@ -70,14 +77,26 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
 }
 
 export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
-  for (const signature of signatures) {
-    const entry = await getSharedRecipePhoto(signature);
+  if (!hasFirebaseAdminConfig()) return null;
+
+  const candidates: SharedRecipePhotoCandidate[] = [];
+  for (const [index, signature] of signatures.entries()) {
+    const snapshot = await getAdminDb().collection(COLLECTION_NAME).doc(signature).get();
+    if (!snapshot.exists) continue;
+
+    const raw = snapshot.data() ?? {};
+    const entry = mapSharedRecipePhotoData(raw, signature);
     if (entry) {
-      return entry;
+      candidates.push({
+        docId: snapshot.id,
+        entry,
+        lookupIndex: index,
+        raw
+      });
     }
   }
 
-  return null;
+  return selectBestSharedRecipePhotoCandidate(candidates)?.entry ?? null;
 }
 
 export async function getSharedRecipePhotoByQueryOrSignature(input: {
@@ -91,22 +110,37 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
   const db = getAdminDb();
 
   const directDocCandidates = Array.from(new Set([...signatures, ...queries])).slice(0, 40);
-  for (const candidate of directDocCandidates) {
-    const entry = await getSharedRecipePhoto(candidate);
-    if (entry) return entry;
+  const candidates: SharedRecipePhotoCandidate[] = [];
+  for (const [index, candidate] of directDocCandidates.entries()) {
+    const docSnap = await db.collection(COLLECTION_NAME).doc(candidate).get();
+    if (!docSnap.exists) continue;
+
+    const raw = docSnap.data() ?? {};
+    const entry = mapSharedRecipePhotoData(raw, docSnap.id);
+    if (entry) {
+      candidates.push({
+        docId: docSnap.id,
+        entry,
+        lookupIndex: index,
+        raw
+      });
+    }
   }
 
-  const signatureMatch = await getSharedGeneratedRecipePhotoByFieldValues("signature", signatures);
-  if (signatureMatch) return signatureMatch;
+  const signatureMatch = await getSharedRecipePhotoCandidateByFieldValues("signature", signatures);
+  if (signatureMatch) candidates.push(signatureMatch);
 
-  const queryMatch = await getSharedGeneratedRecipePhotoByFieldValues("query", queries);
-  if (queryMatch) return queryMatch;
+  const queryMatch = await getSharedRecipePhotoCandidateByFieldValues("query", queries);
+  if (queryMatch) candidates.push(queryMatch);
 
-  const normalizedQueryMatch = await getSharedGeneratedRecipePhotoByFieldValues("queryKey", queries.map(normalizeRecipePhotoCacheLookupKey));
-  if (normalizedQueryMatch) return normalizedQueryMatch;
+  const normalizedQueryMatch = await getSharedRecipePhotoCandidateByFieldValues("queryKey", queries.map(normalizeRecipePhotoCacheLookupKey));
+  if (normalizedQueryMatch) candidates.push(normalizedQueryMatch);
 
-  const normalizedSignatureMatch = await getSharedGeneratedRecipePhotoByFieldValues("signatureKey", signatures.map(normalizeRecipePhotoCacheLookupKey));
-  if (normalizedSignatureMatch) return normalizedSignatureMatch;
+  const normalizedSignatureMatch = await getSharedRecipePhotoCandidateByFieldValues("signatureKey", signatures.map(normalizeRecipePhotoCacheLookupKey));
+  if (normalizedSignatureMatch) candidates.push(normalizedSignatureMatch);
+
+  const bestCandidate = selectBestSharedRecipePhotoCandidate(candidates);
+  if (bestCandidate) return bestCandidate.entry;
 
   // Backward-compatible scan for very old docs whose query/signature
   // fields contain stray whitespace or casing differences and do not yet have
@@ -127,7 +161,8 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
 
   const queryKeys = new Set(queries.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
   const signatureKeys = new Set(signatures.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
-  for (const docSnap of snapshot.docs) {
+  const scanCandidates: SharedRecipePhotoCandidate[] = [];
+  for (const [index, docSnap] of snapshot.docs.entries()) {
     const data = docSnap.data();
     const docKeys = [
       docSnap.id,
@@ -142,11 +177,18 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
 
     if (docKeys.some((key) => queryKeys.has(key) || signatureKeys.has(key))) {
       const entry = mapSharedRecipePhotoData(data, docSnap.id);
-      if (entry) return entry;
+      if (entry) {
+        scanCandidates.push({
+          docId: docSnap.id,
+          entry,
+          lookupIndex: index,
+          raw: data
+        });
+      }
     }
   }
 
-  return null;
+  return selectBestSharedRecipePhotoCandidate(scanCandidates)?.entry ?? null;
 }
 
 export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
@@ -170,6 +212,7 @@ export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) 
   if (!normalizedQueries.length) return null;
 
   const db = getAdminDb();
+  const candidates: SharedRecipePhotoCandidate[] = [];
   for (let index = 0; index < normalizedQueries.length; index += 10) {
     const chunk = normalizedQueries.slice(index, index + 10);
     let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
@@ -186,13 +229,21 @@ export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) 
       continue;
     }
 
-    for (const docSnap of snapshot.docs) {
-      const entry = mapSharedRecipePhotoData(docSnap.data(), docSnap.id);
-      if (entry) return entry;
+    for (const [docIndex, docSnap] of snapshot.docs.entries()) {
+      const raw = docSnap.data();
+      const entry = mapSharedRecipePhotoData(raw, docSnap.id);
+      if (entry) {
+        candidates.push({
+          docId: docSnap.id,
+          entry,
+          lookupIndex: index + docIndex,
+          raw
+        });
+      }
     }
   }
 
-  return null;
+  return selectBestSharedRecipePhotoCandidate(candidates)?.entry ?? null;
 }
 
 export async function getSharedGeneratedRecipePhotoByCategory(input: {
@@ -287,30 +338,54 @@ export async function getSharedRecipePhotoByApproximateCategory(input: {
       )
     )
     .sort((left, right) =>
-      scoreSharedRecipePhotoCategoryMatch(right.raw, right.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, ingredientTokens, mainIngredientKeys) -
-        scoreSharedRecipePhotoCategoryMatch(left.raw, left.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, ingredientTokens, mainIngredientKeys) ||
+      scoreSharedRecipePhotoCategoryCandidate(right.raw, right.entry, right.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, ingredientTokens, mainIngredientKeys) -
+        scoreSharedRecipePhotoCategoryCandidate(left.raw, left.entry, left.docId, familyKeys, cuisineKeys, requestKeys, requestTokens, ingredientTokens, mainIngredientKeys) ||
+      compareSharedRecipePhotoCandidateFreshness(left, right) ||
       left.docId.localeCompare(right.docId)
     );
 
-  const best = candidates[0];
+  const minimumScore = ingredientTokens.size ? 24 : 18;
+  const best = requestTokens.size > 1
+    ? candidates.find((candidate) =>
+        scoreSharedRecipePhotoCategoryMatch(
+          candidate.raw,
+          candidate.docId,
+          familyKeys,
+          cuisineKeys,
+          requestKeys,
+          requestTokens,
+          ingredientTokens,
+          mainIngredientKeys
+        ) >= minimumScore
+      )
+    : candidates[0];
+
   if (!best) return null;
 
-  const bestScore = scoreSharedRecipePhotoCategoryMatch(
-    best.raw,
-    best.docId,
+  return best.entry;
+}
+
+function scoreSharedRecipePhotoCategoryCandidate(
+  data: FirebaseFirestore.DocumentData,
+  entry: SharedRecipePhotoEntry,
+  docId: string,
+  familyKeys: Set<string>,
+  cuisineKeys: Set<string>,
+  requestKeys: Set<string>,
+  requestTokens: Set<string>,
+  ingredientTokens: Set<string>,
+  mainIngredientKeys: string[]
+) {
+  return scoreSharedRecipePhotoCategoryMatch(
+    data,
+    docId,
     familyKeys,
     cuisineKeys,
     requestKeys,
     requestTokens,
     ingredientTokens,
     mainIngredientKeys
-  );
-  const minimumScore = ingredientTokens.size ? 24 : 18;
-  if (requestTokens.size > 1 && bestScore < minimumScore) {
-    return null;
-  }
-
-  return best.entry;
+  ) + getSharedRecipePhotoUpdatedUrlScore(data, entry);
 }
 
 async function getRecipePhotoCacheApproximateScanSnapshot() {
@@ -458,15 +533,16 @@ function normalizeSharedRecipePhotoSource(source: unknown): SharedRecipePhotoEnt
     : null;
 }
 
-async function getSharedGeneratedRecipePhotoByFieldValues(field: string, values: string[]) {
+async function getSharedRecipePhotoCandidateByFieldValues(field: string, values: string[]) {
   if (!hasFirebaseAdminConfig()) return null;
 
-  const candidates = normalizeCacheLookupCandidates(values).slice(0, 40);
-  if (!candidates.length) return null;
+  const lookupCandidates = normalizeCacheLookupCandidates(values).slice(0, 40);
+  if (!lookupCandidates.length) return null;
 
   const db = getAdminDb();
-  for (let index = 0; index < candidates.length; index += 10) {
-    const chunk = candidates.slice(index, index + 10);
+  const matches: SharedRecipePhotoCandidate[] = [];
+  for (let index = 0; index < lookupCandidates.length; index += 10) {
+    const chunk = lookupCandidates.slice(index, index + 10);
     let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
     try {
       snapshot = await db
@@ -482,13 +558,106 @@ async function getSharedGeneratedRecipePhotoByFieldValues(field: string, values:
       continue;
     }
 
-    for (const docSnap of snapshot.docs) {
-      const entry = mapSharedRecipePhotoData(docSnap.data(), docSnap.id);
-      if (entry) return entry;
+    for (const [docIndex, docSnap] of snapshot.docs.entries()) {
+      const raw = docSnap.data();
+      const entry = mapSharedRecipePhotoData(raw, docSnap.id);
+      if (entry) {
+        matches.push({
+          docId: docSnap.id,
+          entry,
+          lookupIndex: index + docIndex,
+          raw
+        });
+      }
     }
   }
 
-  return null;
+  return selectBestSharedRecipePhotoCandidate(matches);
+}
+
+function selectBestSharedRecipePhotoCandidate(candidates: SharedRecipePhotoCandidate[]) {
+  return [...candidates].sort((left, right) =>
+    compareSharedRecipePhotoCandidateFreshness(left, right) ||
+    left.lookupIndex - right.lookupIndex ||
+    left.docId.localeCompare(right.docId)
+  )[0] ?? null;
+}
+
+function compareSharedRecipePhotoCandidateFreshness(
+  left: Pick<SharedRecipePhotoCandidate, "docId" | "entry" | "raw">,
+  right: Pick<SharedRecipePhotoCandidate, "docId" | "entry" | "raw">
+) {
+  return (
+    getSharedRecipePhotoUpdatedUrlPriority(right.raw, right.entry) -
+      getSharedRecipePhotoUpdatedUrlPriority(left.raw, left.entry) ||
+    getSharedRecipePhotoUpdatedAtMillis(right.raw) - getSharedRecipePhotoUpdatedAtMillis(left.raw)
+  );
+}
+
+function getSharedRecipePhotoUpdatedUrlScore(data: FirebaseFirestore.DocumentData, entry: SharedRecipePhotoEntry) {
+  let score = 0;
+  if (getSharedRecipePhotoUpdatedAtMillis(data) > 0) score += 18;
+  if (isSharedRecipePhotoCacheStorageUrl(entry.imageUrl)) score += 14;
+  return score;
+}
+
+function getSharedRecipePhotoUpdatedUrlPriority(data: FirebaseFirestore.DocumentData, entry: SharedRecipePhotoEntry) {
+  let priority = 0;
+  if (getSharedRecipePhotoUpdatedAtMillis(data) > 0) priority += 2;
+  if (isSharedRecipePhotoCacheStorageUrl(entry.imageUrl)) priority += 1;
+  return priority;
+}
+
+function getSharedRecipePhotoUpdatedAtMillis(data: FirebaseFirestore.DocumentData) {
+  return Math.max(
+    getTimestampMillis(data.imageUrlUpdatedAt),
+    getTimestampMillis(data.urlUpdatedAt),
+    getTimestampMillis(data.photoUpdatedAt),
+    getTimestampMillis(data.updatedAt)
+  );
+}
+
+function getTimestampMillis(value: unknown) {
+  if (!value) return 0;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 10_000_000_000 ? value * 1000 : value;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  if (typeof value === "object") {
+    const timestampLike = value as {
+      seconds?: unknown;
+      toDate?: unknown;
+      toMillis?: unknown;
+    };
+    if (typeof timestampLike.toMillis === "function") {
+      const millis = timestampLike.toMillis();
+      return typeof millis === "number" && Number.isFinite(millis) ? millis : 0;
+    }
+    if (typeof timestampLike.toDate === "function") {
+      const date = timestampLike.toDate();
+      return date instanceof Date ? date.getTime() : 0;
+    }
+    if (typeof timestampLike.seconds === "number" && Number.isFinite(timestampLike.seconds)) {
+      return timestampLike.seconds * 1000;
+    }
+  }
+  return 0;
+}
+
+function isSharedRecipePhotoCacheStorageUrl(imageUrl: string) {
+  try {
+    const url = new URL(imageUrl);
+    const decodedPath = decodeURIComponent(url.pathname);
+    return decodedPath.includes("/recipe-photo-cache/");
+  } catch {
+    return /recipe-photo-cache(?:%2f|\/)/i.test(imageUrl);
+  }
 }
 
 function normalizeCacheLookupCandidates(values: string[]) {

@@ -2144,21 +2144,21 @@ const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
-  { key: "chicken", pattern: /\bchicken\b/iu },
+  { key: "chicken", pattern: new RegExp(`\\b(?:chicken|hen|poultry|farakh|farkh|pollo|tavuk|gai|murgh)\\b|\\u062f\\u062c\\u0627\\u062c|\\u0641\\u0631\\u0627\\u062e|\\u0641\\u0631\\u062e(?:\\u0629)?`, "iu") },
   { key: "mussels", pattern: /\bmussel|mussels\b/iu },
-  { key: "shrimp", pattern: /\bshrimp|prawn\b/iu },
+  { key: "shrimp", pattern: /(?:\b(?:shrimp|prawn|goong|gamberi|camarones)\b|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0642\u0631\u064a\u062f\u0633)/iu },
   { key: "liver", pattern: new RegExp(`\\bliver|kebda|kibda|ciger|cigeri\\b|${ARABIC.liver}|${ARABIC.liverAlt}`, "iu") },
   { key: "lamb", pattern: /\blamb\b/iu },
   { key: "beef", pattern: /\bbeef|steak|meat\b/iu },
   { key: "veal", pattern: /\bveal\b/iu },
-  { key: "fish", pattern: /\bwhite fish|fish|cod|tilapia|sea bass|snapper|salmon\b/iu },
+  { key: "fish", pattern: /(?:\b(?:white fish|fish|cod|tilapia|sea bass|snapper|salmon|pescado|samke|samak)\b|\u0633\u0645\u0643|\u0633\u0645\u0643\u0629|\u0628\u0644\u0637\u064a|\u062f\u0646\u064a\u0633|\u0633\u0644\u0645\u0648\u0646|\u062a\u0648\u0646\u0629)/iu },
   { key: "tuna", pattern: /\btuna\b/iu },
   { key: "tofu", pattern: /\btofu\b/iu },
   { key: "yogurt", pattern: new RegExp(`\\byogurt|labneh\\b|${ARABIC.yogurt}`, "iu") },
   { key: "egg", pattern: new RegExp(`\\begg\\b|${ARABIC.egg}`, "iu") },
   { key: "chickpea", pattern: new RegExp(`\\bchickpea|chickpeas\\b|${ARABIC.chickpea}`, "iu") },
   { key: "lentil", pattern: new RegExp(`\\blentil|lentils\\b|${ARABIC.lentil}`, "iu") },
-  { key: "bean", pattern: new RegExp(`\\bbean|beans|fava\\b|${ARABIC.fava}|${ARABIC.bean}|${ARABIC.loubia}`, "iu") },
+  { key: "bean", pattern: new RegExp(`\\b(?:bean|beans|fava|ful)\\b|${ARABIC.fava}|${ARABIC.bean}|${ARABIC.loubia}`, "iu") },
   { key: "eggplant", pattern: /\beggplant|aubergine\b|\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646/iu },
   { key: "avocado", pattern: /\bavocado\b|\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648/iu },
   { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") }
@@ -2168,7 +2168,7 @@ const BEAN_TYPE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "white-bean", pattern: /\bwhite bean|white beans|cannellini|navy bean|navy beans\b/iu },
   { key: "green-bean", pattern: /\bgreen bean|green beans\b/iu },
   { key: "black-bean", pattern: /\bblack bean|black beans\b/iu },
-  { key: "fava-bean", pattern: new RegExp(`\\bfava|fava bean|fava beans\\b|${ARABIC.fava}`, "iu") },
+  { key: "fava-bean", pattern: new RegExp(`\\b(?:fava|fava bean|fava beans|ful)\\b|${ARABIC.fava}`, "iu") },
   { key: "chickpea", pattern: new RegExp(`\\bchickpea|chickpeas\\b|${ARABIC.chickpea}`, "iu") }
 ];
 

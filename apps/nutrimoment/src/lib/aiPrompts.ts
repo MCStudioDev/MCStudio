@@ -488,7 +488,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const mealTypeRoutingGuidance = buildMealTypeRoutingGuidance(options.preferredCuisine, ingredients);
   const imageGuidance = buildCuisineImageGuidance(options.preferredCuisine);
   const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
-  const sparseIngredientGuidance = buildSparseIngredientGuidance(ingredients, options.preferredCuisine);
+  const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
+  const sparseIngredientGuidance = buildSparseIngredientGuidance(ingredients, options.preferredCuisine, recipeCount);
   const realRecipeGuardrails = buildRealRecipeGuardrails(options.preferredCuisine);
   const namedPlatePolicy = buildNamedPlateGenerationPolicy({
     allergens: options.allergens ?? [],
@@ -510,7 +511,6 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     .filter(Boolean);
   const hasPastaSignals = ingredientNames.some((ingredient) => isPastaLikeIngredient(String(ingredient)));
   const perMealCalories = Math.round(options.calorieTarget / 3);
-  const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
   const organMeatGuidance = buildOrganMeatGuidance(ingredients, recipeCount, options.preferredCuisine);
   const dietVarietyGuidance = buildDietVarietyGuidance(options.diets, options.conditions, recipeCount);
   const vegetarianVarietyGuidance = buildVegetarianVarietyGuidance(options.diets, recipeCount);
@@ -1466,11 +1466,14 @@ function buildIngredientCombinationGuidance(
   const anyCuisine = normalizeCuisinePromptKey(preferredCuisine) === "any";
 
   if (uniqueMeaningfulIngredients.length <= 1) {
+    const minimumForms = Math.min(recipeCount, recipeCount >= 8 ? 6 : recipeCount >= 5 ? 4 : Math.max(1, recipeCount));
     return [
       "Single-ingredient creativity mode: because the pantry is sparse, variety must come from real dish forms and cuisines, not from repeating grilled, garlic, lemon, or pasta defaults.",
       anyCuisine
-        ? "For Any cuisine with one main ingredient, deliberately branch across cuisines and forms such as stuffed, stewed, baked, fried, soup, rice dish, bread-based dish, skillet, and casserole when plausible."
+        ? `For Any cuisine with one main ingredient, deliberately branch across cuisines and at least ${minimumForms} visible forms when plausible: stuffed, stewed, BBQ or smoked, grilled, breaded or crusted, saucy or glazed, creamy or cheesy, baked, fried or baked-crisp, soup, rice dish, bread-based dish, skillet, and casserole.`
         : `For ${preferredCuisine} with one main ingredient, explore the traditional dish universe deeply instead of repeating one cooking method.`,
+      "Do not make the whole set one family with different adjectives. Each card needs a different dish identity, cooking method or texture, sauce/starch/base, and plating format whenever possible.",
+      "If the title promises a technique or added flavor such as breaded, BBQ, ginger, spinach, creamy, cheesy, fried, crispy, stew, smoked, or shawarma, include that support ingredient or technique in missing_ingredients and write the actual step.",
       "Support ingredients may be listed in missing_ingredients when they are needed for a real dish identity."
     ].join(" ");
   }
@@ -2316,10 +2319,14 @@ function buildIngredientDrivenCuisineGuidance(
 
 function buildSparseIngredientGuidance(
   ingredients: Array<{ name: string; quantity?: string }>,
-  preferredCuisine: string
+  preferredCuisine: string,
+  recipeCount = 5
 ) {
   const normalizedCuisine = normalizeCuisinePromptKey(preferredCuisine);
   const pantry = buildNormalizedPantrySet(ingredients);
+  const requestedCount = Math.min(10, Math.max(1, recipeCount || 5));
+  const minimumForms = Math.min(requestedCount, requestedCount >= 8 ? 6 : requestedCount >= 5 ? 4 : requestedCount);
+  const cuisineLabel = normalizedCuisine === "any" ? "Any cuisine" : preferredCuisine;
   const egyptianMeatBreadRiceGuidance =
     normalizedCuisine === "egyptian" &&
     hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "lamb mince", "mince", "beef"]) &&
@@ -2337,6 +2344,13 @@ function buildSparseIngredientGuidance(
     "Start from the strongest authentic dish family that naturally centers those ingredients, then list missing support items in missing_ingredients instead of forcing a generic recipe.",
     "If a cuisine reference dish clearly centers the sparse ingredient, use that dish family even when most aromatics, bread, rice, sauces, or garnishes are missing.",
     "When only one or two ingredients are available, it is acceptable for missing_ingredients to carry the aromatics, sauce components, starches, bread, herbs, or garnish that make the dish authentic.",
+    `Sparse/empty pantry productivity rule: treat ${cuisineLabel}, diets, allergens, health conditions, and calorie target as creative design constraints, not as permission to repeat plain safe plates. Produce a useful menu spread that a user would actually want to choose from.`,
+    `For this sparse request, the final ${requestedCount} cards should cover at least ${minimumForms} visibly different forms when diet and health rules allow it: saucy or glazed, grilled or BBQ or smoked, breaded or crusted, stew or curry or tagine, cheesy or creamy or safe dairy-free creamy, fried or crispy or baked-crisp, baked or roasted tray, sandwich or wrap, soup or broth, and rice or pasta or noodle integration.`,
+    normalizedCuisine === "any"
+      ? "For Any cuisine in sparse mode, actively rotate real cuisines and dish families. Do not let one cuisine, one method, or one base such as rice/pasta/grilled protein dominate the whole set."
+      : `For ${preferredCuisine} in sparse mode, first exhaust real ${preferredCuisine} dish families and regional forms before using adjacent cuisines. The cards should feel like a varied ${preferredCuisine} menu, not generic recipes wearing a cuisine label.`,
+    "Health adaptation rule: cholesterol, diabetes, hypertension, weight, kidney, heart, and similar conditions should reshape preparation, fat, sodium, carb load, portion, and cooking method; they should not erase normal food variety. Use baked-crisp instead of deep-fried, low-sodium sauces, leaner cuts, measured oil, lower-fat or dairy-free creamy elements, whole-grain or portion-controlled starches, and extra vegetables when appropriate.",
+    "Dish-promise integrity rule: if the name says breaded, BBQ, grilled, smoked, stew, creamy, cheesy, ginger, spinach, lemon, tahini, shawarma, stuffed, crispy, or fried, that exact element must appear in ingredients or missing_ingredients and must have a clear step explaining how it is made.",
     "Do not pretend the user already owns support ingredients. Keep ingredients strictly limited to the provided pantry items, but still choose the most recognizable real dish family those items suggest.",
     buildIngredientPrepFormGuidance(ingredients, 10, preferredCuisine),
     "For image_search_indices in sparse-pantries, keep the first phrase exact if a real iconic dish family fits, then add one or two broader ingredient-led food-photo phrases so image lookup can still succeed."

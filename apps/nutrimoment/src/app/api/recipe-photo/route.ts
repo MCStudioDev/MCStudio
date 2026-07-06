@@ -13,7 +13,6 @@ import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
 import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
 import {
   getSharedGeneratedRecipePhotoByQueries,
-  getSharedGeneratedRecipePhotoByCategory,
   getSharedRecipePhotoByApproximateCategory,
   getSharedRecipePhotoByExactAliases,
   getSharedRecipePhotoByQueryOrSignature,
@@ -541,13 +540,13 @@ export async function GET(request: Request) {
     }
   }
 
-  if (useReplicateGeneration && liverVisualRequest) {
-    const categoryCached = await getSharedGeneratedRecipePhotoByCategory({
+  if (useReplicateGeneration && approximateMainIngredientKeys.length) {
+    const categoryCached = await getSharedRecipePhotoByApproximateCategory({
       cuisineKeys: [...identities, ...replicateIdentities].map((entry) => entry.cuisineKey),
       excludeImageUrls: Array.from(explicitlyExcludedImageUrls),
       familyKeys: [...identities, ...replicateIdentities].map((entry) => entry.familyKey),
       ingredientTexts: ingredientHints,
-      mainIngredientKey: "liver",
+      mainIngredientKeys: approximateMainIngredientKeys,
       requestTexts: [
         ...queryCandidates,
         ...replicateQueryCandidates,
@@ -555,16 +554,28 @@ export async function GET(request: Request) {
         ...ingredientHints
       ]
     });
-    if (categoryCached) {
+    if (
+      categoryCached &&
+      !explicitlyExcludedImageUrls.has(categoryCached.imageUrl) &&
+      !isKnownWeakRecipeProviderImageUrl(categoryCached.imageUrl) &&
+      canUseSharedRecipePhotoForVisualRequest(categoryCached, strictVisualRequest, useReplicateGeneration) &&
+      canUseApproximateSharedRecipePhotoForRequest(categoryCached, queryCandidates) &&
+      (!isRecipePhotoRecentlyUsedForDifferentSignature(
+        categoryCached.imageUrl,
+        [categoryCached.signature, ...signatureCandidates, ...exactCacheLookupCandidates],
+        reuseKeyCandidates
+      ))
+    ) {
       const sharedPhoto = buildCachedRecipePhotoFromShared(categoryCached);
       setRecipePhotoCacheAliases([sharedPhoto.signature, ...signatureCandidates], sharedPhoto);
       rememberRecipePhotoSelection(sharedPhoto.imageUrl, sharedPhoto.signature, getRecipePhotoReuseKeyForEntry(sharedPhoto, reuseKeyCandidates));
 
-      logger.info("Recipe photo served from shared liver category cache", {
+      logger.info("Recipe photo served from shared generated category cache", {
         source: sharedPhoto.source,
         query,
         cached: true,
         imageMode,
+        mainIngredientKeys: approximateMainIngredientKeys,
         sharedCache: true,
         signature: sharedPhoto.signature
       });

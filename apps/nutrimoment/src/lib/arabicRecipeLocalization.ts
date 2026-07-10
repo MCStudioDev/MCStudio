@@ -162,6 +162,19 @@ const INGREDIENTS: Record<string, string> = {
   garlic: "ثوم",
   honey: "عسل",
   basil: "ريحان",
+  cumin: "كمون",
+  coriander: "كزبرة",
+  paprika: "بابريكا",
+  turmeric: "كركم",
+  oregano: "أوريجانو",
+  thyme: "زعتر",
+  rosemary: "روزماري",
+  "black pepper": "فلفل أسود",
+  salt: "ملح",
+  "chili powder": "شطة مطحونة",
+  "curry powder": "مسحوق كاري",
+  "garlic powder": "ثوم بودرة",
+  "onion powder": "بصل بودرة",
   pasta: "مكرونة",
   spaghetti: "سباجيتي",
   penne: "بيني",
@@ -202,6 +215,11 @@ const INGREDIENTS: Record<string, string> = {
   "corn tostadas": "توستادا ذرة",
   "corn tostada": "توستادا ذرة",
   "brown rice": "أرز بني",
+  "egyptian rice": "أرز",
+  "white rice": "أرز",
+  "coconut milk": "حليب جوز الهند",
+  "oat milk": "حليب الشوفان",
+  "almond milk": "حليب اللوز",
   corn: "ذرة",
   "corn salsa": "سالسا ذرة",
   hominy: "ذرة هوميني",
@@ -271,7 +289,16 @@ const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
   penne: "بيني",
   fettuccine: "فيتوتشيني",
   macaroni: "مكرونة أقلام",
-  linguine: "لينجويني"
+  linguine: "لينجويني",
+  nori: "\u0637\u062d\u0627\u0644\u0628 \u0646\u0648\u0631\u064a",
+  edamame: "\u0641\u0648\u0644 \u0635\u0648\u064a\u0627 \u0623\u062e\u0636\u0631",
+  "sushi rice": "\u0623\u0631\u0632 \u0633\u0648\u0634\u064a",
+  "egyptian rice": "أرز",
+  "white rice": "أرز",
+  "coconut milk": "حليب جوز الهند",
+  "oat milk": "حليب الشوفان",
+  "almond milk": "حليب اللوز",
+  seaweed: "\u0637\u062d\u0627\u0644\u0628 \u0628\u062d\u0631\u064a\u0629"
 };
 
 const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
@@ -307,7 +334,27 @@ const ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES: Record<string, string> = {
   "بيني": "penne",
   "فيتوتشيني": "fettuccine",
   "مكرونة أقلام": "macaroni",
-  "لينجويني": "linguine"
+  "لينجويني": "linguine",
+  "\u0646\u0648\u0631\u064a": "nori",
+  "\u0637\u062d\u0627\u0644\u0628 \u0646\u0648\u0631\u064a": "nori",
+  "\u064a\u062f\u0627\u0645\u0627\u0645\u064a": "edamame",
+  "\u0625\u062f\u0627\u0645\u0627\u0645\u064a": "edamame",
+  "\u0641\u0648\u0644 \u0635\u0648\u064a\u0627 \u0623\u062e\u0636\u0631": "edamame",
+  "\u0623\u0631\u0632 \u0633\u0648\u0634\u064a": "sushi rice",
+  "أرز": "rice",
+  "ارز": "rice",
+  "رز": "rice",
+  "أرز مصري": "rice",
+  "ارز مصري": "rice",
+  "رز مصري": "rice",
+  "أرز أبيض": "rice",
+  "ارز ابيض": "rice",
+  "حليب جوز الهند": "coconut milk",
+  "حليب جوزالهند": "coconut milk",
+  "كوكو نت ميلك": "coconut milk",
+  "حليب الشوفان": "oat milk",
+  "حليب اللوز": "almond milk",
+  "\u0637\u062d\u0627\u0644\u0628 \u0628\u062d\u0631\u064a\u0629": "seaweed"
 };
 
 const STEP_TRANSLATIONS: Record<string, string> = {
@@ -603,6 +650,12 @@ export function translateRecipeTitleToEnglish(value: string, fallbackQuery?: str
   if (/طعمية|طعميه/.test(normalized)) return "Taameya";
   if (/فول\s+مدمس|فول/.test(normalized)) return "Ful Medames";
   if (/شكشوكة|شكشوكه/.test(normalized)) return "Shakshuka";
+  if (/(?:أفوكادو|افوكادو).*(?:طماطم|بندور(?:ة|ه)).*(?:ساوردوغ|توست|خبز|عيش)|(?:ساوردوغ|توست|خبز|عيش).*(?:أفوكادو|افوكادو).*(?:طماطم|بندور(?:ة|ه))/.test(normalized)) {
+    return "Avocado Tomato Sourdough Toast";
+  }
+  if (/(?:باذنجان|بتنجان|باذنجانة|بانجان).*(?:طماطم|صلصة).*(?:مكرونة|مكرونه|باستا|سباجيتي|بيني)|(?:مكرونة|مكرونه|باستا|سباجيتي|بيني).*(?:باذنجان|بتنجان|باذنجانة|بانجان).*(?:طماطم|صلصة)/.test(normalized)) {
+    return "Eggplant Tomato Pasta";
+  }
   if (/شوربة.*عدس|عدس.*شوربة/.test(normalized)) {
     if (/طماطم|مصري|مصرية/.test(normalized)) return "Egyptian Lentil Tomato Soup";
     return "Lentil Soup";
@@ -685,7 +738,7 @@ function detectArabicRecipeStarch(normalized: string) {
   if (/مكرونة|مكرونه|باستا|بيني|سباجيتي/.test(normalized)) return "Pasta";
   if (/أرز|ارز|رز/.test(normalized)) return "Rice";
   if (/بطاطس|بطاطا/.test(normalized)) return "Potatoes";
-  if (/خبز|عيش/.test(normalized)) return "Bread";
+  if (/خبز|عيش|توست|ساوردوغ|سوردو/.test(normalized)) return "Bread";
   return null;
 }
 
@@ -700,6 +753,9 @@ function detectArabicRecipeSauce(normalized: string) {
 
 function detectArabicRecipeVegetables(normalized: string) {
   const vegetables: string[] = [];
+  if (/باذنجان|بتنجان|بانجان/.test(normalized)) vegetables.push("Eggplant");
+  if (/أفوكادو|افوكادو/.test(normalized)) vegetables.push("Avocado");
+  if (/طماطم|بندور(?:ة|ه)/.test(normalized)) vegetables.push("Tomato");
   if (/بصل/.test(normalized)) vegetables.push("Onions");
   if (/فلفل/.test(normalized)) vegetables.push("Peppers");
   if (/خضار|خضروات/.test(normalized)) vegetables.push("Vegetables");

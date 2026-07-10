@@ -34,15 +34,63 @@ interface DishVisualPrompt {
   cuisineStyle?: string;
 }
 
+const ARABIC_FOOD_MEANINGS: Array<{ pattern: RegExp; promptMeaning: string; keywords: string[] }> = [
+  {
+    pattern: /\u064a\u062e\u0646(?:\u0629|\u0647|\u064a)/iu,
+    promptMeaning:
+      "يخنة / يخنه / yakhna means a savory stew or soup-like dish with broth or sauce and visible solids; it is never a dessert, sweet pudding, cake, custard, or candy",
+    keywords: ["stew", "soup", "broth", "savory"]
+  },
+  {
+    pattern: /\u0634\u0648\u0631\u0628(?:\u0629|\u0647)|\u062d\u0633\u0627\u0621|\u0645\u0631\u0642(?:\u0629|\u0647)?/iu,
+    promptMeaning: "شوربة / حساء / مرقة means soup or broth served in a bowl with visible liquid",
+    keywords: ["soup", "broth"]
+  },
+  {
+    pattern: /\u0645\u0639?\u0643\u0631\u0648\u0646(?:\u0629|\u0647)?/iu,
+    promptMeaning: "معكرونة / مكرونة / makarona means pasta or macaroni, usually short pasta or spaghetti depending on the recipe",
+    keywords: ["pasta", "macaroni", "spaghetti"]
+  },
+  {
+    pattern: /\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646/iu,
+    promptMeaning: "eggplant / aubergine must be visible as purple-skinned or browned eggplant pieces, not hidden as plain tomato sauce",
+    keywords: ["eggplant", "aubergine"]
+  },
+  {
+    pattern: /\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/iu,
+    promptMeaning: "toast, sourdough, khobz, or aish means bread/toast; show bread clearly when it is part of the recipe and do not replace it with rice",
+    keywords: ["bread", "toast", "sourdough"]
+  }
+];
+
+const ARABIC_PROMPT_INGREDIENT_ALIASES: Array<{ pattern: RegExp; english: string }> = [
+  { pattern: /\u0639\u062f\u0633/iu, english: "lentils" },
+  { pattern: /\u062e\u0636(?:\u0627\u0631|\u0631\u0648\u0627\u062a)|\u062e\u0636\u0631/iu, english: "vegetables" },
+  { pattern: /\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646/iu, english: "eggplant" },
+  { pattern: /\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648/iu, english: "avocado" },
+  { pattern: /\u062c\u0632\u0631/iu, english: "carrot" },
+  { pattern: /\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)/iu, english: "tomato" },
+  { pattern: /\u0635\u0644\u0635(?:\u0629|\u0647)/iu, english: "sauce" },
+  { pattern: /\u0641\u0648\u0644/iu, english: "ful medames fava bean mash" },
+  { pattern: /\u0628\u0635\u0644/iu, english: "onion" },
+  { pattern: /\u062b\u0648\u0645/iu, english: "garlic" },
+  { pattern: /\u0623?\u0631\u0632|\u0631\u0632/iu, english: "rice" },
+  { pattern: /\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/iu, english: "toast or bread" },
+  { pattern: /\u0628\u0637\u0627\u0637(?:\u0633|\u0627)/iu, english: "potato" },
+  { pattern: /\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e/iu, english: "chicken" },
+  { pattern: /\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646/iu, english: "shrimp" },
+  { pattern: /\u0633\u0645\u0643/iu, english: "fish" }
+];
+
 const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   hawawshi: {
     englishName: "Egyptian hawawshi",
     visualDescription:
-      "closed Egyptian baladi bread or pita stuffed internally with a thin layer of seasoned ground beef and aromatics only when listed, then baked or pan-toasted flat until the outside is crispy, golden brown, blistered, and slightly oily. Show browned bread triangles, wedges, or pita halves with the minced meat filling visible only along the cut seams and edges. The meat must be inside the bread, not exposed on top, not loose on the plate, and not shaped as skewers",
+      "closed Egyptian baladi bread or pita stuffed internally with spiced ground meat, onion, pepper, parsley, cumin, coriander, or chili only when listed, then baked or pan-toasted flat until the outside is crispy, golden brown, blistered, and slightly oily. Show the bread opened, cut in half, or cut into triangular wedges so the browned minced meat filling is clearly visible inside the bread. The meat must be enclosed inside the bread pocket and visible only through the opened cut seam, not spread on top like a pizza or flatbread",
     plating:
-      "served as stacked or fanned crispy stuffed bread wedges on a simple plate, similar to Egyptian street-food hawawshi. Pickles, tahini sauce, or lemon wedges may appear only if they fit the recipe",
+      "served as one opened stuffed baladi bread, pita halves, or stacked/fanned crispy stuffed bread wedges on a simple plate, similar to Egyptian street-food hawawshi. Pickles, tahini sauce, tomato, onion, or lemon wedges may appear only if listed or structurally required, and must stay secondary",
     avoid:
-      "beef skewers, kebab skewers, kofta logs, adana kebab, grilled meat sticks, burger bun, hamburger, open sandwich, open-faced flatbread, lahmacun, pizza, quesadilla, tacos, shawarma wrap, cheese, pasta, rice bowl, loose meatballs, loose ground beef, thick bread loaf, random vegetables",
+      "random flatbread with toppings, open-faced flatbread, pizza, lahmacun, pide, manakish, cheese flatbread, beef skewers, kebab skewers, kofta logs, adana kebab, grilled meat sticks, burger bun, hamburger, open sandwich, quesadilla, tacos, shawarma wrap, cheese, pasta, rice bowl, loose meatballs, loose ground beef, thick bread loaf, random vegetables, toppings sitting on top of bread",
     cuisineStyle: "authentic Egyptian street food"
   },
   "roast-chicken": {
@@ -169,6 +217,616 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
       "steak, beef strips, beef cubes, meatballs, burger patty, kofta, kebab, spaghetti-only plate, lasagna, creamy white sauce, rice, bread, salad, unrelated vegetables",
     cuisineStyle: "weeknight American comfort food"
   },
+  "orange-beef-lettuce-wraps": {
+    englishName: "orange beef lettuce wraps",
+    visualDescription:
+      "large crisp lettuce leaves shaped as cups, each filled with browned crumbled ground beef, shredded carrot, scallion, and a glossy orange-soy style glaze. The lettuce cup shape and minced beef filling must be obvious",
+    plating:
+      "served as several separate lettuce cups on a rectangular plate or platter; rice may appear only as a small amount inside the cup if listed",
+    avoid:
+      "tacos, tortillas, burrito, burger, steak strips, beef cubes, kofta skewers, rice bowl, loose skillet, pasta, soup, sandwich, plain salad without ground beef",
+    cuisineStyle: "fresh American-Asian lettuce wrap"
+  },
+  "ground-beef-zucchini-boats": {
+    englishName: "ground beef zucchini boats",
+    visualDescription:
+      "zucchini halves hollowed into long green boats and stuffed with browned crumbled ground beef, tomato sauce, diced peppers, and melted cheese or dairy-free topping only when listed. The zucchini boat structure must be visible from above",
+    plating: "served as several stuffed zucchini halves on a plate or baking dish with filling inside each hollowed zucchini",
+    avoid:
+      "loose ground beef skillet, zucchini noodles, tacos, burrito, pasta, lasagna sheets, soup, rice bowl, steak, kofta skewers, unrelated casserole with hidden zucchini",
+    cuisineStyle: "stuffed vegetable dinner"
+  },
+  "ground-beef-cauliflower-casserole": {
+    englishName: "ground beef cauliflower casserole",
+    visualDescription:
+      "a skillet or casserole with browned crumbled ground beef, visible cauliflower florets, peppers or jalapenos only when listed, and a melted cheese or dairy-free topping only when allowed. Cauliflower florets and minced beef must both be visible",
+    plating: "served in a skillet or as a casserole scoop with browned top and clear cauliflower pieces",
+    avoid:
+      "rice, pasta, bread, tacos, burrito, steak strips, beef cubes, kofta, meatballs, soup, plain cauliflower side, hidden ground beef",
+    cuisineStyle: "low-carb American casserole"
+  },
+  "keto-ground-beef-worcestershire": {
+    englishName: "keto ground beef Worcestershire skillet",
+    visualDescription:
+      "savory crumbled ground beef skillet with onion, peas, carrots, mushrooms, and a glossy brown Worcestershire-style sauce. The beef must be minced crumbles, not slices or cubes",
+    plating: "served as one shallow bowl or skillet portion with vegetables mixed into the ground beef",
+    avoid:
+      "steak, beef strips, beef cubes, meatballs, kofta, tacos, burrito, pasta, rice bowl, lettuce cups, soup, casserole with cheese",
+    cuisineStyle: "simple low-carb beef skillet"
+  },
+  "ground-beef-tacos": {
+    englishName: "ground beef tacos",
+    visualDescription:
+      "corn or flour tortillas filled with seasoned crumbled ground beef, salsa, lettuce, tomato, onion, cilantro, and cheese only when listed. The taco shells and loose minced beef filling must be clear",
+    plating: "served as two or three open tacos on a plate with lime or salsa only when listed",
+    avoid:
+      "burrito wrap, lettuce cups, rice bowl, steak strips, beef cubes, kofta, burger, pasta, casserole, soup, random flatbread",
+    cuisineStyle: "Mexican or Tex-Mex tacos"
+  },
+  "ground-beef-burritos": {
+    englishName: "ground beef burritos",
+    visualDescription:
+      "large flour tortillas wrapped around seasoned crumbled ground beef, beans, salsa, rice only when listed, and avocado or cheese only when listed. Show one burrito cut open so the ground beef filling is visible",
+    plating: "served as a wrapped burrito with a cut-open end or halved burrito on a plate",
+    avoid:
+      "open tacos, lettuce cups, rice bowl, steak strips, kofta, burger, pasta, soup, flatbread pizza, hidden filling",
+    cuisineStyle: "Tex-Mex burrito"
+  },
+  "lasagna-bolognese": {
+    englishName: "lasagna alla Bolognese",
+    visualDescription:
+      "layered lasagna with pasta sheets, red ground-beef ragu, bechamel or dairy-free white sauce only when listed, and browned top. A cut square must show distinct pasta, meat sauce, and sauce layers",
+    plating: "served as one square lasagna portion or a baking dish with a cut section revealing layers",
+    avoid:
+      "plain spaghetti, loose ground beef skillet, macaroni, tacos, burrito, kofta, meatballs only, soup, rice, steak strips",
+    cuisineStyle: "Italian baked pasta"
+  },
+  "eggplant-tomato-pasta": {
+    englishName: "eggplant tomato pasta",
+    visualDescription:
+      "pasta tossed in red tomato sauce with visible chunks or slices of roasted or sauteed eggplant distributed through the sauce. Eggplant pieces must be large and recognizable, with dark purple skin or browned flesh visible, so the dish reads as eggplant tomato pasta or pasta alla norma rather than plain red sauce pasta",
+    plating:
+      "served as one close recipe-card bowl or shallow plate of pasta with tomato sauce and clearly visible eggplant pieces on top and mixed in",
+    avoid:
+      "plain pasta with only red sauce, spaghetti with no eggplant, meat sauce, shrimp pasta, rice, toast, soup, salad, lasagna, creamy white sauce, hidden eggplant, tiny invisible eggplant garnish",
+    cuisineStyle: "Italian vegetarian pasta"
+  },
+  "avocado-chickpea-salad-cups": {
+    englishName: "avocado and chickpea salad cups",
+    visualDescription:
+      "fresh green lettuce cups filled with whole chickpeas, diced avocado, cucumber, tomato, parsley or cilantro, lemon, and olive oil only when listed. The food must read as individual salad cups or lettuce boats, not a generic salad bowl",
+    plating: "served as several filled lettuce cups on one plate with chickpeas and avocado clearly visible",
+    avoid: "rice, pasta, hummus dip, soup, toast, shrimp, chicken, loose generic salad bowl, hidden chickpeas, mashed avocado only",
+    cuisineStyle: "fresh Mediterranean vegetarian salad"
+  },
+  "greek-salad-jar": {
+    englishName: "Greek salad upgrade in a jar",
+    visualDescription:
+      "layered Greek-style salad with cucumber, tomato, red onion, chickpeas or quinoa, herbs, lemon, and olive oil only when listed. It may be shown in a mason jar or tipped into a bowl, but the layers and fresh vegetables must be clear",
+    plating: "served as a meal-prep jar or fresh bowl with distinct cucumber, tomato, chickpea, and grain layers",
+    avoid: "plain lettuce salad, rice bowl, pasta salad, soup, meat, shrimp, chicken, cheese unless listed",
+    cuisineStyle: "Greek Mediterranean meal-prep salad"
+  },
+  "roasted-veggie-chickpea-bowl": {
+    englishName: "roasted veggie and chickpea bowl",
+    visualDescription:
+      "colorful roasted vegetables such as broccoli, cauliflower, carrot, pepper, squash, onion, and visible roasted chickpeas in one bowl with lemon or tahini dressing only when listed",
+    plating: "served as one abundant vegetable bowl where roasted vegetables are the hero and chickpeas are visible",
+    avoid: "plain rice bowl, lentil-only bowl, pasta, soup, meat, shrimp, chicken, raw salad only, hidden chickpeas",
+    cuisineStyle: "Mediterranean roasted vegetable bowl"
+  },
+  "cucumber-tomato-avocado-salad": {
+    englishName: "cucumber tomato avocado salad",
+    visualDescription:
+      "chunky fresh salad with clearly diced cucumber, tomato, avocado, herbs, lemon, and olive oil only when listed. The avocado should appear as green chunks, not as toast or sauce",
+    plating: "served as a simple bright salad bowl or plate with large recognizable vegetable pieces",
+    avoid: "rice, toast, pasta, soup, shrimp, chicken, avocado sauce, tomato sauce over starch",
+    cuisineStyle: "fresh Mediterranean salad"
+  },
+  "crispy-zucchini-rolls": {
+    englishName: "crispy zucchini rolls",
+    visualDescription:
+      "thin zucchini strips rolled around an herb, tofu, or vegetable filling and baked or pan-seared until lightly browned. The rolled spiral form must be obvious",
+    plating: "served as several small zucchini rolls on a plate with herbs and lemon only when listed",
+    avoid: "zucchini noodles, zucchini soup, plain zucchini slices, lasagna, pasta, rice, meat, shrimp, chicken",
+    cuisineStyle: "Mediterranean vegetarian appetizer"
+  },
+  "yiayia-creamy-pasta": {
+    englishName: "Greek creamy pasta",
+    visualDescription:
+      "short pasta in a creamy tomato-orange sauce with basil, garlic, plant milk, olive oil, or nutritional yeast only when listed. The pasta shape and creamy sauce should be unmistakable",
+    plating: "served in one close bowl of short pasta coated in creamy tomato sauce, with no extra protein unless listed",
+    avoid: "rice, soup, plain red sauce spaghetti, meat sauce, shrimp, chicken, egg, white Alfredo if tomato is listed",
+    cuisineStyle: "comforting Greek Mediterranean pasta"
+  },
+  "spicy-fasolada": {
+    englishName: "creamy spicy fasolada white bean soup",
+    visualDescription:
+      "Greek white bean soup or stew in a bowl with visible white beans, carrot, tomato, celery, herbs, olive oil, and chili only when listed. It must have visible liquid or creamy broth",
+    plating: "served in a deep bowl with spoonable soup texture and white beans visible at the surface",
+    avoid: "dry beans on a plate, rice bowl, pasta, dessert, smooth puree with no beans, meat, shrimp, chicken, no visible liquid",
+    cuisineStyle: "Greek bean soup"
+  },
+  "creamy-greek-potato-salad": {
+    englishName: "creamy Greek potato salad",
+    visualDescription:
+      "potato salad with bite-size potato pieces, red onion, dill or herbs, olives, lemon, and creamy yogurt or plant-based dressing only when listed. It should look like potato salad, not fries",
+    plating: "served as one chilled or room-temperature salad bowl with visible potato pieces and herbs",
+    avoid: "french fries, roasted potato tray, mashed potatoes, rice, pasta, soup, meat, shrimp, chicken",
+    cuisineStyle: "Greek Mediterranean potato salad"
+  },
+  "roasted-vegetable-stuffed-shells": {
+    englishName: "roasted vegetable stuffed shells",
+    visualDescription:
+      "large jumbo pasta shells filled with roasted vegetables, spinach, zucchini, pepper, tomato, and tofu ricotta or cheese only when listed, baked in marinara sauce. The shell shape and filling must be visible",
+    plating: "served as baked stuffed shells in a casserole dish or shallow plate with marinara and visible vegetable filling",
+    avoid: "spaghetti, lasagna sheets, plain pasta, rice, soup, meatballs, shrimp, chicken, hidden vegetables",
+    cuisineStyle: "Italian-American vegetarian baked pasta"
+  },
+  "zucchini-veggie-bake": {
+    englishName: "zucchini veggie bake",
+    visualDescription:
+      "layered baked casserole of zucchini slices, tomato, peppers, onion, herbs, and optional nutritional yeast or dairy-free cheese only when listed. Zucchini slices must be visible as the main structure",
+    plating: "served from a baking dish or as one square casserole portion with browned top and visible zucchini layers",
+    avoid: "pasta, lasagna sheets, rice, soup, plain ratatouille stew, meat, shrimp, chicken, hidden zucchini",
+    cuisineStyle: "vegetable-forward baked casserole"
+  },
+  "cauliflower-pizza-breadsticks": {
+    englishName: "low carb cheesy cauliflower pizza breadsticks",
+    visualDescription:
+      "rectangular cauliflower-crust pizza breadsticks baked with tomato sauce, melted cheese or dairy-free cheese only when listed, herbs, and garlic. The pieces should look like cut breadsticks from a cauliflower crust, not a full bread loaf",
+    plating: "served as sliced rectangular breadsticks on a tray with pizza sauce nearby only if listed",
+    avoid: "bread loaf, regular pizza slice, pepperoni unless listed, pasta, rice, soup, meat, shrimp, chicken, raw cauliflower florets",
+    cuisineStyle: "low-carb American pizza snack"
+  },
+  "low-carb-eggplant-lasagna": {
+    englishName: "low carb eggplant lasagna",
+    visualDescription:
+      "layered eggplant lasagna where roasted eggplant slices replace pasta sheets, with tomato marinara, basil, and tofu ricotta or cheese only when listed. Purple eggplant edges or browned eggplant slices must be visible between layers",
+    plating: "served as one cut casserole square or layered slice with eggplant layers and red sauce visible",
+    avoid: "regular pasta lasagna sheets, spaghetti, plain red sauce pasta, rice, soup, meat unless listed, hidden eggplant",
+    cuisineStyle: "vegetarian low-carb casserole"
+  },
+  "low-carb-roasted-veggie-pizza": {
+    englishName: "low carb roasted veggie pizza",
+    visualDescription:
+      "low-carb vegetable-crust pizza or casserole-style pizza topped with roasted zucchini, peppers, onion, tomato sauce, herbs, and cheese or dairy-free cheese only when listed",
+    plating: "served as a pizza square or round veggie-crust pizza with visible roasted vegetable toppings",
+    avoid: "pepperoni unless listed, meat toppings, shrimp, pasta, rice, soup, plain flatbread with random toppings, hidden vegetables",
+    cuisineStyle: "vegetarian low-carb pizza"
+  },
+  "roasted-veggie-tacos": {
+    englishName: "easy roasted veggie tacos",
+    visualDescription:
+      "corn tortillas filled with roasted cauliflower, sweet potato, peppers, beans, avocado, salsa, cilantro, and lime only when listed. The taco form and roasted vegetable filling must be clear",
+    plating: "served as two or three open tacos on corn tortillas with colorful roasted vegetables visible",
+    avoid: "meat tacos, shrimp tacos, fish tacos, rice bowl, burrito, generic salad, soup, plain tortillas with no filling",
+    cuisineStyle: "Mexican vegetarian tacos"
+  },
+  "vegan-palak-tofu": {
+    englishName: "vegan palak paneer with tofu",
+    visualDescription:
+      "green spinach curry gravy with golden or white tofu cubes standing in for paneer, plus tomato, spices, coconut milk, or cashew cream only when listed. Tofu cubes must be visible and it must not look like dairy paneer if dairy-free",
+    plating: "served in a bowl or shallow curry dish with tofu cubes visible in green spinach sauce; rice or naan only if listed and secondary",
+    avoid: "paneer cheese, chicken, meat, shrimp, plain rice bowl, dry tofu scramble, tomato-only curry, hidden tofu",
+    cuisineStyle: "Indian vegan spinach curry"
+  },
+  "vegan-tikka-masala": {
+    englishName: "vegan tikka masala",
+    visualDescription:
+      "orange-red tomato masala curry with tofu cubes or roasted vegetable chunks, coconut milk or cashew cream only when listed, and visible spiced sauce. It must read as vegan tikka masala, not chicken tikka masala",
+    plating: "served in one curry bowl with tofu or vegetables clearly visible; rice or naan only if listed and secondary",
+    avoid: "chicken, paneer cheese, meat, shrimp, plain tomato soup, dry stir fry, rice hiding the curry",
+    cuisineStyle: "Indian vegan tikka masala"
+  },
+  "baingan-bharta": {
+    englishName: "baingan bharta",
+    visualDescription:
+      "smoky mashed roasted eggplant curry with tomato, onion, ginger, garlic, herbs, and spices only when listed. The texture should be rustic mashed eggplant with some browned eggplant pieces, not a smooth dessert or rice dish",
+    plating: "served as a thick eggplant curry mound or bowl with optional flatbread or rice only if listed and secondary",
+    avoid: "plain rice plate, chicken tenders, sweet pudding, cake, pasta, soup, whole raw eggplant, meat curry, shrimp",
+    cuisineStyle: "authentic Indian eggplant bharta"
+  },
+  "persian-potato-patties": {
+    englishName: "Persian potato patties",
+    visualDescription:
+      "round golden Persian potato patties, kuku sibzamini, pan-fried until crisp outside and soft inside, with green herbs visible in the potato mixture",
+    plating: "served as several small patties on a plate with parsley, tomato, cucumber, or lemon only when listed",
+    avoid: "french fries, mashed potatoes, potato cubes, pancakes with syrup, rice, pasta, soup, meat, shrimp, chicken",
+    cuisineStyle: "Persian vegetarian home cooking"
+  },
+  "persian-eggplant-soup": {
+    englishName: "Persian eggplant soup",
+    visualDescription:
+      "Persian ash-e bademjan eggplant soup in a bowl, thick and spoonable with eggplant, lentils or beans, herbs, onion, mint oil, and yogurt or plant yogurt only when listed",
+    plating: "served in a deep bowl with visible soup texture, herbs, and eggplant pieces or mash at the surface",
+    avoid: "dry rice plate, chicken tenders, dessert, plain eggplant dip, pasta, fried patties, no visible liquid, meat unless listed",
+    cuisineStyle: "Persian vegetarian soup"
+  },
+  briam: {
+    englishName: "Briam Greek roasted vegetables",
+    visualDescription:
+      "Greek roasted vegetables with sliced potato, zucchini, eggplant, tomato, onion, herbs, and olive oil, cooked in a tray until soft and lightly browned",
+    plating: "served as a colorful roasted vegetable tray or shallow plate with sliced vegetables clearly visible",
+    avoid: "rice bowl, pasta, soup, raw salad, meat, shrimp, chicken, hidden vegetables",
+    cuisineStyle: "Greek vegan roasted vegetables"
+  },
+  caponata: {
+    englishName: "eggplant caponata",
+    visualDescription:
+      "Sicilian eggplant caponata with chunky browned eggplant, tomato, celery, olives, capers, herbs, and sweet-sour sauce only when listed",
+    plating: "served as a rustic chunky eggplant dish or appetizer plate, with eggplant pieces visible",
+    avoid: "plain tomato sauce, pasta, rice, soup, baba ghanoush dip, meat, shrimp, chicken, hidden eggplant",
+    cuisineStyle: "Sicilian vegetarian eggplant dish"
+  },
+  "turkish-zucchini-stew": {
+    englishName: "Turkish zucchini stew",
+    visualDescription:
+      "Turkish kabak yemegi zucchini stew with soft zucchini pieces, tomato, onion, olive oil, herbs, rice or bulgur only when listed, and yogurt or plant yogurt only if allowed",
+    plating: "served as one saucy bowl or shallow plate of zucchini stew with visible zucchini and tomato, not dry rice",
+    avoid: "zucchini fritters, raw zucchini salad, pasta, kebab, burger, chicken, meat, shrimp, plain rice bowl",
+    cuisineStyle: "Turkish vegetarian home cooking"
+  },
+  "turkish-mucver": {
+    englishName: "Mucver Turkish zucchini fritters",
+    visualDescription:
+      "small round Turkish zucchini fritters pan-fried golden with green zucchini shreds and herbs visible in each patty",
+    plating: "served as several fritters on a plate with herbs and yogurt or plant yogurt only when listed",
+    avoid: "zucchini stew, pancakes with syrup, fried potatoes, rice, pasta, meat, shrimp, chicken, soup",
+    cuisineStyle: "Turkish vegetarian fritters"
+  },
+  "salmon-rice-crunch-bowl": {
+    englishName: "salmon rice crunch bowl",
+    visualDescription:
+      "flaked grilled or baked salmon over white rice with diced cucumber, sliced radish, crunchy fried onions or crispy topping, sesame, and spicy orange sauce only when listed",
+    plating: "served as one close rice bowl with salmon as the hero and cucumber/radish arranged beside it",
+    avoid: "plain salmon fillet alone, sushi roll, shrimp bowl, chicken bowl, pasta, soup, hidden salmon, avocado toast",
+    cuisineStyle: "Asian-American salmon rice bowl"
+  },
+  "shrimp-fajitas": {
+    englishName: "shrimp fajitas",
+    visualDescription:
+      "seared shrimp with charred bell peppers and onions, warm corn or flour tortillas, lime, cilantro, and salsa only when listed. The shrimp and fajita vegetables must be visible",
+    plating: "served as a fajita platter or skillet with tortillas beside the shrimp and peppers",
+    avoid: "shrimp tacos already assembled, shrimp cocktail, rice bowl, pasta, soup, meat fajitas, chicken fajitas, hidden shrimp",
+    cuisineStyle: "Mexican fajita platter"
+  },
+  "shrimp-lettuce-wraps": {
+    englishName: "shrimp lettuce wraps",
+    visualDescription:
+      "butter lettuce or romaine leaves used as cups, filled with saucy shrimp, carrot ribbons, peppers, cilantro, scallions, sesame, and peanut or chili sauce only when listed",
+    plating: "served as several open lettuce cups with shrimp sitting on top of the leaves",
+    avoid: "rice bowl, tacos, tortillas, bread, pasta, shrimp cocktail, soup, chicken, beef, hidden lettuce",
+    cuisineStyle: "Asian-inspired seafood lettuce cups"
+  },
+  "pan-seared-scallops": {
+    englishName: "pan seared scallops",
+    visualDescription:
+      "large round sea scallops seared golden-brown on top and bottom, glossy with lemon butter or pan sauce only when listed",
+    plating: "served as a few round scallops on a plate or skillet, with the caramelized sear facing up",
+    avoid: "shrimp, fish fillets, crab cakes, chicken, rice bowl, pasta unless listed, soup, hidden scallops",
+    cuisineStyle: "Western seafood entree"
+  },
+  "parmesan-crusted-tilapia": {
+    englishName: "Parmesan crusted tilapia",
+    visualDescription:
+      "tilapia fillets baked or pan-seared with a golden herb crumb crust, parmesan only when listed or dairy-free crumb when dairy-free, with lemon and herbs",
+    plating: "served as one or two flat tilapia fillets on a plate, crust side visible and fish shape clear",
+    avoid: "salmon, fish tacos, fried fish sticks, whole fish, rice bowl, pasta, soup, shrimp, chicken, hidden crust",
+    cuisineStyle: "Italian-American light seafood"
+  },
+  "pesto-shrimp": {
+    englishName: "pesto shrimp",
+    visualDescription:
+      "whole curled shrimp coated in bright green basil pesto or dairy-free pesto only when listed, glossy with herbs and garlic visible",
+    plating: "served in a skillet or shallow plate of pesto shrimp; pasta or rice only if listed and secondary",
+    avoid: "red tomato sauce, cream sauce, shrimp cocktail, breaded fried shrimp, plain rice bowl, chicken, beef, hidden shrimp",
+    cuisineStyle: "Italian pesto seafood"
+  },
+  "tuscan-shrimp": {
+    englishName: "Tuscan shrimp",
+    visualDescription:
+      "shrimp in Tuscan-style garlic sauce with spinach and sun-dried tomatoes, cream or plant cream only when listed, with shrimp clearly visible above the sauce",
+    plating: "served in a skillet or shallow bowl with sauce around the shrimp; no pasta unless listed",
+    avoid: "plain boiled shrimp, shrimp cocktail, pesto shrimp, red marinara, rice bowl, pasta unless listed, chicken, beef, hidden shrimp",
+    cuisineStyle: "Italian-American Tuscan seafood"
+  },
+  "creamy-tuscan-salmon": {
+    englishName: "creamy Tuscan salmon",
+    visualDescription:
+      "seared salmon fillets in a creamy Tuscan garlic sauce with spinach, sun-dried tomatoes, capers, lemon, and cream or plant cream only when listed",
+    plating: "served as salmon fillets in a skillet or shallow plate with sauce visible around the fish",
+    avoid: "shrimp, plain salmon alone, rice bowl, pasta unless listed, fish tacos, soup, chicken, hidden salmon",
+    cuisineStyle: "Italian-American Tuscan seafood"
+  },
+  "easy-baked-salmon": {
+    englishName: "easy baked salmon",
+    visualDescription:
+      "simple oven-baked salmon fillets with browned paprika-herb top, lemon, parsley, and olive oil only when listed",
+    plating: "served as salmon fillets on a plate or sheet pan, fish texture and pink-orange salmon color visible",
+    avoid: "shrimp, white fish, fish tacos, rice bowl, pasta, soup, chicken, hidden salmon",
+    cuisineStyle: "Western baked seafood"
+  },
+  "citrus-roasted-salmon": {
+    englishName: "citrus-roasted salmon",
+    visualDescription:
+      "large salmon fillet or salmon portions roasted with orange and lemon slices, herbs, olive oil, and glossy browned edges",
+    plating: "served on a sheet pan or platter with citrus slices on and around the salmon",
+    avoid: "shrimp, white fish, plain rice bowl, pasta, soup, chicken, hidden salmon, citrus dessert",
+    cuisineStyle: "American roasted seafood"
+  },
+  "fish-tacos": {
+    englishName: "fish tacos",
+    visualDescription:
+      "corn tortillas filled with seasoned white fish pieces, cabbage slaw, salsa, cilantro, lime, and dairy-free or regular crema only when listed",
+    plating: "served as two or three open tacos with fish pieces clearly visible in tortillas",
+    avoid: "shrimp tacos, meat tacos, rice bowl, burrito, plain fish fillet plate, pasta, soup, hidden fish",
+    cuisineStyle: "Mexican Baja-style seafood tacos"
+  },
+  "cod-fish-tacos": {
+    englishName: "cod fish tacos",
+    visualDescription:
+      "corn tortillas filled with cod or white fish pieces, cabbage slaw, tomato salsa, cilantro, lime, and sauce only when listed",
+    plating: "served as open tacos with cod pieces visible and tortillas clearly framing the dish",
+    avoid: "shrimp tacos, meat tacos, rice bowl, burrito, plain cod fillet plate, pasta, soup, hidden fish",
+    cuisineStyle: "Mexican Baja-style cod tacos"
+  },
+  "fried-tilapia": {
+    englishName: "fried tilapia",
+    visualDescription:
+      "golden pan-fried tilapia fillets with crisp browned surface, lemon wedges, parsley, and oil only when listed",
+    plating: "served as flat tilapia fillets on a plate, not as sticks or nuggets",
+    avoid: "salmon, shrimp, fish tacos, whole fish, rice bowl, pasta, soup, chicken, heavy breading hiding the fish shape",
+    cuisineStyle: "Western pan-fried seafood"
+  },
+  "baked-tilapia-lemon": {
+    englishName: "baked tilapia with lemon",
+    visualDescription:
+      "tilapia fillets baked with lemon slices, tomatoes, herbs, olive oil, and feta only if dairy is listed and allowed",
+    plating: "served as baked white fish fillets on a tray or platter with lemon and tomatoes around them",
+    avoid: "salmon, shrimp, fish tacos, fried fish, rice bowl, pasta, soup, chicken, hidden tilapia",
+    cuisineStyle: "light baked seafood"
+  },
+  "baked-fish": {
+    englishName: "baked fish",
+    visualDescription:
+      "baked white fish fillet with lemon, garlic, herbs, tomatoes, onions, olives, and olive oil only when listed, tender and intact",
+    plating: "served as a visible white fish fillet on a plate or tray with vegetables kept secondary",
+    avoid: "salmon unless named, shrimp, fish tacos, fried fish, rice bowl, pasta, soup, chicken, hidden fish",
+    cuisineStyle: "simple baked seafood"
+  },
+  "shrimp-and-grits": {
+    englishName: "shrimp and grits",
+    visualDescription:
+      "pink shrimp served over creamy pale yellow corn grits with pepper-onion sauce, scallions, and light Cajun or Lowcountry seasoning only when listed",
+    plating: "served in one bowl with grits as the base and shrimp clearly visible on top",
+    avoid: "rice bowl, pasta, shrimp tacos, shrimp cocktail, soup, chicken, beef, hidden shrimp, plain polenta with no shrimp",
+    cuisineStyle: "Southern American Lowcountry seafood"
+  },
+  "grapefruit-shrimp-radicchio-tartines": {
+    englishName: "grapefruit shrimp and radicchio tartines",
+    visualDescription:
+      "charred sourdough toast topped with shrimp, pink grapefruit or citrus segments, radicchio, herbs, scallions, and light dressing only when listed",
+    plating: "served as open-faced tartines on toasted bread with shrimp and grapefruit clearly on top",
+    avoid: "rice bowl, pasta, soup, shrimp tacos, avocado toast only, plain shrimp salad, chicken, beef, hidden toast",
+    cuisineStyle: "modern American seafood tartine"
+  },
+  "seafood-paella-bell-peppers": {
+    englishName: "seafood paella with bell peppers",
+    visualDescription:
+      "Spanish seafood paella with saffron-yellow rice, shrimp, mussels or clams, bell peppers, tomato, peas, olives, and lemon only when listed, all in a wide shallow pan",
+    plating: "served in a paella pan with seafood arranged visibly on top of the rice",
+    avoid: "plain rice bowl, risotto, pasta, soup, seafood boil, chicken-only paella, hidden seafood, shrimp tacos",
+    cuisineStyle: "Spanish seafood paella"
+  },
+  "lobster-roll": {
+    englishName: "classic lobster rolls",
+    visualDescription:
+      "split-top hot dog buns filled with visible chunks of lobster meat, lettuce, lemon, and mayonnaise or butter only when listed",
+    plating: "served as one or more lobster rolls on a tray or plate with lemon wedges",
+    avoid: "shrimp roll, crab cake, burger, taco, rice bowl, pasta, soup, hidden lobster, whole lobster platter without bun",
+    cuisineStyle: "New England seafood sandwich"
+  },
+  "crispy-beef-bok-choy-stir-fry": {
+    englishName: "crispy beef stir-fry with bok choy",
+    visualDescription:
+      "thin crispy browned beef strips stir-fried with bright green bok choy, scallions, ginger, garlic, and glossy soy-style sauce. Noodles may appear only when listed and must not hide the beef or bok choy",
+    plating: "served as one wok-style bowl or shallow plate with beef strips and bok choy clearly visible",
+    avoid: "beef stew, steak slab, pot roast, rice bowl unless rice is listed, plain noodles with no bok choy, chicken, shrimp-only dish, hidden beef",
+    cuisineStyle: "Chinese-American beef stir-fry"
+  },
+  "easy-beef-pot-roast": {
+    englishName: "easy beef pot roast",
+    visualDescription:
+      "large slow-braised beef roast or thick slices of pot roast with browned exterior, tender shredded edges, potatoes, carrots, onions, herbs, and dark pan juices only when listed",
+    plating: "served in a Dutch oven or deep platter with the beef roast as the hero and vegetables around it",
+    avoid: "steak dinner, beef cubes stew, burger, meatballs, pasta, rice bowl, ribs, shredded sandwich, chicken, hidden roast",
+    cuisineStyle: "American homestyle braise"
+  },
+  "garlic-butter-steak-shrimp": {
+    englishName: "garlic butter steak and shrimp",
+    visualDescription:
+      "seared steak medallions or sliced steak served with whole curled shrimp in glossy garlic butter or olive-oil garlic sauce, herbs, and lemon only when listed. Both steak and shrimp must be visible",
+    plating: "served as a surf-and-turf plate or skillet with steak and shrimp side by side, sauce glistening on both",
+    avoid: "steak alone, shrimp alone, pasta unless listed, rice bowl, soup, tacos, pot roast, hidden shrimp, hidden steak",
+    cuisineStyle: "American steakhouse surf and turf"
+  },
+  "italian-meatloaf-marinara": {
+    englishName: "Italian meatloaf with marinara",
+    visualDescription:
+      "thick slices of baked Italian-style meatloaf topped with red marinara sauce, herbs, and melted cheese only when listed or allowed. Meatloaf slices must be visible over or beside the sauce",
+    plating: "served on a shallow plate with marinara under or over the meatloaf, herbs on top, no unrelated sides",
+    avoid: "plain hamburger patty, meatballs, kofta, steak, pasta as main subject, lasagna, rice bowl, sandwich, hidden loaf shape",
+    cuisineStyle: "Italian-American comfort food"
+  },
+  "steak-creamy-garlic-sauce": {
+    englishName: "steak with creamy garlic sauce",
+    visualDescription:
+      "pan-seared steak or steak medallion with browned crust and a creamy garlic pan sauce spooned around it, herbs and cracked pepper only when listed. Use plant cream visual if dairy-free ingredients are listed",
+    plating: "served as one steak on a plate or skillet with sauce visible but not covering the whole steak",
+    avoid: "pot roast, ribs, pasta, rice bowl, soup, burger, meatloaf, shrimp unless listed, sauce hiding the steak",
+    cuisineStyle: "steakhouse pan sauce"
+  },
+  "coffee-rubbed-strip-steak-chimichurri": {
+    englishName: "coffee-rubbed strip steak with chimichurri",
+    visualDescription:
+      "sliced strip steak with a dark coffee-spice crust, medium interior, and bright green chimichurri sauce with parsley, garlic, and herbs only when listed",
+    plating: "served as sliced steak with chimichurri spooned beside or over part of the meat",
+    avoid: "plain grilled steak with no sauce, ribs, pot roast, pasta, rice bowl, soup, burger, hidden chimichurri, overcooked gray meat",
+    cuisineStyle: "Latin-inspired steakhouse"
+  },
+  "classic-steak-dinner": {
+    englishName: "classic steak dinner",
+    visualDescription:
+      "seared steak with a browned crust, sliced or whole, served with potatoes, asparagus, green beans, or mashed potatoes only when listed. Steak remains the largest subject",
+    plating: "served on one dinner plate with steak and simple sides arranged cleanly",
+    avoid: "pot roast, ribs, burger, pasta, rice bowl, soup, meatloaf, shrimp unless listed, tiny steak garnish",
+    cuisineStyle: "classic American steak dinner"
+  },
+  "dry-aged-butter-steak": {
+    englishName: "dry-aged butter steak",
+    visualDescription:
+      "thick dry-aged steak with deep browned crust, glossy pan juices, herbs, and a small pat or drizzle of butter only when dairy is listed and allowed",
+    plating: "served on a simple plate or board with the steak as the sole hero, minimal garnish",
+    avoid: "pot roast, ribs, burger, pasta, rice bowl, soup, meatloaf, shrimp, heavy sauce hiding the steak",
+    cuisineStyle: "steakhouse close-up"
+  },
+  "tuscan-style-veal-chops": {
+    englishName: "Tuscan-style veal chops",
+    visualDescription:
+      "one or two bone-in veal chops grilled or pan-seared golden-brown with rosemary, sage, olive oil, lemon, and a light arugula or radish salad only when listed",
+    plating: "served as a bone-in chop on a white plate with herbs and a small salad beside it",
+    avoid: "boneless steak, lamb rack, ribs, pot roast, pasta, rice bowl, soup, burger, hidden bone-in chop",
+    cuisineStyle: "Tuscan Italian meat entree"
+  },
+  "sticky-bbq-beef-ribs": {
+    englishName: "sticky barbecued beef ribs",
+    visualDescription:
+      "large beef ribs with exposed bones, dark charred edges, and glossy sticky barbecue glaze coating the meat",
+    plating: "served as a stack or pile of beef ribs on a platter or board, bones visible",
+    avoid: "pork chop, steak, pot roast, burger, pasta, rice bowl, soup, boneless meat cubes, hidden rib bones",
+    cuisineStyle: "American barbecue ribs"
+  },
+  "ribs-hot-pepper-jelly-glaze": {
+    englishName: "ribs with hot-pepper-jelly glaze",
+    visualDescription:
+      "glossy ribs with visible bones and a red-orange sticky hot pepper jelly glaze, charred edges, herbs or scallions only when listed",
+    plating: "served on a platter or board with ribs separated enough to see the glaze and bones",
+    avoid: "plain steak, pot roast, burger, meatballs, pasta, rice bowl, soup, boneless chunks, hidden rib bones",
+    cuisineStyle: "sweet-spicy American barbecue"
+  },
+  "slow-grilled-rack-lamb-mustard-herbs": {
+    englishName: "slow-grilled rack of lamb with mustard and herbs",
+    visualDescription:
+      "rack of lamb or connected lamb chops with long bones, grilled browned crust, pink sliced interior, mustard-herb coating, rosemary, and herbs only when listed",
+    plating: "served on a board or plate with bones visible and chops partially sliced",
+    avoid: "shawarma slices, kofta, beef steak, ribs, pot roast, pasta, rice bowl, soup, burger, hidden lamb bones",
+    cuisineStyle: "Mediterranean grilled lamb"
+  },
+  "florentine-steak-balsamic-rosemary": {
+    englishName: "balsamic rosemary Florentine steak",
+    visualDescription:
+      "very thick grilled Florentine-style steak with browned crust, rosemary, balsamic glaze or marinade sheen, and visible grill marks",
+    plating: "served as a thick steak on a grill grate, board, or plate with rosemary and pan juices",
+    avoid: "thin sliced stir-fry beef, pot roast, ribs, burger, pasta, rice bowl, soup, meatloaf, hidden steak",
+    cuisineStyle: "Tuscan bistecca alla fiorentina"
+  },
+  "grilled-ribeye-rosemary-potatoes": {
+    englishName: "grilled rib-eye steak with rosemary potatoes",
+    visualDescription:
+      "grilled rib-eye steak with browned crust beside cubed roasted rosemary potatoes, lemon, and green vegetables only when listed",
+    plating: "served as a full dinner plate with steak and potatoes clearly separated",
+    avoid: "pot roast, ribs, pasta, rice bowl, soup, burger, meatloaf, fries only, hidden steak",
+    cuisineStyle: "American steak dinner"
+  },
+  "sausage-mixed-grill": {
+    englishName: "sausage mixed grill",
+    visualDescription:
+      "several grilled sausages with char marks served with grilled peppers, corn, radicchio, onions, or vegetables only when listed",
+    plating: "served as a shared grill platter with sausages clearly visible and vegetables around them",
+    avoid: "hot dog buns, pasta, rice bowl, soup, steak plate, plain sausage slices, hidden sausages",
+    cuisineStyle: "American mixed grill"
+  },
+  "churrasco-chimichurri": {
+    englishName: "churrasco with chimichurri",
+    visualDescription:
+      "grilled churrasco steak sliced against the grain with a bright green chimichurri sauce of parsley, garlic, oil, and herbs only when listed",
+    plating: "served on a plate or board with sliced steak and chimichurri visible beside or over it",
+    avoid: "pot roast, ribs, burger, pasta, rice bowl, soup, meatloaf, plain steak without chimichurri, hidden green sauce",
+    cuisineStyle: "Latin American grilled steak"
+  },
+  "carne-asada-black-beans": {
+    englishName: "carne asada with black beans",
+    visualDescription:
+      "charred sliced carne asada steak with black beans, avocado slices, lime, cilantro, and tortillas or rice only when listed",
+    plating: "served as a Mexican carne asada plate with steak slices clearly visible beside beans and avocado",
+    avoid: "pot roast, ribs, burger, pasta, soup, meatloaf, steak hidden under beans, plain rice bowl",
+    cuisineStyle: "Mexican carne asada plate"
+  },
+  "kalbi-ribs-grilled-corn": {
+    englishName: "kalbi ribs with grilled corn",
+    visualDescription:
+      "Korean-style cross-cut beef short ribs or kalbi ribs with glossy marinade, char marks, grilled corn, sesame, scallions, and vegetables only when listed",
+    plating: "served as ribs on a platter with grilled corn and sauce visible, bones and rib strips clear",
+    avoid: "American barbecue ribs, pot roast, steak slab, burger, pasta, rice bowl, soup, hidden rib bones",
+    cuisineStyle: "Korean kalbi grill"
+  },
+  "sofrito-bolognese": {
+    englishName: "sofrito bolognese",
+    visualDescription:
+      "spaghetti or pasta coated in red-orange sofrito meat sauce with visible crumbled ground beef, herbs, and grated cheese only when listed and allowed",
+    plating: "served as one pasta bowl with sauce and crumbled beef clearly mixed through the noodles",
+    avoid: "plain tomato pasta with no meat, meatballs, steak, rice bowl, soup, lasagna, hidden pasta, cheese if dairy-free",
+    cuisineStyle: "Latin-Italian pasta"
+  },
+  "smothered-italian-sausage": {
+    englishName: "smothered Italian sausage",
+    visualDescription:
+      "Italian sausage links simmered in chunky tomato sauce with peppers, onions, garlic, herbs, and olive oil only when listed",
+    plating: "served in a skillet or shallow dish with whole sausage links visible above the tomato-pepper sauce",
+    avoid: "pasta unless listed, rice bowl, hot dog bun, soup, steak, plain sliced sausage, hidden sausage links",
+    cuisineStyle: "Italian-American sausage and peppers"
+  },
+  "frijoles-peruanos": {
+    englishName: "frijoles peruanos",
+    visualDescription:
+      "creamy mashed Peruvian mayocoba or canary beans with a thick refried-bean texture, pale beige color, onion and garlic, with bacon only when listed and allowed",
+    plating: "served in one bowl or skillet as a spoonable bean mash with visible creamy texture",
+    avoid: "whole bean salad, black beans, hummus, lentil soup, rice as main subject, pasta, meat stew, dessert pudding",
+    cuisineStyle: "Peruvian refried beans"
+  },
+  "lamb-chops-agrodolce": {
+    englishName: "lamb chops with agrodolce glaze",
+    visualDescription:
+      "bone-in lamb chops with a glossy sweet-sour agrodolce glaze, walnuts, mint, and feta only when listed and dairy is allowed",
+    plating: "served as several glazed lamb chops on a plate with bones visible and glaze pooling lightly",
+    avoid: "shawarma, kofta, beef steak, pork ribs, pasta, rice bowl, soup, hidden lamb bones, feta if dairy-free",
+    cuisineStyle: "Italian agrodolce lamb"
+  },
+  "sheet-pan-sausage-corn-peach-cucumber": {
+    englishName: "sheet-pan sausage with corn peach cucumber salad",
+    visualDescription:
+      "roasted or grilled sausage links served with bright corn kernels, peach pieces, cucumber slices, herbs, and potato or tomato only when listed",
+    plating: "served on a sheet pan or large plate with sausages and colorful summer salad visible",
+    avoid: "pasta, rice bowl, soup, hot dog buns, steak, hidden sausage, plain salad with no sausage",
+    cuisineStyle: "American summer sheet-pan dinner"
+  },
+  "beef-stroganoff-ramen": {
+    englishName: "beef stroganoff ramen",
+    visualDescription:
+      "ramen noodles tossed in creamy mushroom stroganoff sauce with visible ground or sliced beef, mushrooms, onion, mustard, and scallions only when listed",
+    plating: "served in one bowl with ramen noodles and beef-mushroom sauce clearly visible",
+    avoid: "plain ramen soup, rice bowl, spaghetti bolognese, steak dinner, pot roast, hidden noodles, hidden beef",
+    cuisineStyle: "Asian-American comfort noodles"
+  },
+  "polish-lazanki": {
+    englishName: "Polish lazanki",
+    visualDescription:
+      "wide square or ribbon pasta tossed with cabbage, mushrooms, dill, browned kielbasa or sausage only when listed, and sour cream or plant yogurt only when listed",
+    plating: "served in one bowl with cabbage, pasta pieces, mushrooms, and sausage visible if included",
+    avoid: "Italian red sauce pasta, rice bowl, soup, steak, plain cabbage salad, hidden pasta, dairy topping if dairy-free",
+    cuisineStyle: "Polish cabbage pasta"
+  },
   "hamburger-stew": {
     englishName: "hamburger stew",
     visualDescription:
@@ -182,9 +840,11 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   koshary: {
     englishName: "Egyptian koshary",
     visualDescription:
-      "a bowl of rice, lentils, small pasta, chickpeas, tomato sauce, and crispy fried onions arranged in distinct visible layers",
-    plating: "served in one Egyptian street-food bowl with tomato sauce and crispy onions on top",
-    avoid: "plain rice, biryani, risotto, spaghetti-only pasta, meat, chicken, creamy sauce, soup",
+      "a full Egyptian koshary bowl with rice, brown lentils, short macaroni pasta, chickpeas, red tomato sauce, garlic-vinegar sauce only when listed, and crispy fried onions arranged in distinct visible layers. The pasta, chickpeas, tomato sauce, and crispy onions must all be visible so it cannot read as plain lentil rice",
+    plating:
+      "served in one Egyptian street-food bowl with red tomato sauce spooned over the rice-lentil-pasta mix and a generous crispy onion topping",
+    avoid:
+      "plain lentil rice, mujadara, rice and lentils only, biryani, risotto, spaghetti-only pasta, tomato rice, meat, chicken, creamy sauce, soup, hidden pasta, no chickpeas, no crispy onions",
     cuisineStyle: "authentic Egyptian street food"
   },
   kafta: {
@@ -194,6 +854,56 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
     plating: "served on a simple platter with minimal parsley and optional flatbread only if it fits the recipe",
     avoid: "meatballs in tomato sauce, burger patty, steak, beef cubes, diced meat, chopped steak, sliced meat, pasta, spaghetti, soup, rice as the main subject",
     cuisineStyle: "authentic Egyptian, Turkish, or Middle Eastern grilled food"
+  },
+  "moroccan-beef-kofta": {
+    englishName: "Moroccan beef kofta",
+    visualDescription:
+      "grilled Moroccan beef kofta made from ground beef shaped into oval patties or short logs, browned with char marks, parsley, cumin, paprika, lemon, olives, or yogurt sauce only when listed. The minced kofta texture must be clear",
+    plating:
+      "served on a simple North African style plate or platter with kofta as the main subject and small garnishes only if listed",
+    avoid:
+      "burger patty, steak, beef cubes, loose ground beef skillet, meatballs in curry, pasta, tacos, burritos, rice as the main subject, random kebab cubes",
+    cuisineStyle: "Moroccan grilled kofta"
+  },
+  "lebanese-beef-kofta": {
+    englishName: "Lebanese beef kofta",
+    visualDescription:
+      "Lebanese kafta made from ground beef or lamb blended with parsley and onion, shaped as long kebab logs or skewers with visible char marks and fine minced-meat texture",
+    plating:
+      "served on a Levantine platter with pita, onion, tomato, parsley, tahini, or hummus only when listed; kafta logs remain the hero",
+    avoid:
+      "curry, burger, steak strips, beef cubes, loose minced meat, meatballs in red sauce, tacos, burritos, pasta, rice bowl",
+    cuisineStyle: "Lebanese grilled kafta"
+  },
+  "beef-kofta-saffron-rice": {
+    englishName: "beef kofta with saffron rice",
+    visualDescription:
+      "small ground-beef kofta balls or short logs served over fragrant yellow saffron rice, with kofta clearly visible on top and the rice golden rather than plain white",
+    plating:
+      "served as one composed bowl or plate with saffron rice as the base and kofta pieces arranged visibly on top",
+    avoid:
+      "plain rice with no kofta, steak, beef cubes, burger, tacos, burritos, pasta, soup, curry with hidden meatballs, dry kebab platter without rice",
+    cuisineStyle: "Middle Eastern kofta rice plate"
+  },
+  "beef-kofta-tomato-sauce": {
+    englishName: "beef kofta in tomato sauce",
+    visualDescription:
+      "small ground-beef kofta meatballs or short logs simmered in a rich red tomato sauce, glossy and saucy, with kofta pieces visible above the sauce",
+    plating:
+      "served in one shallow bowl or tagine-style dish with tomato sauce around the kofta; rice or bread only if listed",
+    avoid:
+      "dry grilled skewers, burger patty, steak, beef cubes, loose ground beef, pasta, spaghetti meatballs, tacos, burritos, plain rice bowl",
+    cuisineStyle: "Middle Eastern tomato kofta"
+  },
+  "pakistani-beef-kofta-curry": {
+    englishName: "Pakistani beef kofta curry",
+    visualDescription:
+      "round ground-beef kofta meatballs in a thick spiced tomato-onion curry gravy, warm orange-brown sauce, cilantro or green chili only when listed. The dish must read as curry with meatballs, not dry kebabs",
+    plating:
+      "served in a deep bowl or shallow curry dish with several kofta meatballs visible in the curry sauce; rice or flatbread only if listed",
+    avoid:
+      "dry grilled kofta, burger, steak, beef cubes, loose ground beef skillet, pasta, tacos, burritos, plain rice, soup with no meatballs",
+    cuisineStyle: "Pakistani kofta curry"
   },
   "rice-kofta": {
     englishName: "Egyptian rice kofta",
@@ -316,73 +1026,75 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   "ful-medames": {
     englishName: "Egyptian ful medames",
     visualDescription:
-      "slow-cooked fava beans mashed lightly with olive oil, lemon, cumin, and small vegetable garnish, thick and hearty",
-    plating: "served in one small bowl or deep plate with the fava beans as the clear main subject",
-    avoid: "chickpea hummus, lentil soup, rice, pasta, meat stew, salad bowl",
+      "Egyptian ful medames: slow-cooked fava beans crushed into a coarse warm mash or thick puree, with some soft broken bean skins visible but not a bowl of separate whole beans. The texture should look creamy, spoonable, rustic, and mashed with olive oil, lemon, cumin, tahini, tomato, onion, pepper, or parsley only when listed",
+    plating:
+      "served in one small Egyptian breakfast bowl or deep plate as a thick ful puree/mash with oil sheen and shallow spoon swirls; optional listed toppings sit on the surface but the mashed fava base remains the clear subject",
+    avoid:
+      "plain whole beans, separate intact beans as the main texture, generic bean salad, chickpea hummus, smooth beige hummus dip, lentil soup, rice, pasta, meat stew, salad bowl",
     cuisineStyle: "authentic Egyptian breakfast"
   },
   "ful-bil-zeit": {
     englishName: "ful bil zeit",
     visualDescription:
-      "fava beans dressed generously with olive oil, lemon, cumin, and simple herbs or vegetables only when listed, glossy with visible oil on the surface but still clearly a bean dish",
-    plating: "served in one shallow bowl or deep plate, with the olive oil dressing visible and no unrelated toppings",
-    avoid: "dry bean salad, hummus dip, lentil soup, rice, pasta, meat stew, eggs unless listed",
+      "ful bil zeit made from ful medames: crushed fava beans with a coarse mashed puree texture, dressed generously with olive oil, lemon, cumin, and simple herbs or vegetables only when listed. It should look glossy and spoonable, not like separate whole beans",
+    plating: "served in one shallow bowl or deep plate, with olive oil pooling lightly over the mashed ful surface and no unrelated toppings",
+    avoid: "plain whole beans, dry bean salad, hummus dip, lentil soup, rice, pasta, meat stew, eggs unless listed",
     cuisineStyle: "Levantine or Egyptian fava bean breakfast"
   },
   "spicy-ful-bil-zeit": {
     englishName: "spicy ful bil zeit",
     visualDescription:
-      "fava beans topped with hot oil or chili oil, tahini, lemon, cumin, and a small vegetable garnish only when listed. The surface should show red-orange spicy oil and creamy tahini streaks if tahini is listed",
-    plating: "served in one breakfast bowl or deep plate with toppings visible on the ful surface",
-    avoid: "plain beans with no topping, hummus, lentil soup, rice, pasta, egg tray, meat stew",
+      "spicy ful bil zeit made from coarse mashed ful medames, not whole beans. The mashed fava base is topped with hot oil or chili oil, tahini, lemon, cumin, and a small vegetable garnish only when listed. The surface should show red-orange spicy oil and creamy tahini streaks if tahini is listed",
+    plating: "served in one breakfast bowl or deep plate with toppings visible on the mashed ful surface",
+    avoid: "plain whole beans with no mash texture, hummus, lentil soup, rice, pasta, egg tray, meat stew",
     cuisineStyle: "Egyptian street-style spicy ful"
   },
   "alexandrian-ful": {
     englishName: "Alexandrian ful",
     visualDescription:
-      "Egyptian Alexandrian ful with fava beans mixed with tomato, green or red pepper, garlic, cumin, coriander, lemon, chili, and herbs only when listed. It should look colorful, saucy, and rustic",
-    plating: "served in one shallow bowl or plate with tomato-pepper topping visible over the beans",
-    avoid: "plain brown beans, hummus, lentil soup, rice, pasta, unrelated salad bowl",
+      "Egyptian Alexandrian ful with crushed ful medames fava bean mash mixed with tomato, green or red pepper, garlic, cumin, coriander, lemon, chili, and herbs only when listed. It should look colorful, saucy, rustic, and spoonable, with mashed fava texture rather than intact beans",
+    plating: "served in one shallow bowl or plate with tomato-pepper topping visible over the mashed ful",
+    avoid: "plain whole brown beans, generic bean salad, hummus, lentil soup, rice, pasta, unrelated salad bowl",
     cuisineStyle: "authentic Alexandrian Egyptian breakfast"
   },
   "ful-with-fried-egg": {
     englishName: "ful with fried egg",
     visualDescription:
-      "Egyptian ful medames topped with one or two fried eggs or visible cooked eggs only when eggs are listed, with fava beans underneath and cumin, lemon, oil, or vegetables only when listed",
-    plating: "served as one breakfast plate or shallow bowl where both the ful and egg are clearly visible",
+      "Egyptian ful medames coarse fava bean mash topped with one or two fried eggs or visible cooked eggs only when eggs are listed, with the mashed ful underneath and cumin, lemon, oil, or vegetables only when listed",
+    plating: "served as one breakfast plate or shallow bowl where both the mashed ful base and egg are clearly visible",
     avoid: "plain eggs without beans, shakshuka tomato sauce, omelette, rice, pasta, sausage unless listed",
     cuisineStyle: "Egyptian suhoor or breakfast plate"
   },
   "ful-eggs-cheese-tagine": {
     englishName: "ful tagine with eggs and cheese",
     visualDescription:
-      "baked ful tagine with fava beans, visible eggs, and melted or softened cheese only when cheese is listed. The dish should look like a warm baked tray or shallow casserole, not a plain bowl",
-    plating: "served in one small oven dish or shallow tray with eggs and cheese visible on top of the beans",
+      "baked ful tagine with coarse mashed ful medames fava bean base, visible eggs, and melted or softened cheese only when cheese is listed. The dish should look like a warm baked tray or shallow casserole, not a plain bowl of whole beans",
+    plating: "served in one small oven dish or shallow tray with eggs and cheese visible on top of the mashed ful",
     avoid: "plain ful bowl, omelette without beans, sausage, basterma, pasta, rice, soup",
     cuisineStyle: "Egyptian baked ful breakfast tray"
   },
   "ful-eggs-sausage-tray": {
     englishName: "ful tray with eggs and sausage",
     visualDescription:
-      "Egyptian ful tray with fava beans, visible eggs, and sliced sausage only when sausage is listed. The tray should look baked or skillet-cooked with the beans underneath",
-    plating: "served in one shallow tray or skillet with beans, egg, and sausage all visible",
+      "Egyptian ful tray with coarse mashed ful medames fava bean base, visible eggs, and sliced sausage only when sausage is listed. The tray should look baked or skillet-cooked with mashed ful underneath",
+    plating: "served in one shallow tray or skillet with mashed ful, egg, and sausage all visible",
     avoid: "plain sausage and eggs without ful, cheese unless listed, basterma, pasta, rice, soup",
     cuisineStyle: "Egyptian breakfast tray"
   },
   "ful-eggs-basterma-tagine": {
     englishName: "ful tagine with eggs and basterma",
     visualDescription:
-      "Egyptian ful tagine with fava beans, visible eggs, and thin reddish-brown basterma or pastrami slices only when basterma or pastrami is listed. The beans should still be visible under the toppings",
-    plating: "served in one shallow baked dish or skillet with ful, eggs, and basterma clearly separated",
+      "Egyptian ful tagine with coarse mashed ful medames fava bean base, visible eggs, and thin reddish-brown basterma or pastrami slices only when basterma or pastrami is listed. The mashed ful should still be visible under the toppings",
+    plating: "served in one shallow baked dish or skillet with mashed ful, eggs, and basterma clearly separated",
     avoid: "plain eggs and pastrami without ful, sausage, cheese unless listed, rice, pasta, soup",
     cuisineStyle: "Egyptian breakfast tagine"
   },
   "ful-sandwich": {
     englishName: "Egyptian ful sandwich",
     visualDescription:
-      "Egyptian ful stuffed in baladi bread, pita, or sandwich bread only when bread is listed, with fava bean filling visible and tomato, cucumber, pickles, tahini, or herbs only when listed",
-    plating: "served as one sandwich or split bread pocket with ful filling visible",
-    avoid: "plain bowl of beans, hummus wrap, falafel sandwich, meat sandwich, rice, pasta",
+      "Egyptian ful medames coarse fava bean mash stuffed in baladi bread, pita, or sandwich bread only when bread is listed, with the mashed ful filling visible and tomato, cucumber, pickles, tahini, or herbs only when listed",
+    plating: "served as one sandwich or split bread pocket with thick mashed ful filling visible",
+    avoid: "whole loose beans in bread, plain bowl of beans, hummus wrap, falafel sandwich, meat sandwich, rice, pasta",
     cuisineStyle: "Egyptian street-food breakfast sandwich"
   },
   "eggs-with-basterma": {
@@ -431,6 +1143,14 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
       "toast topped with mashed or sliced avocado and sunny-side fried egg only when avocado and bread or toast are listed, with the egg yolk visible and avocado green clearly present",
     plating: "served as one toast or open-faced breakfast plate",
     avoid: "plain eggs, ful beans, meat skillet, no bread, no avocado, rice, pasta",
+    cuisineStyle: "modern breakfast toast"
+  },
+  "avocado-tomato-toast": {
+    englishName: "avocado tomato sourdough toast",
+    visualDescription:
+      "one slice of toasted sourdough or rustic toast topped with mashed or sliced green avocado and fresh red tomato slices or diced tomato only when tomato is listed. The bread must be clearly visible under the toppings and the dish must read as open-faced avocado tomato toast, not a rice plate",
+    plating: "served as one open-faced toast on a small breakfast plate, with avocado and tomato as the only main toppings",
+    avoid: "rice, rice bowl, tomato rice, pasta, eggs unless listed, meat, fish, shrimp, soup, salad bowl, plain tomato sauce, avocado hidden under sauce, extra side dishes",
     cuisineStyle: "modern breakfast toast"
   },
   "eggs-with-mushrooms": {
@@ -1162,6 +1882,17 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
   }
 };
 
+const VEGAN_SHAKSHUKA_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "vegan shakshuka",
+  visualDescription:
+    "a rustic red tomato, pepper, onion, and spice shakshuka-style skillet with visible vegetables, chickpeas, tofu pieces, beans, or other listed plant protein standing in for eggs. It must look like an eggless vegan tomato skillet, with no whole eggs, no egg whites, no egg yolks, and no dairy",
+  plating:
+    "served in a small skillet or shallow bowl as one finished tomato-based vegan shakshuka-style dish, with sauce and plant ingredients visible at the surface",
+  avoid:
+    "eggs, poached eggs, fried eggs, egg yolks, egg whites, omelette, cheese, yogurt, dairy, meat, chicken, beef, fish, shrimp, plain tomato soup, pasta, rice, pizza, burger",
+  cuisineStyle: "vegan Middle Eastern breakfast"
+};
+
 export function isReplicateConfigured() {
   return Boolean(replicateApiToken && replicateModel);
 }
@@ -1318,14 +2049,23 @@ function buildRecipeImagePrompt(
   const alternateDishNames = normalizeAlternateDishNames(options.alternateDishNames ?? []);
   const alternateDishNameClause = buildAlternateDishNameClause(alternateDishNames);
   const exactCardIdentityClause = buildExactCardIdentityClause(options.exactRecipeName, dish || query);
-  const curatedPrompt = buildCuratedDishImagePrompt(dish || query, ingredientList, identity, alternateDishNameClause, exactCardIdentityClause);
+  const languageMeaningClause = buildArabicFoodMeaningClause(dish || query, ingredientList);
+  const visualSource = buildVisualMeaningSource(dish || query, ingredientList);
+  const curatedPrompt = buildCuratedDishImagePrompt(
+    dish || query,
+    ingredientList,
+    identity,
+    alternateDishNameClause,
+    exactCardIdentityClause,
+    languageMeaningClause
+  );
   if (curatedPrompt) {
     return curatedPrompt;
   }
 
-  const primarySubject = inferPrimaryVisualSubject(dish || query, ingredientList, identity);
+  const primarySubject = inferPrimaryVisualSubject(visualSource, ingredientList, identity);
   const supportStarches = ingredientList.filter((ingredient) =>
-    /\b(rice|pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|bulgur|bread|pita|bun|potato|potatoes)\b/i.test(
+    /\b(rice|pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|bulgur|bread|toast|sourdough|pita|bun|potato|potatoes)\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/i.test(
       ingredient
     )
   );
@@ -1350,6 +2090,7 @@ function buildRecipeImagePrompt(
     exactCardIdentityClause,
     "The image must match this exact meal name and cuisine as closely as possible.",
     alternateDishNameClause,
+    languageMeaningClause,
     anchorClause,
     cuisineClause,
     servingClause,
@@ -1366,14 +2107,27 @@ function buildRecipeImagePrompt(
   ].join(" ");
 }
 
+export function buildRecipeImagePromptForTest(
+  query: string,
+  ingredients: string[] = [],
+  options: { alternateDishNames?: string[]; exactRecipeName?: string } = {}
+) {
+  return buildRecipeImagePrompt(query, normalizePromptIngredients(ingredients), options);
+}
+
+export function buildRecipeImageNegativePromptForTest(query: string, ingredients: string[] = []) {
+  return buildRecipeImageNegativePrompt(query, normalizePromptIngredients(ingredients));
+}
+
 function buildCuratedDishImagePrompt(
   query: string,
   ingredients: string[],
   identity: ReturnType<typeof buildRecipePhotoIdentity>,
   alternateDishNameClause = "",
-  exactCardIdentityClause = ""
+  exactCardIdentityClause = "",
+  languageMeaningClause = ""
 ) {
-  const visualPrompt = findDishVisualPrompt(identity);
+  const visualPrompt = findDishVisualPrompt(identity, query, ingredients);
   if (!visualPrompt) return null;
 
   const ingredientClause = ingredients.length
@@ -1391,6 +2145,7 @@ function buildCuratedDishImagePrompt(
     exactCardIdentityClause,
     exactNameClause,
     alternateDishNameClause,
+    languageMeaningClause,
     `Visual description: ${visualPrompt.visualDescription}.`,
     `Plating: ${visualPrompt.plating}.`,
     `Style: ${cuisineStyle}, realistic food photography, natural restaurant lighting, appetizing but not exaggerated.`,
@@ -1405,9 +2160,9 @@ function buildCuratedDishImagePrompt(
 }
 
 function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIdentity>, ingredients: string[]) {
-  const source = `${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const source = buildVisualMeaningSource(identity.cleanQuery, ingredients);
   const allowsRice = /\b(rice|pilaf|couscous|bulgur)\b/.test(source);
-  const allowsPasta = /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/.test(source);
+  const allowsPasta = hasPastaSource(source);
   const forbiddenStarches = [
     allowsRice ? "" : "rice, rice grains, pilaf, couscous, bulgur",
     allowsPasta ? "" : "pasta, spaghetti, noodles, macaroni, vermicelli"
@@ -1429,6 +2184,19 @@ function buildStrictVisualClause(identity: ReturnType<typeof buildRecipePhotoIde
 
   if (isSeafoodSource(source)) {
     return buildSeafoodVisualClause(source, forbiddenStarches);
+  }
+
+  if (isSoupSource(source, identity)) {
+    return buildSoupVisualClause(source, identity, forbiddenStarches);
+  }
+
+  if (isPotatoSource(source)) {
+    return buildPotatoVisualClause(source);
+  }
+
+  if (isVeganOrDairyFreeSource(source)) {
+    const constraints = buildPlantBasedVisualConstraint(source);
+    if (constraints) return constraints;
   }
 
   if (!isStrictRecipePhotoIdentity(identity)) return "";
@@ -1490,7 +2258,15 @@ function getDishImpliedVisibleComponents(identity: ReturnType<typeof buildRecipe
   const source = `${query} ${identity?.cleanQuery ?? ""} ${identity?.canonicalDishKey ?? ""} ${identity?.familyKey ?? ""}`.toLowerCase();
   const components: string[] = [];
 
-  if (/\b(lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|lahmacun|kiymali\s+pide|pide|hawawshi)\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(source)) {
+  if (isHawawshiSource(source)) {
+    components.push("closed baladi bread or pita pocket");
+    components.push("spiced ground meat filling visible inside an opened cut seam");
+  } else if (/\bkoshary\b|\bkoshari\b|\bkushari\b|\u0643\u0634\u0631\u064a|\u0643\u0648\u0634\u0627\u0631\u064a/iu.test(source)) {
+    components.push("short macaroni pasta mixed with rice and lentils");
+    components.push("whole chickpeas");
+    components.push("red tomato sauce topping");
+    components.push("crispy fried onions");
+  } else if (/\b(lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|lahmacun|kiymali\s+pide|pide)\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646/iu.test(source)) {
     components.push("thin flatbread or dough base");
   }
   if (/\b(adana|kebab|kabab|kofta|kafta|kofte|kefta)\b|\u0643\u0641\u062a(?:\u0629|\u0647)|\u0623\u0636\u0646\u0629|\u0627\u062f\u0646\u0629/iu.test(source)) {
@@ -1620,8 +2396,8 @@ function buildGroundMeatVisualClause(source: string, forbiddenStarches: string[]
     /\b(kofta|kafta|kofte|kefta|adana|kebab|kabab)\b|\u0643\u0641\u062a\u0629/iu.test(source)
       ? "shape the ground meat as kofta, kebab fingers, or Adana-style minced meat skewers with charred ridges"
       : "",
-    /\b(hawawshi|arayes|stuffed bread|stuffed flatbread|stuffed pita)\b|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(source)
-      ? "for Egyptian hawawshi, show closed toasted baladi bread or pita cut into crispy triangular wedges with minced meat filling visible only at the cut seams; do not show meat skewers, kofta logs, open-faced meat flatbread, or loose meat"
+    isHawawshiSource(source)
+      ? "for Egyptian hawawshi, baladi hawawshi, Alexandrian hawawshi, arayes, or meat-stuffed baladi bread, show closed toasted baladi bread or pita opened or cut into crispy triangular wedges with spiced minced meat filling visible inside the bread at the opened cut seam; do not show meat sitting on top of flatbread"
       : "",
     /\b(kiymali\s+pide|pide)\b/iu.test(source)
       ? "for kiymali pide, show an oval boat-shaped flatbread with folded raised edges and a thin minced-meat topping"
@@ -1661,6 +2437,9 @@ function buildGroundMeatVisualClause(source: string, forbiddenStarches: string[]
   return [
     "Strict visual identity: the main protein is ground or minced meat, not whole beef cuts.",
     "Arabic ingredient mapping: مفروم, مفرومه, لحمة مفرومة, لحمه مفرومه, and لحم مفروم mean ground/minced meat and are valid for kofta, adana kebab, lahm bi ajin, lahmacun, pide, hawawshi, borek, and minced-meat fillings.",
+    isHawawshiSource(source)
+      ? "Hawawshi hard rule: this is not an open flatbread. The bread must be closed around the ground meat and then opened or cut so the filling is visible inside. No toppings should sit on top of the bread surface."
+      : "",
     "Do not collapse all ground-meat recipes into the same generic browned-mince plate; the named dish form must control the image.",
     "Render it as small crumbled minced meat, a thin minced-meat stuffing, or shaped ground-meat kofta/kebab forms depending on the recipe name.",
     "The meat texture must be visibly minced: fine crumbles, compressed mince, or a smooth ground-meat kebab paste. It must not be diced beef, cube-shaped pieces, chopped steak, sliced meat, stew chunks, shawarma strips, or kebab cubes.",
@@ -1769,23 +2548,28 @@ function buildFishCuisineVisualCues(source: string) {
 }
 
 function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
-  const source = `${query} ${ingredients.join(" ")}`.toLowerCase();
+  const source = buildVisualMeaningSource(query, ingredients);
   const allow = (pattern: RegExp) => pattern.test(source);
   const isLiverDish = allow(/\b(liver|kebda|kibda|ciger|cigeri)\b/i);
   const isGroundMeatDish = isGroundMeatSource(source);
   const isSeafoodDish = isSeafoodSource(source);
   const isFlatbreadDish = isFlatbreadGroundMeatDishSource(source);
+  const isPlantBasedOrEggFree = /\b(vegan|plant[- ]?based|egg[- ]?free|without eggs?|no eggs?)\b/iu.test(source);
+  const isDairyFree = /\b(vegan|plant[- ]?based|dairy[- ]?free|without dairy|no dairy)\b/iu.test(source);
   const excludedFoods = [
-    allow(/\b(pasta|spaghetti|linguine|fettuccine|macaroni|penne|noodle|noodles|vermicelli|ramen|udon|soba)\b/i)
+    hasPastaSource(source) || allow(/\b(penne|ramen|udon|soba)\b/i)
       ? ""
       : "pasta, spaghetti, noodles, macaroni, penne, vermicelli, ramen, udon",
     allow(/\b(rice|pilaf|couscous|bulgur|burghul|quinoa)\b/i)
       ? ""
       : "rice, pilaf, couscous, bulgur, quinoa, grain bowl",
-    allow(/\b(bread|toast|pita|flatbread|bun|roll|wrap|tortilla|dough)\b/i) || isFlatbreadDish
+    allow(/\b(bread|toast|sourdough|pita|flatbread|bun|roll|wrap|tortilla|dough)\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/i) || isFlatbreadDish
       ? ""
       : "bread, toast, pita, flatbread, bun, roll, wrap, tortilla",
     allow(/\b(potato|potatoes|fries)\b/i) ? "" : "potatoes, fries",
+    /\bpotato|potatoes|fries|kumpir|compir|kompir\b/i.test(source)
+      ? buildWrongPotatoFormNegativePrompt(source)
+      : "",
     allow(/\b(salad|lettuce|arugula|greens)\b/i) ? "" : "salad, lettuce, arugula, leafy greens",
     allow(/\b(cheese|feta|mozzarella|parmesan|cheddar)\b/i) ? "" : "cheese, feta, mozzarella, parmesan",
     allow(/\b(sauce|tomato sauce|cream|yogurt|tahini|pesto|gravy)\b/i) ? "" : "extra sauce, cream sauce, tomato sauce, gravy",
@@ -1800,7 +2584,13 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
       : "",
     isSeafoodDish
       ? "chicken, beef, lamb, steak, meatballs, burger, eggs, tofu, generic meat, vague mixed grill, unrecognizable seafood, fake seafood"
-      : ""
+      : "",
+    isPlantBasedOrEggFree
+      ? "eggs, egg yolks, egg whites, poached egg, fried egg, boiled egg, omelette, mayonnaise, chicken, beef, lamb, fish, shrimp, seafood, meat"
+      : "",
+    isDairyFree ? "cheese, feta, mozzarella, parmesan, cream, yogurt, labneh, butter, ghee, dairy sauce" : "",
+    isArabicStewSource(source) ? "dessert, sweets, sweet pudding, custard, cake, candy, pastry" : "",
+    isSoupSource(source) ? "dry rice plate, rice bowl, chicken tenders, breaded chicken strips, random grilled meat, dry fried plate, no visible liquid" : ""
   ].filter(Boolean);
 
   return [
@@ -1822,7 +2612,16 @@ function buildRecipeImageNegativePrompt(query: string, ingredients: string[]) {
   ].join(", ");
 }
 
-function findDishVisualPrompt(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+function findDishVisualPrompt(
+  identity: ReturnType<typeof buildRecipePhotoIdentity>,
+  query = "",
+  ingredients: string[] = []
+) {
+  const source = `${query} ${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  if (/\bshakshuka\b|\u0634\u0643\u0634\u0648\u0643\u0629/iu.test(source) && isVeganOrDairyFreeSource(source)) {
+    return VEGAN_SHAKSHUKA_VISUAL_PROMPT;
+  }
+
   const keys = [
     identity.canonicalDishKey,
     identity.familyKey,
@@ -1864,8 +2663,29 @@ function normalizePromptIngredients(ingredients: string[]) {
 }
 
 function normalizePromptIngredientAlias(value: string) {
+  if (/\(arabic:/i.test(value)) {
+    return value;
+  }
+
   if (isArabicGroundMeatIngredient(value)) {
     return "ground/minced meat (Arabic: lahma mafrouma)";
+  }
+
+  if (isArabicPastaSource(value)) {
+    return "pasta/macaroni (Arabic: makarona)";
+  }
+
+  if (isArabicSoupOrBrothSource(value)) {
+    return "soup/broth base (Arabic: shorba or maraq)";
+  }
+
+  if (isArabicStewSource(value)) {
+    return "savory stew/soup (Arabic: yakhna)";
+  }
+
+  const arabicIngredientAlias = translateArabicPromptIngredientAlias(value);
+  if (arabicIngredientAlias) {
+    return arabicIngredientAlias;
   }
 
   if (/\b(mince|minced|ground)\b/i.test(value) && /\b(meat|beef|lamb|veal)\b/i.test(value)) {
@@ -1873,6 +2693,34 @@ function normalizePromptIngredientAlias(value: string) {
   }
 
   return value;
+}
+
+function buildArabicFoodMeaningClause(query: string, ingredients: string[]) {
+  const meanings = getArabicFoodMeanings(`${query} ${ingredients.join(" ")}`);
+  if (!meanings.length) return "";
+
+  return `Language meaning guardrail for Arabic food terms: ${meanings.map((entry) => entry.promptMeaning).join("; ")}. Use these meanings to choose the correct visual form before generating the image.`;
+}
+
+function buildVisualMeaningSource(query: string, ingredients: string[]) {
+  const source = `${query} ${ingredients.join(" ")}`.toLowerCase();
+  const keywords = getArabicFoodMeanings(source).flatMap((entry) => entry.keywords);
+  return `${source} ${keywords.join(" ")}`.trim();
+}
+
+function getArabicFoodMeanings(source: string) {
+  return ARABIC_FOOD_MEANINGS.filter((entry) => entry.pattern.test(source));
+}
+
+function translateArabicPromptIngredientAlias(value: string) {
+  if (!/[\u0600-\u06FF]/.test(value)) return "";
+
+  const aliases = ARABIC_PROMPT_INGREDIENT_ALIASES.filter((entry) => entry.pattern.test(value)).map(
+    (entry) => entry.english
+  );
+  if (!aliases.length) return "";
+
+  return `${Array.from(new Set(aliases)).join(", ")} (Arabic: ${value})`;
 }
 
 function normalizeAlternateDishNames(values: string[]) {
@@ -1948,6 +2796,10 @@ function inferPrimaryVisualSubject(
     return "seafood";
   }
 
+  if (isSoupSource(source, identity) && (/\b(lentils?|dal)\b/iu.test(source) || /\u0639\u062f\u0633/iu.test(source))) {
+    return "lentil soup in a bowl";
+  }
+
   const proteinMatch =
     source.match(/\b(liver|kebda|kibda|ciger|cigeri|chicken|beef|lamb|fish|shrimp|prawn|egg|eggs|lentils?|chickpeas?)\b/)?.[1] ?? "";
   if (proteinMatch) return proteinMatch;
@@ -1963,16 +2815,176 @@ function isGroundMeatSource(source: string) {
   );
 }
 
+function isHawawshiSource(source: string) {
+  return /\b(hawawshi|baladi\s+hawawshi|alexandrian\s+hawawshi|iskandarani\s+hawawshi|eskandarani\s+hawawshi|arayes|meat\s+stuffed\s+(?:baladi\s+)?(?:bread|pita|flatbread)|stuffed\s+(?:baladi\s+)?(?:bread|pita|flatbread))\b|\u062d\u0648\u0627\u0648\u0634\u064a|\u062e\u0628\u0632\s+\u0645\u062d\u0634\u0648|\u0639\u064a\u0634\s+\u0645\u062d\u0634\u0648/iu.test(
+    source
+  );
+}
+
 function isArabicGroundMeatIngredient(value: string) {
   return /(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?|\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(
     value
   );
 }
 
+function isArabicPastaSource(source: string) {
+  return /\u0645\u0639?\u0643\u0631\u0648\u0646(?:\u0629|\u0647)?/iu.test(source);
+}
+
+function isArabicSoupOrBrothSource(source: string) {
+  return /\u0634\u0648\u0631\u0628(?:\u0629|\u0647)|\u062d\u0633\u0627\u0621|\u0645\u0631\u0642(?:\u0629|\u0647)?/iu.test(source);
+}
+
+function isArabicStewSource(source: string) {
+  return /\u064a\u062e\u0646(?:\u0629|\u0647|\u064a)/iu.test(source);
+}
+
+function hasPastaSource(source: string) {
+  return /\b(pasta|spaghetti|linguine|fettuccine|macaroni|noodle|noodles|vermicelli)\b/iu.test(source) || isArabicPastaSource(source);
+}
+
 function isFlatbreadGroundMeatDishSource(source: string) {
-  return /\b(lahmacun|lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|kiymali\s+pide|pide|hawawshi|stuffed\s+(?:bread|flatbread|pita))\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(
+  return /\b(lahmacun|lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|kiymali\s+pide|pide|hawawshi|baladi\s+hawawshi|alexandrian\s+hawawshi|stuffed\s+(?:bread|flatbread|pita))\b|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u062d\u0648\u0627\u0648\u0634\u064a/iu.test(
     source
   );
+}
+
+function isSoupSource(source: string, identity?: ReturnType<typeof buildRecipePhotoIdentity>) {
+  return (
+    /\b(soup|broth|stew|chowder|bisque|consomme|ramen|pho|harira|chorba|corbasi|lentil soup|bean soup|vegetable soup|tomato soup)\b/iu.test(source) ||
+    isArabicSoupOrBrothSource(source) ||
+    isArabicStewSource(source) ||
+    identity?.mealTypeKey === "soup" ||
+    identity?.mealTypeKey === "stew"
+  );
+}
+
+function isPotatoSource(source: string) {
+  return /\b(potato|potatoes|fries|french fries|chips|wedges|smashed potatoes|mashed potatoes|baked potato|loaded potato|kumpir|compir|kompir|hash browns?|potato hash|potato salad|potato soup|potato casserole|potato gratin|scalloped potatoes)\b/iu.test(source);
+}
+
+function buildPotatoVisualClause(source: string) {
+  const forms = [
+    /\b(french fries|fries|chips)\b/iu.test(source)
+      ? "For fries: show long thin potato sticks, deep-fried golden with crisp browned edges, piled together like French fries; not wedges, cubes, mash, or roasted chunks."
+      : "",
+    /\b(smashed potatoes|smashed potato)\b/iu.test(source)
+      ? "For smashed potatoes: show small whole potatoes pressed flat into irregular discs, roasted until craggy and crisp at the edges with soft centers; not smooth mashed potatoes."
+      : "",
+    /\b(mashed potatoes|mashed potato|mash)\b/iu.test(source)
+      ? "For mashed potatoes: show a soft creamy mound or scoop of smooth mashed potato with swirls or spoon marks; not fries, wedges, or cubes."
+      : "",
+    /\b(baked potato|loaded potato|jacket potato)\b/iu.test(source)
+      ? "For baked potato: show a whole potato split open lengthwise with fluffy white interior visible and toppings placed inside the cut, not potato cubes or fries."
+      : "",
+    /\b(kumpir|compir|kompir)\b/iu.test(source)
+      ? "For Turkish kumpir: show a very large baked potato split open and mashed inside its skin, visibly stuffed with listed toppings such as corn, olives, pickles, peas, vegetables, cheese, yogurt sauce, or salad only when listed; it must look like a stuffed baked potato, not fries or potato salad."
+      : "",
+    /\b(wedges|potato wedges)\b/iu.test(source)
+      ? "For potato wedges: show thick wedge-shaped potato pieces with skin-on curved backs, roasted or fried golden; not long thin fries or cubes."
+      : "",
+    /\b(hash browns?|potato hash)\b/iu.test(source)
+      ? "For hash browns or potato hash: show shredded or small diced potatoes browned together in a skillet-style mass with crisp golden surface; not fries or mashed potato."
+      : "",
+    /\b(potato soup|potato chowder)\b/iu.test(source)
+      ? "For potato soup: show a bowl of creamy or brothy soup with potato pieces visible in liquid; not a dry plate of potatoes."
+      : "",
+    /\b(casserole|gratin|scalloped|bechamel|bechamel)\b/iu.test(source)
+      ? "For potato casserole, gratin, scalloped potatoes, or bechamel: show layered sliced potatoes baked in a dish with browned top and visible layers; not loose fries or potato cubes."
+      : "",
+    /\b(stew|tagine|tray|baked tray|roasted tray)\b/iu.test(source)
+      ? "For potato stew or tray bakes: show potato chunks or slices integrated into the named stew or oven tray, but keep the main named protein or sauce visible."
+      : ""
+  ].filter(Boolean);
+
+  return [
+    "Strict potato visual identity: potato must appear in the exact physical form named by the recipe, not as generic beige chunks.",
+    forms.length
+      ? `Recipe-specific potato form: ${forms.join(" ")}`
+      : "If no exact potato form is named, show clearly identifiable potato pieces that match the cooking method: roasted chunks for roasted potatoes, boiled cubes for salad, thin slices for a bake, or golden pieces for fried potatoes.",
+    "Hard negative: do not substitute a different potato form. Fries, smashed potatoes, mashed potatoes, baked potato/kumpir, wedges, hash browns, soup, and casserole are visually different and must not be confused.",
+    "Hard negative: avoid generic brown cubes, random beige side dishes, bread, rice, pasta, or unrelated vegetables unless listed in the recipe."
+  ].join(" ");
+}
+
+function buildWrongPotatoFormNegativePrompt(source: string) {
+  const wrongForms = [
+    /\b(french fries|fries|chips)\b/iu.test(source) ? "" : "french fries, thin fries, chips",
+    /\b(smashed potatoes|smashed potato)\b/iu.test(source) ? "" : "smashed potatoes, flattened potato rounds",
+    /\b(mashed potatoes|mashed potato|mash)\b/iu.test(source) ? "" : "mashed potatoes, smooth potato puree",
+    /\b(baked potato|loaded potato|jacket potato|kumpir|compir|kompir)\b/iu.test(source) ? "" : "whole baked potato, loaded potato, kumpir",
+    /\b(wedges|potato wedges)\b/iu.test(source) ? "" : "potato wedges",
+    /\b(hash browns?|potato hash)\b/iu.test(source) ? "" : "hash browns, potato hash",
+    /\b(potato soup|potato chowder)\b/iu.test(source) ? "" : "potato soup, potato chowder",
+    /\b(casserole|gratin|scalloped|bechamel|bechamel)\b/iu.test(source) ? "" : "potato gratin, scalloped potatoes, potato casserole"
+  ].filter(Boolean);
+
+  if (!wrongForms.length) return "";
+  return `wrong potato form, ${wrongForms.join(", ")}`;
+}
+
+function buildSoupVisualClause(
+  source: string,
+  identity: ReturnType<typeof buildRecipePhotoIdentity>,
+  forbiddenStarches: string[]
+) {
+  const soupName = identity.canonicalDishKey?.replace(/-/g, " ") || identity.cleanQuery || "the named soup";
+  const textureCue = /\b(chowder|cream|creamy|bisque)\b/iu.test(source)
+    ? "The liquid should read as creamy soup or chowder only when cream or dairy is listed or the exact dish name requires it."
+    : /\b(lentil|dal|split pea|bean|fava|besara)\b/iu.test(source) || /\u0639\u062f\u0633|\u0641\u0648\u0644|\u0641\u0627\u0635\u0648\u0644\u064a\u0627/iu.test(source)
+    ? "The liquid should read as thick legume soup with spoonable body, not dry beans on a plate."
+    : /\b(noodle|ramen|pho)\b/iu.test(source)
+    ? "The bowl may include noodles only when named or listed, but the broth must remain clearly visible."
+    : "The liquid should read as broth or soup base, with visible spoonable liquid around the solids.";
+  const visibleSolids = [
+    /\b(mushroom|mushrooms)\b/iu.test(source) ? "mushroom pieces or slices" : "",
+    /\b(lentils?|dal)\b/iu.test(source) || /\u0639\u062f\u0633/iu.test(source) ? "lentils suspended in the soup" : "",
+    /\b(bean|beans|chickpea|chickpeas|fava)\b/iu.test(source) ? "beans or chickpeas in the soup" : "",
+    /\b(tomato)\b/iu.test(source) || /\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)/iu.test(source) ? "red tomato soup or tomato pieces" : "",
+    /\b(vegetable|carrot|celery|zucchini|squash|cauliflower|broccoli)\b/iu.test(source) || /\u062e\u0636(?:\u0627\u0631|\u0631\u0648\u0627\u062a)|\u062e\u0636\u0631|\u062c\u0632\u0631|\u0643\u0648\u0633\u0627|\u0642\u0631\u0646\u0628\u064a\u0637|\u0628\u0631\u0648\u0643\u0644\u064a/iu.test(source) ? "listed vegetables visible in the broth" : "",
+    /\b(chicken|beef|fish|shrimp|seafood)\b/iu.test(source) || /\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e|\u0644\u062d\u0645|\u0633\u0645\u0643|\u062c\u0645\u0628\u0631\u064a/iu.test(source) ? "the named protein visible in the soup liquid" : ""
+  ].filter(Boolean);
+
+  return [
+    `Strict visual identity: this is ${soupName}, a soup served in a bowl with visible liquid, not a dry plate of the main ingredient.`,
+    "The image must immediately read as soup: use a deep bowl or soup crock, spoonable liquid surface, and ingredients partly submerged in broth or soup base.",
+    textureCue,
+    visibleSolids.length
+      ? `Visible soup contents should match the recipe: ${visibleSolids.join(", ")}.`
+      : "Show the named ingredients as contents inside the soup liquid, not plated separately.",
+    "Hard negative: do not show dry sauteed vegetables, a salad, pasta plate, rice bowl, roasted tray, grilled plate, curry plate, or the main ingredient sitting alone without liquid.",
+    "Hard negative: do not show chicken tenders, fried strips, breaded pieces, random grilled meat, or a dry rice plate unless that exact protein or rice is listed and visibly inside the soup.",
+    "Hard negative: do not show a sauce-coated plate and call it soup; the vessel and liquid must make it unmistakably soup.",
+    forbiddenStarches.length
+      ? `Hard negative: do not include ${forbiddenStarches.join("; ")} as side dishes unless listed; if a starch belongs in the soup, it must appear inside the bowl and not dominate.`
+      : ""
+  ].filter(Boolean).join(" ");
+}
+
+function isVeganOrDairyFreeSource(source: string) {
+  return /\b(vegan|dairy[- ]?free|egg[- ]?free|plant[- ]?based|without eggs?|no eggs?|no dairy)\b/iu.test(source);
+}
+
+function buildPlantBasedVisualConstraint(source: string) {
+  const constraints: string[] = [];
+  if (/\b(vegan|egg[- ]?free|plant[- ]?based|without eggs?|no eggs?)\b/iu.test(source)) {
+    constraints.push(
+      "Plant-based visual constraint: do not show eggs, egg yolks, egg whites, poached eggs, fried eggs, boiled eggs, omelette, mayonnaise, meat, poultry, fish, shrimp, or seafood."
+    );
+  }
+  if (/\b(vegan|dairy[- ]?free|plant[- ]?based|without dairy|no dairy)\b/iu.test(source)) {
+    constraints.push(
+      "Dairy-free visual constraint: do not show cheese, feta, mozzarella, parmesan, cream, yogurt, labneh, butter, ghee, creamy dairy sauce, or dairy garnish."
+    );
+  }
+
+  if (!constraints.length) return "";
+
+  return [
+    ...constraints,
+    "Use only plant-based visual substitutes that are named or implied by the exact recipe, such as chickpeas, beans, tofu, lentils, mushrooms, vegetables, nuts, seeds, tomato sauce, tahini, or herbs.",
+    "Hard negative: do not use the standard non-vegan version of the dish if it would add eggs, dairy, meat, fish, or seafood."
+  ].join(" ");
 }
 
 function isSeafoodSource(source: string) {
@@ -2004,11 +3016,15 @@ function buildForbiddenIngredientClause(
   ingredients: string[],
   supportStarches: string[]
 ) {
-  const source = `${identity.cleanQuery} ${ingredients.join(" ")}`.toLowerCase();
+  const source = buildVisualMeaningSource(identity.cleanQuery, ingredients);
   const forbiddenGroups: string[] = [];
   const allowsDishFlatbread = isFlatbreadGroundMeatDishSource(source);
 
-  if (!supportStarches.some((value) => /\b(pasta|spaghetti|linguine|fettuccine|macaroni|vermicelli|noodle|noodles)\b/i.test(value))) {
+  if (
+    !supportStarches.some((value) => hasPastaSource(value)) &&
+    identity.starchKey !== "pasta" &&
+    identity.mealTypeKey !== "pasta"
+  ) {
     forbiddenGroups.push("spaghetti, pasta, noodles, vermicelli");
   }
 
@@ -2016,11 +3032,19 @@ function buildForbiddenIngredientClause(
     forbiddenGroups.push("plain rice, pilaf, couscous, bulgur");
   }
 
-  if (!allowsDishFlatbread && !supportStarches.some((value) => /\b(bread|pita|bun|roll|toast|dough|flatbread)\b/i.test(value)) && identity.starchKey !== "bread") {
+  if (
+    !allowsDishFlatbread &&
+    !supportStarches.some((value) =>
+      /\b(bread|pita|bun|roll|toast|sourdough|dough|flatbread)\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/i.test(
+        value
+      )
+    ) &&
+    identity.starchKey !== "bread"
+  ) {
     forbiddenGroups.push("bread, toast, buns, pita");
   }
 
-  if (!/\bsoup|stew|broth\b/i.test(source) && identity.mealTypeKey !== "soup" && identity.mealTypeKey !== "stew") {
+  if (!/\bsoup|stew|broth\b/i.test(source) && !isArabicSoupOrBrothSource(source) && !isArabicStewSource(source) && identity.mealTypeKey !== "soup" && identity.mealTypeKey !== "stew") {
     forbiddenGroups.push("a soup bowl or stew presentation");
   }
 

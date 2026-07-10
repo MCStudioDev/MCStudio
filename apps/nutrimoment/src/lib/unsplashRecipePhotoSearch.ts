@@ -204,14 +204,14 @@ function buildUnsplashReferralUrl(url: string) {
 
 function getRequiredUnsplashScore(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
   if (identity.canonicalDishKey || identity.familyKey) {
-    return 7;
+    return 6;
   }
 
   if (identity.mealTypeKey || identity.beanTypeKey) {
-    return 8;
+    return 7;
   }
 
-  return 9;
+  return 8;
 }
 
 function scoreUnsplashCandidate(
@@ -226,12 +226,19 @@ function scoreUnsplashCandidate(
   const lowerUrl = imageUrl.toLowerCase();
   const normalizedRequestQuery = normalizeRecipePhotoQuery(requestQuery);
   const haystack = descriptiveHaystack;
+  const requestTokens = getStrongRecipePhotoQueryTokens(normalizedRequestQuery);
 
   if (!/^https:\/\//i.test(imageUrl)) return -100;
   if (!/images\.unsplash\.com/i.test(lowerUrl)) return -100;
   if (NON_FOOD_TERMS.some((term) => haystack.includes(term) || attributionHaystack.includes(term))) return -100;
   if (!looksLikeFoodPhoto(haystack, identity, normalizedRequestQuery)) return -100;
-  if (isStrictRecipePhotoIdentity(identity) && !matchesStrictRecipePhotoIdentity(identity, haystack, normalizedRequestQuery)) return -100;
+  if (
+    isStrictRecipePhotoIdentity(identity) &&
+    !matchesStrictRecipePhotoIdentity(identity, haystack, normalizedRequestQuery) &&
+    !isSpecificFoodSearchQuery(normalizedRequestQuery, identity)
+  ) {
+    return -100;
+  }
 
   if (identity.canonicalDishKey && haystack.includes(identity.canonicalDishKey.replace(/-/g, " "))) {
     score += 8;
@@ -276,6 +283,7 @@ function scoreUnsplashCandidate(
     .filter((token) => haystack.includes(token)).length;
   score += Math.min(semanticTokenHits, 5);
   score += Math.min(requestTokenHits, 4);
+  score += Math.min(requestTokens.length, 5);
 
   if (identity.mainIngredientKey === "fish" && /\b(chicken|beef|lamb|pork)\b/.test(haystack)) score -= 5;
   if (identity.mainIngredientKey === "shrimp" && !/\bshrimp|prawn\b/.test(haystack)) score -= 5;
@@ -283,7 +291,14 @@ function scoreUnsplashCandidate(
   if (identity.mainIngredientKey === "tuna" && !/\btuna\b/.test(haystack)) score -= 4;
   if (identity.mainIngredientKey === "bean" && BLOCKED_TERMS.some((term) => haystack.includes(term))) score -= 8;
 
-  if (semanticTokenHits < 2 && requestTokenHits < 2 && !hasFoodContext(haystack)) return -100;
+  if (
+    semanticTokenHits < 2 &&
+    requestTokenHits < 2 &&
+    !hasFoodContext(haystack) &&
+    !isSpecificFoodSearchQuery(normalizedRequestQuery, identity)
+  ) {
+    return -100;
+  }
 
   score += scoreUnsplashImageQuality(photo);
 
@@ -373,7 +388,7 @@ function buildUnsplashRequestQueries(query: string, identity: ReturnType<typeof 
     .map((value) => normalizeRecipePhotoQuery(value))
     .filter((value) => value.length >= 3);
 
-  return Array.from(new Set(values)).slice(0, 5);
+  return Array.from(new Set(values)).slice(0, 8);
 }
 
 function looksLikeFoodPhoto(
@@ -402,9 +417,37 @@ function looksLikeFoodPhoto(
     .filter((token) => token.length >= 4)
     .filter((token) => haystack.includes(token)).length;
 
-  return semanticHits >= 2 || requestHits >= 2 || hasFoodContext(haystack);
+  return semanticHits >= 2 || requestHits >= 2 || isSpecificFoodSearchQuery(normalizedRequestQuery, identity);
 }
 
 function hasFoodContext(haystack: string) {
   return FOOD_CONTEXT_TERMS.some((term) => haystack.includes(term));
+}
+
+function isSpecificFoodSearchQuery(
+  normalizedRequestQuery: string,
+  identity: ReturnType<typeof buildRecipePhotoIdentity>
+) {
+  if (!normalizedRequestQuery) return false;
+  if (NON_FOOD_TERMS.some((term) => normalizedRequestQuery.includes(term))) return false;
+  const tokens = getStrongRecipePhotoQueryTokens(normalizedRequestQuery);
+  const hasFoodWord = FOOD_CONTEXT_TERMS.some((term) => normalizedRequestQuery.includes(term));
+  const hasIdentitySignal = Boolean(
+    identity.canonicalDishKey ||
+      identity.familyKey ||
+      identity.mainIngredientKey ||
+      identity.mealTypeKey ||
+      identity.starchKey ||
+      identity.sauceKey
+  );
+  return hasFoodWord || (hasIdentitySignal && tokens.length >= 2) || tokens.length >= 3;
+}
+
+function getStrongRecipePhotoQueryTokens(value: string) {
+  return value
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4)
+    .filter((token) => !FOOD_CONTEXT_TERMS.includes(token))
+    .filter((token) => !["with", "and", "food", "dish", "plate", "meal", "recipe"].includes(token));
 }

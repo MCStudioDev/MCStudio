@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useApp } from "@/contexts/AppContext";
 import { useHistory } from "@/hooks/useHistory";
+import { usePantry } from "@/hooks/usePantry";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 import { cn, fileToBase64 } from "@/lib/utils";
@@ -38,8 +39,8 @@ const PREMIUM_REPLICATE_MAX_RETRIES = 4;
 const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
 const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
 const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
-const PREMIUM_REPLICATE_IMAGE_CONCURRENCY = 2;
-const FREE_RECIPE_IMAGE_CONCURRENCY = 6;
+const PREMIUM_REPLICATE_IMAGE_CONCURRENCY = 10;
+const FREE_RECIPE_IMAGE_CONCURRENCY = 10;
 const SCANNER_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const SCAN_ACCESS_RETRY_ATTEMPTS = 3;
 const SCAN_ACCESS_RETRY_DELAY_MS = 700;
@@ -170,6 +171,7 @@ export function ScannerTab() {
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
+  const { addItems: addPantryItems, items: pantryItems } = usePantry();
   const scannerInputRef = useRef<HTMLInputElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -242,7 +244,7 @@ export function ScannerTab() {
       });
       const resolved: Recipe[] = [...seeded];
       const pendingPremiumIndexes = new Set<number>();
-      const maxLookups = isPremium ? inputRecipes.length : Math.min(Math.max(inputRecipes.length, 4), 8);
+      const maxLookups = inputRecipes.length;
 
       const resolveRecipePhoto = async (recipe: Recipe) => {
         let response: Response | null = null;
@@ -726,6 +728,20 @@ export function ScannerTab() {
 
         return [...current, ...nextScanned];
       });
+
+      const existingPantry = new Set(pantryItems.map((item) => normalizeIngredientKey(item.name)));
+      const pantryAdditions = scanned
+        .filter((item) => {
+          const key = normalizeIngredientKey(item);
+          if (!key || existingPantry.has(key)) return false;
+          existingPantry.add(key);
+          return true;
+        })
+        .map((item) => ({ name: item, quantity: "1 item" }));
+
+      if (pantryAdditions.length) {
+        await addPantryItems(pantryAdditions);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to scan image";
       setError(message);
@@ -1365,7 +1381,24 @@ function buildRecipePhotoQuery(recipe: Recipe) {
 }
 
 function getRecipePhotoReuseKey(recipe: Recipe) {
+  const identityKey = [
+    recipe.photo_identity?.dish_slug,
+    recipe.photo_identity?.cuisine_key,
+    recipe.photo_identity?.protein,
+    recipe.photo_identity?.starch,
+    recipe.photo_identity?.sauce,
+    recipe.photo_identity?.method
+  ]
+    .map(normalizeRecipePhotoIdentityPart)
+    .filter(Boolean)
+    .join("::");
+  if (identityKey) return identityKey;
+
   return buildRecipePhotoReuseKeyCandidates(buildRecipePhotoQuery(recipe))[0] ?? "";
+}
+
+function normalizeRecipePhotoIdentityPart(value: unknown) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 function getUsedImageUrlsForDifferentReuseKey(usedImageUrls: Map<string, string>, reuseKey: string) {
@@ -1395,32 +1428,43 @@ function buildRecipePhotoRequestUrl(
     }
   });
   ingredients
-    .map((value) => value.trim())
+    .map(normalizeRecipePhotoParam)
     .filter(Boolean)
     .slice(0, 10)
     .forEach((ingredient) => params.append("ingredient", ingredient));
   exactContext.exactNames
-    ?.map((value) => value.trim())
+    ?.map(normalizeRecipePhotoParam)
     .filter(Boolean)
     .slice(0, 8)
     .forEach((name) => params.append("exact", name));
-  if (exactContext.cuisine?.trim()) {
-    params.set("cuisine", exactContext.cuisine.trim());
+  const cuisine = normalizeRecipePhotoParam(exactContext.cuisine);
+  if (cuisine) {
+    params.set("cuisine", cuisine);
   }
   appendPhotoIdentityParams(params, exactContext.photoIdentity);
-  excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
+  excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
 }
 
 function appendPhotoIdentityParams(params: URLSearchParams, identity: Recipe["photo_identity"]) {
-  if (!identity?.dish_slug) return;
-  params.set("photoSlug", identity.dish_slug);
-  if (identity.cuisine_key) params.set("photoCuisineKey", identity.cuisine_key);
-  if (identity.protein) params.set("photoProtein", identity.protein);
-  if (identity.starch) params.set("photoStarch", identity.starch);
-  if (identity.sauce) params.set("photoSauce", identity.sauce);
-  if (identity.method) params.set("photoMethod", identity.method);
+  const photoSlug = normalizeRecipePhotoParam(identity?.dish_slug);
+  if (!photoSlug) return;
+  params.set("photoSlug", photoSlug);
+  const photoCuisineKey = normalizeRecipePhotoParam(identity?.cuisine_key);
+  const photoProtein = normalizeRecipePhotoParam(identity?.protein);
+  const photoStarch = normalizeRecipePhotoParam(identity?.starch);
+  const photoSauce = normalizeRecipePhotoParam(identity?.sauce);
+  const photoMethod = normalizeRecipePhotoParam(identity?.method);
+  if (photoCuisineKey) params.set("photoCuisineKey", photoCuisineKey);
+  if (photoProtein) params.set("photoProtein", photoProtein);
+  if (photoStarch) params.set("photoStarch", photoStarch);
+  if (photoSauce) params.set("photoSauce", photoSauce);
+  if (photoMethod) params.set("photoMethod", photoMethod);
+}
+
+function normalizeRecipePhotoParam(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function serializeRecipePhotoQuery(queries: string[]) {
@@ -1445,7 +1489,7 @@ function buildRecipePhotoExactNames(recipe: Recipe) {
         recipe.localized?.English?.image_search_index,
         recipe.localized?.Arabic?.image_search_index
       ]
-        .map((value) => value?.trim())
+        .map(normalizeRecipePhotoParam)
         .filter((value): value is string => Boolean(value))
     )
   ).slice(0, 8);

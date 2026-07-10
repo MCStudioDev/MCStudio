@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { findRecipeDietViolation } from "../lib/dietEnforcement";
 import type { MealPlanData, MealPlanMeal } from "../lib/types";
 import {
+  mealMatchesPreferredCuisineIdentity,
   repairMealPlanWithGuard,
   validateMealPlan
 } from "../services/mealPlanGuardService";
@@ -75,6 +77,175 @@ describe("meal plan guard service", () => {
     expect(result.finalIssues).toEqual([]);
     expect(JSON.stringify(result.mealPlan)).not.toMatch(/fish|shrimp|salmon|tuna|tilapia|سمك|جمبري/i);
   });
+  it("repairs Arabic vegan dairy-free plans containing chicken, ground meat, and eggs", () => {
+    const preferences = {
+      dietContext: {
+        diets: ["vegan", "vegetarian", "dairyFree"],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15,
+      minPescatarianSeafoodSlots: 6
+    };
+    const initialIssues = validateMealPlan(buildUnsafeArabicVeganPlan(), preferences);
+
+    expect(initialIssues.some((issue) => issue.kind === "diet")).toBe(true);
+
+    const result = repairMealPlanWithGuard(buildUnsafeArabicVeganPlan(), preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(result.finalIssues).toEqual([]);
+    expect(JSON.stringify(result.mealPlan)).not.toMatch(/دجاج|لحم|مفروم|بيض|فريتاتا|\b(chicken|beef|meat|eggs?)\b/i);
+  });
+
+  it("repairs plant-based plans that over-repeat rice and legumes", () => {
+    const preferences = {
+      dietContext: {
+        diets: ["vegan", "vegetarian", "dairyFree"],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15,
+      minPescatarianSeafoodSlots: 6
+    };
+    const initialIssues = validateMealPlan(buildRiceLegumeClusterPlan(), preferences);
+
+    expect(initialIssues).toContainEqual({ kind: "ingredientCluster", ingredient: "rice", actual: 21, allowed: 7 });
+    expect(initialIssues).toContainEqual({ kind: "ingredientCluster", ingredient: "legume", actual: 21, allowed: 9 });
+
+    const result = repairMealPlanWithGuard(buildRiceLegumeClusterPlan(), preferences);
+    const finalIssues = validateMealPlan(result.mealPlan, preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(finalIssues.filter((issue) => issue.kind === "ingredientCluster")).toEqual([]);
+  });
+
+  it("repairs heart-health meal plans that contain rich repeated meals", () => {
+    const preferences = {
+      dietContext: {
+        diets: [],
+        allergens: []
+      },
+      conditions: ["cholesterol", "highBloodPressure", "weightLoss"],
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15
+    };
+    const initialIssues = validateMealPlan(buildRichHeartRiskPlan(), preferences);
+
+    expect(initialIssues.some((issue) => issue.kind === "health")).toBe(true);
+
+    const result = repairMealPlanWithGuard(buildRichHeartRiskPlan(), preferences);
+    const finalIssues = validateMealPlan(result.mealPlan, preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(finalIssues.filter((issue) => issue.kind === "health")).toEqual([]);
+  });
+
+  it("repairs keto meal plans with low-carb fallback meals", () => {
+    const preferences = {
+      dietContext: {
+        diets: ["keto"],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 2,
+      minUniqueMeals: 15
+    };
+    const initialIssues = validateMealPlan(buildHighCarbPlan(), preferences);
+
+    expect(initialIssues.some((issue) => issue.kind === "diet")).toBe(true);
+
+    const result = repairMealPlanWithGuard(buildHighCarbPlan(), preferences);
+    const finalIssues = validateMealPlan(result.mealPlan, preferences);
+
+    expect(result.repairedSlots).toBeGreaterThan(0);
+    expect(finalIssues.filter((issue) => issue.kind === "diet")).toEqual([]);
+    expect(
+      result.mealPlan.shoppingList.map((item) =>
+        findRecipeDietViolation({ name: item, ingredients: [item] }, preferences.dietContext)
+      )
+    ).toEqual(result.mealPlan.shoppingList.map(() => null));
+  });
+
+  it("repairs strict diet combinations with enough compatible fallback variety", () => {
+    const cases = [
+      ["glutenFree"],
+      ["vegetarian", "glutenFree"],
+      ["vegan", "glutenFree"],
+      ["pescatarian", "glutenFree"],
+      ["keto", "dairyFree"],
+      ["paleo", "dairyFree"],
+      ["pescatarian", "keto"],
+      ["pescatarian", "paleo"]
+    ];
+
+    for (const diets of cases) {
+      const preferences = {
+        dietContext: {
+          diets,
+          allergens: []
+        },
+        preferredCuisine: "Any",
+        maxMealRepeatCount: 2,
+        minUniqueMeals: 15
+      };
+      const result = repairMealPlanWithGuard(buildMixedForbiddenPlan(), preferences);
+      const finalIssues = validateMealPlan(result.mealPlan, preferences);
+      const mealNames = result.mealPlan.plan.flatMap((day) => [
+        day.breakfast.name,
+        day.lunch.name,
+        day.dinner.name
+      ]);
+
+      expect(finalIssues, diets.join("+")).toEqual([]);
+      expect(new Set(mealNames.map((name) => name.toLowerCase())).size, diets.join("+")).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it("does not treat nearby Mediterranean labels as Egyptian weekly-plan cuisine matches", () => {
+    expect(mealMatchesPreferredCuisineIdentity(meal("Ful medames", "Egyptian", ["fava beans"]), "Egyptian")).toBe(true);
+    expect(mealMatchesPreferredCuisineIdentity(meal("Chickpea salad", "Mediterranean", ["chickpeas"]), "Egyptian")).toBe(false);
+    expect(mealMatchesPreferredCuisineIdentity(meal("Rice lentil plate", "شرق أوسطي", ["أرز", "عدس"]), "Egyptian")).toBe(false);
+  });
+  it("detects similar meal families even when recipe names are different", () => {
+    const preferences = {
+      dietContext: {
+        diets: [],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 10,
+      maxSimilarMealFamilySlots: 2,
+      minUniqueMeals: 15
+    };
+    const issues = validateMealPlan(buildSimilarFamilyPlan(), preferences);
+
+    expect(issues).toContainEqual({ kind: "repeat", name: "egg-toast", actual: 7, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "koshary", actual: 7, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "lentil-rice", actual: 7, allowed: 2 });
+  });
+
+  it("flags Christine-style semantic repetition across seafood, yogurt, eggs, and pasta", () => {
+    const preferences = {
+      dietContext: {
+        diets: [],
+        allergens: []
+      },
+      preferredCuisine: "Any",
+      maxMealRepeatCount: 10,
+      maxSimilarMealFamilySlots: 2,
+      minUniqueMeals: 15
+    };
+    const issues = validateMealPlan(buildChristineStyleRepetitivePlan(), preferences);
+
+    expect(issues).toContainEqual({ kind: "repeat", name: "fish", actual: 3, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "yogurt-bowl", actual: 3, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "egg-meal", actual: 3, allowed: 2 });
+    expect(issues).toContainEqual({ kind: "repeat", name: "tomato-pasta", actual: 3, allowed: 2 });
+  });
 });
 
 function buildBadMinaStylePlan(): MealPlanData {
@@ -92,7 +263,7 @@ function buildBadMinaStylePlan(): MealPlanData {
           ? meal("يخنة عدس بالخضار مع الأرز", "Mexican", ["عدس", "أرز", "جزر", "طماطم"])
           : meal("توفو وبروكلي سوتيه", "Asian", ["توفو", "بروكلي", "أرز", "ثوم"])
     })),
-    shoppingList: []
+    shoppingList: ["rice - 4 cup", "pasta - 2 pack", "shrimp - 1 kg"]
   };
 }
 
@@ -110,6 +281,131 @@ function buildFishyVeganPlan(): MealPlanData {
         index < 2
           ? meal(`Shrimp dinner ${index + 1}`, "Middle Eastern", ["shrimp", "rice", "zucchini", "tomato"])
           : meal(`Chickpea stew dinner ${index + 1}`, "Middle Eastern", ["chickpeas", "rice", "onion", "garlic"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildUnsafeArabicVeganPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast:
+        index % 2 === 0
+          ? meal("\u0641\u0631\u064a\u062a\u0627\u062a\u0627 \u0628\u0627\u0644\u0633\u0628\u0627\u0646\u062e \u0648\u0627\u0644\u0628\u064a\u0636", "Italian", ["\u0628\u064a\u0636", "\u0633\u0628\u0627\u0646\u062e", "\u0632\u064a\u062a \u0632\u064a\u062a\u0648\u0646"])
+          : meal("\u0641\u0648\u0644 \u0645\u062f\u0645\u0633 \u0628\u0627\u0644\u0637\u0645\u0627\u0637\u0645", "Egyptian", ["\u0641\u0648\u0644", "\u0637\u0645\u0627\u0637\u0645", "\u0628\u0635\u0644"]),
+      lunch:
+        index % 2 === 0
+          ? meal("\u0633\u0644\u0637\u0629 \u062f\u062c\u0627\u062c \u0645\u0634\u0648\u064a \u0628\u0627\u0644\u0644\u064a\u0645\u0648\u0646", "Mediterranean", ["\u062f\u062c\u0627\u062c", "\u0644\u064a\u0645\u0648\u0646", "\u062e\u0633"])
+          : meal("\u0645\u0643\u0631\u0648\u0646\u0629 \u0628\u0627\u0644\u0644\u062d\u0645 \u0627\u0644\u0645\u0641\u0631\u0648\u0645", "Italian", ["\u0644\u062d\u0645 \u0645\u0641\u0631\u0648\u0645", "\u0645\u0643\u0631\u0648\u0646\u0629", "\u0637\u0645\u0627\u0637\u0645"]),
+      dinner: meal(`\u064a\u062e\u0646\u0629 \u0639\u062f\u0633 \u0628\u0627\u0644\u062e\u0636\u0627\u0631 ${index + 1}`, "Middle Eastern", ["\u0639\u062f\u0633", "\u062e\u0636\u0627\u0631", "\u0623\u0631\u0632"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildRiceLegumeClusterPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: meal(`Lentil rice breakfast ${index + 1}`, "Middle Eastern", ["lentils", "rice", "tomato"]),
+      lunch: meal(`Chickpea rice lunch ${index + 1}`, "Middle Eastern", ["chickpeas", "rice", "cucumber"]),
+      dinner: meal(`Bean rice dinner ${index + 1}`, "Middle Eastern", ["white beans", "rice", "tomato"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildRichHeartRiskPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: index % 2 === 0
+        ? meal(`Cheese omelette ${index + 1}`, "Italian", ["egg", "cheese", "butter"])
+        : meal(`Oat breakfast ${index + 1}`, "Italian", ["oats", "apple", "cinnamon"]),
+      lunch: meal(`Cream pasta ${index + 1}`, "Italian", ["pasta", "cream", "parmesan"]),
+      dinner: index % 2 === 0
+        ? meal(`Fried beef dinner ${index + 1}`, "Italian", ["beef", "butter", "mushroom"])
+        : meal(`Tomato bean dinner ${index + 1}`, "Italian", ["white beans", "tomato", "zucchini"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildHighCarbPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: meal(`Oatmeal ${index + 1}`, "Global", ["oats", "apple", "milk"]),
+      lunch: meal(`Rice bowl ${index + 1}`, "Global", ["rice", "chicken", "beans"]),
+      dinner: meal(`Pasta dinner ${index + 1}`, "Global", ["pasta", "tomato", "shrimp"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildMixedForbiddenPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day) => ({
+      day,
+      breakfast: meal("Cheese egg omelette with wheat toast", "American", ["eggs", "cheese", "milk", "butter", "wheat toast"]),
+      lunch: meal("Chicken shawarma pita with yogurt sauce", "Levantine", ["chicken", "pita bread", "yogurt", "garlic sauce"]),
+      dinner: meal("Beef shrimp pasta with butter sauce", "Italian", ["ground beef", "shrimp", "pasta", "butter", "parmesan"])
+    })),
+    shoppingList: ["eggs - 12", "chicken - 1 kg", "milk - 1 carton", "pasta - 1 box", "shrimp - 1 kg"]
+  };
+}
+
+function buildSimilarFamilyPlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: meal(`Tomato egg toast variation ${index + 1}`, "Egyptian", ["egg", "toast", "tomato"]),
+      lunch: meal(`Koshary bowl with tomato sauce ${index + 1}`, "Egyptian", ["rice", "lentils", "chickpeas", "tomato sauce"]),
+      dinner: meal(`Lentil rice stew with vegetables ${index + 1}`, "Egyptian", ["lentils", "rice", "carrot", "tomato"])
+    })),
+    shoppingList: []
+  };
+}
+
+function buildChristineStyleRepetitivePlan(): MealPlanData {
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const meals = [
+    meal("Grilled fish with lemon and herbs", "Mediterranean", ["fish", "lemon", "herbs"]),
+    meal("Greek yogurt with granola and berries", "Mediterranean", ["greek yogurt", "granola", "berries"]),
+    meal("Pasta pomodoro with tuna", "Italian", ["pasta", "tomato sauce", "tuna"]),
+    meal("Baked tilapia with tomato herbs", "Mediterranean", ["tilapia", "tomato", "herbs"]),
+    meal("Yogurt berry chia bowl", "Mediterranean", ["yogurt", "berries", "chia"]),
+    meal("Pasta with roasted vegetables and tomato sauce", "Italian", ["pasta", "tomato sauce", "zucchini"]),
+    meal("Vegetable frittata", "Italian", ["egg", "vegetables"]),
+    meal("Plain omelette", "Italian", ["egg"]),
+    meal("Lemon herb grilled fish salad", "Mediterranean", ["fish", "lemon", "lettuce"]),
+    meal("Greek yogurt with mixed fruit and chia", "Mediterranean", ["yogurt", "fruit", "chia"]),
+    meal("Pasta al pomodoro", "Italian", ["pasta", "tomato"]),
+    meal("Boiled egg breakfast", "Global", ["egg"]),
+    meal("Oatmeal with banana", "Global", ["oats", "banana"]),
+    meal("Caprese salad", "Italian", ["tomato", "basil"]),
+    meal("Minestrone soup", "Italian", ["vegetables", "beans"]),
+    meal("Chicken lemon herb plate", "Mediterranean", ["chicken", "lemon"]),
+    meal("Spinach garlic saute", "Global", ["spinach", "garlic"]),
+    meal("Tofu vegetables", "Asian", ["tofu", "vegetables"]),
+    meal("Chickpea cucumber salad", "Mediterranean", ["chickpeas", "cucumber"]),
+    meal("Lentil vegetable soup", "Middle Eastern", ["lentils", "vegetables"]),
+    meal("Roasted vegetable bowl", "Mediterranean", ["zucchini", "pepper"])
+  ];
+
+  return {
+    plan: days.map((day, index) => ({
+      day,
+      breakfast: meals[index * 3],
+      lunch: meals[index * 3 + 1],
+      dinner: meals[index * 3 + 2]
     })),
     shoppingList: []
   };

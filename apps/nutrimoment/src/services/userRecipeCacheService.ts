@@ -25,7 +25,7 @@ import {
 import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { logger } from "@/lib/logger";
-import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 type CacheRecipeLanguage = "English" | "Arabic";
 
@@ -37,11 +37,18 @@ const MAX_SHARED_CACHE_INGREDIENT_DOCS = 160;
 const MAX_SHARED_CACHE_INGREDIENT_QUERIES = 6;
 const CACHE_READ_TIMEOUT_MS = 6000;
 const SHARED_CACHE_STALE_TTL_MS = 30 * 60 * 1000;
+const FULL_SHARED_CACHE_STALE_TTL_MS = 60 * 60 * 1000;
+const FULL_SHARED_CACHE_MAX_STALE_TTL_MS = 6 * 60 * 60 * 1000;
+const FULL_SHARED_CACHE_RETRY_COOLDOWN_MS = 60 * 1000;
 const USER_RECIPE_CACHE_DISABLED = process.env.DISABLE_USER_RECIPE_CACHE === "true";
 const SHARED_RECIPE_POOL_DISABLED = process.env.DISABLE_SHARED_RECIPE_POOL === "true";
 
 let sharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
 let sharedRecipeCacheUpdatedAt = 0;
+let fullSharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
+let fullSharedRecipeCacheUpdatedAt = 0;
+let fullSharedRecipeCacheLoadPromise: Promise<RecipeCatalogDoc[]> | null = null;
+let fullSharedRecipeCacheLastAttemptAt = 0;
 
 export async function listUserCachedRecipes(uid?: string | null): Promise<RecipeCatalogDoc[]> {
   if (!uid) return [];
@@ -72,7 +79,8 @@ export async function listUserCachedRecipes(uid?: string | null): Promise<Recipe
 
     return snapshot.docs
       .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
-      .filter((recipe) => recipe?.isActive);
+      .filter((recipe) => recipe?.isActive)
+      .map(stripGeneratedCacheRecipeImages);
   } catch (error) {
     logger.warn("Loading user cached recipes failed", {
       uid,
@@ -88,6 +96,10 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
     return [];
   }
 
+  primeFullSharedRecipeCache();
+  const fullSnapshot = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
+  if (fullSnapshot.length) return fullSnapshot;
+
   const db = getAdminDb();
   try {
     const cacheQuery = db
@@ -97,6 +109,7 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
     const snapshot = await withTimeout(cacheQuery.get(), CACHE_READ_TIMEOUT_MS, "load shared cached recipes");
     const recipes = snapshot.docs
       .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+      .map(stripSharedGeneratedCacheRecipeImages)
       .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe));
     sharedRecipeCacheSnapshot = recipes;
     sharedRecipeCacheUpdatedAt = Date.now();
@@ -124,6 +137,7 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
       );
       const reducedRecipes = reducedSnapshot.docs
         .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+        .map(stripSharedGeneratedCacheRecipeImages)
         .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe));
       if (reducedRecipes.length) {
         sharedRecipeCacheSnapshot = reducedRecipes;
@@ -143,11 +157,48 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
   }
 }
 
+export function getWarmSharedRecipeCacheSnapshot(options: { allowStale?: boolean } = {}) {
+  if (!fullSharedRecipeCacheSnapshot.length) return [];
+  const ageMs = Date.now() - fullSharedRecipeCacheUpdatedAt;
+  if (ageMs <= FULL_SHARED_CACHE_STALE_TTL_MS) return fullSharedRecipeCacheSnapshot;
+  if (options.allowStale && ageMs <= FULL_SHARED_CACHE_MAX_STALE_TTL_MS) {
+    primeFullSharedRecipeCache();
+    return fullSharedRecipeCacheSnapshot;
+  }
+  return [];
+}
+
+export function primeFullSharedRecipeCache(options: { force?: boolean } = {}) {
+  if (SHARED_RECIPE_POOL_DISABLED) return;
+  if (!options.force && hasFreshFullSharedRecipeSnapshot()) return;
+  if (fullSharedRecipeCacheLoadPromise) return;
+
+  const now = Date.now();
+  if (!options.force && now - fullSharedRecipeCacheLastAttemptAt < FULL_SHARED_CACHE_RETRY_COOLDOWN_MS) {
+    return;
+  }
+
+  fullSharedRecipeCacheLastAttemptAt = now;
+  fullSharedRecipeCacheLoadPromise = loadFullSharedRecipeCache()
+    .catch((error) => {
+      logger.warn("Full shared recipe pool warm load failed", {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        staleSnapshotCount: fullSharedRecipeCacheSnapshot.length
+      });
+      return fullSharedRecipeCacheSnapshot;
+    })
+    .finally(() => {
+      fullSharedRecipeCacheLoadPromise = null;
+    });
+}
+
 export async function listSharedCachedRecipesForIngredients(ingredients: string[]): Promise<RecipeCatalogDoc[]> {
   if (SHARED_RECIPE_POOL_DISABLED) {
     logger.info("Shared recipe pool reads are disabled by environment flag");
     return [];
   }
+
+  primeFullSharedRecipeCache();
 
   const canonicalIngredients = Array.from(
     new Set(ingredients.map((ingredient) => ingredient.trim().toLowerCase()).filter(Boolean))
@@ -172,6 +223,7 @@ export async function listSharedCachedRecipesForIngredients(ingredients: string[
 
         snapshot.docs
           .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+          .map(stripSharedGeneratedCacheRecipeImages)
           .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe))
           .forEach((recipe) => recipesById.set(recipe.id, recipe));
       } catch (error) {
@@ -186,6 +238,32 @@ export async function listSharedCachedRecipesForIngredients(ingredients: string[
   return Array.from(recipesById.values());
 }
 
+async function loadFullSharedRecipeCache() {
+  const startTime = Date.now();
+  const db = getAdminDb();
+  const snapshot = await db
+    .collection(SHARED_CACHE_COLLECTION)
+    .orderBy("updatedAt", "desc")
+    .get();
+  const recipes = snapshot.docs
+    .map((docSnap) => normalizeCachedRecipeCatalogDoc(docSnap.data() as RecipeCatalogDoc))
+    .map(stripSharedGeneratedCacheRecipeImages)
+    .filter((recipe) => recipe?.isActive && isUsableSharedCachedRecipe(recipe));
+
+  fullSharedRecipeCacheSnapshot = recipes;
+  fullSharedRecipeCacheUpdatedAt = Date.now();
+  sharedRecipeCacheSnapshot = recipes.slice(0, MAX_SHARED_CACHE_DOCS);
+  sharedRecipeCacheUpdatedAt = fullSharedRecipeCacheUpdatedAt;
+
+  logger.info("Full shared recipe pool warmed", {
+    docCount: snapshot.size,
+    recipeCount: recipes.length,
+    durationMs: Date.now() - startTime
+  });
+
+  return recipes;
+}
+
 export async function persistGeneratedRecipeCache(input: {
   recipeLanguage: string;
   recipes?: Recipe[];
@@ -195,7 +273,7 @@ export async function persistGeneratedRecipeCache(input: {
 }) {
   if (USER_RECIPE_CACHE_DISABLED && SHARED_RECIPE_POOL_DISABLED) return;
 
-  const cacheDocs = await buildCacheDocs(input);
+  const cacheDocs = await buildCacheDocs(input, { preserveImages: false });
   if (!cacheDocs.length) return;
 
   let sharedCacheDocs = cacheDocs;
@@ -265,7 +343,7 @@ export async function persistSharedRecipeCache(input: {
     return;
   }
 
-  const cacheDocs = await buildCacheDocs(input);
+  const cacheDocs = await buildCacheDocs(input, { preserveImages: true });
   if (!cacheDocs.length) return;
 
   const db = getAdminDb();
@@ -287,18 +365,22 @@ async function buildCacheDocs(input: {
   recipeLanguage: string;
   recipes?: Recipe[];
   meals?: MealPlanMeal[];
-}) {
+}, options: { preserveImages: boolean }) {
   const sourceLanguage: CacheRecipeLanguage = isArabicRecipeLanguage(input.recipeLanguage) ? "Arabic" : "English";
   return (
     await Promise.all([
-      ...(input.recipes ?? []).map((recipe, index) => buildCacheDocFromRecipe(recipe, sourceLanguage, `recipe-${index}`)),
-      ...(input.meals ?? []).map((meal, index) => buildCacheDocFromMeal(meal, sourceLanguage, `meal-${index}`))
+      ...(input.recipes ?? []).map((recipe, index) =>
+        buildCacheDocFromRecipe(recipe, sourceLanguage, `recipe-${index}`, options)
+      ),
+      ...(input.meals ?? []).map((meal, index) =>
+        buildCacheDocFromMeal(meal, sourceLanguage, `meal-${index}`, options)
+      )
     ])
   ).filter((recipe): recipe is RecipeCatalogDoc => Boolean(recipe));
 }
 
-function createMealRecipe(meal: MealPlanMeal, fallbackId: string): Recipe {
-  const imageUrl = sanitizeCacheRecipeImageUrl(meal.image_url);
+function createMealRecipe(meal: MealPlanMeal, fallbackId: string, options: { preserveImages: boolean }): Recipe {
+  const imageUrl = options.preserveImages ? sanitizeCacheRecipeImageUrl(meal.image_url) : undefined;
   return {
     id: fallbackId,
     name: meal.name,
@@ -321,18 +403,24 @@ function createMealRecipe(meal: MealPlanMeal, fallbackId: string): Recipe {
   };
 }
 
-async function buildCacheDocFromMeal(meal: MealPlanMeal, sourceLanguage: CacheRecipeLanguage, fallbackId: string) {
+async function buildCacheDocFromMeal(
+  meal: MealPlanMeal,
+  sourceLanguage: CacheRecipeLanguage,
+  fallbackId: string,
+  options: { preserveImages: boolean }
+) {
   const sourceMeal = sourceLanguage === "Arabic" ? localizeMealForEnglish(meal) : meal;
-  const recipe = createMealRecipe(sourceMeal, fallbackId);
-  return buildCacheDocFromRecipe(recipe, sourceLanguage, fallbackId);
+  const recipe = createMealRecipe(sourceMeal, fallbackId, options);
+  return buildCacheDocFromRecipe(recipe, sourceLanguage, fallbackId, options);
 }
 
 async function buildCacheDocFromRecipe(
   recipe: Recipe,
   sourceLanguage: CacheRecipeLanguage,
-  fallbackId: string
+  fallbackId: string,
+  options: { preserveImages: boolean }
 ): Promise<RecipeCatalogDoc | null> {
-  const variants = createRecipeVariants(sanitizeRecipeImageFields(recipe), sourceLanguage);
+  const variants = createRecipeVariants(sanitizeRecipeImageFields(recipe, options), sourceLanguage);
   const englishIngredients = [...variants.English.ingredients, ...variants.English.missing_ingredients]
     .map((ingredient) => translateIngredientToEnglish(ingredient))
     .filter(Boolean);
@@ -375,7 +463,7 @@ async function buildCacheDocFromRecipe(
   const imageSignature = buildImageSignature(id, variants.English.cuisine || "Unknown", ingredientCanonicals);
   const normalizedEnglishCuisine = normalizeEnglishCuisineLabel(variants.English.cuisine || recipe.cuisine || "Unknown");
   const normalizedArabicCuisine = translateCuisineLabelToArabic(normalizedEnglishCuisine);
-  const durableImageUrl = sanitizeCacheRecipeImageUrl(variants.English.image_url);
+  const durableImageUrl = options.preserveImages ? sanitizeCacheRecipeImageUrl(variants.English.image_url) : undefined;
 
   const baseRecipe: RecipeCatalogDoc = {
     id,
@@ -418,13 +506,13 @@ async function buildCacheDocFromRecipe(
     },
     localized: {
       English: {
-        ...sanitizeRecipeImageFields(variants.English),
+        ...sanitizeRecipeImageFields(variants.English, options),
         id,
         name: englishTitle,
         cuisine: normalizedEnglishCuisine
       },
       Arabic: {
-        ...sanitizeRecipeImageFields(variants.Arabic),
+        ...sanitizeRecipeImageFields(variants.Arabic, options),
         id,
         name: arabicTitle,
         cuisine: normalizedArabicCuisine
@@ -459,9 +547,67 @@ function sanitizeCacheRecipeImageUrl(imageUrl?: string | null) {
 }
 
 function sanitizeRecipeImageFields<T extends Pick<Recipe, "image_url" | "image_source" | "image_attribution_name" | "image_attribution_url">>(
-  recipe: T
+  recipe: T,
+  options: { preserveImages: boolean } = { preserveImages: false }
 ) {
-  const imageUrl = sanitizeCacheRecipeImageUrl(recipe.image_url);
+  const imageUrl = options.preserveImages ? sanitizeCacheRecipeImageUrl(recipe.image_url) : undefined;
+  return {
+    ...recipe,
+    image_url: imageUrl,
+    image_source: imageUrl ? recipe.image_source : undefined,
+    image_attribution_name: imageUrl ? recipe.image_attribution_name : undefined,
+    image_attribution_url: imageUrl ? recipe.image_attribution_url : undefined
+  };
+}
+
+function stripSharedGeneratedCacheRecipeImages(recipe: RecipeCatalogDoc) {
+  return recipe.source?.provider === "shared-user-cache" ? preserveOnlyGeneratedSharedCacheRecipeImages(recipe) : recipe;
+}
+
+function stripGeneratedCacheRecipeImages(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
+  return {
+    ...recipe,
+    image: {
+      ...recipe.image,
+      storagePath: "",
+      thumbPath: undefined
+    },
+    localized: recipe.localized
+      ? {
+          ...recipe.localized,
+          English: recipe.localized.English ? sanitizeRecipeImageFields(recipe.localized.English) : recipe.localized.English,
+          Arabic: recipe.localized.Arabic ? sanitizeRecipeImageFields(recipe.localized.Arabic) : recipe.localized.Arabic
+        }
+      : recipe.localized
+  };
+}
+
+function preserveOnlyGeneratedSharedCacheRecipeImages(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
+  return {
+    ...recipe,
+    image: {
+      ...recipe.image,
+      storagePath: isReplicateGeneratedRecipeImageUrl(recipe.image.storagePath) ? recipe.image.storagePath : "",
+      thumbPath: isReplicateGeneratedRecipeImageUrl(recipe.image.thumbPath) ? recipe.image.thumbPath : undefined
+    },
+    localized: recipe.localized
+      ? {
+          ...recipe.localized,
+          English: recipe.localized.English
+            ? sanitizeGeneratedCacheRecipeImageFields(recipe.localized.English)
+            : recipe.localized.English,
+          Arabic: recipe.localized.Arabic
+            ? sanitizeGeneratedCacheRecipeImageFields(recipe.localized.Arabic)
+            : recipe.localized.Arabic
+        }
+      : recipe.localized
+  };
+}
+
+function sanitizeGeneratedCacheRecipeImageFields<
+  T extends Pick<Recipe, "image_url" | "image_source" | "image_attribution_name" | "image_attribution_url">
+>(recipe: T) {
+  const imageUrl = isReplicateGeneratedRecipeImageUrl(recipe.image_url) ? recipe.image_url : undefined;
   return {
     ...recipe,
     image_url: imageUrl,
@@ -616,13 +762,13 @@ function toSharedCacheDoc(recipe: RecipeCatalogDoc, provider = "shared-user-cach
           ...recipe.localized,
           English: recipe.localized.English
             ? {
-                ...sanitizeRecipeImageFields(recipe.localized.English),
+                ...sanitizeRecipeImageFields(recipe.localized.English, { preserveImages: true }),
                 id: sharedId
               }
             : recipe.localized.English,
           Arabic: recipe.localized.Arabic
             ? {
-                ...sanitizeRecipeImageFields(recipe.localized.Arabic),
+                ...sanitizeRecipeImageFields(recipe.localized.Arabic, { preserveImages: true }),
                 id: sharedId
               }
             : recipe.localized.Arabic
@@ -870,4 +1016,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 
 function hasFreshSharedRecipeSnapshot() {
   return sharedRecipeCacheSnapshot.length > 0 && Date.now() - sharedRecipeCacheUpdatedAt <= SHARED_CACHE_STALE_TTL_MS;
+}
+
+function hasFreshFullSharedRecipeSnapshot() {
+  return (
+    fullSharedRecipeCacheSnapshot.length > 0 &&
+    Date.now() - fullSharedRecipeCacheUpdatedAt <= FULL_SHARED_CACHE_STALE_TTL_MS
+  );
 }

@@ -123,8 +123,9 @@ function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   if (item.cacheOnly) {
     params.set("cacheOnly", "1");
   }
-  if (item.cuisine?.trim()) {
-    params.set("cuisine", item.cuisine.trim());
+  const cuisine = normalizeBatchRecipePhotoParam(item.cuisine);
+  if (cuisine) {
+    params.set("cuisine", cuisine);
   }
   setIfPresent(params, "photoSlug", item.photoSlug);
   setIfPresent(params, "photoCuisineKey", item.photoCuisineKey);
@@ -137,16 +138,20 @@ function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
 }
 
 function setIfPresent(params: URLSearchParams, key: string, value: string | undefined) {
-  const trimmed = value?.trim();
+  const trimmed = normalizeBatchRecipePhotoParam(value);
   if (trimmed) params.set(key, trimmed);
 }
 
 function appendValues(params: URLSearchParams, key: string, values: string[] | undefined, limit: number) {
   values
-    ?.map((value) => value.trim())
+    ?.map(normalizeBatchRecipePhotoParam)
     .filter(Boolean)
     .slice(0, limit)
     .forEach((value) => params.append(key, value));
+}
+
+function normalizeBatchRecipePhotoParam(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function buildBatchHeaders(result: "success" | "failure") {

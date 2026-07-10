@@ -3,7 +3,7 @@ import { getAdminDb } from "@/lib/firebaseAdmin";
 import { logger } from "@/lib/logger";
 import type { RequestAccess } from "@/services/authService";
 
-const DEFAULT_DAILY_LIMIT_PER_USER = 20;
+const DEFAULT_DAILY_LIMIT_PER_USER = 100;
 const GLOBAL_CONTROL_DOC_PATH = "globalControls/replicateImages";
 const GLOBAL_CONTROL_CACHE_TTL_MS = 60_000;
 

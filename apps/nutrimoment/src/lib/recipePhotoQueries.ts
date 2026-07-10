@@ -162,7 +162,7 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
 
   return Array.from(
     new Set([...explicitQueries, ...derivedCandidates, ...heuristicQueries, ...dishIntentQueries, ...visualReferenceQueries])
-  ).slice(0, 5);
+  ).slice(0, 8);
 }
 
 function buildDishIntentQueries(dishIntent?: RecipeDishIntent) {

@@ -41,8 +41,11 @@ const ARABIC = {
   lentil: "\u0639\u062f\u0633",
   liver: "\u0643\u0628\u062f\u0629",
   liverAlt: "\u0643\u0628\u062f\u0647",
+  pasta: "\u0645\u0639?\u0643\u0631\u0648\u0646(?:\u0629|\u0647)?",
   rice: "\u0631\u0632",
   shakshuka: "\u0634\u0643\u0634\u0648\u0643\u0629",
+  soup: "\u0634\u0648\u0631\u0628(?:\u0629|\u0647)|\u062d\u0633\u0627\u0621|\u0645\u0631\u0642(?:\u0629|\u0647)?",
+  stew: "\u064a\u062e\u0646(?:\u0629|\u0647|\u064a)",
   yogurt: "\u0632\u0628\u0627\u062f\u064a"
 } as const;
 
@@ -164,6 +167,42 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "taagen-kofta"
   },
   {
+    aliases: [
+      /\b(moroccan beef (?:kofta|kafta)|moroccan (?:kofta|kafta|kefta)|kefta kebab|kefta brochettes)\b/i
+    ],
+    canonicalName: "Moroccan beef kofta",
+    cuisineKey: "moroccan",
+    key: "moroccan-beef-kofta"
+  },
+  {
+    aliases: [/\b(lebanese beef (?:kofta|kafta)|lebanese (?:kofta|kafta)|kafta meshwi|kafta mishwiyyeh)\b/i],
+    canonicalName: "Lebanese beef kofta",
+    cuisineKey: "middle-eastern",
+    key: "lebanese-beef-kofta"
+  },
+  {
+    aliases: [
+      /\b(beef (?:kofta|kafta) with saffron rice|(?:kofta|kafta) with saffron rice|(?:kofta|kafta) saffron rice|beef (?:kofta|kafta) saffron rice)\b/i
+    ],
+    canonicalName: "beef kofta with saffron rice",
+    cuisineKey: "middle-eastern",
+    key: "beef-kofta-saffron-rice"
+  },
+  {
+    aliases: [
+      /\b(beef (?:kofta|kafta) in tomato sauce|(?:kofta|kafta) in tomato sauce|(?:kofta|kafta) in rich tomato sauce|tomato sauce (?:kofta|kafta))\b/i
+    ],
+    canonicalName: "beef kofta in tomato sauce",
+    cuisineKey: "middle-eastern",
+    key: "beef-kofta-tomato-sauce"
+  },
+  {
+    aliases: [/\b(pakistani beef (?:kofta|kafta) curry|beef (?:kofta|kafta) curry|(?:kofta|kafta) curry|pakistani (?:kofta|kafta) curry)\b/i],
+    canonicalName: "Pakistani beef kofta curry",
+    cuisineKey: "indian",
+    key: "pakistani-beef-kofta-curry"
+  },
+  {
     aliases: [/\b(kafta|kofta|kofte|kefta|kufta)\b/i, /\u0643\u0641\u062a(?:\u0629|\u0647)/iu],
     canonicalName: "kafta kebab",
     cuisineKey: "middle-eastern",
@@ -173,7 +212,9 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   },
   {
     aliases: [
-      /\bhawawshi\b/i,
+      /\b(?:egyptian|baladi|alexandrian|iskandarani|eskandarani)?\s*hawawshi\b/i,
+      /\bbaladi\s+(?:(?:meat\s+)?stuffed|meat)\s+(?:bread|pita|flatbread)\b/i,
+      /\b(?:egyptian|alexandrian)\s+(?:(?:meat\s+)?stuffed|meat)\s+(?:baladi\s+)?(?:bread|pita|flatbread)\b/i,
       /\barayes\b/i,
       /\begyptian meat stuffed pita\b/i,
       /\begyptian stuffed pita\b/i,
@@ -383,6 +424,156 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "chicken-rice-skillet"
   },
   {
+    aliases: [/\b(crispy beef stir[- ]?fry (?:recipe )?with bok choy|crispy beef bok choy stir[- ]?fry|beef bok choy noodles?)\b/i],
+    canonicalName: "crispy beef stir-fry with bok choy",
+    cuisineKey: "asian",
+    key: "crispy-beef-bok-choy-stir-fry"
+  },
+  {
+    aliases: [/\b(easy beef pot roast|beef pot roast|classic pot roast)\b/i],
+    canonicalName: "easy beef pot roast",
+    cuisineKey: "american",
+    key: "easy-beef-pot-roast"
+  },
+  {
+    aliases: [/\b(garlic butter steak and shrimp|steak and shrimp|surf and turf steak shrimp)\b/i],
+    canonicalName: "garlic butter steak and shrimp",
+    cuisineKey: "american",
+    key: "garlic-butter-steak-shrimp"
+  },
+  {
+    aliases: [/\b(italian meatloaf (?:recipe )?with marinara|italian meatloaf|meatloaf marinara)\b/i],
+    canonicalName: "Italian meatloaf with marinara",
+    cuisineKey: "italian",
+    key: "italian-meatloaf-marinara"
+  },
+  {
+    aliases: [/\b(steak with creamy garlic sauce|creamy garlic steak|steak creamy garlic sauce)\b/i],
+    canonicalName: "steak with creamy garlic sauce",
+    cuisineKey: "american",
+    key: "steak-creamy-garlic-sauce"
+  },
+  {
+    aliases: [/\b(classic steak dinner|steak dinner|one[- ]?pan steak dinner)\b/i],
+    canonicalName: "classic steak dinner",
+    cuisineKey: "american",
+    key: "classic-steak-dinner"
+  },
+  {
+    aliases: [/\b(dry[- ]?aged butter steak|dry[- ]?aged steak|butter steak)\b/i],
+    canonicalName: "dry-aged butter steak",
+    cuisineKey: "american",
+    key: "dry-aged-butter-steak"
+  },
+  {
+    aliases: [/\b(tuscan[- ]?style veal chops?|tuscan veal chops?|veal chops? alla toscana)\b/i],
+    canonicalName: "Tuscan-style veal chops",
+    cuisineKey: "italian",
+    key: "tuscan-style-veal-chops"
+  },
+  {
+    aliases: [/\b(sticky barbecued beef ribs|sticky bbq beef ribs|barbecued beef ribs)\b/i],
+    canonicalName: "sticky barbecued beef ribs",
+    cuisineKey: "american",
+    key: "sticky-bbq-beef-ribs"
+  },
+  {
+    aliases: [/\b(slow[- ]?grilled rack of lamb with mustard and herbs|rack of lamb with mustard and herbs|grilled rack of lamb)\b/i],
+    canonicalName: "slow-grilled rack of lamb with mustard and herbs",
+    cuisineKey: "mediterranean",
+    key: "slow-grilled-rack-lamb-mustard-herbs"
+  },
+  {
+    aliases: [/\b(coffee[- ]?rubbed strip steaks? with chimichurri sauce|coffee[- ]?rubbed strip steaks?|strip steak with chimichurri)\b/i],
+    canonicalName: "coffee-rubbed strip steak with chimichurri",
+    cuisineKey: "american",
+    key: "coffee-rubbed-strip-steak-chimichurri"
+  },
+  {
+    aliases: [/\b(balsamic and rosemary[- ]?marinated florentine steak|balsamic rosemary florentine steak|florentine steak)\b/i],
+    canonicalName: "balsamic rosemary Florentine steak",
+    cuisineKey: "italian",
+    key: "florentine-steak-balsamic-rosemary"
+  },
+  {
+    aliases: [/\b(ribs with hot[- ]?pepper[- ]?jelly glaze|hot pepper jelly ribs)\b/i],
+    canonicalName: "ribs with hot-pepper-jelly glaze",
+    cuisineKey: "american",
+    key: "ribs-hot-pepper-jelly-glaze"
+  },
+  {
+    aliases: [/\b(grilled rib[- ]?eye steaks? with roasted rosemary potatoes|rib[- ]?eye steak with rosemary potatoes|grilled ribeye rosemary potatoes)\b/i],
+    canonicalName: "grilled rib-eye steak with rosemary potatoes",
+    cuisineKey: "american",
+    key: "grilled-ribeye-rosemary-potatoes"
+  },
+  {
+    aliases: [/\b(sausage mixed grill|mixed sausage grill|grilled sausage platter)\b/i],
+    canonicalName: "sausage mixed grill",
+    cuisineKey: "american",
+    key: "sausage-mixed-grill"
+  },
+  {
+    aliases: [/\b(churrasco with chimichurri|churrasco steak|steak chimichurri)\b/i],
+    canonicalName: "churrasco with chimichurri",
+    cuisineKey: "latin",
+    key: "churrasco-chimichurri"
+  },
+  {
+    aliases: [/\b(carne asada with black beans|carne asada plate|carne asada)\b/i],
+    canonicalName: "carne asada with black beans",
+    cuisineKey: "mexican",
+    key: "carne-asada-black-beans"
+  },
+  {
+    aliases: [/\b(kalbi ribs and grilled corn with kalbi butter|kalbi ribs with grilled corn|kalbi ribs)\b/i],
+    canonicalName: "kalbi ribs with grilled corn",
+    cuisineKey: "korean",
+    key: "kalbi-ribs-grilled-corn"
+  },
+  {
+    aliases: [/\b(sofrito bolognese)\b/i],
+    canonicalName: "sofrito bolognese",
+    cuisineKey: "italian",
+    key: "sofrito-bolognese"
+  },
+  {
+    aliases: [/\b(smothered italian sausage|italian sausage with peppers|italian sausage peppers)\b/i],
+    canonicalName: "smothered Italian sausage",
+    cuisineKey: "italian",
+    key: "smothered-italian-sausage"
+  },
+  {
+    aliases: [/\b(frijoles peruanos|peruvian refried beans|mayocoba refried beans)\b/i],
+    canonicalName: "frijoles peruanos",
+    cuisineKey: "latin",
+    key: "frijoles-peruanos"
+  },
+  {
+    aliases: [/\b(lamb chops with agrodolce glaze walnuts and feta|lamb chops agrodolce|agrodolce lamb chops)\b/i],
+    canonicalName: "lamb chops with agrodolce glaze",
+    cuisineKey: "italian",
+    key: "lamb-chops-agrodolce"
+  },
+  {
+    aliases: [/\b(sheet[- ]?pan sausage with corn peach and cucumber salad|sheet pan sausage corn peach salad)\b/i],
+    canonicalName: "sheet-pan sausage with corn peach cucumber salad",
+    cuisineKey: "american",
+    key: "sheet-pan-sausage-corn-peach-cucumber"
+  },
+  {
+    aliases: [/\b(beef stroganoff ramen|stroganoff ramen)\b/i],
+    canonicalName: "beef stroganoff ramen",
+    cuisineKey: "asian",
+    key: "beef-stroganoff-ramen"
+  },
+  {
+    aliases: [/\b(polish lazanki|lazanki|cabbage pasta with mushrooms and kielbasa)\b/i],
+    canonicalName: "Polish lazanki",
+    cuisineKey: "eastern-european",
+    key: "polish-lazanki"
+  },
+  {
     aliases: [/\b(mongolian beef|mongolian steak|mongolian beef strips)\b/i],
     canonicalName: "Mongolian beef",
     cuisineKey: "asian",
@@ -576,12 +767,203 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   },
   {
     aliases: [
+      /\b(eggplant tomato pasta|eggplant pasta with tomato|pasta alla norma|aubergine tomato pasta|aubergine pasta)\b/i,
+      /\b(pasta with eggplant and tomato|tomato eggplant pasta|eggplant marinara pasta)\b/i,
+      /(?:\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646).*(?:\u0637\u0645\u0627\u0637\u0645|\u0635\u0644\u0635(?:\u0629|\u0647)).*(?:\u0645\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0645\u0639\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0628\u0627\u0633\u062a\u0627|\u0633\u0628\u0627\u062c\u064a\u062a\u064a|\u0628\u064a\u0646\u064a)/iu,
+      /(?:\u0645\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0645\u0639\u0643\u0631\u0648(?:\u0646\u0629|\u0646\u0647)|\u0628\u0627\u0633\u062a\u0627|\u0633\u0628\u0627\u062c\u064a\u062a\u064a|\u0628\u064a\u0646\u064a).*(?:\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646).*(?:\u0637\u0645\u0627\u0637\u0645|\u0635\u0644\u0635(?:\u0629|\u0647))/iu
+    ],
+    canonicalName: "eggplant tomato pasta",
+    cuisineKey: "italian",
+    key: "eggplant-tomato-pasta"
+  },
+  {
+    aliases: [/\b(avocado (?:and )?chickpea salad cups?|chickpea lettuce cups?)\b/i],
+    canonicalName: "avocado and chickpea salad cups",
+    cuisineKey: "mediterranean",
+    key: "avocado-chickpea-salad-cups"
+  },
+  {
+    aliases: [/\b(greek salad (?:upgrade )?(?:in a )?jar|greek salad jar)\b/i],
+    canonicalName: "Greek salad upgrade in a jar",
+    cuisineKey: "mediterranean",
+    key: "greek-salad-jar"
+  },
+  {
+    aliases: [/\b(roasted (?:veggie|vegetable) (?:and )?chickpea bowl|roasted chickpea vegetable bowl)\b/i],
+    canonicalName: "roasted veggie and chickpea bowl",
+    cuisineKey: "mediterranean",
+    key: "roasted-veggie-chickpea-bowl"
+  },
+  {
+    aliases: [/\b(cucumber tomato avocado salad|cucumber avocado tomato salad)\b/i],
+    canonicalName: "cucumber tomato avocado salad",
+    cuisineKey: "mediterranean",
+    key: "cucumber-tomato-avocado-salad"
+  },
+  {
+    aliases: [/\b(crispy zucchini (?:cheese )?rolls?|zucchini herb rolls?)\b/i],
+    canonicalName: "crispy zucchini rolls",
+    cuisineKey: "mediterranean",
+    key: "crispy-zucchini-rolls"
+  },
+  {
+    aliases: [/\b(yiayia'?s creamy pasta|greek creamy pasta)\b/i],
+    canonicalName: "Yiayia's creamy pasta",
+    cuisineKey: "mediterranean",
+    key: "yiayia-creamy-pasta"
+  },
+  {
+    aliases: [/\b(creamy spicy fasolada|spicy fasolada|white bean soup)\b/i],
+    canonicalName: "creamy spicy fasolada",
+    cuisineKey: "mediterranean",
+    key: "spicy-fasolada"
+  },
+  {
+    aliases: [/\b(creamy greek potato salad|greek potato salad)\b/i],
+    canonicalName: "creamy Greek potato salad",
+    cuisineKey: "mediterranean",
+    key: "creamy-greek-potato-salad"
+  },
+  {
+    aliases: [/\b(roasted vegetable stuffed shells|roasted vegetables stuffed shells|roasted veggie stuffed pasta shells)\b/i],
+    canonicalName: "roasted vegetable stuffed shells",
+    cuisineKey: "italian",
+    key: "roasted-vegetable-stuffed-shells"
+  },
+  {
+    aliases: [/\b(zucchini veggie bake|zucchini vegetable bake)\b/i],
+    canonicalName: "zucchini veggie bake",
+    cuisineKey: "italian",
+    key: "zucchini-veggie-bake"
+  },
+  {
+    aliases: [/\b(low carb (?:cheesy )?cauliflower pizza breadsticks?|cauliflower pizza breadsticks?)\b/i],
+    canonicalName: "low carb cheesy cauliflower pizza breadsticks",
+    cuisineKey: "american",
+    key: "cauliflower-pizza-breadsticks"
+  },
+  {
+    aliases: [/\b(low carb (?:easy )?eggplant lasagna|eggplant lasagna)\b/i],
+    canonicalName: "low carb easy eggplant lasagna",
+    cuisineKey: "american",
+    key: "low-carb-eggplant-lasagna"
+  },
+  {
+    aliases: [/\b(low carb roasted veggie pizza|low carb roasted vegetable pizza|roasted veggie pizza)\b/i],
+    canonicalName: "low carb roasted veggie pizza",
+    cuisineKey: "american",
+    key: "low-carb-roasted-veggie-pizza"
+  },
+  {
+    aliases: [/\b(easy roasted veggie tacos|roasted vegetable tacos|roasted veggie tacos)\b/i],
+    canonicalName: "easy roasted veggie tacos",
+    cuisineKey: "mexican",
+    key: "roasted-veggie-tacos"
+  },
+  {
+    aliases: [/\b(vegan palak paneer with tofu|vegan palak tofu|palak tofu)\b/i],
+    canonicalName: "vegan palak paneer with tofu",
+    cuisineKey: "indian",
+    key: "vegan-palak-tofu"
+  },
+  {
+    aliases: [/\b(vegan tikka masala|tofu tikka masala|vegetable tikka masala)\b/i],
+    canonicalName: "vegan tikka masala",
+    cuisineKey: "indian",
+    key: "vegan-tikka-masala"
+  },
+  {
+    aliases: [/\b(baingan bharta|baingan bhurta|smoky eggplant curry|mashed eggplant curry)\b/i],
+    canonicalName: "baingan bharta",
+    cuisineKey: "indian",
+    key: "baingan-bharta"
+  },
+  {
+    aliases: [/\b(persian potato patties|kuku sibzamini|kookoo sibzamini|potato kuku)\b/i],
+    canonicalName: "Persian potato patties",
+    cuisineKey: "middle-eastern",
+    key: "persian-potato-patties"
+  },
+  {
+    aliases: [/\b(persian eggplant soup|ash[- ]?e bademjan|ash bademjan|eggplant ash)\b/i],
+    canonicalName: "Persian eggplant soup",
+    cuisineKey: "middle-eastern",
+    key: "persian-eggplant-soup"
+  },
+  {
+    aliases: [/\b(briam greek roasted vegetables|briam|greek roasted vegetables)\b/i],
+    canonicalName: "briam Greek roasted vegetables",
+    cuisineKey: "mediterranean",
+    key: "briam"
+  },
+  {
+    aliases: [/\b(eggplant caponata|caponata)\b/i],
+    canonicalName: "eggplant caponata",
+    cuisineKey: "mediterranean",
+    key: "caponata"
+  },
+  {
+    aliases: [/\b(turkish zucchini stew|kabak yemegi|kabak yemeği)\b/i],
+    canonicalName: "Turkish zucchini stew",
+    cuisineKey: "turkish",
+    key: "turkish-zucchini-stew"
+  },
+  {
+    aliases: [/\b(mucver|mücver|turkish zucchini fritters|zucchini fritters)\b/i],
+    canonicalName: "Mucver Turkish zucchini fritters",
+    cuisineKey: "turkish",
+    key: "turkish-mucver"
+  },
+  {
+    aliases: [
       /\b(ground beef pasta|beef pasta skillet|beef tomato pasta|hamburger pasta)\b/i,
       /\b(elbow macaroni|macaroni)\s+(?:with|and)\s+(?:ground beef|minced beef|meat sauce)\b/i
     ],
     canonicalName: "ground beef pasta skillet",
     cuisineKey: "american",
     key: "ground-beef-pasta"
+  },
+  {
+    aliases: [/\b(orange beef lettuce wraps?|ground beef lettuce wraps?|beef lettuce cups?|orange beef lettuce cups?)\b/i],
+    canonicalName: "orange beef lettuce wraps",
+    cuisineKey: "american",
+    key: "orange-beef-lettuce-wraps"
+  },
+  {
+    aliases: [/\b(ground beef zucchini boats?|beef zucchini boats?|stuffed zucchini boats?|zucchini boats with ground beef)\b/i],
+    canonicalName: "ground beef zucchini boats",
+    cuisineKey: "american",
+    key: "ground-beef-zucchini-boats"
+  },
+  {
+    aliases: [/\b(cheesy ground beef cauliflower casserole|ground beef cauliflower casserole|beef cauliflower casserole|cauliflower ground beef skillet)\b/i],
+    canonicalName: "ground beef cauliflower casserole",
+    cuisineKey: "american",
+    key: "ground-beef-cauliflower-casserole"
+  },
+  {
+    aliases: [/\b(keto ground beef with worcestershire|ground beef worcestershire skillet|easy keto ground beef|keto ground beef skillet)\b/i],
+    canonicalName: "keto ground beef Worcestershire skillet",
+    cuisineKey: "american",
+    key: "keto-ground-beef-worcestershire"
+  },
+  {
+    aliases: [/\b(ground beef tacos?|picadillo tacos?|tacos de carne molida)\b/i],
+    canonicalName: "ground beef tacos",
+    cuisineKey: "mexican",
+    key: "ground-beef-tacos"
+  },
+  {
+    aliases: [/\b(ground beef burritos?|beef burritos?|burritos de carne molida)\b/i],
+    canonicalName: "ground beef burritos",
+    cuisineKey: "mexican",
+    key: "ground-beef-burritos"
+  },
+  {
+    aliases: [/\b(lasagna alla bolognese|ground beef lasagna|beef lasagna|bolognese lasagna)\b/i],
+    canonicalName: "lasagna alla Bolognese",
+    cuisineKey: "italian",
+    key: "lasagna-bolognese"
   },
   {
     aliases: [/\b(hamburger stew|hamburger soup|ground beef stew|ground beef vegetable stew)\b/i],
@@ -598,7 +980,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   {
     aliases: [
       /\b(alexandrian liver|kibda iskandarani|kibda eskandarani|kebda iskandarani|kebda eskandarani|iskandarani liver)\b/i,
-      /\begyptian liver sandwiches?\b/i,
       /\u0643\u0628\u062f[ةه]\s+(?:\u0625\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a|\u0627\u0633\u0643\u0646\u062f\u0631\u0627\u0646\u064a)/iu
     ],
     canonicalName: "alexandrian liver",
@@ -779,6 +1160,30 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "honey garlic shrimp",
     cuisineKey: "asian",
     key: "honey-garlic-shrimp"
+  },
+  {
+    aliases: [/\b(shrimp stir fry|shrimp vegetable stir fry|shrimp and vegetable stir fry)\b/i],
+    canonicalName: "shrimp stir fry",
+    cuisineKey: "asian",
+    key: "shrimp-stir-fry"
+  },
+  {
+    aliases: [/\b(shrimp fajitas?|fajitas de camaron)\b/i],
+    canonicalName: "shrimp fajitas",
+    cuisineKey: "mexican",
+    key: "shrimp-fajitas"
+  },
+  {
+    aliases: [/\b(shrimp lettuce wraps?|shrimp lettuce cups?)\b/i],
+    canonicalName: "shrimp lettuce wraps",
+    cuisineKey: "asian",
+    key: "shrimp-lettuce-wraps"
+  },
+  {
+    aliases: [/\b(pan seared scallops?|seared scallops?|scallops with lemon butter)\b/i],
+    canonicalName: "pan seared scallops",
+    cuisineKey: "western",
+    key: "pan-seared-scallops"
   },
   {
     aliases: [/\b(cajun shrimp|cajun butter shrimp|best cajun shrimp)\b/i],
@@ -1090,6 +1495,30 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "fish-florentine"
   },
   {
+    aliases: [/\b(creamy tuscan salmon|tuscan salmon|salmon with sun dried tomatoes and spinach)\b/i],
+    canonicalName: "creamy Tuscan salmon",
+    cuisineKey: "italian",
+    key: "creamy-tuscan-salmon"
+  },
+  {
+    aliases: [/\b(easy baked salmon|baked salmon|oven baked salmon|simple baked salmon)\b/i],
+    canonicalName: "easy baked salmon",
+    cuisineKey: "western",
+    key: "easy-baked-salmon"
+  },
+  {
+    aliases: [/\b(fish tacos?|baja fish tacos?|white fish tacos?)\b/i],
+    canonicalName: "fish tacos",
+    cuisineKey: "mexican",
+    key: "fish-tacos"
+  },
+  {
+    aliases: [/\b(cod fish tacos?|cod tacos?)\b/i],
+    canonicalName: "cod fish tacos",
+    cuisineKey: "mexican",
+    key: "cod-fish-tacos"
+  },
+  {
     aliases: [
       /\b(crispy pan fried fish|pan fried fish|crispy fish fillet|crispy fried fish fillet)\b/i,
       /\b(flour coated fish fillet|golden pan seared fish|simple crispy fish)\b/i,
@@ -1098,6 +1527,78 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "crispy pan fried fish",
     cuisineKey: "western",
     key: "crispy-pan-fried-fish"
+  },
+  {
+    aliases: [/\b(parmesan crusted tilapia|herb crusted tilapia|tilapia parmesan crust)\b/i],
+    canonicalName: "Parmesan crusted tilapia",
+    cuisineKey: "italian",
+    key: "parmesan-crusted-tilapia"
+  },
+  {
+    aliases: [/\b(fried tilapia|pan fried tilapia|golden fried tilapia)\b/i],
+    canonicalName: "fried tilapia",
+    cuisineKey: "western",
+    key: "fried-tilapia"
+  },
+  {
+    aliases: [/\b(baked tilapia with lemon|lemon baked tilapia|baked tilapia lemon|tilapia with lemon tomatoes)\b/i],
+    canonicalName: "baked tilapia with lemon",
+    cuisineKey: "western",
+    key: "baked-tilapia-lemon"
+  },
+  {
+    aliases: [/\b(baked fish|simple baked fish|white fish with lemon|baked white fish)\b/i],
+    canonicalName: "baked fish",
+    cuisineKey: "western",
+    key: "baked-fish"
+  },
+  {
+    aliases: [/\b(salmon rice crunch bowl|salmon rice bowl|crispy salmon rice bowl)\b/i],
+    canonicalName: "salmon rice crunch bowl",
+    cuisineKey: "asian",
+    key: "salmon-rice-crunch-bowl"
+  },
+  {
+    aliases: [/\b(pesto shrimp|shrimp with pesto|basil pesto shrimp)\b/i],
+    canonicalName: "pesto shrimp",
+    cuisineKey: "italian",
+    key: "pesto-shrimp"
+  },
+  {
+    aliases: [/\b(tuscan shrimp|creamy tuscan shrimp|shrimp with sun dried tomatoes and spinach)\b/i],
+    canonicalName: "Tuscan shrimp",
+    cuisineKey: "italian",
+    key: "tuscan-shrimp"
+  },
+  {
+    aliases: [/\b(shrimp and grits|shrimp grits)\b/i],
+    canonicalName: "shrimp and grits",
+    cuisineKey: "american",
+    key: "shrimp-and-grits"
+  },
+  {
+    aliases: [/\b(grapefruit shrimp (?:and )?radicchio tartines?|shrimp radicchio tartines?|shrimp grapefruit tartines?)\b/i],
+    canonicalName: "grapefruit shrimp and radicchio tartines",
+    cuisineKey: "american",
+    key: "grapefruit-shrimp-radicchio-tartines"
+  },
+  {
+    aliases: [/\b(citrus[- ]roasted salmon|citrus salmon)\b/i],
+    canonicalName: "citrus-roasted salmon",
+    cuisineKey: "american",
+    key: "citrus-roasted-salmon"
+  },
+  {
+    aliases: [/\b(seafood paella with bell peppers|seafood paella|paella de marisco)\b/i],
+    canonicalName: "seafood paella with bell peppers",
+    cuisineKey: "mediterranean",
+    key: "seafood-paella-bell-peppers"
+  },
+  {
+    aliases: [/\b(classic lobster rolls?|lobster rolls?|lobster roll)\b/i],
+    canonicalName: "classic lobster rolls",
+    cuisineKey: "american",
+    key: "lobster-roll"
   },
   {
     aliases: [
@@ -1394,13 +1895,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "spicy-tomato-seafood-pasta"
   },
   {
-    aliases: [/\b(ful|medames)\b/i, /\bfava bean/i, new RegExp(ARABIC.fava, "iu")],
-    canonicalName: "ful medames",
-    cuisineKey: "egyptian",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
-    key: "ful-medames"
-  },
-  {
     aliases: [
       /\b(ful bil zeit|ful bel zeit|foul bil zeit|foul bel zeit|fava beans with olive oil|lebanese ful bil zeit|syrian ful bil zeit)\b/i,
       /\b(ful with oil|foul with oil|fava beans in olive oil)\b/i,
@@ -1481,6 +1975,17 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
   },
   {
     aliases: [
+      /\b(ful medames|foul medames|ful mudammas|foul mudammas|ful mudamas|foul mudamas|ful|foul|medames|mudammas|mudamas)\b/i,
+      /\bfava bean/i,
+      new RegExp(`${ARABIC.fava}(?:\\s+${ARABIC.egypt}|\\s+\\u0645\\u062f\\u0645\\u0633)?`, "iu")
+    ],
+    canonicalName: "ful medames",
+    cuisineKey: "egyptian",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
+    key: "ful-medames"
+  },
+  {
+    aliases: [
       /\b(eggs with basterma|eggs with pastrami|basterma and eggs|pastrami and eggs|egyptian eggs basterma)\b/i,
       /\b(beid bel basterma|beid bil basterma|bayd bel basterma)\b/i,
       /\u0628\u064a\u0636.*(?:\u0628\u0627\u0644\u0628\u0633\u0637\u0631\u0645\u0629|\u0628\u0633\u0637\u0631\u0645\u0629|\u0628\u0627\u0633\u0637\u0631\u0645\u0629)/iu
@@ -1516,6 +2021,17 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     canonicalName: "sunny-side eggs with sausage",
     cuisineKey: "middle-eastern",
     key: "sunny-eggs-with-sausage"
+  },
+  {
+    aliases: [
+      /\b(avocado tomato (?:sourdough )?toast|avocado (?:and )?tomato toast|sourdough avocado tomato toast)\b/i,
+      /\b(tomato avocado (?:sourdough )?toast|avocado toast with tomato)\b/i,
+      /(?:\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648).*(?:\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647)).*(?:\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u062a\u0648\u0633\u062a|\u062e\u0628\u0632)/iu,
+      /(?:\u062a\u0648\u0633\u062a|\u062e\u0628\u0632).*(?:\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648).*(?:\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631(?:\u0629|\u0647))/iu
+    ],
+    canonicalName: "avocado tomato sourdough toast",
+    cuisineKey: "western",
+    key: "avocado-tomato-toast"
   },
   {
     aliases: [
@@ -1628,21 +2144,23 @@ const CUISINE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 const MAIN_INGREDIENT_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
-  { key: "chicken", pattern: /\bchicken\b/iu },
+  { key: "chicken", pattern: new RegExp(`\\b(?:chicken|hen|poultry|farakh|farkh|pollo|tavuk|gai|murgh)\\b|\\u062f\\u062c\\u0627\\u062c|\\u0641\\u0631\\u0627\\u062e|\\u0641\\u0631\\u062e(?:\\u0629)?`, "iu") },
   { key: "mussels", pattern: /\bmussel|mussels\b/iu },
-  { key: "shrimp", pattern: /\bshrimp|prawn\b/iu },
+  { key: "shrimp", pattern: /(?:\b(?:shrimp|prawn|goong|gamberi|camarones)\b|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646|\u0642\u0631\u064a\u062f\u0633)/iu },
   { key: "liver", pattern: new RegExp(`\\bliver|kebda|kibda|ciger|cigeri\\b|${ARABIC.liver}|${ARABIC.liverAlt}`, "iu") },
   { key: "lamb", pattern: /\blamb\b/iu },
   { key: "beef", pattern: /\bbeef|steak|meat\b/iu },
   { key: "veal", pattern: /\bveal\b/iu },
-  { key: "fish", pattern: /\bwhite fish|fish|cod|tilapia|sea bass|snapper|salmon\b/iu },
+  { key: "fish", pattern: /(?:\b(?:white fish|fish|cod|tilapia|sea bass|snapper|salmon|pescado|samke|samak)\b|\u0633\u0645\u0643|\u0633\u0645\u0643\u0629|\u0628\u0644\u0637\u064a|\u062f\u0646\u064a\u0633|\u0633\u0644\u0645\u0648\u0646|\u062a\u0648\u0646\u0629)/iu },
   { key: "tuna", pattern: /\btuna\b/iu },
   { key: "tofu", pattern: /\btofu\b/iu },
   { key: "yogurt", pattern: new RegExp(`\\byogurt|labneh\\b|${ARABIC.yogurt}`, "iu") },
   { key: "egg", pattern: new RegExp(`\\begg\\b|${ARABIC.egg}`, "iu") },
   { key: "chickpea", pattern: new RegExp(`\\bchickpea|chickpeas\\b|${ARABIC.chickpea}`, "iu") },
   { key: "lentil", pattern: new RegExp(`\\blentil|lentils\\b|${ARABIC.lentil}`, "iu") },
-  { key: "bean", pattern: new RegExp(`\\bbean|beans|fava\\b|${ARABIC.fava}|${ARABIC.bean}|${ARABIC.loubia}`, "iu") },
+  { key: "bean", pattern: new RegExp(`\\b(?:bean|beans|fava|ful)\\b|${ARABIC.fava}|${ARABIC.bean}|${ARABIC.loubia}`, "iu") },
+  { key: "eggplant", pattern: /\beggplant|aubergine\b|\u0628\u0627\u0630\u0646\u062c\u0627\u0646|\u0628\u062a\u0646\u062c\u0627\u0646|\u0628\u0627\u0646\u062c\u0627\u0646/iu },
+  { key: "avocado", pattern: /\bavocado\b|\u0623\u0641\u0648\u0643\u0627\u062f\u0648|\u0627\u0641\u0648\u0643\u0627\u062f\u0648/iu },
   { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") }
 ];
 
@@ -1650,7 +2168,7 @@ const BEAN_TYPE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "white-bean", pattern: /\bwhite bean|white beans|cannellini|navy bean|navy beans\b/iu },
   { key: "green-bean", pattern: /\bgreen bean|green beans\b/iu },
   { key: "black-bean", pattern: /\bblack bean|black beans\b/iu },
-  { key: "fava-bean", pattern: new RegExp(`\\bfava|fava bean|fava beans\\b|${ARABIC.fava}`, "iu") },
+  { key: "fava-bean", pattern: new RegExp(`\\b(?:fava|fava bean|fava beans|ful)\\b|${ARABIC.fava}`, "iu") },
   { key: "chickpea", pattern: new RegExp(`\\bchickpea|chickpeas\\b|${ARABIC.chickpea}`, "iu") }
 ];
 
@@ -1664,12 +2182,15 @@ const SAUCE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 const STARCH_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
-  { key: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/iu },
+  { key: "pasta", pattern: new RegExp(`\\bpasta|spaghetti|penne|fettuccine|macaroni\\b|${ARABIC.pasta}`, "iu") },
   { key: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/iu },
   { key: "rice", pattern: new RegExp(`\\brice\\b|${ARABIC.rice}`, "iu") },
   { key: "bulgur", pattern: /\bbulgur|burghul|borghol\b/iu },
   { key: "potato", pattern: /\bpotato|potatoes\b/iu },
-  { key: "bread", pattern: /\bbread|toast|bun|roll|wrap\b/iu }
+  {
+    key: "bread",
+    pattern: /\bbread|toast|bun|roll|wrap\b|\u062a\u0648\u0633\u062a|\u0633\u0627\u0648\u0631\u062f\u0648\u063a|\u0633\u0648\u0631\u062f\u0648|\u062e\u0628\u0632|\u0639\u064a\u0634/iu
+  }
 ];
 
 const COOKING_METHOD_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
@@ -1682,11 +2203,11 @@ const COOKING_METHOD_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 const MEAL_TYPE_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
-  { key: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/iu },
+  { key: "pasta", pattern: new RegExp(`\\bpasta|spaghetti|penne|fettuccine|macaroni\\b|${ARABIC.pasta}`, "iu") },
   { key: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/iu },
   { key: "salad", pattern: /\bsalad\b/iu },
-  { key: "soup", pattern: /\bsoup\b/iu },
-  { key: "stew", pattern: /\bstew\b/iu },
+  { key: "soup", pattern: new RegExp(`\\bsoup\\b|${ARABIC.soup}`, "iu") },
+  { key: "stew", pattern: new RegExp(`\\bstew\\b|${ARABIC.stew}`, "iu") },
   { key: "skillet", pattern: /\bskillet\b/iu },
   { key: "stir-fry", pattern: /\bstir[- ]?fry\b/iu },
   { key: "chili", pattern: /\bchili\b/iu },
@@ -2059,6 +2580,13 @@ function detectRecipePhotoFamily(
   if (details.mainIngredientKey === "chicken" && details.mealTypeKey === "salad") {
     return "chicken-rice-salad";
   }
+  if (
+    details.mainIngredientKey === "liver" &&
+    details.cuisineKey === "egyptian" &&
+    /\b(sandwich|sandwiches|sub|roll)\b|ساندويتش|سندويتش/iu.test(cleanQuery)
+  ) {
+    return "egyptian-liver-sandwiches";
+  }
   if (details.mainIngredientKey === "liver" && details.cuisineKey === "egyptian") return "alexandrian-liver";
 
   if (details.beanTypeKey === "white-bean" && details.mealTypeKey === "salad") return "white-bean-salad";
@@ -2154,6 +2682,12 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("vegetable omelet"), withCuisine("spinach omelet"), withCuisine("bell pepper omelet")];
     case "egg-scramble":
       return [withCuisine("scrambled eggs spinach"), withCuisine("egg scramble"), withCuisine("breakfast eggs")];
+    case "avocado-tomato-toast":
+      return [
+        withCuisine("avocado tomato sourdough toast"),
+        withCuisine("avocado tomato toast"),
+        withCuisine("sourdough avocado toast tomato")
+      ];
     case "chicken-shawarma":
     case "chicken-shawarma-bowl":
       return [
@@ -2286,6 +2820,106 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("ground beef penne"), withCuisine("beef tomato penne"), withCuisine("one pan beef penne")];
     case "ground-beef-pasta":
       return [withCuisine("ground beef pasta"), withCuisine("beef macaroni skillet"), withCuisine("hamburger pasta")];
+    case "orange-beef-lettuce-wraps":
+      return [withCuisine("orange beef lettuce wraps"), withCuisine("ground beef lettuce cups"), withCuisine("beef lettuce wraps")];
+    case "ground-beef-zucchini-boats":
+      return [withCuisine("ground beef zucchini boats"), withCuisine("stuffed zucchini boats ground beef"), withCuisine("beef stuffed zucchini")];
+    case "ground-beef-cauliflower-casserole":
+      return [withCuisine("ground beef cauliflower casserole"), withCuisine("cheesy beef cauliflower skillet"), withCuisine("beef cauliflower casserole")];
+    case "keto-ground-beef-worcestershire":
+      return [withCuisine("keto ground beef skillet"), withCuisine("ground beef worcestershire skillet"), withCuisine("ground beef vegetables skillet")];
+    case "ground-beef-tacos":
+      return [withCuisine("ground beef tacos"), withCuisine("picadillo tacos"), withCuisine("tacos de carne molida")];
+    case "ground-beef-burritos":
+      return [withCuisine("ground beef burritos"), withCuisine("beef burritos"), withCuisine("burritos de carne molida")];
+    case "lasagna-bolognese":
+      return [withCuisine("lasagna alla bolognese"), withCuisine("ground beef lasagna"), withCuisine("beef lasagna layers")];
+    case "eggplant-tomato-pasta":
+      return [withCuisine("eggplant tomato pasta"), withCuisine("pasta alla norma"), withCuisine("aubergine tomato pasta")];
+    case "avocado-chickpea-salad-cups":
+      return [withCuisine("avocado chickpea salad cups"), withCuisine("chickpea lettuce cups"), withCuisine("avocado chickpea lettuce wraps")];
+    case "greek-salad-jar":
+      return [withCuisine("Greek salad in a jar"), withCuisine("Greek salad meal prep jar"), withCuisine("cucumber tomato chickpea salad jar")];
+    case "roasted-veggie-chickpea-bowl":
+      return [withCuisine("roasted vegetable chickpea bowl"), withCuisine("roasted veggie chickpea bowl"), withCuisine("roasted chickpea vegetables")];
+    case "cucumber-tomato-avocado-salad":
+      return [withCuisine("cucumber tomato avocado salad"), withCuisine("avocado cucumber tomato salad")];
+    case "crispy-zucchini-rolls":
+      return [withCuisine("crispy zucchini rolls"), withCuisine("zucchini herb rolls"), withCuisine("baked zucchini rolls")];
+    case "yiayia-creamy-pasta":
+      return [withCuisine("Greek creamy pasta"), withCuisine("creamy tomato pasta"), withCuisine("short pasta creamy tomato sauce")];
+    case "spicy-fasolada":
+      return [withCuisine("spicy fasolada"), withCuisine("Greek white bean soup"), withCuisine("creamy white bean soup")];
+    case "creamy-greek-potato-salad":
+      return [withCuisine("creamy Greek potato salad"), withCuisine("Greek potato salad"), withCuisine("potato salad herbs red onion")];
+    case "roasted-vegetable-stuffed-shells":
+      return [withCuisine("roasted vegetable stuffed shells"), withCuisine("vegetarian stuffed pasta shells"), withCuisine("stuffed shells marinara vegetables")];
+    case "zucchini-veggie-bake":
+      return [withCuisine("zucchini veggie bake"), withCuisine("zucchini vegetable casserole"), withCuisine("baked zucchini tomato casserole")];
+    case "cauliflower-pizza-breadsticks":
+      return [withCuisine("cauliflower pizza breadsticks"), withCuisine("cauliflower crust breadsticks"), withCuisine("low carb cauliflower pizza")];
+    case "low-carb-eggplant-lasagna":
+      return [withCuisine("eggplant lasagna"), withCuisine("low carb eggplant lasagna"), withCuisine("eggplant casserole marinara")];
+    case "low-carb-roasted-veggie-pizza":
+      return [withCuisine("roasted veggie pizza"), withCuisine("low carb vegetable pizza"), withCuisine("vegetable crust pizza")];
+    case "roasted-veggie-tacos":
+      return [withCuisine("roasted veggie tacos"), withCuisine("roasted vegetable tacos"), withCuisine("cauliflower sweet potato tacos")];
+    case "vegan-palak-tofu":
+      return [withCuisine("vegan palak tofu"), withCuisine("tofu spinach curry"), withCuisine("vegan palak paneer tofu")];
+    case "vegan-tikka-masala":
+      return [withCuisine("vegan tikka masala"), withCuisine("tofu tikka masala"), withCuisine("vegetable tikka masala")];
+    case "baingan-bharta":
+      return [withCuisine("baingan bharta"), withCuisine("smoky mashed eggplant curry"), withCuisine("indian eggplant bharta")];
+    case "crispy-beef-bok-choy-stir-fry":
+      return [withCuisine("crispy beef bok choy stir fry"), withCuisine("beef bok choy noodles"), withCuisine("crispy beef stir fry")];
+    case "easy-beef-pot-roast":
+      return [withCuisine("beef pot roast"), withCuisine("easy beef pot roast"), withCuisine("pot roast potatoes carrots")];
+    case "garlic-butter-steak-shrimp":
+      return [withCuisine("garlic butter steak and shrimp"), withCuisine("steak and shrimp"), withCuisine("surf and turf steak shrimp")];
+    case "italian-meatloaf-marinara":
+      return [withCuisine("Italian meatloaf marinara"), withCuisine("meatloaf with marinara"), withCuisine("Italian meatloaf")];
+    case "steak-creamy-garlic-sauce":
+      return [withCuisine("steak creamy garlic sauce"), withCuisine("creamy garlic steak"), withCuisine("steak with garlic cream sauce")];
+    case "coffee-rubbed-strip-steak-chimichurri":
+      return [withCuisine("coffee rubbed strip steak chimichurri"), withCuisine("strip steak with chimichurri"), withCuisine("coffee rubbed steak")];
+    case "classic-steak-dinner":
+      return [withCuisine("classic steak dinner"), withCuisine("steak dinner potatoes asparagus"), withCuisine("steak plate")];
+    case "dry-aged-butter-steak":
+      return [withCuisine("dry aged butter steak"), withCuisine("dry aged steak"), withCuisine("butter steak")];
+    case "tuscan-style-veal-chops":
+      return [withCuisine("Tuscan veal chops"), withCuisine("veal chops rosemary sage"), withCuisine("veal chop Italian")];
+    case "sticky-bbq-beef-ribs":
+      return [withCuisine("sticky barbecue beef ribs"), withCuisine("bbq beef ribs"), withCuisine("glazed beef ribs")];
+    case "ribs-hot-pepper-jelly-glaze":
+      return [withCuisine("hot pepper jelly ribs"), withCuisine("ribs hot pepper glaze"), withCuisine("glazed ribs")];
+    case "slow-grilled-rack-lamb-mustard-herbs":
+      return [withCuisine("rack of lamb mustard herbs"), withCuisine("grilled rack of lamb"), withCuisine("lamb rack rosemary")];
+    case "florentine-steak-balsamic-rosemary":
+      return [withCuisine("Florentine steak rosemary balsamic"), withCuisine("bistecca alla fiorentina"), withCuisine("grilled Florentine steak")];
+    case "grilled-ribeye-rosemary-potatoes":
+      return [withCuisine("ribeye steak rosemary potatoes"), withCuisine("grilled rib eye steak potatoes"), withCuisine("steak with roasted potatoes")];
+    case "sausage-mixed-grill":
+      return [withCuisine("sausage mixed grill"), withCuisine("grilled sausage platter"), withCuisine("sausages grilled vegetables")];
+    case "churrasco-chimichurri":
+      return [withCuisine("churrasco with chimichurri"), withCuisine("steak chimichurri"), withCuisine("grilled churrasco")];
+    case "carne-asada-black-beans":
+      return [withCuisine("carne asada black beans"), withCuisine("carne asada plate"), withCuisine("grilled carne asada avocado beans")];
+    case "kalbi-ribs-grilled-corn":
+      return [withCuisine("kalbi ribs grilled corn"), withCuisine("Korean kalbi ribs"), withCuisine("galbi ribs corn")];
+    case "sofrito-bolognese":
+      return [withCuisine("sofrito bolognese"), withCuisine("pasta with sofrito meat sauce"), withCuisine("spaghetti sofrito bolognese")];
+    case "smothered-italian-sausage":
+      return [withCuisine("smothered Italian sausage"), withCuisine("Italian sausage peppers tomato"), withCuisine("sausage and peppers")];
+    case "frijoles-peruanos":
+      return [withCuisine("frijoles peruanos"), withCuisine("Peruvian refried beans"), withCuisine("mayocoba refried beans")];
+    case "lamb-chops-agrodolce":
+      return [withCuisine("lamb chops agrodolce"), withCuisine("agrodolce lamb chops"), withCuisine("glazed lamb chops walnuts")];
+    case "sheet-pan-sausage-corn-peach-cucumber":
+      return [withCuisine("sheet pan sausage corn peach cucumber salad"), withCuisine("sausage corn cucumber salad"), withCuisine("summer sausage sheet pan")];
+    case "beef-stroganoff-ramen":
+      return [withCuisine("beef stroganoff ramen"), withCuisine("stroganoff ramen"), withCuisine("beef mushroom ramen noodles")];
+    case "polish-lazanki":
+      return [withCuisine("Polish lazanki"), withCuisine("cabbage pasta kielbasa"), withCuisine("lazanki cabbage mushrooms")];
     case "hamburger-stew":
       return [withCuisine("hamburger stew"), withCuisine("ground beef vegetable stew"), withCuisine("hamburger soup potatoes carrots")];
     case "rice-kofta":
@@ -2294,6 +2928,16 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("dawood basha"), withCuisine("egyptian meatballs tomato sauce"), withCuisine("kofta dawood basha")];
     case "taagen-kofta":
       return [withCuisine("egyptian kofta tagine"), withCuisine("taagen kofta potatoes"), withCuisine("kofta potato tray")];
+    case "moroccan-beef-kofta":
+      return [withCuisine("Moroccan beef kofta"), withCuisine("Moroccan kefta kebab"), withCuisine("kefta brochettes")];
+    case "lebanese-beef-kofta":
+      return [withCuisine("Lebanese beef kofta"), withCuisine("Lebanese kafta"), withCuisine("kafta meshwi")];
+    case "beef-kofta-saffron-rice":
+      return [withCuisine("beef kofta saffron rice"), withCuisine("kofta with saffron rice"), withCuisine("kofta rice plate")];
+    case "beef-kofta-tomato-sauce":
+      return [withCuisine("beef kofta tomato sauce"), withCuisine("kofta in tomato sauce"), withCuisine("kofta meatballs red sauce")];
+    case "pakistani-beef-kofta-curry":
+      return [withCuisine("Pakistani beef kofta curry"), withCuisine("beef kofta curry"), withCuisine("kofta curry")];
     case "macarona-bechamel":
       return [withCuisine("macarona bechamel egyptian"), withCuisine("egyptian bechamel pasta"), withCuisine("baked macarona bechamel")];
     case "besara":
@@ -2306,6 +2950,22 @@ function getFamilySearchQueries(familyKey?: string, cuisineKey?: string) {
       return [withCuisine("loubia bzeit"), withCuisine("green bean stew")];
     case "kafta":
       return [withCuisine("kafta kebab")];
+    case "warak-enab":
+      return [withCuisine("warak enab"), withCuisine("stuffed grape leaves"), withCuisine("stuffed vine leaves")];
+    case "sarma-dolma":
+      return [withCuisine("sarma dolma"), withCuisine("stuffed grape leaves"), withCuisine("stuffed vine leaves")];
+    case "mahshi":
+      return [withCuisine("mixed mahshi"), withCuisine("egyptian stuffed vegetables"), withCuisine("rice stuffed vegetables")];
+    case "kousa-mahshi":
+      return [withCuisine("kousa mahshi"), withCuisine("stuffed zucchini"), withCuisine("zucchini mahshi")];
+    case "stuffed-cabbage-rolls":
+      return [withCuisine("stuffed cabbage rolls"), withCuisine("malfouf mahshi"), withCuisine("cabbage mahshi")];
+    case "stuffed-bell-peppers":
+      return [withCuisine("stuffed bell peppers"), withCuisine("mahshi peppers"), withCuisine("rice stuffed peppers")];
+    case "tomato-mahshi":
+      return [withCuisine("tomato mahshi"), withCuisine("stuffed tomatoes"), withCuisine("rice stuffed tomatoes")];
+    case "stuffed-eggplant":
+      return [withCuisine("stuffed eggplant"), withCuisine("eggplant mahshi"), withCuisine("batenjan mahshi")];
     case "kiymali-pide":
       return [withCuisine("kiymali pide"), withCuisine("turkish beef pide"), withCuisine("turkish minced meat pide")];
     case "lahmacun":

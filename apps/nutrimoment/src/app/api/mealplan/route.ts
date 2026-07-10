@@ -15,19 +15,22 @@ import { logger } from "@/lib/logger";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { mapCatalogRecipeToMeal, searchCatalogRecipes } from "@/services/recipeSearchService";
 import { repairMealPlanWithGuard, summarizeMealPlanIssues, validateMealPlan } from "@/services/mealPlanGuardService";
-import { cuisineMatchesPreference } from "@/lib/cuisines";
+import { normalizeCuisineLabel } from "@/lib/cuisines";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
+import { buildMealPlanPreferenceSignature } from "@/lib/mealPlanPreferenceSignature";
 import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 import {
+  findIngredientDietViolation,
   findRecipeDietViolation,
   type DietEnforcementContext
 } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -141,16 +144,38 @@ export async function POST(request: Request) {
       diets: parsed.data.diets ?? [],
       allergens: parsed.data.allergens ?? []
     };
+    const rawPantryStock = pantryItems.length ? pantryItems : pantry.map((name) => ({ name, quantity: "1" }));
+    const pantryStock = rawPantryStock.filter((item) => !findIngredientDietViolation(item.name, dietContext));
+    const ignoredPantryItems = rawPantryStock.filter((item) => findIngredientDietViolation(item.name, dietContext));
+    const dietCompatiblePantry = pantryStock.map((item) => item.name);
+    if (ignoredPantryItems.length) {
+      logger.info("Meal plan ignored pantry items that conflict with selected diet/allergen rules", {
+        requestId,
+        ignoredPantryItems: ignoredPantryItems.map((item) => item.name),
+        diets: dietContext.diets,
+        allergens: dietContext.allergens
+      });
+    }
     const mealPlanGuardPreferences = {
       dietContext,
+      conditions: parsed.data.conditions ?? [],
       preferredCuisine: parsed.data.preferredCuisine,
       maxMealRepeatCount: 2,
       minUniqueMeals: 15,
       minPescatarianSeafoodSlots: 6
     };
+    const preferenceSignature = buildMealPlanPreferenceSignature({
+      allergens: parsed.data.allergens ?? [],
+      calorieTarget: parsed.data.calorieTarget,
+      conditions: parsed.data.conditions ?? [],
+      diets: parsed.data.diets ?? [],
+      preferredCuisine: parsed.data.preferredCuisine,
+      uiLanguage: parsed.data.uiLanguage
+    });
     const repairMealPlanSlots = (plan: MealPlanData, stage: string, replacementRecipes: RecipeCatalogDoc[] = []): MealPlanData => {
       let repairCount = 0;
       let dietViolationCount = 0;
+      let healthViolationCount = 0;
       let cuisineRepairCount = 0;
       let placeholderCount = 0;
       let catalogReplacementCount = 0;
@@ -166,17 +191,20 @@ export async function POST(request: Request) {
             const meal = day[slot];
             if (!meal) continue;
             const violation = findRecipeDietViolation(meal, dietContext);
+            const healthViolation = findRecipeHealthViolation(meal, parsed.data.conditions ?? []);
             const placeholder = isPlaceholderMeal(meal);
             const cuisineMismatch = !mealMatchesPreferredCuisine(meal, parsed.data.preferredCuisine);
-            if (violation || placeholder || cuisineMismatch) {
+            if (violation || healthViolation || placeholder || cuisineMismatch) {
               repairCount += 1;
               if (violation) dietViolationCount += 1;
+              if (healthViolation) healthViolationCount += 1;
               if (placeholder) placeholderCount += 1;
               if (cuisineMismatch) cuisineRepairCount += 1;
               const replacement = buildSafeMealReplacement({
                 dietContext,
                 recipeLanguage,
                 preferredCuisine: parsed.data.preferredCuisine,
+                conditions: parsed.data.conditions ?? [],
                 replacementRecipes: cuisineAlignedReplacements.length ? cuisineAlignedReplacements : replacementRecipes,
                 slot,
                 usedReplacementNames
@@ -197,6 +225,7 @@ export async function POST(request: Request) {
           stage,
           repairCount,
           dietViolationCount,
+          healthViolationCount,
           cuisineRepairCount,
           placeholderCount,
           catalogReplacementCount,
@@ -236,7 +265,7 @@ export async function POST(request: Request) {
       try {
         const repairText = await callOpenAIText(
           buildMealPlanRepairPrompt({
-            pantry,
+            pantry: dietCompatiblePantry,
             pantryItems: pantryStock,
             diets: parsed.data.diets ?? [],
             conditions: parsed.data.conditions ?? [],
@@ -301,17 +330,18 @@ export async function POST(request: Request) {
       });
       await persistMealPlanResultForUser({
         historyEntryId: parsed.data.historyEntryId,
-        historyIngredients: parsed.data.historyIngredients ?? pantry,
+        historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
         historyTitle: parsed.data.historyTitle,
         mealPlan: outputMockPlan,
+        preferenceSignature,
         persistResult: parsed.data.persistResult,
         uid: access.uid
       });
-      return Response.json({ result: JSON.stringify(outputMockPlan), access: accessPayload(nextAccess) });
+      return Response.json({ result: JSON.stringify({ ...outputMockPlan, preferenceSignature }), access: accessPayload(nextAccess) });
     }
 
     const searchResult = await searchCatalogRecipes({
-      ingredients: pantry,
+      ingredients: dietCompatiblePantry,
       preferredCuisine: parsed.data.preferredCuisine,
       calorieTarget: parsed.data.calorieTarget,
       diets: parsed.data.diets,
@@ -322,7 +352,6 @@ export async function POST(request: Request) {
       uid: access.uid
     });
 
-    const pantryStock = pantryItems.length ? pantryItems : pantry.map((name) => ({ name, quantity: "1" }));
     const rankedRecipeMap = new Map(searchResult.candidateRecipes.map((recipe) => [recipe.id, recipe]));
     const orderedRankedRecipes = searchResult.rankedRecipeIds
       .map((recipeId) => rankedRecipeMap.get(recipeId))
@@ -337,7 +366,7 @@ export async function POST(request: Request) {
       ensureAiAvailable();
       const text = await callOpenAIText(
         buildMealPlanPrompt({
-          pantry,
+          pantry: dietCompatiblePantry,
           pantryItems: pantryStock,
           diets: parsed.data.diets ?? [],
           conditions: parsed.data.conditions ?? [],
@@ -377,9 +406,10 @@ export async function POST(request: Request) {
         });
         await persistMealPlanResultForUser({
           historyEntryId: parsed.data.historyEntryId,
-          historyIngredients: parsed.data.historyIngredients ?? pantry,
+          historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
           historyTitle: parsed.data.historyTitle,
           mealPlan: outputMealPlan,
+          preferenceSignature,
           persistResult: parsed.data.persistResult,
           uid: access.uid
         });
@@ -389,7 +419,7 @@ export async function POST(request: Request) {
           shoppingItemsBeforeReconcile: aiMealPlan.shoppingList.length
         });
         return Response.json({
-          result: JSON.stringify({ ...outputMealPlan, servedFrom: "fallback_ai" }),
+          result: JSON.stringify({ ...outputMealPlan, preferenceSignature, servedFrom: "fallback_ai" }),
           servedFrom: "fallback_ai",
           access: accessPayload(nextAccess)
         });
@@ -437,9 +467,10 @@ export async function POST(request: Request) {
     });
     await persistMealPlanResultForUser({
       historyEntryId: parsed.data.historyEntryId,
-      historyIngredients: parsed.data.historyIngredients ?? pantry,
+      historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
       historyTitle: parsed.data.historyTitle,
       mealPlan: outputEmergencyMealPlan,
+      preferenceSignature,
       persistResult: parsed.data.persistResult,
       uid: access.uid
     });
@@ -448,7 +479,7 @@ export async function POST(request: Request) {
       shoppingItems: outputEmergencyMealPlan.shoppingList.length
     });
     return Response.json({
-      result: JSON.stringify(outputEmergencyMealPlan),
+      result: JSON.stringify({ ...outputEmergencyMealPlan, preferenceSignature }),
       servedFrom: "shared_pool",
       fallbackNotice: "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool.",
       access: accessPayload(nextAccess)
@@ -491,20 +522,22 @@ function getCuisineAlignedRecipes(recipes: RecipeCatalogDoc[], preferredCuisine?
 }
 
 function catalogRecipeMatchesPreferredCuisine(recipe: RecipeCatalogDoc, preferredCuisine: string) {
+  const preferred = normalizeCuisineLabel(preferredCuisine);
   return (
-    cuisineMatchesPreference(recipe.cuisine, preferredCuisine) ||
-    (recipe.regionalCuisines ?? []).some((cuisine) => cuisineMatchesPreference(cuisine, preferredCuisine)) ||
-    cuisineMatchesPreference(recipe.localized?.English?.cuisine ?? "", preferredCuisine)
+    normalizeCuisineLabel(recipe.cuisine) === preferred ||
+    (recipe.regionalCuisines ?? []).some((cuisine) => normalizeCuisineLabel(cuisine) === preferred) ||
+    normalizeCuisineLabel(recipe.localized?.English?.cuisine ?? "") === preferred
   );
 }
 
 function mealMatchesPreferredCuisine(meal: MealPlanMeal, preferredCuisine?: string) {
   if (!preferredCuisine || preferredCuisine === "Any") return true;
-  return cuisineMatchesPreference(meal.cuisine ?? "", preferredCuisine);
+  return normalizeCuisineLabel(meal.cuisine ?? "") === normalizeCuisineLabel(preferredCuisine);
 }
 
 function buildSafeMealReplacement({
   dietContext,
+  conditions,
   recipeLanguage,
   preferredCuisine,
   replacementRecipes,
@@ -512,6 +545,7 @@ function buildSafeMealReplacement({
   usedReplacementNames
 }: {
   dietContext: DietEnforcementContext;
+  conditions: string[];
   recipeLanguage: string;
   preferredCuisine?: string;
   replacementRecipes: RecipeCatalogDoc[];
@@ -519,8 +553,8 @@ function buildSafeMealReplacement({
   usedReplacementNames: Set<string>;
 }): { meal: MealPlanMeal; source: "catalog" | "default" } {
   const selectedRecipe =
-    pickSafeReplacementRecipe(replacementRecipes, slot, dietContext, usedReplacementNames) ??
-    pickSafeReplacementRecipe(replacementRecipes, undefined, dietContext, usedReplacementNames);
+    pickSafeReplacementRecipe(replacementRecipes, slot, dietContext, conditions, usedReplacementNames) ??
+    pickSafeReplacementRecipe(replacementRecipes, undefined, dietContext, conditions, usedReplacementNames);
 
   if (selectedRecipe) {
     usedReplacementNames.add(selectedRecipe.title.toLowerCase());
@@ -543,12 +577,13 @@ function pickSafeReplacementRecipe(
   recipes: RecipeCatalogDoc[],
   slot: "breakfast" | "lunch" | "dinner" | undefined,
   dietContext: DietEnforcementContext,
+  conditions: string[],
   usedReplacementNames: Set<string>
 ) {
   return recipes.find((recipe) => {
     if (slot && recipe.mealType !== slot) return false;
     if (usedReplacementNames.has(recipe.title.toLowerCase())) return false;
-    return !findRecipeDietViolation(recipe, dietContext);
+    return !findRecipeDietViolation(recipe, dietContext) && !findRecipeHealthViolation(recipe, conditions);
   });
 }
 
@@ -573,6 +608,10 @@ function buildDefaultSafeMeal(
 
   if (cuisineKey.includes("asian") || cuisineKey.includes("thai")) {
     return attach(buildDefaultAsianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames));
+  }
+
+  if (cuisineKey.includes("italian")) {
+    return attach(buildDefaultItalianSafeMeal(slot, cuisine, wantsArabic, usedReplacementNames));
   }
 
   if (slot === "breakfast") {
@@ -674,6 +713,153 @@ function selectDefaultMealVariant(variants: DefaultMealVariant[], usedReplacemen
     variants.find((meal) => !usedReplacementNames.has(meal.name.toLowerCase())) ??
     variants[usedReplacementNames.size % variants.length]
   );
+}
+
+function buildDefaultItalianSafeMeal(
+  slot: "breakfast" | "lunch" | "dinner",
+  cuisine: string,
+  wantsArabic: boolean,
+  usedReplacementNames: Set<string>
+) {
+  const variants: Record<"breakfast" | "lunch" | "dinner", DefaultMealVariant[]> = {
+    breakfast: wantsArabic
+      ? [
+          {
+            name: "شوفان بالتفاح والقرفة",
+            image_search_index: "apple cinnamon oatmeal",
+            calories: 390,
+            protein: "14غ",
+            carbs: "62غ",
+            fat: "9غ",
+            ingredients: ["شوفان", "تفاح", "قرفة", "حليب شوفان", "جوز"],
+            steps: ["اطهِ الشوفان بحليب الشوفان حتى يصبح كريميًا.", "أضف التفاح والقرفة واتركه يلين.", "قدمه مع كمية صغيرة من الجوز."]
+          },
+          {
+            name: "توست طماطم وريحان",
+            image_search_index: "tomato basil toast",
+            calories: 360,
+            protein: "10غ",
+            carbs: "54غ",
+            fat: "11غ",
+            ingredients: ["خبز حبوب كاملة", "طماطم", "ريحان", "زيت زيتون", "فلفل أسود"],
+            steps: ["حمص الخبز حتى يصبح مقرمشًا.", "قطع الطماطم واخلطها بالريحان.", "ضع خليط الطماطم فوق الخبز مع رشة زيت زيتون."]
+          }
+        ]
+      : [
+          {
+            name: "Apple cinnamon oatmeal",
+            image_search_index: "apple cinnamon oatmeal",
+            calories: 390,
+            protein: "14g",
+            carbs: "62g",
+            fat: "9g",
+            ingredients: ["oats", "apple", "cinnamon", "oat milk", "walnuts"],
+            steps: ["Simmer oats with oat milk until creamy.", "Fold in diced apple and cinnamon until the apple softens.", "Top with a small spoon of walnuts."]
+          },
+          {
+            name: "Tomato basil toast",
+            image_search_index: "tomato basil toast",
+            calories: 360,
+            protein: "10g",
+            carbs: "54g",
+            fat: "11g",
+            ingredients: ["whole grain bread", "tomato", "basil", "olive oil", "black pepper"],
+            steps: ["Toast the bread until crisp.", "Dice tomato and toss it with basil.", "Spoon the tomato mixture over toast with a light drizzle of olive oil."]
+          }
+        ],
+    lunch: wantsArabic
+      ? [
+          {
+            name: "مينستروني خضار وفاصوليا",
+            image_search_index: "vegetable minestrone soup",
+            calories: 510,
+            protein: "20غ",
+            carbs: "78غ",
+            fat: "12غ",
+            ingredients: ["فاصوليا بيضاء", "طماطم", "كوسة", "جزر", "مكرونة صغيرة", "ريحان"],
+            steps: ["شوح الجزر والكوسة بكمية صغيرة من زيت الزيتون.", "أضف الطماطم والفاصوليا واتركها تغلي برفق.", "أضف المكرونة الصغيرة حتى تنضج وتصبح الشوربة كثيفة."]
+          },
+          {
+            name: "باستا بريمافيرا بزيت الزيتون",
+            image_search_index: "pasta primavera vegetables",
+            calories: 540,
+            protein: "18غ",
+            carbs: "82غ",
+            fat: "14غ",
+            ingredients: ["مكرونة", "كوسة", "فلفل رومي", "طماطم", "ريحان", "زيت زيتون"],
+            steps: ["اسلق المكرونة حتى تكون متماسكة.", "شوح الخضار حتى تلين وتبقى ملونة.", "قلب المكرونة مع الخضار والريحان وكمية صغيرة من زيت الزيتون."]
+          }
+        ]
+      : [
+          {
+            name: "Vegetable white bean minestrone",
+            image_search_index: "vegetable minestrone soup",
+            calories: 510,
+            protein: "20g",
+            carbs: "78g",
+            fat: "12g",
+            ingredients: ["white beans", "tomato", "zucchini", "carrot", "small pasta", "basil"],
+            steps: ["Saute carrot and zucchini in a small amount of olive oil.", "Add tomato and white beans and simmer gently.", "Add small pasta until tender and the soup looks hearty."]
+          },
+          {
+            name: "Pasta primavera with olive oil",
+            image_search_index: "pasta primavera vegetables",
+            calories: 540,
+            protein: "18g",
+            carbs: "82g",
+            fat: "14g",
+            ingredients: ["pasta", "zucchini", "bell pepper", "tomato", "basil", "olive oil"],
+            steps: ["Boil pasta until al dente.", "Saute the vegetables until tender and bright.", "Toss pasta with vegetables, basil, and a light olive oil finish."]
+          }
+        ],
+    dinner: wantsArabic
+      ? [
+          {
+            name: "راتاتوي إيطالي مع فاصوليا بيضاء",
+            image_search_index: "italian vegetable bean stew",
+            calories: 560,
+            protein: "22غ",
+            carbs: "74غ",
+            fat: "15غ",
+            ingredients: ["فاصوليا بيضاء", "باذنجان", "كوسة", "طماطم", "ثوم", "ريحان"],
+            steps: ["حمص الباذنجان والكوسة حتى يظهرا بلون ذهبي.", "أضف الطماطم والثوم والفاصوليا واتركها تغلي.", "اختم بالريحان وقدمها كطبق خضار مشبع."]
+          },
+          {
+            name: "باستا طماطم وسبانخ",
+            image_search_index: "spinach tomato pasta",
+            calories: 555,
+            protein: "19غ",
+            carbs: "84غ",
+            fat: "14غ",
+            ingredients: ["مكرونة", "سبانخ", "طماطم", "ثوم", "ريحان", "زيت زيتون"],
+            steps: ["اسلق المكرونة حتى تكون متماسكة.", "اطبخ الطماطم والثوم حتى تتكاثف الصلصة.", "أضف السبانخ والمكرونة وقلب حتى تتغطى جيدًا."]
+          }
+        ]
+      : [
+          {
+            name: "Italian vegetable white bean stew",
+            image_search_index: "italian vegetable bean stew",
+            calories: 560,
+            protein: "22g",
+            carbs: "74g",
+            fat: "15g",
+            ingredients: ["white beans", "eggplant", "zucchini", "tomato", "garlic", "basil"],
+            steps: ["Roast eggplant and zucchini until lightly golden.", "Simmer tomato, garlic, and white beans until saucy.", "Finish with basil and serve as a hearty vegetable main."]
+          },
+          {
+            name: "Spinach tomato pasta",
+            image_search_index: "spinach tomato pasta",
+            calories: 555,
+            protein: "19g",
+            carbs: "84g",
+            fat: "14g",
+            ingredients: ["pasta", "spinach", "tomato", "garlic", "basil", "olive oil"],
+            steps: ["Boil pasta until al dente.", "Cook tomato and garlic until the sauce thickens.", "Fold in spinach and pasta until evenly coated."]
+          }
+        ]
+  };
+
+  return withCuisine(selectDefaultMealVariant(variants[slot], usedReplacementNames), cuisine)!;
 }
 
 function withCuisine(variant: DefaultMealVariant | undefined, cuisine: string): MealPlanMeal | undefined {
@@ -1144,6 +1330,7 @@ async function persistMealPlanResultForUser({
   historyIngredients,
   historyTitle,
   mealPlan,
+  preferenceSignature,
   persistResult,
   uid
 }: {
@@ -1151,6 +1338,7 @@ async function persistMealPlanResultForUser({
   historyIngredients: string[];
   historyTitle?: string;
   mealPlan: MealPlanData;
+  preferenceSignature?: string;
   persistResult?: boolean;
   uid: string;
 }) {
@@ -1161,7 +1349,8 @@ async function persistMealPlanResultForUser({
     const sanitized = sanitizeMealPlanForFirestore(mealPlan);
     await db.doc(`users/${uid}/plans/currentWeekly`).set(
       {
-        mealPlan: sanitized,
+        mealPlan: preferenceSignature ? { ...sanitized, preferenceSignature } : sanitized,
+        ...(preferenceSignature ? { preferenceSignature } : {}),
         updatedAt: FieldValue.serverTimestamp()
       },
       { merge: true }

@@ -133,6 +133,15 @@ export async function POST(request: Request) {
       });
     }
 
+    if (!accessCheck.access.isPremium && !accessCheck.access.isAdmin) {
+      return Response.json({
+        result: "[]",
+        servedFrom: "shared_pool",
+        fallbackNotice: "Free plan recipe generation is served through the curated shared recipe pool. Use /api/generate-recipes for the full free-tier pipeline.",
+        access: accessPayload(accessCheck.access)
+      });
+    }
+
     const nextAccess = await consumeFreeAiCredit(accessCheck.access, "recipe_generation");
     const availableIngredients = buildLegacyAvailableIngredients(parsed.data.prompt, parsed.data.ingredients);
     const preferredCuisine = parsed.data.preferredCuisine;

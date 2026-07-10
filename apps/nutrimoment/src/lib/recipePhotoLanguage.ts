@@ -17,8 +17,8 @@ export interface EnglishRecipePhotoContext {
 
 export function buildEnglishRecipePhotoContext(recipe: Recipe): EnglishRecipePhotoContext {
   const englishLocalized = normalizeEnglishLocalizedRecipeVariant(recipe.localized?.English);
-  const identityEnglishName = recipe.photo_identity?.english_name?.trim();
-  const identityCuisine = recipe.photo_identity?.cuisine_key?.replace(/-/g, " ");
+  const identityEnglishName = normalizeRecipePhotoLanguageText(recipe.photo_identity?.english_name);
+  const identityCuisine = normalizeRecipePhotoLanguageText(recipe.photo_identity?.cuisine_key).replace(/-/g, " ");
   const fallbackName = firstEnglishText([
     identityEnglishName,
     recipe.dish_intent?.dish_name,
@@ -57,6 +57,10 @@ export function buildEnglishRecipePhotoContext(recipe: Recipe): EnglishRecipePho
     ),
     name
   };
+}
+
+function normalizeRecipePhotoLanguageText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 export function buildEnglishRecipePhotoIngredients(recipe: Recipe) {

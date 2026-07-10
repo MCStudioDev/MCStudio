@@ -86,6 +86,10 @@ const MIN_ACCEPTED_PROVIDER_SCORE = {
   pexels_search: 11,
   unsplash_search: 11
 } as const;
+const RECIPE_TEXT_GENERATION_OPTIONS = {
+  temperature: 0.92,
+  topP: 0.95
+} as const;
 const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
   ...getAllDishes().map((dish) => dish.id),
   "cilbir",
@@ -184,6 +188,7 @@ const requestSchema = z.object({
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
+  const variationSeed = buildRecipeVariationSeed(requestId);
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
   let historyEntryId: string | undefined;
   let historyUid: string | undefined;
@@ -460,6 +465,7 @@ export async function POST(request: Request) {
       deliverRecipes(await attachRecipePhotosPreservingOrder(finalizeRecipes(recipes), {
         allowProviderLookup: !hasGeneratedImageAccess
       }));
+    const strictRankingOptions = { ...parsed.data, ingredients: scoringIngredients, recipeCount, variationSeed };
 
     if (USE_MOCK && accessCheck.allowed) {
       const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
@@ -476,7 +482,7 @@ export async function POST(request: Request) {
           }),
           "mock"
         ),
-        { ...parsed.data, ingredients: scoringIngredients, recipeCount }
+        strictRankingOptions
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
         allowProviderLookup: !hasGeneratedImageAccess
@@ -554,7 +560,7 @@ export async function POST(request: Request) {
           }),
           "catalog_free_tier"
         ),
-        { ...parsed.data, ingredients: scoringIngredients, recipeCount }
+        strictRankingOptions
       );
       const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
         allowProviderLookup: !hasGeneratedImageAccess
@@ -611,7 +617,8 @@ export async function POST(request: Request) {
               conditions: parsed.data.conditions ?? [],
               allergens: parsed.data.allergens ?? [],
               candidateDishHints,
-              canonicalDishHint
+              canonicalDishHint,
+              variationSeed
             }
           )
         : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
@@ -639,12 +646,12 @@ export async function POST(request: Request) {
           recipeCount,
           requestId
         );
-        let strictRecipes = rankStrictRecipes(primaryOwnedRecipes, { ...parsed.data, ingredients: scoringIngredients, recipeCount })
+        let strictRecipes = rankStrictRecipes(primaryOwnedRecipes, strictRankingOptions)
           .slice(0, recipeCount);
         logRecipeRankingSnapshot("gemini_primary_after_strict_ranking", primaryOwnedRecipes, strictRecipes, {
           requestId,
           recipeCount,
-          rankingOptions: { ...parsed.data, ingredients: scoringIngredients, recipeCount },
+          rankingOptions: strictRankingOptions,
           sourceCount: normalizedRecipes.length
         });
 
@@ -698,12 +705,12 @@ export async function POST(request: Request) {
               recipeCount,
               requestId
             );
-            const repairRecipes = rankStrictRecipes(repairOwnedRecipes, { ...parsed.data, ingredients: scoringIngredients, recipeCount })
+            const repairRecipes = rankStrictRecipes(repairOwnedRecipes, strictRankingOptions)
               .slice(0, recipeCount);
             logRecipeRankingSnapshot("gemini_repair_after_strict_ranking", repairOwnedRecipes, repairRecipes, {
               requestId,
               recipeCount,
-              rankingOptions: { ...parsed.data, ingredients: scoringIngredients, recipeCount },
+              rankingOptions: strictRankingOptions,
               sourceCount: retryNormalizedRecipes.length
             });
             strictRecipes = mergeRecipeResults(null, [...repairRecipes, ...strictRecipes], false, recipeCount);
@@ -768,7 +775,7 @@ export async function POST(request: Request) {
         }),
         "ai_failed_fallback"
       ),
-      { ...parsed.data, ingredients: scoringIngredients, recipeCount }
+      strictRankingOptions
     );
     const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
       allowProviderLookup: !hasGeneratedImageAccess
@@ -1310,8 +1317,13 @@ function ensureRequestedRecipeCount(
   const fillers = filterRecipesByInputMainProtein(buildSparseIngredientRecipeFillers(context), context);
   const sourceRecipes = hasInputMainProtein ? proteinAlignedRecipes : recipes;
   if (sourceRecipes.length >= context.recipeCount) {
-    return shouldBlendSparseFillerVariety(sourceRecipes, context) || shouldBlendAnyCuisineSparsePlateVariety(sourceRecipes, context)
-      ? blendSparseFillerVariety(sourceRecipes, fillers, context.recipeCount, context.preferredCuisine)
+    const shouldBlendIngredientRelationships = shouldBlendIngredientRelationshipVariety(sourceRecipes, context);
+    return shouldBlendSparseFillerVariety(sourceRecipes, context) ||
+      shouldBlendAnyCuisineSparsePlateVariety(sourceRecipes, context) ||
+      shouldBlendIngredientRelationships
+      ? blendSparseFillerVariety(sourceRecipes, fillers, context.recipeCount, context.preferredCuisine, {
+        sourceLeadCount: shouldBlendIngredientRelationships ? 1 : 4
+      })
       : sourceRecipes.slice(0, context.recipeCount);
   }
 
@@ -1386,10 +1398,46 @@ function shouldBlendAnyCuisineSparsePlateVariety(
   );
 }
 
-function blendSparseFillerVariety(recipes: Recipe[], fillers: Recipe[], recipeCount: number, preferredCuisine: string) {
+function shouldBlendIngredientRelationshipVariety(
+  recipes: Recipe[],
+  context: {
+    availableIngredients: Set<string>;
+    ingredients: string[];
+    preferredCuisine: string;
+    recipeCount: number;
+    scoringIngredients: string[];
+  }
+) {
+  const profiles = buildIngredientRelationshipProfiles(context);
+  if (!profiles.length) return false;
+
+  const coveredProfiles = profiles.filter((profile) =>
+    recipes.some((recipe) => recipeMatchesIngredientRelationship(recipe, profile))
+  ).length;
+  const minimumProfileCoverage = Math.min(context.recipeCount, profiles.length, context.recipeCount >= 8 ? 5 : 3);
+  if (coveredProfiles < minimumProfileCoverage) return true;
+
+  const relationshipCoverage = recipes.filter((recipe) =>
+    profiles.some((profile) => recipeMatchesIngredientRelationship(recipe, profile))
+  ).length;
+  const minimumRecipeCoverage = Math.min(context.recipeCount, context.recipeCount >= 8 ? 5 : 3);
+  if (relationshipCoverage < minimumRecipeCoverage) return true;
+
+  const familyCount = new Set(recipes.map(getRecipeVarietyFamilyKey).filter(Boolean)).size;
+  return familyCount < Math.min(context.recipeCount, context.recipeCount >= 8 ? 6 : 4);
+}
+
+function blendSparseFillerVariety(
+  recipes: Recipe[],
+  fillers: Recipe[],
+  recipeCount: number,
+  preferredCuisine: string,
+  options?: { sourceLeadCount?: number }
+) {
   const anyCuisine = normalizeCuisinePreference(preferredCuisine) === "any";
   const sourceRecipes = anyCuisine ? diversifyAnyCuisineSparseFillers(recipes) : recipes;
   const sourceFillers = anyCuisine ? diversifyAnyCuisineSparseFillers(fillers) : fillers;
+  const sourceLeadCount = Math.max(0, options?.sourceLeadCount ?? 4);
   const blended: Recipe[] = [];
   const seen = new Set<string>();
   const seenFamilies = new Set<string>();
@@ -1414,7 +1462,7 @@ function blendSparseFillerVariety(recipes: Recipe[], fillers: Recipe[], recipeCo
     return true;
   };
 
-  for (const recipe of sourceRecipes.slice(0, 4)) {
+  for (const recipe of sourceRecipes.slice(0, sourceLeadCount)) {
     add(recipe);
   }
 
@@ -1455,16 +1503,26 @@ function buildSparseIngredientRecipeFillers(context: {
   const source = `${context.ingredients.join(" ")} ${context.scoringIngredients.join(" ")}`.toLowerCase();
   const primaryIngredient = choosePrimarySparseIngredient(context.ingredients, context.scoringIngredients);
   const targetCalories = Math.max(320, Math.round(context.calorieTarget / 3));
+  const relationshipFillers = buildIngredientRelationshipSparseFillers(primaryIngredient, context, targetCalories);
 
   if (isSparseGroundMeatSource(source)) {
-    return filterSparseFillersForPreferences(buildGroundMeatSparseFillers(primaryIngredient, context, targetCalories), context);
+    return filterSparseFillersForPreferences(
+      [...relationshipFillers, ...buildGroundMeatSparseFillers(primaryIngredient, context, targetCalories)],
+      context
+    );
   }
 
   if (/\b(liver|kebda|kibda|ciger|cigeri)\b|كبدة|كبده/iu.test(source)) {
-    return filterSparseFillersForPreferences(buildLiverSparseFillers(primaryIngredient, context, targetCalories), context);
+    return filterSparseFillersForPreferences(
+      [...relationshipFillers, ...buildLiverSparseFillers(primaryIngredient, context, targetCalories)],
+      context
+    );
   }
 
-  return filterSparseFillersForPreferences(buildGenericSparseFillers(primaryIngredient, context, targetCalories), context);
+  return filterSparseFillersForPreferences(
+    [...relationshipFillers, ...buildGenericSparseFillers(primaryIngredient, context, targetCalories)],
+    context
+  );
 }
 
 function filterSparseFillersForPreferences(
@@ -1485,6 +1543,610 @@ function choosePrimarySparseIngredient(rawIngredients: string[], scoringIngredie
   if (proteinAnchor) return proteinAnchor;
 
   return rawIngredients.find(Boolean) ?? scoringIngredients.find(Boolean) ?? "main ingredient";
+}
+
+interface IngredientRelationshipProfile {
+  bread?: string;
+  dairy?: string;
+  grain?: string;
+  kind: "protein-vegetable-bread" | "protein-vegetable-grain" | "protein-vegetable";
+  protein: string;
+  proteinDisplay: string;
+  vegetable: string;
+}
+
+function buildIngredientRelationshipSparseFillers(
+  primaryIngredient: string,
+  context: {
+    allergens: string[];
+    availableIngredients: Set<string>;
+    conditions: string[];
+    diets: string[];
+    ingredients: string[];
+    preferredCuisine: string;
+    scoringIngredients: string[];
+  },
+  targetCalories: number
+) {
+  const profiles = buildIngredientRelationshipProfiles(context);
+  if (!profiles.length) return [];
+
+  const inputs = profiles.flatMap((profile) => buildIngredientRelationshipFillerInputs(profile, primaryIngredient, targetCalories));
+  return dedupeSparseFillerRecipes(inputs.map((input) => makeSparseFillerRecipe(input, context)));
+}
+
+function buildIngredientRelationshipProfiles(context: {
+  availableIngredients: Set<string>;
+  ingredients: string[];
+  scoringIngredients: string[];
+}) {
+  const candidates = Array.from(new Set([
+    ...context.ingredients,
+    ...context.scoringIngredients,
+    ...Array.from(context.availableIngredients)
+  ])).filter(Boolean);
+  const proteins = dedupeRelationshipCandidates(candidates.filter(isRelationshipProteinIngredient), getCanonicalRelationshipIngredient);
+  const vegetables = dedupeRelationshipCandidates(candidates.filter(isRelationshipVegetableIngredient), getCanonicalRelationshipIngredient);
+  if (!proteins.length || !vegetables.length) return [];
+
+  const dairy = findIngredientCandidate(candidates, isRelationshipDairyIngredient);
+  const bread = findIngredientCandidate(candidates, isRelationshipBreadIngredient);
+  const grain = findIngredientCandidate(candidates, isRelationshipGrainIngredient);
+
+  return proteins.slice(0, 8).map((protein) => {
+    const canonicalProtein = getCanonicalRelationshipIngredient(protein);
+    const vegetable = chooseBestRelationshipVegetable(canonicalProtein, vegetables);
+    const baseProfile = {
+      dairy: dairy ? getCanonicalRelationshipIngredient(dairy) : undefined,
+      protein: canonicalProtein,
+      proteinDisplay: getProteinDishDisplayLabel(protein),
+      vegetable: getCanonicalRelationshipIngredient(vegetable)
+    };
+
+    if (bread) {
+      return {
+        ...baseProfile,
+        bread: getCanonicalRelationshipIngredient(bread),
+        kind: "protein-vegetable-bread" as const
+      };
+    }
+
+    if (grain) {
+      return {
+        ...baseProfile,
+        grain: getCanonicalRelationshipIngredient(grain),
+        kind: "protein-vegetable-grain" as const
+      };
+    }
+
+    return {
+      ...baseProfile,
+      kind: "protein-vegetable" as const
+    };
+  });
+}
+
+function buildIngredientRelationshipFillerInputs(
+  profile: IngredientRelationshipProfile,
+  primaryIngredient: string,
+  targetCalories: number
+): SparseFillerRecipeInput[] {
+  const protein = profile.protein || primaryIngredient;
+  const proteinDisplay = profile.proteinDisplay || toTitleCase(protein);
+  const vegetable = profile.vegetable;
+  const bread = profile.bread ?? "flatbread";
+  const grain = profile.grain ?? "rice";
+  const ownedBreadIngredients = profile.bread ? [bread] : [];
+  const ownedGrainIngredients = profile.grain ? [grain] : [];
+  const breadMissing = profile.bread ? [] : ["flatbread"];
+  const grainMissing = profile.grain ? [] : ["rice"];
+  const proteinSpecificInputs = buildProteinSpecificRelationshipFillerInputs(profile, targetCalories);
+
+  if (profile.kind === "protein-vegetable-bread") {
+    return [
+      ...proteinSpecificInputs,
+      {
+        calories: targetCalories + 25,
+        carbs: "34g",
+        cuisine: "Middle Eastern",
+        difficulty: "Medium",
+        dishName: `${proteinDisplay.toLowerCase()} kebab wrap`,
+        excludeKeywords: ["plain protein", "protein breast only", "unrelated meat", "rice only"],
+        fat: "14g",
+        fiber: "5g",
+        imageSearchIndices: [
+          `${proteinDisplay} kebab wrap ${vegetable}`,
+          `${proteinDisplay} skewers with ${vegetable} flatbread`,
+          `${proteinDisplay} shish kebab wrap`
+        ],
+        ingredients: [protein, vegetable, ...ownedBreadIngredients],
+        missingIngredients: [...breadMissing, "lemon", "garlic", "yogurt", "paprika"],
+        name: `${proteinDisplay} Kebab Wrap with ${toTitleCase(vegetable)}`,
+        protein: "34g",
+        sodium: "610mg",
+        sugar: "5g",
+        visualKeywords: [`${proteinDisplay} skewers`, vegetable, "flatbread wrap"]
+      },
+      {
+        calories: targetCalories + 15,
+        carbs: "32g",
+        cuisine: "Mexican",
+        difficulty: "Easy",
+        dishName: `${proteinDisplay.toLowerCase()} fajitas`,
+        excludeKeywords: ["plain protein", "protein breast only", "rice only", "unrelated seafood"],
+        fat: "13g",
+        fiber: "5g",
+        imageSearchIndices: [
+          `${proteinDisplay} fajitas ${vegetable}`,
+          `${proteinDisplay} pepper fajitas`,
+          `${proteinDisplay} fajita wrap`
+        ],
+        ingredients: [protein, vegetable, ...ownedBreadIngredients],
+        missingIngredients: [...breadMissing, "onion", "lime", "cumin", "chili powder"],
+        name: `${proteinDisplay} Fajitas with ${toTitleCase(vegetable)}`,
+        protein: "33g",
+        sodium: "600mg",
+        sugar: "5g",
+        visualKeywords: [`${proteinDisplay} fajitas`, vegetable, "tortilla wrap"]
+      },
+      {
+        calories: targetCalories + 20,
+        carbs: "33g",
+        cuisine: "Middle Eastern",
+        difficulty: "Easy",
+        dishName: `${proteinDisplay.toLowerCase()} shawarma wrap`,
+        excludeKeywords: ["plain protein", "protein breast only", "beef if not requested", "rice only"],
+        fat: "14g",
+        fiber: "4g",
+        imageSearchIndices: [
+          `${proteinDisplay} shawarma wrap ${vegetable}`,
+          `${proteinDisplay} shawarma flatbread`,
+          `${proteinDisplay} shawarma sandwich`
+        ],
+        ingredients: [protein, vegetable, ...ownedBreadIngredients],
+        missingIngredients: [...breadMissing, "shawarma spices", "garlic sauce", "pickles", "lemon"],
+        name: `${proteinDisplay} Shawarma Wrap`,
+        protein: "34g",
+        sodium: "620mg",
+        sugar: "4g",
+        visualKeywords: [`${proteinDisplay} shawarma`, vegetable, "wrapped flatbread"]
+      },
+      {
+        calories: targetCalories + 10,
+        carbs: "30g",
+        cuisine: "Chinese",
+        difficulty: "Easy",
+        dishName: `sweet and sour ${proteinDisplay.toLowerCase()}`,
+        excludeKeywords: ["plain protein", "protein breast only", "random sandwich", "unrelated curry"],
+        fat: "12g",
+        fiber: "4g",
+        imageSearchIndices: [
+          `sweet and sour ${proteinDisplay} ${vegetable}`,
+          `${proteinDisplay} ${vegetable} stir fry`,
+          `${proteinDisplay} pepper stir fry`
+        ],
+        ingredients: [protein, vegetable],
+        missingIngredients: ["vinegar", "ginger", "soy sauce", "pineapple", "scallion"],
+        name: `Sweet and Sour ${proteinDisplay} with ${toTitleCase(vegetable)}`,
+        protein: "33g",
+        sodium: "640mg",
+        sugar: "8g",
+        visualKeywords: [`sweet and sour ${proteinDisplay}`, vegetable, "glossy stir fry sauce"]
+      },
+      {
+        calories: targetCalories + 20,
+        carbs: "35g",
+        cuisine: "Mediterranean",
+        difficulty: "Medium",
+        dishName: `stuffed flatbread with ${proteinDisplay.toLowerCase()}`,
+        excludeKeywords: ["plain protein", "protein breast only", "rice only", "wrong protein"],
+        fat: "14g",
+        fiber: "5g",
+        imageSearchIndices: [
+          `${proteinDisplay} stuffed flatbread ${vegetable}`,
+          `${proteinDisplay} pita sandwich ${vegetable}`,
+          `${proteinDisplay} bread pocket ${vegetable}`
+        ],
+        ingredients: [protein, vegetable, ...ownedBreadIngredients],
+        missingIngredients: [...breadMissing, "onion", "parsley", "sumac", "garlic"],
+        name: `${proteinDisplay} Stuffed Flatbread with ${toTitleCase(vegetable)}`,
+        protein: "33g",
+        sodium: "610mg",
+        sugar: "5g",
+        visualKeywords: [`${proteinDisplay} filling`, vegetable, "stuffed bread"]
+      }
+    ];
+  }
+
+  if (profile.kind === "protein-vegetable-grain") {
+    return [
+      ...proteinSpecificInputs,
+      {
+        calories: targetCalories + 25,
+        carbs: "38g",
+        cuisine: "Asian",
+        difficulty: "Easy",
+        dishName: `${proteinDisplay.toLowerCase()} ${vegetable} stir-fry bowl`,
+        excludeKeywords: ["plain protein", "protein breast only", "unrelated meat", "bread only"],
+        fat: "12g",
+        fiber: "5g",
+        imageSearchIndices: [
+          `${proteinDisplay} ${vegetable} stir fry ${grain}`,
+          `${proteinDisplay} ${vegetable} rice bowl`,
+          `${proteinDisplay} vegetable grain bowl`
+        ],
+        ingredients: [protein, vegetable, ...ownedGrainIngredients],
+        missingIngredients: [...grainMissing, "ginger", "soy sauce", "scallion"],
+        name: `${proteinDisplay} ${toTitleCase(vegetable)} Stir-Fry Bowl`,
+        protein: "33g",
+        sodium: "620mg",
+        sugar: "5g",
+        visualKeywords: [`${proteinDisplay} stir fry`, vegetable, grain]
+      },
+      {
+        calories: targetCalories + 35,
+        carbs: "42g",
+        cuisine: "Middle Eastern",
+        difficulty: "Medium",
+        dishName: `${proteinDisplay.toLowerCase()} vegetable pilaf`,
+        excludeKeywords: ["plain protein", "protein breast only", "generic rice"],
+        fat: "13g",
+        fiber: "5g",
+        imageSearchIndices: [
+          `${proteinDisplay} ${vegetable} pilaf`,
+          `${proteinDisplay} rice with ${vegetable}`,
+          `${proteinDisplay} vegetable rice plate`
+        ],
+        ingredients: [protein, vegetable, ...ownedGrainIngredients],
+        missingIngredients: [...grainMissing, "onion", "cumin", "tomato", "parsley"],
+        name: `${proteinDisplay} ${toTitleCase(vegetable)} Pilaf`,
+        protein: "33g",
+        sodium: "600mg",
+        sugar: "5g",
+        visualKeywords: [`${proteinDisplay} pieces`, vegetable, "seasoned grain"]
+      }
+    ];
+  }
+
+  return [
+    ...proteinSpecificInputs,
+    {
+      calories: targetCalories + 10,
+      carbs: "20g",
+      cuisine: "Mediterranean",
+      difficulty: "Easy",
+      dishName: `${proteinDisplay.toLowerCase()} ${vegetable} skewers`,
+      excludeKeywords: ["plain protein", "protein breast only", "unrelated protein"],
+      fat: "13g",
+      fiber: "4g",
+      imageSearchIndices: [
+        `${proteinDisplay} ${vegetable} skewers`,
+        `${proteinDisplay} kebab with ${vegetable}`,
+        `grilled ${proteinDisplay} ${vegetable}`
+      ],
+      ingredients: [protein, vegetable],
+      missingIngredients: ["lemon", "garlic", "paprika", "parsley"],
+      name: `${proteinDisplay} ${toTitleCase(vegetable)} Skewers`,
+      protein: "34g",
+      sodium: "590mg",
+      sugar: "4g",
+      visualKeywords: [`${proteinDisplay} skewers`, vegetable, "grilled"]
+    },
+    {
+      calories: targetCalories + 15,
+      carbs: "24g",
+      cuisine: "Italian",
+      difficulty: "Medium",
+      dishName: `${proteinDisplay.toLowerCase()} cacciatore-style stew`,
+      excludeKeywords: ["plain protein", "protein breast only", "unrelated protein"],
+      fat: "13g",
+      fiber: "5g",
+      imageSearchIndices: [
+        `${proteinDisplay} ${vegetable} tomato stew`,
+        `${proteinDisplay} cacciatore ${vegetable}`,
+        `${proteinDisplay} vegetable braise`
+      ],
+      ingredients: [protein, vegetable],
+      missingIngredients: ["tomato", "onion", "garlic", "oregano"],
+      name: `${proteinDisplay} ${toTitleCase(vegetable)} Stew`,
+      protein: "33g",
+      sodium: "600mg",
+      sugar: "6g",
+      visualKeywords: [`${proteinDisplay} pieces`, vegetable, "tomato sauce"]
+    }
+  ];
+}
+
+function buildProteinSpecificRelationshipFillerInputs(
+  profile: IngredientRelationshipProfile,
+  targetCalories: number
+): SparseFillerRecipeInput[] {
+  const protein = profile.protein;
+  const proteinDisplay = profile.proteinDisplay;
+  const vegetable = profile.vegetable;
+  const hasTomato = isTomatoRelationshipIngredient(vegetable);
+  const hasPepperOrOnion = isPepperOrOnionRelationshipIngredient(vegetable);
+  const hasDairy = Boolean(profile.dairy);
+  const dairyIngredient = profile.dairy ?? "mozzarella";
+
+  if (isChickenRelationshipProfile(profile) && hasTomato && hasDairy) {
+    return [
+      {
+        calories: targetCalories + 35,
+        carbs: "28g",
+        cuisine: "Italian",
+        difficulty: "Medium",
+        dishName: "chicken parmesan",
+        excludeKeywords: ["plain chicken breast", "alfredo pasta", "ground meat", "fish"],
+        fat: "16g",
+        fiber: "4g",
+        imageSearchIndices: ["chicken parmesan", "chicken parmigiana tomato sauce", "breaded chicken tomato cheese"],
+        ingredients: [protein, vegetable, dairyIngredient],
+        missingIngredients: ["breadcrumbs", "basil", "garlic", "parmesan"],
+        name: "Chicken Parmesan with Tomato Sauce",
+        protein: "38g",
+        sodium: "640mg",
+        sugar: "6g",
+        visualKeywords: ["breaded chicken cutlet", "tomato sauce", "melted cheese"]
+      }
+    ];
+  }
+
+  if (isGroundMeatRelationshipProfile(profile) && hasTomato) {
+    return [
+      {
+        calories: targetCalories + 25,
+        carbs: "24g",
+        cuisine: "Italian",
+        difficulty: "Medium",
+        dishName: "meatballs in tomato sauce",
+        excludeKeywords: ["plain steak", "chicken", "fish", "burger patty"],
+        fat: "17g",
+        fiber: "4g",
+        imageSearchIndices: ["meatballs tomato sauce", "Italian meatballs marinara", "ground meat meatballs tomato"],
+        ingredients: [protein, vegetable],
+        missingIngredients: ["egg", "breadcrumbs", "garlic", "basil"],
+        name: "Meatballs in Tomato Sauce",
+        protein: "32g",
+        sodium: "630mg",
+        sugar: "6g",
+        visualKeywords: ["round meatballs", "red tomato sauce", "herbs"]
+      },
+      {
+        calories: targetCalories + 15,
+        carbs: "18g",
+        cuisine: "Middle Eastern",
+        difficulty: "Medium",
+        dishName: "kofta tomato skillet",
+        excludeKeywords: ["plain steak", "chicken", "fish", "burger"],
+        fat: "16g",
+        fiber: "4g",
+        imageSearchIndices: ["kofta tomato sauce", "Middle Eastern kofta skillet", "kofta tomato pepper"],
+        ingredients: [protein, vegetable],
+        missingIngredients: ["onion", "parsley", "cumin", "coriander"],
+        name: "Kofta in Tomato Sauce",
+        protein: "32g",
+        sodium: "610mg",
+        sugar: "6g",
+        visualKeywords: ["kofta pieces", "tomato sauce", "Middle Eastern spices"]
+      }
+    ];
+  }
+
+  if (isFishRelationshipProfile(profile)) {
+    const fishName = proteinDisplay === "Fish" ? "Fish" : proteinDisplay;
+    return [
+      {
+        calories: targetCalories + 10,
+        carbs: "16g",
+        cuisine: "Mediterranean",
+        difficulty: "Easy",
+        dishName: `${fishName.toLowerCase()} with grilled vegetables`,
+        excludeKeywords: ["chicken", "ground meat", "steak", "shrimp"],
+        fat: "13g",
+        fiber: "5g",
+        imageSearchIndices: [
+          `${fishName} grilled vegetables`,
+          `${fishName} with peppers onions`,
+          `Mediterranean ${fishName} vegetables`
+        ],
+        ingredients: [protein, vegetable],
+        missingIngredients: ["lemon", "olive oil", "parsley", "garlic"],
+        name: `${fishName} with Grilled Vegetables`,
+        protein: "34g",
+        sodium: "560mg",
+        sugar: "4g",
+        visualKeywords: [fishName, "grilled vegetables", "lemon herb"]
+      }
+    ];
+  }
+
+  if (isShrimpRelationshipProfile(profile)) {
+    return [
+      {
+        calories: targetCalories + 15,
+        carbs: "24g",
+        cuisine: "Mexican",
+        difficulty: "Easy",
+        dishName: "shrimp fajitas",
+        excludeKeywords: ["chicken fajitas", "fish", "ground meat", "steak"],
+        fat: "11g",
+        fiber: "5g",
+        imageSearchIndices: ["shrimp fajitas", "shrimp pepper fajitas", "shrimp fajita skillet"],
+        ingredients: [protein, vegetable],
+        missingIngredients: ["onion", "lime", "cumin", "tortillas"],
+        name: "Shrimp Fajitas",
+        protein: "31g",
+        sodium: "610mg",
+        sugar: "5g",
+        visualKeywords: ["shrimp", "sliced peppers", "fajita skillet"]
+      }
+    ];
+  }
+
+  if (isSteakRelationshipProfile(profile)) {
+    return [
+      {
+        calories: targetCalories + 25,
+        carbs: "18g",
+        cuisine: "American",
+        difficulty: "Easy",
+        dishName: hasPepperOrOnion ? "pepper steak" : "grilled steak with vegetables",
+        excludeKeywords: ["ground meat", "chicken", "fish", "shrimp"],
+        fat: "18g",
+        fiber: "4g",
+        imageSearchIndices: hasPepperOrOnion
+          ? ["pepper steak", "steak peppers onions", "beef pepper steak"]
+          : ["grilled steak vegetables", "steak with grilled vegetables", "steak dinner vegetables"],
+        ingredients: [protein, vegetable],
+        missingIngredients: ["garlic", "black pepper", "parsley", "lemon"],
+        name: hasPepperOrOnion ? "Pepper Steak" : `Grilled ${proteinDisplay} with ${toTitleCase(vegetable)}`,
+        protein: "38g",
+        sodium: "590mg",
+        sugar: "4g",
+        visualKeywords: hasPepperOrOnion
+          ? ["steak strips", "peppers and onions", "seared beef"]
+          : ["grilled steak", vegetable, "simple plate"]
+      }
+    ];
+  }
+
+  return [];
+}
+
+function recipeMatchesIngredientRelationship(recipe: Recipe, profile: IngredientRelationshipProfile) {
+  const text = getRecipeSparseIngredientIdentityText(recipe).toLowerCase();
+  const hasProtein = text.includes(normalizeIngredientForStrictMatch(profile.protein)) ||
+    text.includes(profile.proteinDisplay.toLowerCase());
+  const hasVegetable = text.includes(normalizeIngredientForStrictMatch(profile.vegetable));
+  const hasBread = !profile.bread || text.includes(normalizeIngredientForStrictMatch(profile.bread)) ||
+    /\b(wrap|sandwich|flatbread|pita|tortilla|shawarma|fajita|taco|stuffed bread)\b/i.test(text);
+  const hasGrain = !profile.grain || text.includes(normalizeIngredientForStrictMatch(profile.grain)) ||
+    /\b(rice|pilaf|grain|bowl|biryani|kabsa|fried rice)\b/i.test(text);
+  const hasRelationshipFamily = /\b(wrap|sandwich|flatbread|pita|tortilla|shawarma|fajita|taco|kebab|skewer|stir fry|stir-fry|sweet and sour|stuffed|pilaf|bowl|stew|tray|casserole)\b/i.test(text);
+
+  if (profile.kind === "protein-vegetable-bread") return hasProtein && hasVegetable && hasBread && hasRelationshipFamily;
+  if (profile.kind === "protein-vegetable-grain") return hasProtein && hasVegetable && hasGrain && hasRelationshipFamily;
+  return hasProtein && hasVegetable && hasRelationshipFamily;
+}
+
+function findIngredientCandidate(candidates: string[], predicate: (value: string) => boolean) {
+  return candidates.find((candidate) => predicate(candidate));
+}
+
+function dedupeRelationshipCandidates(candidates: string[], keyBuilder: (value: string) => string) {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const candidate of candidates) {
+    const key = keyBuilder(candidate);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(candidate);
+  }
+  return deduped;
+}
+
+function chooseBestRelationshipVegetable(protein: string, vegetables: string[]) {
+  const canonicalVegetables = vegetables.map(getCanonicalRelationshipIngredient);
+  const byPreference = (patterns: RegExp[]) =>
+    canonicalVegetables.find((vegetable) => patterns.some((pattern) => pattern.test(vegetable)));
+
+  if (/\b(ground meat|beef mince|lamb mince)\b/i.test(protein)) {
+    return byPreference([/\btomato\b/i, /\bonion\b/i, /\bbell pepper\b/i]) ?? vegetables[0];
+  }
+  if (/\b(chicken)\b/i.test(protein)) {
+    return byPreference([/\btomato\b/i, /\bbell pepper\b/i, /\bonion\b/i]) ?? vegetables[0];
+  }
+  if (/\b(steak|beef|lamb)\b/i.test(protein)) {
+    return byPreference([/\bbell pepper\b/i, /\bonion\b/i, /\btomato\b/i]) ?? vegetables[0];
+  }
+  if (/\b(salmon|fish|tilapia|tuna|cod|shrimp|prawn|seafood)\b/i.test(protein)) {
+    return byPreference([/\bbell pepper\b/i, /\bonion\b/i, /\btomato\b/i]) ?? vegetables[0];
+  }
+
+  return vegetables[0];
+}
+
+function isRelationshipProteinIngredient(value: string) {
+  return getMainProteinCategoriesFromText(value).size > 0 || /\b(tofu|tempeh|beans?|lentils?|chickpeas?)\b/i.test(value);
+}
+
+function isRelationshipVegetableIngredient(value: string) {
+  const normalized = normalizeIngredientForStrictMatch(value);
+  return /\b(bell pep+er|pep+er|capsicum|onion|tomato|potato|carrot|zucchini|eggplant|spinach|broccoli|cauliflower|cabbage|mushroom|corn|peas|okra|cucumber|lettuce|greens?)\b/i.test(normalized);
+}
+
+function isRelationshipBreadIngredient(value: string) {
+  const normalized = normalizeIngredientForStrictMatch(value);
+  return /\b(bread|flatbread|pita|tortilla|wrap|lavash|naan|bun|roll|toast|baladi)\b/i.test(normalized);
+}
+
+function isRelationshipGrainIngredient(value: string) {
+  const normalized = normalizeIngredientForStrictMatch(value);
+  return /\b(rice|grain|bulgur|quinoa|couscous|barley|oats|noodles?|pasta|spaghetti|penne|macaroni)\b/i.test(normalized);
+}
+
+function isRelationshipDairyIngredient(value: string) {
+  const normalized = normalizeIngredientForStrictMatch(value);
+  return /\b(cheese|milk|yogurt|cream|labneh|feta|mozzarella|cheddar|parmesan|ricotta|butter)\b/i.test(normalized);
+}
+
+function getCanonicalRelationshipIngredient(value: string) {
+  const normalized = normalizeIngredientForStrictMatch(value);
+  if (/\b(bell\s*pep+er|sweet\s+pep+er|capsicum|green\s+pep+er|red\s+pep+er|yellow\s+pep+er|pep+er)\b/i.test(normalized)) return "bell pepper";
+  if (/\b(flatbread|pita|tortilla|lavash|naan|baladi\s+bread|wrap|bread)\b/i.test(normalized)) return "bread";
+  if (/\b(chicken\s+breast|chicken\s+thigh|chicken\s+leg|chicken\s+tender|chicken)\b/i.test(normalized)) return "chicken";
+  if (/\b(ground meat|ground beef|ground lamb|minced meat|minced beef|mince)\b/i.test(normalized)) return "ground meat";
+  if (/\b(steak|beef steak)\b/i.test(normalized)) return "steak";
+  if (/\b(salmon|tilapia|tuna|cod|shrimp|prawn|mozzarella|parmesan|cheese|yogurt|cream)\b/i.test(normalized)) return normalized;
+  return normalized || value;
+}
+
+function getProteinDishDisplayLabel(value: string) {
+  const normalized = normalizeIngredientForStrictMatch(value);
+  if (/\bsalmon\b/i.test(normalized)) return "Salmon";
+  if (/\btilapia\b/i.test(normalized)) return "Tilapia";
+  if (/\btuna\b/i.test(normalized)) return "Tuna";
+  if (/\bcod\b/i.test(normalized)) return "Cod";
+  if (/\bsteak\b/i.test(normalized)) return "Steak";
+  const categories = getMainProteinCategoriesFromText(value);
+  if (categories.has("chicken")) return "Chicken";
+  if (categories.has("shrimp")) return "Shrimp";
+  if (categories.has("fish")) return "Fish";
+  if (categories.has("seafood")) return "Seafood";
+  if (categories.has("liver")) return "Liver";
+  if (categories.has("beefOrLamb")) return /\blamb\b/i.test(value) ? "Lamb" : "Beef";
+  if (categories.has("groundMeat")) return "Ground Meat";
+  if (categories.has("egg")) return "Egg";
+  return toTitleCase(getCanonicalRelationshipIngredient(value));
+}
+
+function isChickenRelationshipProfile(profile: IngredientRelationshipProfile) {
+  return /\bchicken\b/i.test(profile.protein);
+}
+
+function isGroundMeatRelationshipProfile(profile: IngredientRelationshipProfile) {
+  return /\bground meat\b/i.test(profile.protein);
+}
+
+function isFishRelationshipProfile(profile: IngredientRelationshipProfile) {
+  return /\b(salmon|fish|tilapia|tuna|cod)\b/i.test(profile.protein);
+}
+
+function isShrimpRelationshipProfile(profile: IngredientRelationshipProfile) {
+  return /\b(shrimp|prawn)\b/i.test(profile.protein);
+}
+
+function isSteakRelationshipProfile(profile: IngredientRelationshipProfile) {
+  return /\b(steak|beef|lamb)\b/i.test(profile.protein) && !isGroundMeatRelationshipProfile(profile);
+}
+
+function isTomatoRelationshipIngredient(value: string) {
+  return /\btomato\b/i.test(value);
+}
+
+function isPepperOrOnionRelationshipIngredient(value: string) {
+  return /\b(bell pepper|pepper|onion)\b/i.test(value);
 }
 
 type MainProteinCategory = "chicken" | "groundMeat" | "beefOrLamb" | "liver" | "fish" | "shrimp" | "seafood" | "egg";
@@ -1662,7 +2324,7 @@ function getMainProteinCategoriesFromText(value: string) {
   if (/(?:\bchicken\b|\bhen\b|\bpoultry\b|دجاج|فراخ|فراخة|فرخة|صدور\s*(?:دجاج|فراخ))/iu.test(normalized)) {
     categories.add("chicken");
   }
-  if (/(?:\bbeef\b|\blamb\b|\bmutton\b|\bveal\b|\bmeat\b|لحم|لحمة|بقري|ضاني|غنم|عجل)/iu.test(normalized) && !categories.has("groundMeat") && !categories.has("liver")) {
+  if (/(?:\bbeef\b|\blamb\b|\bmutton\b|\bveal\b|\bmeat\b|\bsteak\b|لحم|لحمة|بقري|ضاني|غنم|عجل)/iu.test(normalized) && !categories.has("groundMeat") && !categories.has("liver")) {
     categories.add("beefOrLamb");
   }
   if (/(?:\bfish\b|\bsalmon\b|\btilapia\b|\bcod\b|\bseabass\b|\btuna\b|\bseafood\b|سمك|سمكة|بلطي|دنيس|سلمون|تونة|مأكولات|بحري|سي\s*فود)/iu.test(normalized)) {
@@ -4095,6 +4757,7 @@ interface RecipeRankingOptions {
   recipeCount?: number;
   diets?: string[];
   conditions?: string[];
+  variationSeed?: string;
 }
 
 interface RankedRecipeCandidate {
@@ -4111,7 +4774,11 @@ interface RankedRecipeCandidate {
 
 function rankStrictRecipes(recipes: Recipe[], options: RecipeRankingOptions) {
   const limit = clampRecipeCount(options.recipeCount);
-  const ranked = buildRankedRecipeCandidates(recipes, options);
+  const ranked = applyRunVariationToRankedCandidates(
+    buildRankedRecipeCandidates(recipes, options),
+    options.variationSeed,
+    limit
+  );
 
   const selected = ranked.reduce(selectStructurallyVariedRankedRecipes(limit), [] as Array<RankedRecipeCandidate>);
 
@@ -4127,6 +4794,65 @@ function rankStrictRecipes(recipes: Recipe[], options: RecipeRankingOptions) {
   }
 
   return selected.map(({ recipe }) => recipe);
+}
+
+function applyRunVariationToRankedCandidates(
+  ranked: RankedRecipeCandidate[],
+  variationSeed: string | undefined,
+  limit: number
+) {
+  if (!variationSeed || ranked.length <= limit) return ranked;
+
+  const topScore = ranked[0]?.score ?? 0;
+  const windowSize = Math.min(ranked.length, Math.max(limit * 4, limit + 8));
+  const explorationWindow = ranked.slice(0, windowSize);
+  const remaining = ranked.slice(windowSize);
+  const eligible = explorationWindow.filter((candidate) =>
+    candidate.score >= topScore - 18 ||
+    candidate.isMainlyPantry ||
+    candidate.isPantryBalanced
+  );
+  const ineligible = explorationWindow.filter((candidate) => !eligible.includes(candidate));
+
+  const varied = [...eligible].sort((left, right) => {
+    if (left.isMainlyPantry !== right.isMainlyPantry) {
+      return Number(right.isMainlyPantry) - Number(left.isMainlyPantry);
+    }
+    if (left.ownedCount !== right.ownedCount && Math.abs(left.ownedCount - right.ownedCount) > 1) {
+      return right.ownedCount - left.ownedCount;
+    }
+    const leftScoreBand = Math.floor(left.score / 10);
+    const rightScoreBand = Math.floor(right.score / 10);
+    if (leftScoreBand !== rightScoreBand) return rightScoreBand - leftScoreBand;
+    if (left.missingCount !== right.missingCount && Math.abs(left.missingCount - right.missingCount) > 1) {
+      return left.missingCount - right.missingCount;
+    }
+    const leftVariation = getRecipeVariationSortValue(variationSeed, left);
+    const rightVariation = getRecipeVariationSortValue(variationSeed, right);
+    return leftVariation - rightVariation || left.index - right.index;
+  });
+
+  return [...varied, ...ineligible, ...remaining];
+}
+
+function getRecipeVariationSortValue(seed: string, candidate: RankedRecipeCandidate) {
+  return stableVariationNumber([
+    seed,
+    candidate.familyKey,
+    candidate.structureKey,
+    candidate.recipe.name,
+    candidate.recipe.cuisine,
+    candidate.recipe.image_search_index
+  ].filter(Boolean).join("|"));
+}
+
+function stableVariationNumber(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
 }
 
 function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOptions): RankedRecipeCandidate[] {
@@ -4232,6 +4958,10 @@ function getRecipeDuplicateCardKey(recipe: Recipe) {
   return [identityKey, ingredientKey || imageIdentityKey].filter(Boolean).join("::");
 }
 
+function buildRecipeVariationSeed(requestId: string) {
+  return requestId.replace(/-/g, "").slice(0, 12);
+}
+
 function clampRecipeCount(value?: number, maxRecipeCount = MAX_SHARED_POOL_RECIPE_RESULT_COUNT) {
   if (!Number.isFinite(value)) return DEFAULT_RECIPE_RESULT_COUNT;
   return Math.min(maxRecipeCount, Math.max(MIN_RECIPE_RESULT_COUNT, Number(value)));
@@ -4285,7 +5015,7 @@ async function generateRecipesWithTransientRetry(
 
   for (let attempt = 1; attempt <= AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS; attempt += 1) {
     try {
-      return await generateFallbackRecipes(prompt, traceForAttempt(attempt));
+      return await generateFallbackRecipes(prompt, traceForAttempt(attempt), RECIPE_TEXT_GENERATION_OPTIONS);
     } catch (error) {
       lastError = error;
       if (isAiTimeoutError(error) || !isTransientAiOverload(error) || attempt === AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS) {
@@ -5603,6 +6333,10 @@ function normalizeIngredientForStrictMatch(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 
+  if (/\b(bell\s*pep+er|sweet\s+pep+er|capsicum)\b/i.test(normalized)) return "bell pepper";
+  if (/\b(flatbread|pita|tortilla|lavash|naan|baladi\s+bread|wrap)\b/i.test(normalized)) return "bread";
+  if (/\b(chicken\s+breast|chicken\s+thigh|chicken\s+leg|chicken\s+tender)\b/i.test(normalized)) return "chicken";
+
   return isSparseGroundMeatSource(normalized) ? "ground meat" : normalized;
 }
 
@@ -5933,6 +6667,7 @@ async function resolveGeneratedRecipePhotoCacheCandidate(
     isChickenCandidate,
     isLiverCandidate,
     isShrimpCandidate,
+    requestIdentityTexts: queryCandidates,
     requestedMainIngredientKeys
   })) {
     const approximateMainIngredientKeys = buildApproximateRecipePhotoMainIngredientKeys(
@@ -5940,15 +6675,23 @@ async function resolveGeneratedRecipePhotoCacheCandidate(
       ingredientTexts,
       isLiverCandidate
     );
-    cached = approximateMainIngredientKeys.length
+    const hasApproximateCategoryLookup =
+      approximateMainIngredientKeys.length > 0 ||
+      identities.some(hasRecipePhotoCategoryLookupKey);
+    cached = hasApproximateCategoryLookup
       ? await getSharedRecipePhotoByApproximateCategory({
           allowProviderPhotos: true,
+          canonicalDishKeys: identities.map((identity) => identity.canonicalDishKey),
+          cookingMethodKeys: identities.map((identity) => identity.cookingMethodKey),
           cuisineKeys: identities.map((identity) => identity.cuisineKey),
           excludeImageUrls: Array.from(excludedUrls),
           familyKeys: identities.map((identity) => identity.familyKey),
           ingredientTexts,
           mainIngredientKeys: approximateMainIngredientKeys,
-          requestTexts: queryCandidates
+          mealTypeKeys: identities.map((identity) => identity.mealTypeKey),
+          requestTexts: queryCandidates,
+          sauceKeys: identities.map((identity) => identity.sauceKey),
+          starchKeys: identities.map((identity) => identity.starchKey)
         })
       : null;
   }
@@ -5956,6 +6699,7 @@ async function resolveGeneratedRecipePhotoCacheCandidate(
     isChickenCandidate,
     isLiverCandidate,
     isShrimpCandidate,
+    requestIdentityTexts: queryCandidates,
     requestedMainIngredientKeys
   }) && isLiverCandidate) {
     cached = await getSharedGeneratedRecipePhotoByCategory({
@@ -5972,6 +6716,7 @@ async function resolveGeneratedRecipePhotoCacheCandidate(
     isChickenCandidate,
     isLiverCandidate,
     isShrimpCandidate,
+    requestIdentityTexts: queryCandidates,
     requestedMainIngredientKeys
   })) return null;
 
@@ -6043,6 +6788,17 @@ function buildApproximateRecipePhotoMainIngredientKeys(
   ).slice(0, 6);
 }
 
+function hasRecipePhotoCategoryLookupKey(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
+  return Boolean(
+    identity.canonicalDishKey ||
+      identity.familyKey ||
+      identity.mealTypeKey ||
+      identity.starchKey ||
+      identity.sauceKey ||
+      identity.cookingMethodKey
+  );
+}
+
 function isUsableSharedRecipePhotoCacheEntry(
   entry: SharedRecipePhotoEntry | null,
   excludedUrls: Set<string>
@@ -6060,11 +6816,12 @@ function isUsableSharedRecipePhotoCacheEntryForRecipe(
     isChickenCandidate: boolean;
     isLiverCandidate: boolean;
     isShrimpCandidate: boolean;
+    requestIdentityTexts: string[];
     requestedMainIngredientKeys: Set<string>;
   }
 ): entry is SharedRecipePhotoEntry {
   if (!isUsableSharedRecipePhotoCacheEntry(entry, excludedUrls)) return false;
-  if (!isSharedRecipePhotoEntryCompatibleWithMainIngredients(entry, context.requestedMainIngredientKeys)) return false;
+  if (!isSharedRecipePhotoEntryCompatibleWithMainIngredients(entry, context.requestedMainIngredientKeys, context.requestIdentityTexts)) return false;
   if (context.isChickenCandidate && !isChickenRecipePhotoCacheEntry(entry)) return false;
   if (context.isLiverCandidate && !isLiverRecipePhotoCacheEntry(entry)) return false;
   if (context.isShrimpCandidate && !isShrimpRecipePhotoCacheEntry(entry)) return false;
@@ -6086,8 +6843,13 @@ function getStrictRecipePhotoRequestMainIngredientKeys(recipe: Recipe, queries: 
   return keys;
 }
 
-function isSharedRecipePhotoEntryCompatibleWithMainIngredients(entry: SharedRecipePhotoEntry, requestedMainIngredientKeys: Set<string>) {
+function isSharedRecipePhotoEntryCompatibleWithMainIngredients(
+  entry: SharedRecipePhotoEntry,
+  requestedMainIngredientKeys: Set<string>,
+  requestIdentityTexts: string[]
+) {
   if (!requestedMainIngredientKeys.size) return true;
+  if (isSharedRecipePhotoEntryCompatibleByNamedPlate(entry, requestIdentityTexts)) return true;
   const cacheKeys = collectRecipePhotoMainIngredientKeys([entry.query, entry.signature]);
   if (!cacheKeys.size) return false;
   for (const requestedKey of requestedMainIngredientKeys) {
@@ -6097,6 +6859,33 @@ function isSharedRecipePhotoEntryCompatibleWithMainIngredients(entry: SharedReci
     if (requestedKey === "bean" && (cacheKeys.has("chickpea") || cacheKeys.has("lentil"))) return true;
   }
   return false;
+}
+
+function isSharedRecipePhotoEntryCompatibleByNamedPlate(entry: SharedRecipePhotoEntry, requestIdentityTexts: string[]) {
+  const requestIdentities = requestIdentityTexts.map((value) => buildRecipePhotoIdentity(value));
+  const cacheIdentities = [entry.query, entry.signature]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => buildRecipePhotoIdentity(value));
+
+  return cacheIdentities.some((cacheIdentity) =>
+    requestIdentities.some((requestIdentity) => {
+      if (
+        cacheIdentity.canonicalDishKey &&
+        requestIdentity.canonicalDishKey &&
+        cacheIdentity.canonicalDishKey === requestIdentity.canonicalDishKey
+      ) {
+        return true;
+      }
+      return Boolean(
+        cacheIdentity.familyKey &&
+          requestIdentity.familyKey &&
+          cacheIdentity.familyKey === requestIdentity.familyKey &&
+          (!cacheIdentity.mainIngredientKey ||
+            !requestIdentity.mainIngredientKey ||
+            cacheIdentity.mainIngredientKey === requestIdentity.mainIngredientKey)
+      );
+    })
+  );
 }
 
 function collectRecipePhotoMainIngredientKeys(values: Array<string | null | undefined>) {

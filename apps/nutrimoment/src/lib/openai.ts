@@ -21,6 +21,11 @@ export interface AiCallTraceOptions {
   requestId?: string;
 }
 
+export interface AiTextGenerationOptions {
+  temperature?: number;
+  topP?: number;
+}
+
 const rawUseMock = process.env.USE_MOCK_API === "true";
 if (rawUseMock && process.env.NODE_ENV === "production") {
   throw new Error(
@@ -138,7 +143,12 @@ function clearGeminiRequestAbortTimeout(timeout: ReturnType<typeof globalThis.se
   globalThis.clearTimeout(timeout);
 }
 
-export async function callOpenAIText(prompt: string, modelName = defaultTextModel, trace?: AiCallTraceOptions): Promise<string> {
+export async function callOpenAIText(
+  prompt: string,
+  modelName = defaultTextModel,
+  trace?: AiCallTraceOptions,
+  options?: AiTextGenerationOptions
+): Promise<string> {
   ensureAiAvailable();
   const client = getClient();
   if (!client) throw new Error("Gemini API key not configured");
@@ -168,6 +178,8 @@ export async function callOpenAIText(prompt: string, modelName = defaultTextMode
             contents: prompt,
             config: {
               abortSignal: controller.signal,
+              ...(typeof options?.temperature === "number" ? { temperature: options.temperature } : {}),
+              ...(typeof options?.topP === "number" ? { topP: options.topP } : {}),
               httpOptions: {
                 timeout: requestTimeoutMs
               }

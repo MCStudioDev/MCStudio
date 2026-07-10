@@ -39,8 +39,8 @@ const PREMIUM_REPLICATE_MAX_RETRIES = 4;
 const PREMIUM_REPLICATE_MAX_RETRY_AFTER_MS = 12 * 1000;
 const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
 const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
-const PREMIUM_REPLICATE_IMAGE_CONCURRENCY = 2;
-const FREE_RECIPE_IMAGE_CONCURRENCY = 6;
+const PREMIUM_REPLICATE_IMAGE_CONCURRENCY = 10;
+const FREE_RECIPE_IMAGE_CONCURRENCY = 10;
 const SCANNER_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const SCAN_ACCESS_RETRY_ATTEMPTS = 3;
 const SCAN_ACCESS_RETRY_DELAY_MS = 700;
@@ -244,7 +244,7 @@ export function ScannerTab() {
       });
       const resolved: Recipe[] = [...seeded];
       const pendingPremiumIndexes = new Set<number>();
-      const maxLookups = isPremium ? inputRecipes.length : Math.min(Math.max(inputRecipes.length, 4), 8);
+      const maxLookups = inputRecipes.length;
 
       const resolveRecipePhoto = async (recipe: Recipe) => {
         let response: Response | null = null;
@@ -1442,7 +1442,7 @@ function buildRecipePhotoRequestUrl(
     params.set("cuisine", cuisine);
   }
   appendPhotoIdentityParams(params, exactContext.photoIdentity);
-  excludeUrls.slice(0, 8).forEach((url) => params.append("exclude", url));
+  excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
 }

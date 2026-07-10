@@ -81,6 +81,89 @@ describe("cuisine prompt depth", () => {
     expect(prompt).toContain("before a generic grilled meat plate");
   });
 
+  it("treats protein, vegetable, and bread scans as combined dish-family signals", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [
+        { name: "bell peper", quantity: "2 whole" },
+        { name: "chicken breast", quantity: "500g" },
+        { name: "bread", quantity: "4 pieces" }
+      ],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 4,
+        recipeCount: 5,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("General pantry expansion rule");
+    expect(prompt).toContain("applies to all ingredient types");
+    expect(prompt).toContain("Ingredient relationship planner: protein + vegetable + bread");
+    expect(prompt).toContain("wraps, sandwiches, stuffed breads, skewers/kebabs");
+    expect(prompt).toContain("fajitas");
+    expect(prompt).toContain("shawarma");
+    expect(prompt).toContain("A plain protein breast/fillet/steak card may appear at most once");
+  });
+
+  it("uses a variation seed to rotate same-ingredient recipe sets", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [{ name: "chicken", quantity: "500g" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 4,
+        recipeCount: 5,
+        diets: [],
+        conditions: [],
+        allergens: [],
+        variationSeed: "test-seed-123"
+      }
+    );
+
+    expect(prompt).toContain("Run variation seed: test-seed-123");
+    expect(prompt).toContain("Same-ingredients rotation rule");
+    expect(prompt).toContain("do not return the same card set by default");
+    expect(prompt).toContain("Do not merely reorder the same recipes");
+  });
+
+  it("treats mixed proteins and supports as a menu-composition problem", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [
+        { name: "salmon", quantity: "300g" },
+        { name: "shrimp", quantity: "300g" },
+        { name: "chicken", quantity: "500g" },
+        { name: "steak", quantity: "400g" },
+        { name: "ground meat", quantity: "500g" },
+        { name: "tomato", quantity: "4 whole" },
+        { name: "bell pepper", quantity: "2 whole" },
+        { name: "onion", quantity: "2 whole" },
+        { name: "mozzarella", quantity: "150g" }
+      ],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 4,
+        recipeCount: 5,
+        diets: [],
+        conditions: [],
+        allergens: []
+      }
+    );
+
+    expect(prompt).toContain("Multi-protein menu planner is active");
+    expect(prompt).toContain("do not combine unrelated proteins into one confused recipe");
+    expect(prompt).toContain("internally research and rank");
+    expect(prompt).toContain("Examples are illustrative patterns, not a whitelist");
+    expect(prompt).toContain("choose the highest-scoring pantry fit");
+    expect(prompt).toContain("Reject low-research pairings");
+  });
+
   it("forces Any cuisine to rotate beyond the usual nearby cuisines", () => {
     const recipePrompt = buildRecipeGenerationPrompt(
       [
@@ -241,6 +324,11 @@ describe("cuisine prompt depth", () => {
     );
 
     expect(prompt).toContain("Ground-meat distinct-card mode is active");
+    expect(prompt).toContain("Sparse pantry expansion rule");
+    expect(prompt).toContain("actively propose complete real recipes");
+    expect(prompt).toContain("add reasonable support ingredients to missing_ingredients");
+    expect(prompt).toContain("For any anchor ingredient");
+    expect(prompt).toContain("proteins, seafood, eggs, dairy, legumes, grains, vegetables, fruit");
     expect(prompt).toContain("Moroccan beef kofta");
     expect(prompt).toContain("Lebanese beef kofta");
     expect(prompt).toContain("ground beef tacos");

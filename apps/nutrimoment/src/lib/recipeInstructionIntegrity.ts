@@ -26,6 +26,14 @@ type TitleDishPromiseRule = {
   titlePatterns: RegExp[];
 };
 
+type DishWorkflowRule = {
+  requiredIngredients: TitleIngredientRule[];
+  stepsArabic: string[];
+  stepsEnglish: string[];
+  stepPatterns: RegExp[];
+  titlePatterns: RegExp[];
+};
+
 const TITLE_INGREDIENT_RULES: TitleIngredientRule[] = [
   rule("ginger", "زنجبيل", [/\bginger\b/i, /زنجبيل/u]),
   rule("spinach", "سبانخ", [/\bspinach\b/i, /سبانخ/u]),
@@ -113,6 +121,44 @@ const TITLE_DISH_PROMISE_RULES: TitleDishPromiseRule[] = [
   }
 ];
 
+const DISH_WORKFLOW_RULES: DishWorkflowRule[] = [
+  {
+    requiredIngredients: [
+      rule("yogurt", "\u0632\u0628\u0627\u062f\u064a", [/\byogurts?\b/i, /\u0632\u0628\u0627\u062f\u064a|\u0631\u0648\u0628|\u0644\u0628\u0646/u]),
+      rule("olive oil", "\u0632\u064a\u062a \u0632\u064a\u062a\u0648\u0646", [/\bolive oil\b/i, /\u0632\u064a\u062a \u0632\u064a\u062a\u0648\u0646/u]),
+      rule("vinegar", "\u062e\u0644", [/\bvinegar\b/i, /\u062e\u0644/u]),
+      rule("lemon", "\u0644\u064a\u0645\u0648\u0646", [/\blemon\b/i, /\u0644\u064a\u0645\u0648\u0646/u]),
+      rule("garlic", "\u062b\u0648\u0645", [/\bgarlic\b/i, /\u062b\u0648\u0645/u]),
+      rule("shawarma spices", "\u0628\u0647\u0627\u0631\u0627\u062a \u0634\u0627\u0648\u0631\u0645\u0627", [/\bshawarma spice|shawarma spices|paprika|cumin|coriander|curry\b/i, /\u0628\u0647\u0627\u0631\u0627\u062a|\u0628\u0627\u0628\u0631\u064a\u0643\u0627|\u0643\u0627\u0631\u064a|\u0643\u0632\u0628\u0631\u0629/u]),
+      rule("onion", "\u0628\u0635\u0644", [/\bonions?\b/i, /\u0628\u0635\u0644/u]),
+      rule("tomato", "\u0637\u0645\u0627\u0637\u0645", [/\btomatoes?\b/i, /\u0637\u0645\u0627\u0637\u0645|\u0628\u0646\u062f\u0648\u0631\u0629/u]),
+      rule("bell pepper", "\u0641\u0644\u0641\u0644 \u0623\u062e\u0636\u0631", [/\bbell peppers?\b|\bgreen peppers?\b/i, /\u0641\u0644\u0641\u0644/u]),
+      rule("flatbread", "\u062e\u0628\u0632 \u0634\u0627\u0648\u0631\u0645\u0627 \u0623\u0648 \u062e\u0628\u0632 \u0633\u0648\u0631\u064a", [/\bflatbread|pita|shawarma bread|saj\b/i, /\u062e\u0628\u0632/u])
+    ],
+    stepsArabic: [
+      "\u0642\u0637\u0639 \u0627\u0644\u062f\u062c\u0627\u062c \u0623\u0648 \u0627\u0644\u0628\u0631\u0648\u062a\u064a\u0646 \u0625\u0644\u0649 \u0634\u0631\u0627\u0626\u062d \u0631\u0641\u064a\u0639\u0629 \u0645\u062a\u0633\u0627\u0648\u064a\u0629 \u062d\u062a\u0649 \u062a\u0646\u0636\u062c \u0628\u0633\u0631\u0639\u0629 \u0648\u062a\u0623\u062e\u0630 \u062a\u062a\u0628\u064a\u0644\u0629 \u0627\u0644\u0634\u0627\u0648\u0631\u0645\u0627 \u062c\u064a\u062f\u0627.",
+      "\u0627\u062e\u0644\u0637 \u0627\u0644\u0632\u0628\u0627\u062f\u064a \u0645\u0639 \u0632\u064a\u062a \u0627\u0644\u0632\u064a\u062a\u0648\u0646 \u0648\u0627\u0644\u062e\u0644 \u0648\u0639\u0635\u064a\u0631 \u0627\u0644\u0644\u064a\u0645\u0648\u0646 \u0648\u0627\u0644\u062b\u0648\u0645 \u0648\u0628\u0647\u0627\u0631\u0627\u062a \u0627\u0644\u0634\u0627\u0648\u0631\u0645\u0627 \u0645\u062b\u0644 \u0627\u0644\u0628\u0627\u0628\u0631\u064a\u0643\u0627 \u0648\u0627\u0644\u0643\u0627\u0631\u064a \u0648\u0627\u0644\u0643\u0632\u0628\u0631\u0629 \u0648\u0627\u0644\u0641\u0644\u0641\u0644.",
+      "\u0623\u0636\u0641 \u0634\u0631\u0627\u0626\u062d \u0627\u0644\u062f\u062c\u0627\u062c \u0625\u0644\u0649 \u0627\u0644\u062a\u062a\u0628\u064a\u0644\u0629\u060c \u0642\u0644\u0628\u0647\u0627 \u062c\u064a\u062f\u0627\u060c \u062b\u0645 \u0627\u062a\u0631\u0643\u0647\u0627 \u0641\u064a \u0627\u0644\u062b\u0644\u0627\u062c\u0629 30 \u062f\u0642\u064a\u0642\u0629 \u0625\u0644\u0649 \u0633\u0627\u0639\u062a\u064a\u0646 \u062d\u0633\u0628 \u0627\u0644\u0648\u0642\u062a \u0627\u0644\u0645\u062a\u0627\u062d.",
+      "\u0633\u062e\u0646 \u0645\u0642\u0644\u0627\u0629 \u0648\u0627\u0633\u0639\u0629 \u0639\u0644\u0649 \u0646\u0627\u0631 \u0639\u0627\u0644\u064a\u0629 \u062c\u062f\u0627\u060c \u0623\u0636\u0641 \u0645\u0644\u0639\u0642\u0629 \u0635\u063a\u064a\u0631\u0629 \u0632\u064a\u062a\u060c \u062b\u0645 \u0627\u0641\u0631\u062f \u0627\u0644\u062f\u062c\u0627\u062c \u0641\u064a \u0637\u0628\u0642\u0629 \u0648\u0627\u062d\u062f\u0629 \u0648\u0644\u0627 \u062a\u0642\u0644\u0628\u0647 \u0641\u0648\u0631\u0627 \u062d\u062a\u0649 \u064a\u0623\u062e\u0630 \u0644\u0648\u0646\u0627.",
+      "\u0642\u0644\u0628 \u0627\u0644\u062f\u062c\u0627\u062c 6 \u0625\u0644\u0649 10 \u062f\u0642\u0627\u0626\u0642 \u062d\u062a\u0649 \u064a\u0646\u0636\u062c\u060c \u062b\u0645 \u0623\u0636\u0641 \u0634\u0631\u0627\u0626\u062d \u0627\u0644\u0628\u0635\u0644 \u0648\u0627\u0644\u0641\u0644\u0641\u0644 \u0648\u0627\u0644\u0637\u0645\u0627\u0637\u0645 \u0648\u0642\u0644\u0628 \u062f\u0642\u064a\u0642\u062a\u064a\u0646 \u0641\u0642\u0637 \u062d\u062a\u0649 \u062a\u0630\u0628\u0644 \u0648\u062a\u0628\u0642\u0649 \u0645\u062a\u0645\u0627\u0633\u0643\u0629.",
+      "\u0642\u062f\u0645 \u0627\u0644\u0634\u0627\u0648\u0631\u0645\u0627 \u0641\u064a \u062e\u0628\u0632 \u0633\u0648\u0631\u064a \u0623\u0648 \u062e\u0628\u0632 \u0634\u0627\u0648\u0631\u0645\u0627 \u0645\u0639 \u062b\u0648\u0645\u064a\u0629 \u0623\u0648 \u0637\u062d\u064a\u0646\u0629 \u0648\u0645\u062e\u0644\u0644\u060c \u062b\u0645 \u062d\u0645\u0631 \u0627\u0644\u0633\u0627\u0646\u062f\u0648\u062a\u0634 \u0641\u064a \u0645\u0642\u0644\u0627\u0629 \u0628\u0642\u0644\u064a\u0644 \u0645\u0646 \u0627\u0644\u0632\u064a\u062a \u062d\u062a\u0649 \u064a\u0642\u0631\u0645\u0634."
+    ],
+    stepsEnglish: [
+      "Slice the chicken or main protein into thin, even strips so it cooks quickly and absorbs the shawarma marinade.",
+      "Mix yogurt with olive oil, vinegar, lemon juice, garlic, and shawarma spices such as paprika, curry, coriander, black pepper, and salt.",
+      "Add the chicken strips to the marinade, coat well, then refrigerate for 30 minutes to 2 hours depending on the time available.",
+      "Heat a wide skillet over very high heat, add 1 tsp oil, spread the chicken in one layer, and do not stir immediately so it browns instead of steaming.",
+      "Cook the chicken 6 to 10 minutes until done, then add sliced onion, bell pepper, and tomato for only 2 minutes so they soften but stay lively.",
+      "Serve in shawarma or pita bread with toum, tahini, pickles, or fries when listed, then toast the wrap in a lightly oiled pan until crisp."
+    ],
+    stepPatterns: [
+      /\b(yogurt|marinad|vinegar|shawarma spice|toum|tahini|wrap|pita)\b/i,
+      /\u0632\u0628\u0627\u062f\u064a|\u062a\u062a\u0628\u064a\u0644|\u062e\u0644|\u0628\u0647\u0627\u0631\u0627\u062a|\u062b\u0648\u0645\u064a\u0629|\u0637\u062d\u064a\u0646\u0629|\u062e\u0628\u0632/u
+    ],
+    titlePatterns: [/\b(?:shawarma|shawerma|shwarma)\b/i, /\u0634\u0627\u0648\u0631\u0645\u0627/u]
+  }
+];
+
 export function ensureRecipeInstructionIntegrity(recipe: Recipe): Recipe {
   return {
     ...repairRecipeLike(recipe),
@@ -142,6 +188,7 @@ function repairRecipeLike<T extends RecipeLike | LocalizedRecipeVariant>(recipe:
   const missingDishPromises = TITLE_DISH_PROMISE_RULES.filter((entry) =>
     entry.titlePatterns.some((pattern) => pattern.test(titleSource))
   );
+  const workflowRepair = findDishWorkflowRepair(recipe, titleSource, language);
   const needsKoftaFormRepair = titlePromisesKoftaForm(titleSource) && !hasGroundMeatCue([
     ...recipe.ingredients,
     ...recipe.missing_ingredients,
@@ -154,6 +201,7 @@ function repairRecipeLike<T extends RecipeLike | LocalizedRecipeVariant>(recipe:
     !missingTitleIngredients.length &&
     !missingTitleTechniques.length &&
     !missingDishPromises.length &&
+    !workflowRepair &&
     !needsKoftaFormRepair &&
     !needsGrilledMethodRepair &&
     !culinaryRepairs.missingIngredients.length &&
@@ -164,6 +212,15 @@ function repairRecipeLike<T extends RecipeLike | LocalizedRecipeVariant>(recipe:
 
   let missingIngredients = [...recipe.missing_ingredients];
   let steps = [...recipe.steps];
+
+  if (workflowRepair) {
+    for (const ingredient of workflowRepair.requiredIngredients) {
+      if (!containsRuleText([...recipe.ingredients, ...missingIngredients], ingredient)) {
+        missingIngredients = [...missingIngredients, displayIngredient(ingredient, language)];
+      }
+    }
+    steps = shouldReplaceGenericSteps(steps) ? workflowRepair.steps : [...steps, ...workflowRepair.steps];
+  }
 
   for (const ingredient of missingTitleIngredients) {
     if (!containsRuleText([...recipe.ingredients, ...missingIngredients], ingredient)) {
@@ -251,6 +308,44 @@ function buildIngredientUseStep(ingredient: TitleIngredientRule, language: "Arab
   }
 
   return `Add the ${ingredient.english} named in the dish title and cook until its flavor is clearly part of the recipe.`;
+}
+
+function findDishWorkflowRepair<T extends RecipeLike | LocalizedRecipeVariant>(
+  recipe: T,
+  titleSource: string,
+  language: "Arabic" | "English"
+) {
+  const rule = DISH_WORKFLOW_RULES.find((entry) => entry.titlePatterns.some((pattern) => pattern.test(titleSource)));
+  if (!rule) return null;
+
+  const hasWorkflow = containsAnyPattern(recipe.steps, rule.stepPatterns);
+  const needsRequiredIngredient = rule.requiredIngredients.some(
+    (ingredient) => !containsRuleText([...recipe.ingredients, ...recipe.missing_ingredients], ingredient)
+  );
+  if (!needsRequiredIngredient && hasWorkflow && !shouldReplaceGenericSteps(recipe.steps)) return null;
+
+  return {
+    requiredIngredients: rule.requiredIngredients,
+    steps: language === "Arabic" ? rule.stepsArabic : rule.stepsEnglish
+  };
+}
+
+function shouldReplaceGenericSteps(steps: string[]) {
+  const joined = steps.join(" ");
+  const genericHits = [
+    /\bprep for\b/i,
+    /\bmeasure 1 serving\b/i,
+    /\bkeep .* nearby so each addition is ready\b/i,
+    /\badd .* first and cook for 4 to 6 minutes\b/i,
+    /\badd .* with 2 tbsp water\b/i,
+    /\bfold in .* in small handfuls\b/i,
+    /\u062d\u0636\u0631\s/u,
+    /\u0642\u0633\s+\u062d\u0635\u0629/u,
+    /\u0628\u062c\u0627\u0646\u0628\u0643\s+\u062d\u062a\u0649\s+\u062a\u0643\u0648\u0646\s+\u0627\u0644\u0625\u0636\u0627\u0641\u0627\u062a\s+\u062c\u0627\u0647\u0632\u0629/u,
+    /\u0623\u0636\u0641\s+.+\s+\u0623\u0648\u0644\u0627\s+\u0648\u0627\u0637\u0647/u,
+    /\u0645\u0644\u0639\u0642\u062a\u064a\u0646\s+\u0643\u0628\u064a\u0631\u062a\u064a\u0646\s+\u0645\u0646\s+\u0627\u0644\u0645\u0627\u0621/u
+  ].filter((pattern) => pattern.test(joined)).length;
+  return genericHits >= 2;
 }
 
 function dedupeRecipeText(values: string[]) {

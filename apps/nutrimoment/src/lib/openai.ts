@@ -22,6 +22,7 @@ export interface AiCallTraceOptions {
 }
 
 export interface AiTextGenerationOptions {
+  groundWithGoogleSearch?: boolean;
   temperature?: number;
   topP?: number;
 }
@@ -178,6 +179,7 @@ export async function callOpenAIText(
             contents: prompt,
             config: {
               abortSignal: controller.signal,
+              ...(options?.groundWithGoogleSearch ? { tools: [{ googleSearch: {} }] } : {}),
               ...(typeof options?.temperature === "number" ? { temperature: options.temperature } : {}),
               ...(typeof options?.topP === "number" ? { topP: options.topP } : {}),
               httpOptions: {

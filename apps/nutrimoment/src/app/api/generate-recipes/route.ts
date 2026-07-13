@@ -219,15 +219,6 @@ export async function POST(request: Request) {
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
-    if (!requestAccess.isPremium && !requestAccess.isAdmin) {
-      return Response.json(
-        {
-          error: "Scan fridge recipe generation is a premium feature.",
-          access: accessPayload(requestAccess)
-        },
-        { status: 403 }
-      );
-    }
     const hasGeneratedImageAccess = hasGeneratedRecipeImageAccess(requestAccess);
     // Free users with remaining trial credits should still receive fresh
     // Gemini recipes. The shared pool is the fallback for exhausted credits
@@ -252,6 +243,16 @@ export async function POST(request: Request) {
     }
     historyEntryId = parsed.data.historyEntryId;
     historyUid = requestAccess.uid;
+
+    if (parsed.data.referenceImage && !requestAccess.isPremium && !requestAccess.isAdmin) {
+      return Response.json(
+        {
+          error: "Scan fridge recipe generation is a premium feature. Add ingredients manually to generate free recipe cards.",
+          access: accessPayload(requestAccess)
+        },
+        { status: 403 }
+      );
+    }
 
     const ingredients = (parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""))
       .map((ingredient) => ingredient.trim())
@@ -736,6 +737,7 @@ export async function POST(request: Request) {
     try {
       ensureAiAvailable();
       const recipeReferences = await recipeReferencesPromise;
+      const shouldUseGroundedRecipeSearch = recipeReferences.length === 0;
       const prompt = ingredients.length
         ? buildRecipeGenerationPrompt(
             normalizedPromptIngredients.map((ingredient, index) => ({
@@ -760,8 +762,10 @@ export async function POST(request: Request) {
             }
           )
         : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
-      const text = await generateRecipesWithTransientRetry(prompt, (attempt) =>
-        traceTextCall(attempt === 1 ? "primary_generation" : `primary_generation_retry_${attempt}`)
+      const text = await generateRecipesWithTransientRetry(
+        prompt,
+        (attempt) => traceTextCall(attempt === 1 ? "primary_generation" : `primary_generation_retry_${attempt}`),
+        { groundWithGoogleSearch: shouldUseGroundedRecipeSearch }
       );
       const recipes = parseAiJsonPayload(text, "recipe_generation");
       const normalizedRecipes = recipes.recipes ?? recipes;
@@ -819,7 +823,8 @@ export async function POST(request: Request) {
 
           const retryText = await generateRecipesWithTransientRetry(
             buildScannerPantryBalanceRetryPrompt(prompt, repairRecipeCount),
-            (attempt) => traceTextCall(attempt === 1 ? "repair_generation" : `repair_generation_retry_${attempt}`)
+            (attempt) => traceTextCall(attempt === 1 ? "repair_generation" : `repair_generation_retry_${attempt}`),
+            { groundWithGoogleSearch: shouldUseGroundedRecipeSearch }
           );
           const retryRecipes = parseAiJsonPayload(retryText, "recipe_generation");
           const retryNormalizedRecipes = retryRecipes.recipes ?? retryRecipes;
@@ -5396,13 +5401,17 @@ function buildRecipeFallbackNotice(
 
 async function generateRecipesWithTransientRetry(
   prompt: string,
-  traceForAttempt: (attempt: number) => import("@/lib/openai").AiCallTraceOptions
+  traceForAttempt: (attempt: number) => import("@/lib/openai").AiCallTraceOptions,
+  options?: import("@/lib/openai").AiTextGenerationOptions
 ) {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS; attempt += 1) {
     try {
-      return await generateFallbackRecipes(prompt, traceForAttempt(attempt), RECIPE_TEXT_GENERATION_OPTIONS);
+      return await generateFallbackRecipes(prompt, traceForAttempt(attempt), {
+        ...RECIPE_TEXT_GENERATION_OPTIONS,
+        ...options
+      });
     } catch (error) {
       lastError = error;
       if (isAiTimeoutError(error) || !isTransientAiOverload(error) || attempt === AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS) {

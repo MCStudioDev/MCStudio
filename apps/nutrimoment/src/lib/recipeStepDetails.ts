@@ -82,7 +82,7 @@ function buildEnglishFallbackSteps(name: string, primary: string, secondary: str
   const profile = buildCookingProfile(name, primary, ingredients);
 
   return [
-    `Prep for ${name}: measure 1 serving of ${primary} and 1 serving of ${secondary}; keep ${finishText} nearby so each addition is ready before cooking.`,
+    `Prepare ${name}: cut ${primary} into the shape the dish needs, prepare ${secondary}, and keep ${finishText} ready before heating the pan.`,
     profile.englishHeatStep,
     profile.englishPrimaryStep(primary),
     profile.englishSecondaryStep(secondary),
@@ -97,7 +97,7 @@ function buildArabicFallbackSteps(name: string, primary: string, secondary: stri
   const profile = buildCookingProfile(name, primary, ingredients);
 
   return [
-    `حضر ${name}: قس حصة واحدة من ${primary} وحصة واحدة من ${secondary}، وضع ${finishText} بجانبك حتى تكون الإضافات جاهزة قبل الطبخ.`,
+    `حضر ${name}: قطع ${primary} بالشكل المناسب للطبق، جهز ${secondary}، واجعل ${finishText} جاهزة قبل تسخين المقلاة.`,
     profile.arabicHeatStep,
     profile.arabicPrimaryStep(primary),
     profile.arabicSecondaryStep(secondary),
@@ -205,15 +205,23 @@ function defaultProfile(overrides: {
   return {
     englishHeatStep: "Warm the main pan over medium heat for 2 minutes, then add 1 tsp oil or the listed cooking fat and spread it into a thin, shimmering layer.",
     englishPrimaryStep: overrides.englishPrimary ?? ((item) => `Add ${item} first and cook for 4 to 6 minutes, stirring or turning every 60 seconds, until the edges look lightly browned or softened.`),
-    englishSecondaryStep: (item) => `Add ${item} with 2 tbsp water or cooking liquid, then cook for 3 to 5 minutes until the mixture smells aromatic and the liquid mostly evaporates.`,
-    englishFinishStep: (item) => `Fold in ${item} in small handfuls, cooking 2 to 4 minutes more so the colors brighten and the texture stays tender, not mushy.`,
+    englishSecondaryStep: (item) => isFreshServingIngredient(item)
+      ? `Keep ${item} fresh for serving or add it only at the end; do not simmer it with water because it is a garnish, fresh vegetable, or crisp topping.`
+      : `Add ${item} and cook 2 to 5 minutes until it softens, browns lightly, or smells aromatic according to the dish style.`,
+    englishFinishStep: (item) => `Fold in ${item} in small additions, cooking only as long as needed so the colors stay bright and the texture remains tender, not mushy.`,
     englishPlateStep: "Rest the meal off heat for 2 minutes, then plate one portion with the main ingredient centered and any sauce or garnish spooned evenly over the top.",
     arabicHeatStep: "سخن المقلاة الرئيسية على نار متوسطة لمدة دقيقتين، ثم أضف ملعقة صغيرة من الزيت أو الدهن المذكور ووزعه كطبقة رقيقة لامعة.",
     arabicPrimaryStep: overrides.arabicPrimary ?? ((item) => `أضف ${item} أولا واطهه لمدة 4 إلى 6 دقائق، مع التقليب كل دقيقة، حتى تصبح الأطراف ذهبية خفيفة أو طرية.`),
-    arabicSecondaryStep: (item) => `أضف ${item} مع ملعقتين كبيرتين من الماء أو سائل الطبخ، واطهه 3 إلى 5 دقائق حتى تظهر الرائحة ويتبخر معظم السائل.`,
-    arabicFinishStep: (item) => `أضف ${item} على دفعات صغيرة، واطهه 2 إلى 4 دقائق حتى يثبت اللون ويبقى القوام طريا بدون أن يتهرى.`,
+    arabicSecondaryStep: (item) => isFreshServingIngredient(item)
+      ? `اترك ${item} طازجا للتقديم أو أضفه في النهاية فقط؛ لا تغليه بالماء لأنه خضار مقرمش أو زينة.`
+      : `أضف ${item} واطهه 2 إلى 5 دقائق حتى يطرى أو يتحمر قليلا أو تظهر رائحته حسب طبيعة الطبق.`,
+    arabicFinishStep: (item) => `أضف ${item} على دفعات صغيرة، واطهه فقط بالقدر اللازم حتى يبقى اللون واضحا والقوام طريا بدون أن يتهرى.`,
     arabicPlateStep: "اترك الوجبة بعيدا عن النار لمدة دقيقتين، ثم قدم حصة واحدة مع وضع المكون الرئيسي في الوسط وتوزيع الصلصة أو الزينة بالتساوي فوقه."
   };
+}
+
+function isFreshServingIngredient(item: string) {
+  return /\b(cucumber|lettuce|pickle|pickles|radish|fresh herb|parsley|cilantro|mint|lemon|lime|scallion|spring onion)\b|\u062e\u064a\u0627\u0631|\u062e\u0633|\u0645\u062e\u0644\u0644|\u0641\u062c\u0644|\u0628\u0642\u062f\u0648\u0646\u0633|\u0643\u0632\u0628\u0631\u0629|\u0646\u0639\u0646\u0627\u0639|\u0644\u064a\u0645\u0648\u0646/u.test(item);
 }
 
 function detectCookingMethod(text: string): CookingMethod {

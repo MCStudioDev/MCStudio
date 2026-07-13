@@ -3,6 +3,57 @@ import { buildMealPlanPrompt, buildRecipeGenerationPrompt } from "../lib/aiPromp
 import { getCuisineDishReferenceText } from "../lib/cuisineDishCatalog";
 
 describe("cuisine prompt depth", () => {
+  it("forces grounded Google Search instead of generic recipes when no local reference exists", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [{ name: "chicken", quantity: "500g" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 4,
+        recipeCount: 5,
+        diets: [],
+        conditions: [],
+        allergens: [],
+        recipeReferences: []
+      }
+    );
+
+    expect(prompt).toContain("FORCE GOOGLE SEARCH MODE");
+    expect(prompt).toContain("Do not invent a generic recipe in this mode");
+    expect(prompt).toContain("Set recipe_source_type to external_source");
+    expect(prompt).toContain("include the exact source_url");
+    expect(prompt).not.toContain("You must not search the internet");
+  });
+
+  it("stops at local recipe references when the backend found a database match", () => {
+    const prompt = buildRecipeGenerationPrompt(
+      [{ name: "chicken", quantity: "500g" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1800,
+        maxMissingIngredients: 4,
+        recipeCount: 5,
+        diets: [],
+        conditions: [],
+        allergens: [],
+        recipeReferences: [{
+          title: "Chicken Shawarma",
+          cuisine: "Middle Eastern",
+          ingredients: ["chicken", "yogurt", "garlic", "lemon"],
+          steps: ["Marinate the sliced chicken.", "Cook on high heat."],
+          matchedIngredients: ["chicken"]
+        }]
+      }
+    );
+
+    expect(prompt).toContain("local NutriMoment recipe database matches were found");
+    expect(prompt).toContain("Stop at the local database");
+    expect(prompt).toContain("Reference recipes:");
+    expect(prompt).not.toContain("FORCE GOOGLE SEARCH MODE");
+  });
+
   it("keeps Italian generation anchored to iconic dishes including pizza", () => {
     const prompt = buildRecipeGenerationPrompt(
       [
@@ -485,7 +536,7 @@ describe("cuisine prompt depth", () => {
     });
 
     expect(recipePrompt).toContain("Every recipe MUST also include a photo_identity object");
-    expect(recipePrompt).toContain("Each recipe object must include: name, cuisine, dish_intent, photo_identity");
+    expect(recipePrompt).toContain("Each recipe object must include: name, cuisine, recipe_source_type, source_url when applicable, dish_intent, photo_identity");
     expect(mealPlanPrompt).toContain("Empty-or-incompatible-pantry creative mode");
     expect(mealPlanPrompt).toContain("Build a full shoppingList");
   });

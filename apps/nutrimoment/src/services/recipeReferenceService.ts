@@ -290,6 +290,7 @@ export function mapRecipeReferencesToRecipes(
       cuisine: reference.cuisine || "Global",
       plated_visual_description: reference.imagePrompt || buildReferencePlatedVisualDescription(reference),
       recipe_source_type: "local_database",
+      source_url: reference.sourceUrl,
       ingredients: reference.ingredients,
       missing_ingredients: [],
       steps: reference.steps,

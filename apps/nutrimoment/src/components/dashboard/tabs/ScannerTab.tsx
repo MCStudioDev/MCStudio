@@ -171,6 +171,7 @@ export function ScannerTab() {
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
+  const canUseFridgeScan = isPremiumFeatureUnlocked;
   const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
   const { addItems: addPantryItems, items: pantryItems } = usePantry();
   const scannerInputRef = useRef<HTMLInputElement | null>(null);
@@ -627,6 +628,11 @@ export function ScannerTab() {
   }
 
   const startScannerCamera = async () => {
+    if (!canUseFridgeScan) {
+      setError(t("freePlanScanner"));
+      return;
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
       scannerInputRef.current?.click();
       return;
@@ -667,6 +673,11 @@ export function ScannerTab() {
   };
 
   const processScannedImage = async (image: string, previewUrl?: string) => {
+    if (!canUseFridgeScan) {
+      setError(t("freePlanScanner"));
+      return;
+    }
+
     if (previewUrl) {
       setScanPreviewUrl((current) => {
         if (current?.startsWith("blob:")) {
@@ -758,6 +769,10 @@ export function ScannerTab() {
     scannerInputRef.current?.blur();
     setScannerInputKey((current) => current + 1);
     if (!file) return;
+    if (!canUseFridgeScan) {
+      setError(t("freePlanScanner"));
+      return;
+    }
 
     const previewUrl = URL.createObjectURL(file);
     try {
@@ -770,7 +785,8 @@ export function ScannerTab() {
   };
 
   const handleGenerateRecipes = async () => {
-    if (!ingredients.length && !lastScanImage) {
+    const canUseReferenceImage = canUseFridgeScan && Boolean(lastScanImage);
+    if (!ingredients.length && !canUseReferenceImage) {
       setError(t("addOrScanFirst"));
       return;
     }
@@ -799,7 +815,7 @@ export function ScannerTab() {
         body: JSON.stringify({
           ingredients: ingredientNames.length ? ingredientNames : undefined,
           historyEntryId: pendingEntryId ?? undefined,
-          referenceImage: lastScanImage ?? undefined,
+          referenceImage: canUseReferenceImage ? lastScanImage ?? undefined : undefined,
           recipeCount: settings.recipeCount,
           uiLanguage: settings.uiLanguage,
           preferredCuisine: settings.preferredCuisine,
@@ -861,27 +877,6 @@ export function ScannerTab() {
     t
   });
 
-  if (!isPremiumFeatureUnlocked) {
-    return (
-      <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">
-        <motion.div variants={itemVariants}>
-          <Card className="rounded-[1.6rem] border-amber-200/18 bg-amber-400/10 p-5 sm:rounded-[2rem] sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="max-w-2xl space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">{t("premiumRequired")}</p>
-                <h2 className="font-display text-2xl font-bold text-white">{t("scanner")}</h2>
-                <p className="text-sm leading-relaxed text-amber-50/86">{t("freePlanScanner")}</p>
-              </div>
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-amber-100/20 bg-amber-200/12 text-amber-100">
-                <Lock className="h-5 w-5" aria-hidden="true" />
-              </div>
-            </div>
-          </Card>
-        </motion.div>
-      </motion.div>
-    );
-  }
-
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">
       {showOnboarding ? (
@@ -893,7 +888,7 @@ export function ScannerTab() {
                   {rtl ? "ابدأ بسرعة" : "Quick start"}
                 </p>
                 <ol className="grid gap-2 text-sm font-medium leading-relaxed text-emerald-50/82 sm:grid-cols-3">
-                  <li>{rtl ? "1. أضف أو امسح المكونات" : "1. Add or scan ingredients"}</li>
+                  <li>{isPremiumFeatureUnlocked ? (rtl ? "1. أضف أو امسح المكونات" : "1. Add or scan ingredients") : (rtl ? "1. أضف المكونات يدويًا" : "1. Add ingredients manually")}</li>
                   <li>{rtl ? "2. ولّد وصفات مناسبة" : "2. Generate matched recipes"}</li>
                   <li>{rtl ? "3. افتح الوصفة واطبخ" : "3. Open the recipe and cook"}</li>
                 </ol>
@@ -975,10 +970,10 @@ export function ScannerTab() {
                     <motion.button
                       type="button"
                       onClick={startScannerCamera}
-                      disabled={cameraStarting || scanLoading}
+                      disabled={!canUseFridgeScan || cameraStarting || scanLoading}
                       aria-busy={cameraStarting || undefined}
-                      whileHover={cameraStarting || scanLoading ? undefined : { y: -3, scale: 1.015 }}
-                      whileTap={cameraStarting || scanLoading ? undefined : { scale: 0.985 }}
+                      whileHover={!canUseFridgeScan || cameraStarting || scanLoading ? undefined : { y: -3, scale: 1.015 }}
+                      whileTap={!canUseFridgeScan || cameraStarting || scanLoading ? undefined : { scale: 0.985 }}
                       className={cn(
                         "focus-ring group relative min-h-32 overflow-hidden rounded-[1.35rem] border border-cyan-200/20 bg-cyan-300/10 p-4 text-start text-emerald-50 shadow-[0_18px_50px_rgba(34,211,238,0.10)] transition-ui sm:min-h-36",
                         "hover:border-cyan-200/42 hover:bg-cyan-300/14 hover:shadow-[0_22px_65px_rgba(34,211,238,0.18)]",
@@ -991,6 +986,8 @@ export function ScannerTab() {
                           <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-100/18 bg-cyan-200/14 text-cyan-100">
                             {cameraStarting ? (
                               <span className="h-5 w-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                            ) : !canUseFridgeScan ? (
+                              <Lock className="h-5 w-5" />
                             ) : (
                               <Camera className="h-5 w-5" />
                             )}
@@ -1002,18 +999,24 @@ export function ScannerTab() {
                             {cameraStarting ? t("identifying") : t("takePhoto")}
                           </span>
                           <span className="mt-1 block text-xs leading-snug text-emerald-50/60">
-                            {t("scanIng")}
+                            {canUseFridgeScan ? t("scanIng") : t("premiumRequired")}
                           </span>
                         </span>
                       </span>
                     </motion.button>
                     <motion.button
                       type="button"
-                      onClick={() => scannerInputRef.current?.click()}
-                      disabled={scanLoading}
+                      onClick={() => {
+                        if (!canUseFridgeScan) {
+                          setError(t("freePlanScanner"));
+                          return;
+                        }
+                        scannerInputRef.current?.click();
+                      }}
+                      disabled={!canUseFridgeScan || scanLoading}
                       aria-busy={scanLoading || undefined}
-                      whileHover={scanLoading ? undefined : { y: -3, scale: 1.015 }}
-                      whileTap={scanLoading ? undefined : { scale: 0.985 }}
+                      whileHover={!canUseFridgeScan || scanLoading ? undefined : { y: -3, scale: 1.015 }}
+                      whileTap={!canUseFridgeScan || scanLoading ? undefined : { scale: 0.985 }}
                       className={cn(
                         "focus-ring group relative min-h-32 overflow-hidden rounded-[1.35rem] border border-emerald-200/20 bg-emerald-300/10 p-4 text-start text-emerald-50 shadow-[0_18px_50px_rgba(16,185,129,0.10)] transition-ui sm:min-h-36",
                         "hover:border-emerald-200/42 hover:bg-emerald-300/14 hover:shadow-[0_22px_65px_rgba(16,185,129,0.18)]",
@@ -1026,6 +1029,8 @@ export function ScannerTab() {
                           <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-100/18 bg-emerald-200/14 text-emerald-100">
                             {scanLoading ? (
                               <span className="h-5 w-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                            ) : !canUseFridgeScan ? (
+                              <Lock className="h-5 w-5" />
                             ) : (
                               <Upload className="h-5 w-5" />
                             )}
@@ -1037,7 +1042,7 @@ export function ScannerTab() {
                             {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
                           </span>
                           <span className="mt-1 block text-xs leading-snug text-emerald-50/60">
-                            {t("scannerCompactActions")}
+                            {canUseFridgeScan ? t("scannerCompactActions") : t("premiumRequired")}
                           </span>
                         </span>
                       </span>
@@ -1052,6 +1057,7 @@ export function ScannerTab() {
                     accept="image/*"
                     className="sr-only"
                     onChange={handleImageUpload}
+                    disabled={!canUseFridgeScan}
                     aria-label={t("uploadFridgePhoto")}
                   />
                   {scanPreviewUrl ? (

@@ -616,7 +616,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
 
   return [
     "You are NutriMoment's recipe generation assistant.",
-    "Gemini role boundary: you are a recipe editor and culinary expert. You must not search the internet. You must not search RecipeNLG_dataset.csv. The backend already selected the recipe references you may use.",
+    "Gemini role boundary: you are a recipe editor and culinary expert. Do not search RecipeNLG_dataset.csv yourself. The backend either provides local recipe references, or enables Google Search grounding when no local reference exists.",
     arabicPromptPriorityBlock,
     // Hard gate near the top so Gemini sees it before all the cuisine / dish-
     // family guidance below.
@@ -628,7 +628,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     `Generate exactly ${recipeCount} practical recipes.`,
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
     `Order the ${recipeCount} recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.`,
-    "General pantry expansion rule: treat scanned or typed ingredients as anchors, not as the full recipe boundary. Users may list only one item or a partial pantry. For every request, research real recipes that naturally center the listed anchor ingredients, then add reasonable support ingredients to missing_ingredients when needed for an authentic dish identity.",
+    "General pantry expansion rule: treat scanned or typed ingredients as anchors, not as the full recipe boundary. Users may list only one item or a partial pantry. For every request, use real recipes that naturally center the listed anchor ingredients, then add reasonable support ingredients to missing_ingredients when needed for an authentic dish identity.",
     realRecipeReferenceGuidance,
     "This expansion applies to all ingredient types: proteins, seafood, eggs, dairy, legumes, grains, vegetables, fruits, bread, sauces, and mixed scans. Do not limit output to recipes possible from the listed ingredients alone unless the user explicitly asks for pantry-only cooking.",
     "Missing support items should make the recipe more authentic and specific, not random. They may complete sauces, starches, fillings, breading, marinades, dairy finishes, aromatics, herbs, or garnishes, but they must not replace the scanned anchor ingredient or create a dish where the anchor becomes incidental.",
@@ -716,8 +716,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Every recipe must also include dish_intent with exactly these keys: dish_name, cuisine, meal_type, diet_type, cooking_method, visual_keywords, exclude_keywords.",
     "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
     "Every recipe MUST also include a photo_identity object in English, even when the recipe name itself is Arabic. Shape: {\"dish_slug\":\"kebab-case-canonical-dish-key\",\"english_name\":\"Canonical English Dish Name\",\"protein\":\"seafood|shrimp|chicken|beef|lamb|fish|liver|tofu|chickpeas|lentils|beans|egg|...\",\"starch\":\"rice|pasta|bread|potato|quinoa|tortilla|...\",\"sauce\":\"tomato|lemon-herb|garlic|cream|curry|bechamel|tahini|salsa|...\",\"method\":\"grilled|fried|roasted|skillet|soup|stew|baked|raw|salad|sandwich|wrap|...\",\"cuisine_key\":\"egyptian|mediterranean|italian|mexican|indian|thai|turkish|american|global|...\"}. dish_slug must be unique, lowercase, hyphen-only, ASCII-only, and different for recipes that should not share a photo.",
-    "Every recipe MUST include recipe_source_type: local_database when based on a backend RecipeNLG/local reference, external_source only when a backend-provided external trusted culinary source URL was used, or generated only when no local or external recipe source exists.",
-    "source_url rule: include source_url only for external_source recipes or when the backend reference explicitly supplies a source URL. Never invent, guess, or hallucinate a source URL.",
+    "Every recipe MUST include recipe_source_type: local_database when based on a backend RecipeNLG/local reference, external_source when Google Search grounding or a backend-provided external trusted culinary source URL was used, or generated only when neither local references nor grounded external search are available.",
+    "source_url rule: include source_url for every external_source recipe using the exact grounded source URL or backend-provided URL. Never invent, guess, or hallucinate a source URL.",
     "Every recipe MUST include plated_visual_description: a professional food-photography description of ONLY the finished plated dish. Do not describe preparation, raw ingredients, loose grocery items, hands, utensils doing prep, pans on a stove, packages, labels, or step-by-step process. Describe what should be visible on the final plate or bowl.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
@@ -831,8 +831,11 @@ function buildRecipeSourcingDecisionGuidance(references: RecipeReferencePromptRe
 
   return [
     "Backend decision tree status: no suitable local NutriMoment recipe reference was provided.",
-    "If the backend has supplied an external trusted culinary source URL in the request context, use that recipe as the base, preserve its dish identity, set recipe_source_type to external_source, and include that exact source_url.",
-    "If no backend external source URL is supplied, create a realistic generated recipe from established culinary knowledge, set recipe_source_type to generated, and omit source_url.",
+    "FORCE GOOGLE SEARCH MODE: use Google Search grounding to find classic, trusted, highly rated culinary recipes that feature the user's primary ingredients and requested cuisine or best-fitting cuisine.",
+    "Do not invent a generic recipe in this mode. Select the strongest authentic source recipe, preserve its dish identity, then adapt it only for allergies, excluded ingredients, medical conditions, calories, macro targets, and cultural preferences.",
+    "Prefer reputable culinary sources with complete ingredient lists, realistic method steps, temperatures, cooking times, and serving structure. Avoid low-detail snippets, spam pages, and generic AI-style recipe pages.",
+    "Set recipe_source_type to external_source for every recipe created from grounded web search and include the exact source_url returned by grounding.",
+    "If Google Search grounding cannot produce a usable source for a card, omit that card and choose another sourced recipe rather than filling the list with an unsourced generic recipe.",
     "Never fabricate a source URL."
   ].join(" ");
 }

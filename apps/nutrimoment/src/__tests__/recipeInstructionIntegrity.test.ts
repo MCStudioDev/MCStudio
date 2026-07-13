@@ -143,6 +143,61 @@ describe("recipe instruction integrity", () => {
 
     expect(recipe.steps.join(" ")).toMatch(/hollow|filling|stuff/i);
   });
+
+  it("replaces generic filler steps with a real shawarma workflow", () => {
+    const recipe = ensureRecipeInstructionIntegrity(recipeFixture({
+      name: "Chicken Shawarma",
+      ingredients: ["chicken"],
+      missing_ingredients: ["cucumber"],
+      steps: [
+        "Prep for Chicken Shawarma: measure 1 serving of chicken and 1 serving of cucumber; keep salt and pepper nearby so each addition is ready before cooking.",
+        "Warm the main pan over medium heat for 2 minutes, then add 1 tsp oil.",
+        "Add chicken first and cook for 4 to 6 minutes.",
+        "Add cucumber with 2 tbsp water, then cook for 3 to 5 minutes."
+      ]
+    }));
+
+    const steps = recipe.steps.join(" ");
+    expect(recipe.missing_ingredients).toEqual(expect.arrayContaining([
+      "yogurt",
+      "vinegar",
+      "lemon",
+      "garlic",
+      "shawarma spices",
+      "flatbread"
+    ]));
+    expect(steps).toMatch(/\bmarinade\b|\bmarinate\b|\byogurt\b/i);
+    expect(steps).toMatch(/\bvery high heat\b/i);
+    expect(steps).toMatch(/\bwrap\b|\bpita\b/i);
+    expect(steps).not.toMatch(/\bmeasure 1 serving\b/i);
+    expect(steps).not.toMatch(/\b2 tbsp water\b/i);
+  });
+
+  it("repairs Arabic shawarma with marinade, hot pan, vegetables, and bread assembly", () => {
+    const recipe = ensureRecipeInstructionIntegrity(recipeFixture({
+      name: "\u062f\u062c\u0627\u062c \u0637\u0628\u0642 \u0634\u0627\u0648\u0631\u0645\u0627",
+      ingredients: ["\u0641\u0631\u0627\u062e"],
+      missing_ingredients: ["\u062e\u064a\u0627\u0631"],
+      steps: [
+        "\u062d\u0636\u0631 \u062f\u062c\u0627\u062c \u0637\u0628\u0642 \u0634\u0627\u0648\u0631\u0645\u0627: \u062c\u0647\u0632 \u0641\u0631\u0627\u062e \u0648\u062e\u064a\u0627\u0631 \u0648\u0636\u0639 \u062e\u064a\u0627\u0631 \u0628\u062c\u0627\u0646\u0628\u0643 \u0642\u0628\u0644 \u0628\u062f\u0621 \u0627\u0644\u0637\u0628\u062e.",
+        "\u0633\u062e\u0646 \u0627\u0644\u0645\u0642\u0644\u0627\u0629 \u0639\u0644\u0649 \u0646\u0627\u0631 \u0645\u062a\u0648\u0633\u0637\u0629.",
+        "\u0623\u0636\u0641 \u0641\u0631\u0627\u062e \u0648\u0627\u0637\u0647\u0647 4 \u0625\u0644\u0649 6 \u062f\u0642\u0627\u0626\u0642.",
+        "\u0623\u0636\u0641 \u062e\u064a\u0627\u0631 \u0645\u0639 \u0645\u0644\u0639\u0642\u062a\u064a\u0646 \u0643\u0628\u064a\u0631\u062a\u064a\u0646 \u0645\u0646 \u0627\u0644\u0645\u0627\u0621."
+      ]
+    }));
+
+    const steps = recipe.steps.join(" ");
+    expect(recipe.missing_ingredients).toEqual(expect.arrayContaining([
+      "\u0632\u0628\u0627\u062f\u064a",
+      "\u062e\u0644",
+      "\u0628\u0647\u0627\u0631\u0627\u062a \u0634\u0627\u0648\u0631\u0645\u0627",
+      "\u062e\u0628\u0632 \u0634\u0627\u0648\u0631\u0645\u0627 \u0623\u0648 \u062e\u0628\u0632 \u0633\u0648\u0631\u064a"
+    ]));
+    expect(steps).toMatch(/\u0627\u0644\u062a\u062a\u0628\u064a\u0644\u0629|\u062a\u062a\u0628\u064a\u0644/u);
+    expect(steps).toMatch(/\u0646\u0627\u0631 \u0639\u0627\u0644\u064a\u0629/u);
+    expect(steps).toMatch(/\u062e\u0628\u0632|\u062b\u0648\u0645\u064a\u0629|\u0637\u062d\u064a\u0646\u0629/u);
+    expect(steps).not.toMatch(/\u0645\u0644\u0639\u0642\u062a\u064a\u0646 \u0643\u0628\u064a\u0631\u062a\u064a\u0646 \u0645\u0646 \u0627\u0644\u0645\u0627\u0621/u);
+  });
 });
 
 function recipeFixture(overrides: Partial<Recipe>): Recipe {

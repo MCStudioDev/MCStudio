@@ -28,6 +28,21 @@ describe("recipe step details", () => {
     expect(steps).toMatch(/final 4 to 7 minutes/i);
     expect(steps).toMatch(/seafood should go in near the end/i);
   });
+
+  it("does not pad sparse recipes with generic serving measures or cucumber-water steps", () => {
+    const recipe = ensureDetailedRecipeSteps(recipeFixture({
+      name: "Chicken Shawarma",
+      ingredients: ["chicken", "cucumber"],
+      missing_ingredients: ["pita", "garlic"],
+      steps: []
+    }));
+
+    const steps = recipe.steps.join(" ");
+    expect(steps).not.toMatch(/measure 1 serving/i);
+    expect(steps).not.toMatch(/2 tbsp water/i);
+    expect(steps).toMatch(/Keep cucumber fresh/i);
+    expect(steps).toMatch(/do not simmer it with water/i);
+  });
 });
 
 function recipeFixture(overrides: Partial<Recipe>): Recipe {

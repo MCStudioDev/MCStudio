@@ -245,7 +245,7 @@ export const translations = {
     scannerAside: "Capture what you have, refine the list, then reveal recipe directions with richer image matching.",
     scannerCompactLead: "Scan, add, and review ingredients in one tighter control lane before generating recipes.",
     scannerCompactActions: "Upload, take a photo, or type ingredients",
-    freePlanScanner: "Scan fridge is a premium feature. Upgrade to premium to scan ingredients, generate recipe cards, and create matched recipe images.",
+    freePlanScanner: "Free plan: type ingredients manually to generate recipe cards with cached photos. Fridge photo scanning and generated premium images require premium.",
     premiumPlanScanner: "Premium plan: smarter scans, recipe generation, and automatic food photos are ready.",
     uploadFridgePhoto: "Upload a fridge or ingredient photo",
     ingredientQuantity: "Ingredient quantity",

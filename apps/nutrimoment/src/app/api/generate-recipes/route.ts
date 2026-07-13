@@ -76,7 +76,7 @@ import {
   filterRecipesByDiet,
   type DietEnforcementContext
 } from "@/lib/dietEnforcement";
-import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
+import { adaptRecipeForHealthConditions, findRecipeHealthViolation } from "@/lib/healthEnforcement";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
 const MIN_RECIPE_RESULT_COUNT = 1;
@@ -288,7 +288,9 @@ export async function POST(request: Request) {
       const result = filterRecipesByDiet(recipes, dietContext);
       const excludedFiltered = filterRecipesByExcludedIngredients(result.allowed, parsed.data.excludedIngredients ?? []);
       const healthRejected: Array<{ recipe: Recipe; reason: ReturnType<typeof findRecipeHealthViolation> }> = [];
-      const healthAllowed = excludedFiltered.allowed.filter((recipe) => {
+      const healthAllowed = excludedFiltered.allowed
+        .map((recipe) => adaptRecipeForHealthConditions(recipe, parsed.data.conditions ?? []))
+        .filter((recipe) => {
         const reason = findRecipeHealthViolation(recipe, parsed.data.conditions ?? []);
         if (reason) healthRejected.push({ recipe, reason });
         return !reason;

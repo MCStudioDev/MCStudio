@@ -1,7 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { findRecipeHealthViolation } from "../lib/healthEnforcement";
+import { adaptRecipeForHealthConditions, findRecipeHealthViolation } from "../lib/healthEnforcement";
 
 describe("health enforcement", () => {
+  it("adapts a real recipe for health conditions without changing dish identity", () => {
+    const recipe = adaptRecipeForHealthConditions(
+      {
+        name: "Chicken Parmesan",
+        cuisine: "Italian",
+        ingredients: ["chicken", "butter", "mozzarella", "parmesan", "salt"],
+        missing_ingredients: [],
+        steps: ["Breaded chicken is fried in butter, topped with mozzarella and parmesan, and seasoned with salt."],
+        calories: 760,
+        protein: "42g",
+        carbs: "44g",
+        fat: "36g",
+        fiber: "3g",
+        sugar: "8g",
+        sodium: "980mg",
+        cook_time: "35 mins",
+        difficulty: "Medium"
+      },
+      ["cholesterol", "highBloodPressure", "weightLoss"]
+    );
+
+    expect(recipe.name).toBe("Chicken Parmesan");
+    expect(recipe.ingredients.join(" ")).toMatch(/part-skim mozzarella/i);
+    expect(recipe.ingredients.join(" ")).toMatch(/small amount of parmesan/i);
+    expect(recipe.ingredients.join(" ")).toMatch(/salt-free seasoning/i);
+    expect(recipe.steps.join(" ")).toMatch(/oven-crusted|lightly pan-seared/i);
+    expect(recipe.steps.join(" ")).toMatch(/Health adaptation/i);
+    expect(recipe.fat).toBe("24g");
+    expect(recipe.sodium).toBe("620mg");
+    expect(recipe.calories).toBe(620);
+    expect(findRecipeHealthViolation(recipe, ["cholesterol", "highBloodPressure", "weightLoss"])).toBeNull();
+  });
+
   it("blocks rich saturated-fat meals for cholesterol profiles", () => {
     expect(
       findRecipeHealthViolation(

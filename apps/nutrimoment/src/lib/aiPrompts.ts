@@ -7,6 +7,7 @@ import {
   buildPromptForbiddenMealPlanLine,
   findIngredientDietViolation
 } from "@/lib/dietEnforcement";
+import type { RecipeReferencePromptRecipe } from "@/lib/recipeReferenceTypes";
 import type { MealPlanData } from "@/lib/types";
 
 export interface RecipePromptIngredient {
@@ -23,9 +24,12 @@ export interface RecipePromptOptions {
   diets: string[];
   conditions: string[];
   allergens?: string[];
+  excludedIngredients?: string[];
   candidateDishHints?: string;
   canonicalDishHint?: string;
+  recentRecipeAvoidance?: string;
   variationSeed?: string;
+  recipeReferences?: RecipeReferencePromptRecipe[];
 }
 
 export interface MealPlanPromptOptions {
@@ -605,22 +609,31 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     allergens: options.allergens ?? []
   });
   const variationGuidance = buildRecipeRunVariationGuidance(options.variationSeed);
+  const recentRecipeAvoidanceGuidance = buildRecentRecipeAvoidanceGuidance(options.recentRecipeAvoidance);
+  const sourcingDecisionGuidance = buildRecipeSourcingDecisionGuidance(options.recipeReferences);
+  const realRecipeReferenceGuidance = buildRealRecipeReferenceGuidance(options.recipeReferences, recipeCount);
+  const excludedIngredientsGuidance = buildExcludedIngredientsGuidance(options.excludedIngredients);
 
   return [
     "You are NutriMoment's recipe generation assistant.",
+    "Gemini role boundary: you are a recipe editor and culinary expert. You must not search the internet. You must not search RecipeNLG_dataset.csv. The backend already selected the recipe references you may use.",
     arabicPromptPriorityBlock,
     // Hard gate near the top so Gemini sees it before all the cuisine / dish-
     // family guidance below.
     forbiddenIngredientsLine,
+    excludedIngredientsGuidance,
     pescatarianFishGate,
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
+    sourcingDecisionGuidance,
     `Generate exactly ${recipeCount} practical recipes.`,
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
     `Order the ${recipeCount} recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.`,
     "General pantry expansion rule: treat scanned or typed ingredients as anchors, not as the full recipe boundary. Users may list only one item or a partial pantry. For every request, research real recipes that naturally center the listed anchor ingredients, then add reasonable support ingredients to missing_ingredients when needed for an authentic dish identity.",
+    realRecipeReferenceGuidance,
     "This expansion applies to all ingredient types: proteins, seafood, eggs, dairy, legumes, grains, vegetables, fruits, bread, sauces, and mixed scans. Do not limit output to recipes possible from the listed ingredients alone unless the user explicitly asks for pantry-only cooking.",
     "Missing support items should make the recipe more authentic and specific, not random. They may complete sauces, starches, fillings, breading, marinades, dairy finishes, aromatics, herbs, or garnishes, but they must not replace the scanned anchor ingredient or create a dish where the anchor becomes incidental.",
     variationGuidance,
+    recentRecipeAvoidanceGuidance,
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative marketing titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the recipe's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
     realRecipeGuardrails,
@@ -703,6 +716,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Every recipe must also include dish_intent with exactly these keys: dish_name, cuisine, meal_type, diet_type, cooking_method, visual_keywords, exclude_keywords.",
     "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
     "Every recipe MUST also include a photo_identity object in English, even when the recipe name itself is Arabic. Shape: {\"dish_slug\":\"kebab-case-canonical-dish-key\",\"english_name\":\"Canonical English Dish Name\",\"protein\":\"seafood|shrimp|chicken|beef|lamb|fish|liver|tofu|chickpeas|lentils|beans|egg|...\",\"starch\":\"rice|pasta|bread|potato|quinoa|tortilla|...\",\"sauce\":\"tomato|lemon-herb|garlic|cream|curry|bechamel|tahini|salsa|...\",\"method\":\"grilled|fried|roasted|skillet|soup|stew|baked|raw|salad|sandwich|wrap|...\",\"cuisine_key\":\"egyptian|mediterranean|italian|mexican|indian|thai|turkish|american|global|...\"}. dish_slug must be unique, lowercase, hyphen-only, ASCII-only, and different for recipes that should not share a photo.",
+    "Every recipe MUST include recipe_source_type: local_database when based on a backend RecipeNLG/local reference, external_source only when a backend-provided external trusted culinary source URL was used, or generated only when no local or external recipe source exists.",
+    "source_url rule: include source_url only for external_source recipes or when the backend reference explicitly supplies a source URL. Never invent, guess, or hallucinate a source URL.",
+    "Every recipe MUST include plated_visual_description: a professional food-photography description of ONLY the finished plated dish. Do not describe preparation, raw ingredients, loose grocery items, hands, utensils doing prep, pans on a stove, packages, labels, or step-by-step process. Describe what should be visible on the final plate or bowl.",
     "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
     "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
     "Ownership guardrail: for each recipe, the count of ingredients must be greater than or equal to the count of missing_ingredients whenever possible.",
@@ -723,6 +739,10 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
     "Step detail requirement: every recipe steps array must contain 7 to 10 detailed home-cooking steps.",
     "Every step string must include: the action, exact ingredient quantities used in that step, pan/oven/heat level when relevant, timing in minutes, and the target visual or texture cue.",
+    "Verification rule before returning JSON: check cooking temperatures, cooking times, ingredient quantities, food safety, realistic workflow order, allergen removal, excluded ingredient removal, health-condition adaptations, calorie target, macro plausibility, cultural preference fit, and that every ingredient is used in the steps.",
+    "Cooking-time logic rule: times must match the ingredient and method. Shrimp may cook in 2 to 4 minutes, fish fillets in 3 to 6 minutes per side, chicken pieces usually need 8 to 12 minutes, whole chicken pieces need longer, steak slices/cubes need 6 to 10 minutes, and beef/lamb stews or braises need searing plus a long covered simmer such as 45 to 120 minutes until tender. Never reuse a generic 4 to 6 minute step for every protein.",
+    "Prep-form logic rule: if a dish family requires a transformed ingredient form, explain the transformation. For kofta/kafta/kofte/kebab made from steak or intact meat, include a clear step to finely chop, mince, or grind the meat, mix it with aromatics/spices, shape it, and then cook it. If you do not want to explain that transformation, choose an intact-meat dish instead of kofta.",
+    "Method-name consistency rule: if the name says grilled, BBQ, smoked, fried, baked, stew, curry, or soup, the steps must use that same primary method. Do not title a dish grilled and then bake it in a pan as the main method; use a grill, grill pan, broiler, or clearly rename the dish.",
     "Use the available ingredient quantities when provided. If quantity is not provided, choose realistic single-meal quantities and make them explicit inside the step text.",
     "Do not write vague steps like 'cook until done', 'season to taste', or 'serve'. Replace them with specific timing, doneness cues, and quantities.",
     "Include prep, cooking, finishing, and plating steps; if a sauce, dressing, spice mix, or garnish is needed, tell the user exactly when and how much to add.",
@@ -744,8 +764,87 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     "Fish visual reference set: for fish choose named families such as fish Florentine, baked fish with lemon cream sauce, emergency easy baked fish, spicy fish fry, skillet garlic butter white fish, baked fish with slow-cooked peppers, creamy fish fillet, baked fish with asparagus, salt-grilled fish, quick baked fish fillets, salt and pepper fish, herb roasted fish, baked fish masala, white fish with brown butter, steamed fish with ginger, baked basa fish, grilled Indian fish, crispy oven-baked fish, honey garlic pan-seared fish, crispy panko crusted fish, fish nuggets, fish curry, oily fish grill, Egyptian sayadeya, samak singari, grilled Egyptian fish, samak bel radah, smoked fish, fried tilapia, Egyptian fish tagine, Egyptian baked fish tray, Mediterranean fish soup, Thai Pla Pad Cha fried fish, Thai chilli lime fish, Mediterranean baked fish with olives and capers, Barboon Maklee fried red mullet, Egyptian fried fish sandwich, lemon herb Parmesan crusted fish, or garlic butter cod when pantry and cuisine fit.",
     "For all seafood/fish cards, image_search_index must name the same exact family chosen in the recipe name; do not use generic phrases like shrimp recipe, fish plate, seafood dinner, baked fish, or grilled seafood unless no named family fits.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, dish_intent, photo_identity, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent and photo_identity must be English-only internal image metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
+    "Each recipe object must include: name, cuisine, recipe_source_type, source_url when applicable, dish_intent, photo_identity, plated_visual_description, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
+    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent and photo_identity must be English-only internal image metadata. plated_visual_description must be English-only finished-dish visual metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
+  ].join(" ");
+}
+
+function buildRealRecipeReferenceGuidance(
+  references: RecipeReferencePromptRecipe[] | undefined,
+  recipeCount: number
+) {
+  const usableReferences = (references ?? [])
+    .filter((reference) => reference.title && reference.ingredients.length && reference.steps.length)
+    .slice(0, Math.max(8, Math.min(20, recipeCount * 2)));
+
+  if (!usableReferences.length) return "";
+
+  const referenceText = usableReferences
+    .map((reference, index) => {
+      const ingredients = reference.ingredients
+        .map((ingredient) => ingredient.replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 16)
+        .join("; ");
+      const steps = reference.steps
+        .map((step, stepIndex) => `${stepIndex + 1}. ${step.replace(/\s+/g, " ").trim()}`)
+        .filter(Boolean)
+        .slice(0, 8)
+        .join(" ");
+      const matched = reference.matchedIngredients.length
+        ? `Matched pantry anchors: ${reference.matchedIngredients.join(", ")}.`
+        : "";
+      const sourceUrl = reference.sourceUrl ? ` Source URL metadata: ${reference.sourceUrl}.` : "";
+
+      return `[R${index + 1}] ${reference.title} | cuisine: ${reference.cuisine}.${sourceUrl} ${matched} Ingredients: ${ingredients}. Directions: ${steps}`;
+    })
+    .join(" || ");
+
+  return [
+    "REAL RECIPE REFERENCE MODE: a Firestore RecipeNLG reference library returned the recipes below as the best matches for this pantry.",
+    "Do not claim that you searched RecipeNLG or the internet; these references were provided by the backend.",
+    "Use these references as source-of-truth examples for dish identity, ingredient structure, prep form, method, cooking time, and step sequence.",
+    "For each generated card, choose one provided real recipe reference as the base unless the backend request explicitly requires creating a new recipe because no suitable reference exists.",
+    "The generated ingredients and steps must preserve the chosen reference's real cooking logic. Do not output a dish name unless the ingredients and steps actually make that dish.",
+    "Only edit a reference recipe when the user's diet, allergen, health condition, calorie target, cuisine choice, available quantity, or missing-ingredient limit requires it.",
+    "When you adapt for health or diet, keep the plate recognizable: adjust fat, sodium, sugar, dairy, gluten, cooking method, or portion size without deleting the core sauce, marinade, breading, simmer, stuffing, or garnish that makes the dish what it is.",
+    "If a reference uses a longer method such as marinating, baking, roasting, stewing, braising, frying, breading, or grilling, keep that method and realistic timing unless a health rule requires a lighter method.",
+    "Ingredient integrity check: every ingredient in ingredients or missing_ingredients must appear in at least one step, and every named sauce, breading, stuffing, marinade, garnish, vegetable, protein, or starch promised in the title must appear in ingredients and steps.",
+    "Nutrition integrity check: calories, protein, carbs, fat, fiber, sugar, and sodium must be internally plausible for the listed ingredients, serving size, and cooking method.",
+    `Return exactly ${recipeCount} recipes; prefer different references or visibly different dish families across the cards.`,
+    `Reference recipes: ${referenceText}`
+  ].join(" ");
+}
+
+function buildRecipeSourcingDecisionGuidance(references: RecipeReferencePromptRecipe[] | undefined) {
+  const hasLocalReferences = Boolean(references?.some((reference) => reference.title && reference.ingredients.length));
+
+  if (hasLocalReferences) {
+    return [
+      "Backend decision tree status: local NutriMoment recipe database matches were found.",
+      "Stop at the local database. Do not search externally. Do not invent external sources.",
+      "Your job is to act as a recipe editor and culinary expert over the provided local recipes only.",
+      "Keep the same dish identity for every local_database recipe. Adapt only for allergies, excluded ingredients, medical conditions, calories, macro targets, cultural preferences, and realistic cooking safety.",
+      "Set recipe_source_type to local_database unless the backend explicitly marks a recipe as external_source."
+    ].join(" ");
+  }
+
+  return [
+    "Backend decision tree status: no suitable local NutriMoment recipe reference was provided.",
+    "If the backend has supplied an external trusted culinary source URL in the request context, use that recipe as the base, preserve its dish identity, set recipe_source_type to external_source, and include that exact source_url.",
+    "If no backend external source URL is supplied, create a realistic generated recipe from established culinary knowledge, set recipe_source_type to generated, and omit source_url.",
+    "Never fabricate a source URL."
+  ].join(" ");
+}
+
+function buildExcludedIngredientsGuidance(excludedIngredients: string[] | undefined) {
+  const cleaned = (excludedIngredients ?? []).map((ingredient) => ingredient.trim()).filter(Boolean);
+  if (!cleaned.length) return "";
+
+  return [
+    `Excluded ingredients: ${cleaned.join(", ")}.`,
+    "Do not include excluded ingredients in ingredients, missing_ingredients, steps, titles, sauces, garnishes, nutrition assumptions, or localized variants.",
+    "If a selected reference uses an excluded ingredient, replace it with a compatible substitute only when the dish remains realistic; otherwise choose a different provided reference."
   ].join(" ");
 }
 
@@ -1487,7 +1586,8 @@ function buildIngredientCombinationGuidance(
       "Research the ingredient-specific recipe universe before writing JSON. Internally rank real dish families by how naturally the anchor ingredient fits, likely missing support items, diet/health compatibility, and visual distinctness.",
       "For any anchor ingredient, generate a broad candidate set from that ingredient's real recipe universe first, then choose the best dish families for the user's cuisine, diet, health profile, and requested card count. The same expansion logic must work for proteins, seafood, eggs, dairy, legumes, grains, vegetables, fruit, bread, sauces, and mixed scans.",
       "Do not make the whole set one family with different adjectives. Each card needs a different dish identity, cooking method or texture, sauce/starch/base, and plating format whenever possible.",
-      "If the title promises a technique or added flavor such as breaded, BBQ, ginger, spinach, creamy, cheesy, fried, crispy, stew, smoked, or shawarma, include that support ingredient or technique in missing_ingredients and write the actual step.",
+      "If the title promises a technique, sauce, marinade, or established dish identity such as breaded, BBQ, ginger, spinach, creamy, cheesy, fried, crispy, stew, smoked, shawarma, tandoori, curry, fajita, parmesan, teriyaki, or sweet and sour, include the required support ingredients or technique in missing_ingredients and write the actual prep/cooking step.",
+      "Dish-promise integrity applies to every anchor ingredient type, not only chicken or meat: seafood, fish, shrimp, eggs, dairy/paneer, legumes, grains, vegetables, fruit, bread, and mixed scans must all get the real marinade, sauce, coating, filling, spice base, or cooking method their title promises.",
       "Support ingredients should be listed in missing_ingredients when they are needed for a real dish identity, but missing_ingredients must not replace the scanned anchor protein or hero ingredient."
     ].join(" ");
   }
@@ -1524,6 +1624,17 @@ function buildRecipeRunVariationGuidance(variationSeed?: string) {
     "Stay anchored to the same pantry, diet, health, calorie, allergy, cuisine, and authenticity rules, but select a different high-quality slice of the researched recipe universe for this run.",
     "Use the variation seed to rotate cuisine families, dish families, methods, starch/sauce structures, missing support ingredients, and serving formats. Do not merely reorder the same recipes or rename the same dish.",
     "Keep every card truthful and searchable; variation must come from valid alternate recipes, not random or weaker matches."
+  ].join(" ");
+}
+
+function buildRecentRecipeAvoidanceGuidance(recentRecipeAvoidance?: string) {
+  if (!recentRecipeAvoidance) return "";
+
+  return [
+    "Recent-history rotation rule: the user recently received these related recipe families/cards.",
+    recentRecipeAvoidance,
+    "Do not repeat those same named plates, dish_intent.dish_name values, family structures, or image_search_index identities unless diet, allergy, cuisine, or pantry constraints leave no good alternative.",
+    "Choose a different high-quality slice of the ingredient's real recipe universe for this run, while keeping all health adaptations truthful."
   ].join(" ");
 }
 
@@ -1878,6 +1989,7 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
     "You are NutriMoment's recipe generation assistant.",
     "Follow the user's recipe request, but always obey the output language and JSON rules below even if the request itself is written in another language.",
     "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
+    "Prompt-only sourcing rule: because no backend local recipe reference was provided in this path, set recipe_source_type to generated unless the backend request explicitly supplies an external trusted culinary source URL. Never invent a source_url.",
     `Generate exactly ${recipeCount} practical recipes.`,
     realRecipeGuardrails,
     namedPlatePolicy,
@@ -1887,9 +1999,11 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
     languageOutputGuidance,
     "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants with those exact capitalized keys. The helper translator should only be used as a fallback when one localized side is incomplete.",
     "Keep image_search_index and image_search_indices in English only.",
+    "Every recipe MUST include plated_visual_description: a professional food-photography description of ONLY the finished plated dish. Do not describe preparation, raw ingredients, loose grocery items, hands, packages, labels, or cooking process.",
+    "Before returning JSON, verify cooking temperatures, cooking times, ingredient quantities, food safety, realistic workflow order, allergen/exclusion safety, calories, macro plausibility, and that every ingredient is used in the steps.",
     "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings in the requested recipe language. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings in the requested recipe language. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields.",
+    "Each recipe object must include: name, cuisine, recipe_source_type, source_url when applicable, plated_visual_description, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
+    "ingredients and missing_ingredients must be arrays of strings in the requested recipe language. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings in the requested recipe language. plated_visual_description must be English-only finished-dish visual metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields.",
     `User request: ${prompt}`
   ].join(" ");
 }
@@ -2090,7 +2204,12 @@ function buildLanguageOutputGuidance(recipeLanguage: string) {
   return [
     "Exact language contract for Arabic mode: write every top-level user-facing recipe field in Arabic only.",
     "Arabic-only user-facing fields are name, cuisine, ingredients, missing_ingredients, steps, cook_time, difficulty, preference_hits, shoppingList, day_labels, and scan_match_explanation.",
-    "Do not put English words in those Arabic user-facing fields unless the word is a common Arabic transliteration.",
+    "Translate and localize for Egyptian Arabic culinary usage, not literal word-by-word translation.",
+    "Use natural Egyptian household cooking terms. Prefer Egyptian cooking vocabulary over Modern Standard Arabic, Gulf Arabic, or transliterated English.",
+    "Never transliterate English food names unless there is no common Arabic culinary equivalent.",
+    "Localize dish titles by meaning and cooking form. Example: Creamy Tuscan Chicken must become دجاج توسكاني بصوص كريمي or دجاج بالصوص الكريمي على الطريقة التوسكانية, never تشيكن توسكان كريمي.",
+    "Localize ingredients by common kitchen name. Example: Heavy Cream or cooking cream must become كريمة طبخ, never هيفي كريم.",
+    "Do not put English words in those Arabic user-facing fields unless the word is a common Arabic culinary term already used in Egyptian households.",
     "Internal image fields must stay in English only because they feed photo search and image generation: image_search_index, image_search_indices, dish_intent.dish_name, dish_intent.cuisine, dish_intent.meal_type, dish_intent.diet_type, dish_intent.cooking_method, dish_intent.visual_keywords, and dish_intent.exclude_keywords.",
     "localized must contain exactly two case-sensitive keys: English and Arabic. Do not output localized.english or localized.arabic.",
     "localized.Arabic must mirror the top-level Arabic user-facing fields. localized.English must contain the same user-facing fields translated into English.",
@@ -2460,7 +2579,9 @@ function buildSparseIngredientGuidance(
       ? "For Any cuisine in sparse mode, actively rotate real cuisines and dish families. Do not let one cuisine, one method, or one base such as rice/pasta/grilled protein dominate the whole set."
       : `For ${preferredCuisine} in sparse mode, first exhaust real ${preferredCuisine} dish families and regional forms before using adjacent cuisines. The cards should feel like a varied ${preferredCuisine} menu, not generic recipes wearing a cuisine label.`,
     "Health adaptation rule: cholesterol, diabetes, hypertension, weight, kidney, heart, and similar conditions should reshape preparation, fat, sodium, carb load, portion, and cooking method; they should not erase normal food variety. Use baked-crisp instead of deep-fried, low-sodium sauces, leaner cuts, measured oil, lower-fat or dairy-free creamy elements, whole-grain or portion-controlled starches, and extra vegetables when appropriate.",
-    "Dish-promise integrity rule: if the name says breaded, BBQ, grilled, smoked, stew, creamy, cheesy, ginger, spinach, lemon, tahini, shawarma, stuffed, crispy, or fried, that exact element must appear in ingredients or missing_ingredients and must have a clear step explaining how it is made.",
+    "Dish-promise integrity rule: if the name says breaded, BBQ, grilled, smoked, stew, curry, tandoori, fajita, parmesan, teriyaki, sweet and sour, creamy, cheesy, ginger, spinach, lemon, tahini, shawarma, stuffed, crispy, or fried, that exact element must appear in ingredients or missing_ingredients and must have a clear step explaining how it is made.",
+    "Apply dish-promise integrity across all ingredient categories, not only chicken or meat: seafood, fish, shrimp, eggs, dairy/paneer, legumes, grains, vegetables, fruit, bread, and mixed scans need the marinade, sauce, spice base, coating, filling, or cooking form promised by the dish name.",
+    "Sparse cooking logic rule: never use one generic script for every ingredient. Match timing and technique to the ingredient form: shrimp is quick, intact beef/steak needs longer than shrimp, and beef/lamb stew needs searing plus a long simmer. If a sparse pantry produces kofta/kafta/kofte from steak or intact meat, steps must explain mincing/grinding, seasoning, shaping, and grilling or pan-grilling.",
     "Do not pretend the user already owns support ingredients. Keep ingredients strictly limited to the provided pantry items, but still choose the most recognizable real dish family those items suggest.",
     buildIngredientPrepFormGuidance(ingredients, 10, preferredCuisine),
     "For image_search_indices in sparse-pantries, keep the first phrase exact if a real iconic dish family fits, then add one or two broader ingredient-led food-photo phrases so image lookup can still succeed."

@@ -1,11 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
+  localizeRecipeForArabic,
   localizeMealForArabic,
-  localizeMealPlanForArabic
+  localizeMealPlanForArabic,
+  translateIngredientToArabic
 } from "../lib/arabicRecipeLocalization";
 import type { MealPlanData } from "../lib/types";
 
 describe("Arabic meal localization", () => {
+  it("localizes English culinary titles by meaning instead of transliteration", () => {
+    const localized = localizeRecipeForArabic({
+      name: "Creamy Tuscan Chicken",
+      cuisine: "Italian",
+      ingredients: ["chicken", "heavy cream"],
+      missing_ingredients: ["parmesan"],
+      steps: ["Simmer chicken with heavy cream."],
+      calories: 520,
+      protein: "42g",
+      carbs: "12g",
+      fat: "28g",
+      cook_time: "30 mins",
+      difficulty: "Medium"
+    });
+
+    expect(localized.name).toBe("\u062f\u062c\u0627\u062c \u062a\u0648\u0633\u0643\u0627\u0646\u064a \u0628\u0635\u0648\u0635 \u0643\u0631\u064a\u0645\u064a");
+    expect(localized.name).not.toMatch(/[A-Za-z]/);
+    expect(translateIngredientToArabic("heavy cream")).toBe("\u0643\u0631\u064a\u0645\u0629 \u0637\u0628\u062e");
+    expect(translateIngredientToArabic("cooking cream")).toBe("\u0643\u0631\u064a\u0645\u0629 \u0637\u0628\u062e");
+  });
+
   it("carries photo_identity through Arabic localization without mutation", () => {
     const identity = {
       dish_slug: "lemon-herb-seafood-soup",

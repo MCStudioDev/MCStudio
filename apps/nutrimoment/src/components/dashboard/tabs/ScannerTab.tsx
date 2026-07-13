@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, ChefHat, Plus, Sparkles, Upload, Utensils, X } from "lucide-react";
+import { Camera, ChefHat, Lock, Plus, Sparkles, Upload, Utensils, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -170,6 +170,7 @@ export function ScannerTab() {
   const { t, settings, health, setError, addNotification, rtl } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
+  const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
   const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
   const { addItems: addPantryItems, items: pantryItems } = usePantry();
   const scannerInputRef = useRef<HTMLInputElement | null>(null);
@@ -859,6 +860,27 @@ export function ScannerTab() {
     scanLoading,
     t
   });
+
+  if (!isPremiumFeatureUnlocked) {
+    return (
+      <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">
+        <motion.div variants={itemVariants}>
+          <Card className="rounded-[1.6rem] border-amber-200/18 bg-amber-400/10 p-5 sm:rounded-[2rem] sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="max-w-2xl space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">{t("premiumRequired")}</p>
+                <h2 className="font-display text-2xl font-bold text-white">{t("scanner")}</h2>
+                <p className="text-sm leading-relaxed text-amber-50/86">{t("freePlanScanner")}</p>
+              </div>
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-amber-100/20 bg-amber-200/12 text-amber-100">
+                <Lock className="h-5 w-5" aria-hidden="true" />
+              </div>
+            </div>
+          </Card>
+        </motion.div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4 sm:space-y-5">

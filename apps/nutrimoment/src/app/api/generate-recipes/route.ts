@@ -28,6 +28,10 @@ import { repairScanRecipesWithGuard } from "@/services/scanRecipeGuardService";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import {
+  findRecipeReferencesForGeneration,
+  mapRecipeReferencesToRecipes
+} from "@/services/recipeReferenceService";
+import {
   buildRecipeDishFamilyKey,
   buildRecipeStructureSignature,
   expandIngredientFamilies,
@@ -59,7 +63,7 @@ import { ensureDetailedRecipeSteps } from "@/lib/recipeStepDetails";
 import { ensureRecipeInstructionIntegrity } from "@/lib/recipeInstructionIntegrity";
 import type { Recipe } from "@/lib/types";
 import { logger } from "@/lib/logger";
-import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import {
   getSharedGeneratedRecipePhotoByCategory,
   getSharedRecipePhotoByApproximateCategory,
@@ -102,6 +106,24 @@ const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
   "loubia-bzeit",
   "kafta"
 ]);
+
+type RecentRecipeMemory = {
+  familyKeys: Set<string>;
+  imageIdentityKeys: Set<string>;
+  names: Set<string>;
+  recipes: Recipe[];
+  selectionKeys: Set<string>;
+  structureKeys: Set<string>;
+};
+
+const EMPTY_RECENT_RECIPE_MEMORY: RecentRecipeMemory = {
+  familyKeys: new Set(),
+  imageIdentityKeys: new Set(),
+  names: new Set(),
+  recipes: [],
+  selectionKeys: new Set(),
+  structureKeys: new Set()
+};
 
 const MOCK_RECIPES = {
   recipes: [
@@ -181,6 +203,7 @@ const requestSchema = z.object({
   diets: z.array(z.string()).optional(),
   conditions: z.array(z.string()).optional(),
   allergens: z.array(z.string()).optional(),
+  excludedIngredients: z.array(z.string()).optional(),
   historyEntryId: z.string().min(1).max(160).optional()
 }).refine((value) => Boolean(value.ingredients?.length || value.prompt || value.referenceImage), {
   message: "Provide ingredients or a prompt."
@@ -196,6 +219,15 @@ export async function POST(request: Request) {
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
+    if (!requestAccess.isPremium && !requestAccess.isAdmin) {
+      return Response.json(
+        {
+          error: "Scan fridge recipe generation is a premium feature.",
+          access: accessPayload(requestAccess)
+        },
+        { status: 403 }
+      );
+    }
     const hasGeneratedImageAccess = hasGeneratedRecipeImageAccess(requestAccess);
     // Free users with remaining trial credits should still receive fresh
     // Gemini recipes. The shared pool is the fallback for exhausted credits
@@ -253,23 +285,30 @@ export async function POST(request: Request) {
     };
     const enforceDietOnRecipes = (recipes: Recipe[], stage: string): Recipe[] => {
       const result = filterRecipesByDiet(recipes, dietContext);
+      const excludedFiltered = filterRecipesByExcludedIngredients(result.allowed, parsed.data.excludedIngredients ?? []);
       const healthRejected: Array<{ recipe: Recipe; reason: ReturnType<typeof findRecipeHealthViolation> }> = [];
-      const healthAllowed = result.allowed.filter((recipe) => {
+      const healthAllowed = excludedFiltered.allowed.filter((recipe) => {
         const reason = findRecipeHealthViolation(recipe, parsed.data.conditions ?? []);
         if (reason) healthRejected.push({ recipe, reason });
         return !reason;
       });
-      if (result.rejected.length || healthRejected.length) {
+      if (result.rejected.length || excludedFiltered.rejected.length || healthRejected.length) {
         logger.warn("Diet/allergen filter dropped recipes", {
           requestId,
           stage,
-          droppedCount: result.rejected.length + healthRejected.length,
-          firstReason: result.rejected[0]?.reason ?? healthRejected[0]?.reason
+          droppedCount: result.rejected.length + excludedFiltered.rejected.length + healthRejected.length,
+          firstReason: result.rejected[0]?.reason ?? excludedFiltered.rejected[0]?.reason ?? healthRejected[0]?.reason
         });
       }
       return healthAllowed;
     };
     const availableIngredients = buildAvailableIngredientSet(ingredients, expandedNormalizedIngredientNames);
+    const recentRecipeMemory = await loadRecentRecipeMemory({
+      availableIngredients,
+      inputIngredients: ingredients,
+      requestId,
+      uid: requestAccess.uid
+    });
     const aiTraceSummary = {
       requestId,
       hadReferenceImage: Boolean(parsed.data.referenceImage),
@@ -314,6 +353,15 @@ export async function POST(request: Request) {
     });
     const candidateDishHints = buildDishCandidatePromptSummary(candidateDishes);
     const canonicalDishHint = buildCanonicalDishPromptHint(authenticDishCandidates);
+    const recipeReferencesPromise = ingredients.length
+      ? findRecipeReferencesForGeneration({
+          avoidRecipeNames: Array.from(recentRecipeMemory.names),
+          ingredients: scoringIngredients,
+          preferredCuisine: parsed.data.preferredCuisine ?? "Any",
+          maxReferences: Math.max(60, recipeCount * 10),
+          variationSeed
+        })
+      : Promise.resolve([]);
     const requestRestriction = buildHardRequestRestrictionContext(candidateDishes, parsed.data.preferredCuisine, ingredients.length);
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
@@ -424,7 +472,7 @@ export async function POST(request: Request) {
         }
       ), recipeCount), recipeCount, parsed.data.preferredCuisine ?? "Any");
       if (prepared.length >= recipeCount) {
-        return prepared.slice(0, recipeCount);
+        return applyRecentRecipeMemoryRotation(prepared, recentRecipeMemory, recipeCount);
       }
 
       const preparedFillers = filterRecipesByInputMainProtein(
@@ -453,19 +501,21 @@ export async function POST(request: Request) {
         }
       );
 
-      return enforceAnyCuisinePlateVariety(
-        enforceDistinctPreparedRecipeDisplay([...prepared, ...preparedFillers], recipeCount),
-        recipeCount,
-        parsed.data.preferredCuisine ?? "Any"
-      ).slice(0, recipeCount);
+      return applyRecentRecipeMemoryRotation(
+        enforceAnyCuisinePlateVariety(
+          enforceDistinctPreparedRecipeDisplay([...prepared, ...preparedFillers], recipeCount),
+          recipeCount,
+          parsed.data.preferredCuisine ?? "Any"
+        ),
+        recentRecipeMemory,
+        recipeCount
+      );
     };
-    const deliverRecipes = (recipes: Recipe[]) =>
-      hasGeneratedImageAccess ? stripPremiumDeliveredImages(recipes) : recipes;
     const finalizeRecipeResponse = async (recipes: Recipe[]) =>
-      deliverRecipes(await attachRecipePhotosPreservingOrder(finalizeRecipes(recipes), {
+      attachRecipePhotosPreservingOrder(finalizeRecipes(recipes), {
         allowProviderLookup: !hasGeneratedImageAccess
-      }));
-    const strictRankingOptions = { ...parsed.data, ingredients: scoringIngredients, recipeCount, variationSeed };
+      });
+    const strictRankingOptions = { ...parsed.data, ingredients: scoringIngredients, recipeCount, recentRecipeMemory, variationSeed };
 
     if (USE_MOCK && accessCheck.allowed) {
       const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
@@ -538,6 +588,90 @@ export async function POST(request: Request) {
       return sharedRecipeSearchPromise;
     };
 
+    if (ingredients.length) {
+      const recipeReferences = await recipeReferencesPromise;
+      const referenceRecipes = mapRecipeReferencesToRecipes(recipeReferences, {
+        calorieTarget: parsed.data.calorieTarget,
+        recipeLanguage
+      });
+      if (referenceRecipes.length) {
+        const strictReferenceRecipes = rankStrictRecipes(
+          enforceDietOnRecipes(
+            applyStrictIngredientOwnership(referenceRecipes, availableIngredients, {
+              preferredCuisine: parsed.data.preferredCuisine,
+              diets: parsed.data.diets,
+              conditions: parsed.data.conditions,
+              allergens: parsed.data.allergens
+            }),
+            "recipe_reference_primary"
+          ),
+          strictRankingOptions
+        );
+        const shouldUseReferenceDirectly =
+          !hasRecipeReferenceAdaptationConstraints({
+            allergens: parsed.data.allergens,
+            conditions: parsed.data.conditions,
+            diets: parsed.data.diets,
+            excludedIngredients: parsed.data.excludedIngredients
+          }) &&
+          strictReferenceRecipes.length > 0 &&
+          !hasUnresolvedSensitiveRecipeAdaptationRequest({
+            allergens: parsed.data.allergens,
+            conditions: parsed.data.conditions,
+            diets: parsed.data.diets,
+            excludedIngredients: parsed.data.excludedIngredients,
+            requestedCount: recipeCount,
+            safeReferenceCount: strictReferenceRecipes.length
+          });
+
+        if (shouldUseReferenceDirectly && strictReferenceRecipes.length) {
+          const photoFirstRecipes = await applyImageFirstRecipeRanking(strictReferenceRecipes, ingredients.length, {
+            allowProviderLookup: !hasGeneratedImageAccess
+          });
+          const finalRecipes = await finalizeRecipeResponse(
+            mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+          );
+          await queueRecipeCachePersist({
+            uid: requestAccess.uid,
+            recipeLanguage,
+            recipes: finalRecipes,
+            dietContext
+          });
+          await persistRecipeGenerationHistoryEntry({
+            historyEntryId,
+            recipes: finalRecipes,
+            status: "completed",
+            uid: requestAccess.uid
+          });
+          logger.info("Recipe generation served from real recipe reference library", {
+            ...aiTraceSummary,
+            servedFrom: "recipe_reference",
+            referenceCount: recipeReferences.length,
+            safeReferenceCount: strictReferenceRecipes.length,
+            recipeCountReturned: finalRecipes.length
+          });
+          return Response.json({
+            recipes: finalRecipes,
+            result: JSON.stringify(finalRecipes),
+            servedFrom: "recipe_reference",
+            canLoadMore: recipeReferences.length > recipeCount,
+            access: accessPayload(requestAccess)
+          });
+        }
+
+        logger.info("Recipe reference library needs AI adaptation for sensitive constraints", {
+          requestId,
+          referenceCount: recipeReferences.length,
+          safeReferenceCount: strictReferenceRecipes.length,
+          requestedCount: recipeCount,
+          allergenCount: parsed.data.allergens?.length ?? 0,
+          conditionCount: parsed.data.conditions?.length ?? 0,
+          dietCount: parsed.data.diets?.length ?? 0,
+          excludedIngredientCount: parsed.data.excludedIngredients?.length ?? 0
+        });
+      }
+    }
+
     // Credit-exhausted users fall through to the curated catalog / shared
     // recipe pool. Users with remaining free trial credits continue below
     // into the Gemini generation path.
@@ -601,6 +735,7 @@ export async function POST(request: Request) {
 
     try {
       ensureAiAvailable();
+      const recipeReferences = await recipeReferencesPromise;
       const prompt = ingredients.length
         ? buildRecipeGenerationPrompt(
             normalizedPromptIngredients.map((ingredient, index) => ({
@@ -616,9 +751,12 @@ export async function POST(request: Request) {
               diets: parsed.data.diets ?? [],
               conditions: parsed.data.conditions ?? [],
               allergens: parsed.data.allergens ?? [],
+              excludedIngredients: parsed.data.excludedIngredients ?? [],
               candidateDishHints,
               canonicalDishHint,
-              variationSeed
+              recentRecipeAvoidance: buildRecentRecipeAvoidancePrompt(recentRecipeMemory),
+              variationSeed,
+              recipeReferences
             }
           )
         : buildPromptOnlyRecipeGenerationPrompt(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
@@ -760,14 +898,20 @@ export async function POST(request: Request) {
       logger.error("AI recipe generation failed; using shared recipe pool fallback", aiError);
     }
 
-    const searchResult = await loadSharedRecipeSearchResult();
+    const recipeReferences = await recipeReferencesPromise;
+    const referenceFallbackRecipes = mapRecipeReferencesToRecipes(recipeReferences, {
+      calorieTarget: parsed.data.calorieTarget,
+      recipeLanguage
+    });
+    const searchResult = referenceFallbackRecipes.length >= recipeCount ? null : await loadSharedRecipeSearchResult();
     logger.info("Recipe generation served from shared recipe pool after AI failure", {
-      recipeCount: searchResult.recipes.length,
-      canLoadMore: searchResult.canLoadMore
+      recipeCount: searchResult?.recipes.length ?? referenceFallbackRecipes.length,
+      canLoadMore: Boolean(searchResult?.canLoadMore),
+      referenceFallbackCount: referenceFallbackRecipes.length
     });
     const strictRecipes = rankStrictRecipes(
       enforceDietOnRecipes(
-        applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
+        applyStrictIngredientOwnership([...referenceFallbackRecipes, ...(searchResult?.recipes ?? [])], availableIngredients, {
           preferredCuisine: parsed.data.preferredCuisine,
           diets: parsed.data.diets,
           conditions: parsed.data.conditions,
@@ -807,8 +951,8 @@ export async function POST(request: Request) {
     return Response.json({
       recipes: finalRecipes,
       result: JSON.stringify(finalRecipes),
-      servedFrom: "shared_pool",
-      canLoadMore: searchResult.canLoadMore,
+      servedFrom: referenceFallbackRecipes.length ? "recipe_reference" : "shared_pool",
+      canLoadMore: searchResult?.canLoadMore ?? recipeReferences.length > recipeCount,
       fallbackNotice,
       access: accessPayload(nextAccess)
     });
@@ -878,6 +1022,133 @@ async function persistRecipeGenerationHistoryEntry(input: {
       errorMessage: error instanceof Error ? error.message : String(error)
     });
   }
+}
+
+async function loadRecentRecipeMemory(input: {
+  availableIngredients: Set<string>;
+  inputIngredients: string[];
+  requestId: string;
+  uid: string;
+}): Promise<RecentRecipeMemory> {
+  try {
+    const historyRef = getAdminDb()
+      .collection("users")
+      .doc(input.uid)
+      .collection("history");
+    let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
+    try {
+      snapshot = await historyRef.orderBy("createdAt", "desc").limit(18).get();
+    } catch {
+      snapshot = await historyRef.limit(18).get();
+    }
+
+    const recipes = snapshot.docs
+      .flatMap((docSnap) => {
+        const data = docSnap.data() as { recipes?: Recipe[] };
+        return Array.isArray(data.recipes) ? data.recipes : [];
+      })
+      .filter((recipe) => recipeMatchesRecentIngredientContext(recipe, input.inputIngredients, input.availableIngredients))
+      .slice(0, 80);
+
+    const memory = buildRecentRecipeMemory(recipes);
+    if (memory.recipes.length) {
+      logger.info("Loaded recent recipe memory for variation", {
+        requestId: input.requestId,
+        familyCount: memory.familyKeys.size,
+        recipeCount: memory.recipes.length,
+        structureCount: memory.structureKeys.size
+      });
+    }
+    return memory;
+  } catch (error) {
+    logger.warn("Recent recipe memory load failed", {
+      requestId: input.requestId,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+    return EMPTY_RECENT_RECIPE_MEMORY;
+  }
+}
+
+function buildRecentRecipeMemory(recipes: Recipe[]): RecentRecipeMemory {
+  const memory: RecentRecipeMemory = {
+    familyKeys: new Set(),
+    imageIdentityKeys: new Set(),
+    names: new Set(),
+    recipes,
+    selectionKeys: new Set(),
+    structureKeys: new Set()
+  };
+
+  for (const recipe of recipes) {
+    const familyKey = getRecipeVarietyFamilyKey(recipe) || buildRecipeDishFamilyKey(recipe);
+    const imageIdentityKey = getRecipeImageIdentityKey(recipe);
+    const selectionKey = getRecipeSelectionKey(recipe);
+    const structureKey = buildRecipeStructureSignature(recipe);
+    const nameKey = normalizeDishRestrictionKey(recipe.dish_intent?.dish_name || recipe.name);
+    if (familyKey) memory.familyKeys.add(familyKey);
+    if (imageIdentityKey) memory.imageIdentityKeys.add(imageIdentityKey);
+    if (selectionKey) memory.selectionKeys.add(selectionKey);
+    if (structureKey) memory.structureKeys.add(structureKey);
+    if (nameKey) memory.names.add(nameKey);
+  }
+
+  return memory;
+}
+
+function recipeMatchesRecentIngredientContext(recipe: Recipe, inputIngredients: string[], availableIngredients: Set<string>) {
+  if (!inputIngredients.length) return true;
+  const inputKeys = new Set(
+    inputIngredients
+      .flatMap((ingredient) => expandIngredientFamilies([ingredient]))
+      .map(normalizeIngredientForStrictMatch)
+      .filter(Boolean)
+  );
+  if (!inputKeys.size) return true;
+
+  const recipeText = [
+    recipe.name,
+    recipe.cuisine,
+    recipe.image_search_index,
+    recipe.dish_intent?.dish_name,
+    ...(recipe.image_search_indices ?? []),
+    ...(recipe.ingredients ?? []),
+    ...(recipe.missing_ingredients ?? [])
+  ].join(" ");
+  const recipeKeys = new Set(
+    expandIngredientFamilies(
+      recipeText
+        .split(/[,;/|]+|\s+with\s+|\s+and\s+/i)
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+      .map(normalizeIngredientForStrictMatch)
+      .filter(Boolean)
+  );
+
+  for (const key of inputKeys) {
+    if (recipeKeys.has(key)) return true;
+  }
+
+  return (recipe.ingredients ?? []).some((ingredient) => isIngredientAvailable(ingredient, availableIngredients));
+}
+
+function buildRecentRecipeAvoidancePrompt(memory: RecentRecipeMemory) {
+  if (!memory.recipes.length) return "";
+  const names = Array.from(
+    new Set(
+      memory.recipes
+        .map((recipe) => recipe.dish_intent?.dish_name || recipe.localized?.English?.name || recipe.name)
+        .filter((value): value is string => Boolean(value?.trim()))
+    )
+  ).slice(0, 18);
+  const families = Array.from(memory.familyKeys).slice(0, 18);
+  const structures = Array.from(memory.structureKeys).slice(0, 12);
+
+  return [
+    names.length ? `Recent cards: ${names.join(", ")}.` : "",
+    families.length ? `Recent family keys: ${families.join(", ")}.` : "",
+    structures.length ? `Recent structures: ${structures.join(", ")}.` : ""
+  ].filter(Boolean).join(" ");
 }
 
 function stripUndefinedDeep<T>(value: T): T {
@@ -1582,8 +1853,7 @@ function buildIngredientRelationshipProfiles(context: {
 }) {
   const candidates = Array.from(new Set([
     ...context.ingredients,
-    ...context.scoringIngredients,
-    ...Array.from(context.availableIngredients)
+    ...context.scoringIngredients
   ])).filter(Boolean);
   const proteins = dedupeRelationshipCandidates(candidates.filter(isRelationshipProteinIngredient), getCanonicalRelationshipIngredient);
   const vegetables = dedupeRelationshipCandidates(candidates.filter(isRelationshipVegetableIngredient), getCanonicalRelationshipIngredient);
@@ -4424,8 +4694,17 @@ interface SparseFillerRecipeInput {
 
 function makeSparseFillerRecipe(input: SparseFillerRecipeInput, context: { allergens?: string[]; availableIngredients: Set<string>; conditions?: string[]; diets?: string[] }): Recipe {
   const adapted = adaptSparseFillerForDiet(input, context);
-  const owned = dedupeIngredients(input.ingredients).map(getRecipeIngredientLabel);
-  const missing = dedupeIngredients(adapted.missingIngredients)
+  const requestedIngredients = dedupeIngredients(input.ingredients).map(getRecipeIngredientLabel);
+  const owned = requestedIngredients.filter((ingredient) =>
+    isIngredientAvailable(ingredient, context.availableIngredients)
+  );
+  const unavailableRequestedIngredients = requestedIngredients.filter((ingredient) =>
+    !isIngredientAvailable(ingredient, context.availableIngredients)
+  );
+  const missing = dedupeIngredients([
+    ...unavailableRequestedIngredients,
+    ...adapted.missingIngredients
+  ])
     .map(getRecipeIngredientLabel)
     .filter((ingredient) => !isIngredientAvailable(ingredient, context.availableIngredients));
 
@@ -4559,6 +4838,62 @@ function orderSparseFillersByCuisine(recipes: Recipe[], preferredCuisine: string
 
 function normalizeCuisinePreference(value?: string) {
   return (value || "Any").toLowerCase().replace(/[^a-z]/g, "") || "any";
+}
+
+function hasUnresolvedSensitiveRecipeAdaptationRequest(input: {
+  allergens?: string[];
+  conditions?: string[];
+  diets?: string[];
+  excludedIngredients?: string[];
+  requestedCount: number;
+  safeReferenceCount: number;
+}) {
+  const hasSensitiveConstraints = hasRecipeReferenceAdaptationConstraints(input);
+  return hasSensitiveConstraints && input.safeReferenceCount < input.requestedCount;
+}
+
+function hasRecipeReferenceAdaptationConstraints(input: {
+  allergens?: string[];
+  conditions?: string[];
+  diets?: string[];
+  excludedIngredients?: string[];
+}) {
+  return Boolean(
+    input.allergens?.length ||
+      input.conditions?.length ||
+      input.diets?.length ||
+      input.excludedIngredients?.length
+  );
+}
+
+function filterRecipesByExcludedIngredients(recipes: Recipe[], excludedIngredients: string[]) {
+  const excluded = excludedIngredients
+    .map(normalizeIngredientForStrictMatch)
+    .filter(Boolean);
+  if (!excluded.length) {
+    return { allowed: recipes, rejected: [] as Array<{ recipe: Recipe; reason: string }> };
+  }
+
+  const rejected: Array<{ recipe: Recipe; reason: string }> = [];
+  const allowed = recipes.filter((recipe) => {
+    const recipeText = [
+      recipe.name,
+      recipe.cuisine,
+      ...(recipe.ingredients ?? []),
+      ...(recipe.missing_ingredients ?? []),
+      ...(recipe.steps ?? [])
+    ]
+      .map((value) => normalizeIngredientForStrictMatch(String(value ?? "")))
+      .join(" ");
+    const matched = excluded.find((ingredient) => ingredient.length >= 2 && recipeText.includes(ingredient));
+    if (matched) {
+      rejected.push({ recipe, reason: `excluded_ingredient:${matched}` });
+      return false;
+    }
+    return true;
+  });
+
+  return { allowed, rejected };
 }
 
 function isSparseGroundMeatSource(source: string) {
@@ -4699,13 +5034,27 @@ function normalizeLocalizedRecipeVariant(value: unknown): NonNullable<Recipe["lo
   return {
     name,
     cuisine,
+    plated_visual_description:
+      typeof variant.plated_visual_description === "string" && variant.plated_visual_description.trim()
+        ? variant.plated_visual_description.trim()
+        : undefined,
     recipe_origin:
       variant.recipe_origin === "exact_scan_match" || variant.recipe_origin === "similar_ingredients"
         ? variant.recipe_origin
         : undefined,
+    recipe_source_type:
+      variant.recipe_source_type === "local_database" ||
+      variant.recipe_source_type === "external_source" ||
+      variant.recipe_source_type === "generated"
+        ? variant.recipe_source_type
+        : undefined,
     scan_match_explanation:
       typeof variant.scan_match_explanation === "string" && variant.scan_match_explanation.trim()
         ? variant.scan_match_explanation.trim()
+        : undefined,
+    source_url:
+      typeof variant.source_url === "string" && /^https?:\/\//i.test(variant.source_url.trim())
+        ? variant.source_url.trim()
         : undefined,
     dish_intent: variant.dish_intent,
     image_search_index:
@@ -4757,6 +5106,7 @@ interface RecipeRankingOptions {
   recipeCount?: number;
   diets?: string[];
   conditions?: string[];
+  recentRecipeMemory?: RecentRecipeMemory;
   variationSeed?: string;
 }
 
@@ -4767,6 +5117,7 @@ interface RankedRecipeCandidate {
   isPantryBalanced: boolean;
   missingCount: number;
   ownedCount: number;
+  recentPenalty: number;
   recipe: Recipe;
   score: number;
   structureKey: string;
@@ -4855,6 +5206,38 @@ function stableVariationNumber(value: string) {
   return (hash >>> 0) / 4294967295;
 }
 
+function getRecentRecipeRepetitionPenalty(recipe: Recipe, memory?: RecentRecipeMemory) {
+  if (!memory?.recipes.length) return 0;
+  let penalty = 0;
+  const selectionKey = getRecipeSelectionKey(recipe);
+  const familyKey = getRecipeVarietyFamilyKey(recipe) || buildRecipeDishFamilyKey(recipe);
+  const structureKey = buildRecipeStructureSignature(recipe);
+  const imageIdentityKey = getRecipeImageIdentityKey(recipe);
+  const nameKey = normalizeDishRestrictionKey(recipe.dish_intent?.dish_name || recipe.name);
+
+  if (selectionKey && memory.selectionKeys.has(selectionKey)) penalty += 120;
+  if (nameKey && memory.names.has(nameKey)) penalty += 95;
+  if (familyKey && memory.familyKeys.has(familyKey)) penalty += 60;
+  if (imageIdentityKey && memory.imageIdentityKeys.has(imageIdentityKey)) penalty += 45;
+  if (structureKey && memory.structureKeys.has(structureKey)) penalty += 30;
+
+  return penalty;
+}
+
+function applyRecentRecipeMemoryRotation(recipes: Recipe[], memory: RecentRecipeMemory, recipeCount: number) {
+  if (!memory.recipes.length || recipes.length <= 1) return recipes.slice(0, recipeCount);
+
+  return [...recipes]
+    .map((recipe, index) => ({
+      index,
+      penalty: getRecentRecipeRepetitionPenalty(recipe, memory),
+      recipe
+    }))
+    .sort((left, right) => left.penalty - right.penalty || left.index - right.index)
+    .map((entry) => entry.recipe)
+    .slice(0, recipeCount);
+}
+
 function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOptions): RankedRecipeCandidate[] {
   const targetCaloriesPerMeal = Math.round((options.calorieTarget ?? 2000) / 3);
   const preferredCuisine = options.preferredCuisine && options.preferredCuisine !== "Any"
@@ -4866,6 +5249,14 @@ function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOp
       const pantryUsage = getRecipePantryUsageStats(recipe, options.ingredients ?? []);
       const familyKey = buildRecipeDishFamilyKey(recipe) || recipe.name.trim().toLowerCase();
       const structureKey = buildRecipeStructureSignature(recipe);
+      const recentPenalty = getRecentRecipeRepetitionPenalty(recipe, options.recentRecipeMemory);
+      const baseScore = scoreStrictRecipe(recipe, {
+        targetCaloriesPerMeal,
+        preferredCuisine,
+        maxMissingIngredients: options.maxMissingIngredients ?? 3,
+        hasPreferences: Boolean(options.diets?.length || options.conditions?.length),
+        availableIngredients: options.ingredients ?? []
+      });
       return {
         familyKey,
         recipe,
@@ -4874,14 +5265,9 @@ function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOp
         isPantryBalanced: isPantryBalancedRecipe(recipe, options.ingredients ?? []),
         missingCount: pantryUsage.missingCount,
         ownedCount: pantryUsage.ownedCount,
+        recentPenalty,
         structureKey,
-        score: scoreStrictRecipe(recipe, {
-          targetCaloriesPerMeal,
-          preferredCuisine,
-          maxMissingIngredients: options.maxMissingIngredients ?? 3,
-          hasPreferences: Boolean(options.diets?.length || options.conditions?.length),
-          availableIngredients: options.ingredients ?? []
-        })
+        score: baseScore - recentPenalty
       };
     })
     .sort((left, right) => {
@@ -4934,6 +5320,7 @@ function logRecipeRankingSnapshot(
       missingCount: entry.missingCount,
       isMainlyPantry: entry.isMainlyPantry,
       isPantryBalanced: entry.isPantryBalanced,
+      recentPenalty: Math.round(entry.recentPenalty * 10) / 10,
       name: entry.recipe.name,
       cuisine: entry.recipe.cuisine,
       dishName: entry.recipe.dish_intent?.dish_name,
@@ -5070,32 +5457,6 @@ async function queueRecipeCachePersist(input: {
       errorMessage: error instanceof Error ? error.message : String(error)
     });
   });
-}
-
-function stripPremiumDeliveredImages(recipes: Recipe[]) {
-  return recipes.map((recipe) => ({
-    ...recipe,
-    image_attribution_name: undefined,
-    image_attribution_url: undefined,
-    image_source: undefined,
-    image_url: undefined,
-    localized: recipe.localized
-      ? Object.fromEntries(
-          Object.entries(recipe.localized).map(([languageKey, variant]) => [
-            languageKey,
-            variant
-              ? {
-                  ...variant,
-                  image_attribution_name: undefined,
-                  image_attribution_url: undefined,
-                  image_source: undefined,
-                  image_url: undefined
-                }
-              : variant
-          ])
-        )
-      : recipe.localized
-  }));
 }
 
 function buildScannerPantryBalanceRetryPrompt(basePrompt: string, recipeCount: number) {
@@ -6805,7 +7166,6 @@ function isUsableSharedRecipePhotoCacheEntry(
 ): entry is SharedRecipePhotoEntry {
   if (!entry || !isDurableRecipeImageUrl(entry.imageUrl) || excludedUrls.has(entry.imageUrl)) return false;
   if (isKnownWeakRecipeProviderImageUrl(entry.imageUrl)) return false;
-  if (entry.source === "generated") return isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
   return true;
 }
 

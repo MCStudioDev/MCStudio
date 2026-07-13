@@ -32,6 +32,16 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!accessCheck.access.isPremium && !accessCheck.access.isAdmin) {
+      return Response.json(
+        {
+          error: "Scan fridge is a premium feature.",
+          access: accessPayload(accessCheck.access)
+        },
+        { status: 403 }
+      );
+    }
+
     if (!accessCheck.allowed) {
       return Response.json({
         ingredients: [],

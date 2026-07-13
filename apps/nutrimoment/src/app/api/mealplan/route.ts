@@ -104,6 +104,15 @@ export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "weekly_plan");
     const access = accessCheck.access;
+    if (!access.isPremium && !access.isAdmin) {
+      return Response.json(
+        {
+          error: "Weekly meal plans are a premium feature.",
+          access: accessPayload(access)
+        },
+        { status: 403 }
+      );
+    }
     const rl = applyRateLimit({
       uid: access.uid,
       feature: "meal_plan",

@@ -73,14 +73,20 @@ export interface LocalizedRecipeVariant {
   image_attribution_name?: string;
   image_attribution_url?: string;
   preference_hits?: string[];
+  plated_visual_description?: string;
+  recipe_source_type?: "local_database" | "external_source" | "generated";
+  source_url?: string;
 }
 
 export interface Recipe {
   id?: string;
   name: string;
   cuisine: string;
+  plated_visual_description?: string;
   recipe_origin?: "exact_scan_match" | "similar_ingredients";
+  recipe_source_type?: "local_database" | "external_source" | "generated";
   scan_match_explanation?: string;
+  source_url?: string;
   dish_intent?: RecipeDishIntent;
   image_search_index?: string;
   image_search_indices?: string[];

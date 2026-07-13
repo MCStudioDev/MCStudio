@@ -11,6 +11,8 @@ interface RecipePhotoQueryInput {
   name: string;
 }
 
+type RecipePhotoQueryMode = "cache" | "provider";
+
 const PROTEIN_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "chicken breast", pattern: /\bchicken breast\b/i },
   { label: "chicken thigh", pattern: /\bchicken thigh\b/i },
@@ -51,6 +53,7 @@ const STARCH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "pasta", pattern: /\bpasta|spaghetti|penne|fettuccine|macaroni\b/i },
   { label: "noodles", pattern: /\bnoodle|noodles|ramen|udon|soba\b/i },
   { label: "rice", pattern: /\brice\b/i },
+  { label: "fries", pattern: /\bfries|french fries\b/i },
   { label: "potatoes", pattern: /\bpotato|potatoes\b/i },
   { label: "bread", pattern: /\bbread|toast|bun|roll\b/i }
 ];
@@ -58,6 +61,11 @@ const STARCH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 const SAUCE_PATTERNS: Array<{ label: string; aliases: string[]; pattern: RegExp }> = [
   { label: "red sauce", aliases: ["tomato sauce", "marinara"], pattern: /\bred sauce|tomato sauce|marinara|pomodoro|tomato basil\b/i },
   { label: "white sauce", aliases: ["creamy sauce", "alfredo"], pattern: /\bwhite sauce|creamy sauce|alfredo|cream sauce|creamy\b/i },
+  { label: "garlic sauce", aliases: ["garlic butter", "lemon garlic"], pattern: /\bgarlic sauce|garlic butter|lemon garlic|garlic lemon\b/i },
+  { label: "sweet chili sauce", aliases: ["sweet chilli sauce"], pattern: /\bsweet chili|sweet chilli\b/i },
+  { label: "barbecue sauce", aliases: ["bbq sauce"], pattern: /\bbarbecue|bbq\b/i },
+  { label: "teriyaki sauce", aliases: ["teriyaki"], pattern: /\bteriyaki\b/i },
+  { label: "sweet and sour sauce", aliases: ["sweet sour"], pattern: /\bsweet and sour|sweet sour\b/i },
   { label: "tahini", aliases: ["sesame sauce"], pattern: /\btahini|sesame sauce\b/i },
   { label: "pesto", aliases: [], pattern: /\bpesto\b/i },
   { label: "soy garlic", aliases: ["garlic soy"], pattern: /\bsoy garlic|garlic soy|soy sauce\b/i },
@@ -69,6 +77,7 @@ const METHOD_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "fried", pattern: /\bfried|crispy|breaded|crunchy\b/i },
   { label: "baked", pattern: /\bbaked\b/i },
   { label: "roasted", pattern: /\broasted\b/i },
+  { label: "barbecue", pattern: /\bbarbecue|bbq\b/i },
   { label: "smoked", pattern: /\bsmoked\b/i },
   { label: "stir fry", pattern: /\bstir fry|stir-fry\b/i },
   { label: "pan seared", pattern: /\bpan seared|pan-seared|seared\b/i }
@@ -86,6 +95,14 @@ const DISH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 ];
 
 export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
+  return buildRecipePhotoQueryCandidatesForMode(input, "cache");
+}
+
+export function buildProviderRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
+  return buildRecipePhotoQueryCandidatesForMode(input, "provider");
+}
+
+function buildRecipePhotoQueryCandidatesForMode(input: RecipePhotoQueryInput, mode: RecipePhotoQueryMode) {
   const dishIntentQueries = buildDishIntentQueries(input.dishIntent);
   const ownedIngredientLabels = [...(input.ingredients ?? [])]
     .map(getIngredientLabel)
@@ -116,6 +133,16 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
       .replace(/\b(recipe|plate|dish|style)\b/gi, " ")
       .replace(/\s+/g, " ")
   );
+  const providerPlateQueries = buildProviderPlateQueries({
+    dish,
+    exactName,
+    ingredientLabels: [...ownedIngredientLabels, ...missingIngredientLabels],
+    method,
+    protein,
+    sauceLabel: sauce?.label,
+    simplifiedName,
+    starch
+  });
   const heuristicQueries = buildCuisineIngredientHeuristicQueries({
     cuisine,
     dish,
@@ -135,11 +162,12 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
 
   const derivedCandidates = normalizeQueryList([
     exactName,
+    ...(mode === "provider" ? providerPlateQueries : []),
     simplifiedName,
-    joinRecipeQueryParts(method, protein, sauce?.label, starch ?? dish, "plate"),
-    joinRecipeQueryParts(protein, sauce?.label, starch ?? dish, "plate"),
-    joinRecipeQueryParts(method, protein, starch ?? dish, "plate"),
-    joinRecipeQueryParts(protein, starch ?? dish, "plate"),
+    joinRecipeQueryParts(method, protein, "with", sauce?.label, starch ?? dish),
+    joinRecipeQueryParts(method, protein, "with", starch ?? dish),
+    joinRecipeQueryParts(protein, "with", sauce?.label, starch ?? dish),
+    joinRecipeQueryParts(protein, "with", starch ?? dish),
     joinRecipeQueryParts(method, protein, sauce?.label, starch ?? dish),
     joinRecipeQueryParts(protein, sauce?.label, starch ?? dish),
     joinRecipeQueryParts(method, protein, starch ?? dish),
@@ -161,8 +189,8 @@ export function buildRecipePhotoQueryCandidates(input: RecipePhotoQueryInput) {
   ]);
 
   return Array.from(
-    new Set([...explicitQueries, ...derivedCandidates, ...heuristicQueries, ...dishIntentQueries, ...visualReferenceQueries])
-  ).slice(0, 8);
+    new Set([...derivedCandidates, ...explicitQueries, ...heuristicQueries, ...dishIntentQueries, ...visualReferenceQueries])
+  ).slice(0, 12);
 }
 
 function buildDishIntentQueries(dishIntent?: RecipeDishIntent) {
@@ -176,13 +204,73 @@ function buildDishIntentQueries(dishIntent?: RecipeDishIntent) {
 
   return normalizeQueryList([
     joinRecipeQueryParts(dishName, cuisine, "food"),
-    joinRecipeQueryParts(dishName, method, "plate"),
+    joinRecipeQueryParts(dishName, method),
+    joinRecipeQueryParts(dishName, "with", leadVisual),
     joinRecipeQueryParts(cuisine, "traditional", dishName),
     joinRecipeQueryParts(cuisine, method, leadVisual || dishName),
     joinRecipeQueryParts(diet, cuisine, leadVisual || dishName),
     joinRecipeQueryParts(leadVisual, cuisine),
     joinRecipeQueryParts(secondVisual, cuisine)
   ]);
+}
+
+function buildProviderPlateQueries({
+  dish,
+  exactName,
+  ingredientLabels,
+  method,
+  protein,
+  sauceLabel,
+  simplifiedName,
+  starch
+}: {
+  dish?: string;
+  exactName: string;
+  ingredientLabels: string[];
+  method?: string;
+  protein?: string;
+  sauceLabel?: string;
+  simplifiedName: string;
+  starch?: string;
+}) {
+  const vegetableContext = detectVegetablePlateContext(ingredientLabels, exactName);
+  const plateCompanion = starch ?? vegetableContext ?? dish;
+  const dishOrStarch = dish ?? starch;
+
+  return normalizeQueryList([
+    withPlate(exactName),
+    simplifiedName !== exactName ? withPlate(simplifiedName) : "",
+    joinRecipeQueryParts(method, protein, "with", plateCompanion, "plate"),
+    joinRecipeQueryParts(method, protein, "with", sauceLabel, plateCompanion, "plate"),
+    joinRecipeQueryParts(protein, dishOrStarch, "with", sauceLabel, "plate"),
+    joinRecipeQueryParts(protein, sauceLabel, plateCompanion, "plate"),
+    joinRecipeQueryParts(method, protein, sauceLabel, plateCompanion, "plate"),
+    joinRecipeQueryParts(protein, dishOrStarch, "plate"),
+    joinRecipeQueryParts(method, protein, "plate"),
+    joinRecipeQueryParts(protein, "with", vegetableContext, "plate")
+  ]);
+}
+
+function detectVegetablePlateContext(ingredientLabels: string[], exactName: string) {
+  const context = [exactName, ...ingredientLabels].map((label) => normalizePhrase(label)).join(" ");
+
+  if (/\b(vegetable|vegetables|veggie|veggies|zucchini|carrot|broccoli|eggplant|mushroom|spinach|green beans)\b/.test(context)) {
+    return "vegetables";
+  }
+
+  if (/\b(bell pepper|pepper|peppers|onion|tomato|tomatoes)\b/.test(context)) {
+    return "vegetables";
+  }
+
+  return undefined;
+}
+
+function withPlate(value?: string) {
+  const normalized = normalizePhrase(value ?? "");
+  if (!normalized) return "";
+  if (/\bplate\b/.test(normalized)) return normalized;
+  if (/^(food|meal|dish|recipe)$/i.test(normalized)) return "";
+  return `${normalized} plate`;
 }
 
 function buildSparseIngredientQueries({

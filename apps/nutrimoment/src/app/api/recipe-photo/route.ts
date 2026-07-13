@@ -49,6 +49,10 @@ import {
   buildRecipePhotoReuseKeyFromIdentity,
   buildRecipePhotoReuseKeyFromQuery
 } from "@/lib/recipePhotoReuse";
+import {
+  buildProviderRecipePhotoQueryCandidates,
+  buildRecipePhotoQueryCandidates
+} from "@/lib/recipePhotoQueries";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -111,7 +115,7 @@ const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const PREMIUM_REPLICATE_RETRY_TTL_MS = 3 * 1000;
 const PREMIUM_REPLICATE_RETRY_AFTER_SECONDS = 2;
 const WIKIMEDIA_ENABLED = true;
-const FIRESTORE_RECIPE_PHOTO_CACHE_ONLY = true;
+const FIRESTORE_RECIPE_PHOTO_CACHE_ONLY = false;
 const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v7";
 const STRICT_RECIPE_PHOTO_CACHE_PATTERN = /(?:^|:)strict-v\d+(?=:)/i;
 const MIN_ACCEPTED_PROVIDER_SCORE = {
@@ -174,12 +178,34 @@ export async function GET(request: Request) {
     ...searchParams.getAll("dishName")
   ]);
   const arabicDishNameHints = extractArabicDishNameHints(rawQueryCandidates);
-  const queryCandidates = normalizeRecipePhotoQueries(rawQueryCandidates);
-  const replicateQueryCandidates = normalizeRecipePhotoQueries([
-    ...exactNameHints,
+  const ingredientHints = normalizeRecipePhotoIngredientHints(searchParams.getAll("ingredient"));
+  const detailedCacheQueryCandidates = buildRecipePhotoQueryCandidates({
+    cuisine: searchParams.get("cuisine") ?? undefined,
+    imageSearchIndex: parsed.data.query,
+    imageSearchIndices: rawQueryCandidates,
+    ingredients: ingredientHints,
+    name: selectExactRecipePhotoNameHint(exactNameHints) ?? parsed.data.query
+  });
+  const providerStyleQueryCandidates = buildProviderRecipePhotoQueryCandidates({
+    cuisine: searchParams.get("cuisine") ?? undefined,
+    imageSearchIndex: parsed.data.query,
+    imageSearchIndices: rawQueryCandidates,
+    ingredients: ingredientHints,
+    name: selectExactRecipePhotoNameHint(exactNameHints) ?? parsed.data.query
+  });
+  const queryCandidates = normalizeRecipePhotoQueries([
+    ...detailedCacheQueryCandidates,
     ...rawQueryCandidates
   ]);
-  const ingredientHints = normalizeRecipePhotoIngredientHints(searchParams.getAll("ingredient"));
+  const providerQueryCandidates = normalizeRecipePhotoQueries([
+    ...providerStyleQueryCandidates,
+    ...queryCandidates
+  ]);
+  const replicateQueryCandidates = normalizeRecipePhotoQueries([
+    ...exactNameHints,
+    ...detailedCacheQueryCandidates,
+    ...rawQueryCandidates
+  ]);
   const explicitlyExcludedImageUrls = normalizeExcludedRecipePhotoUrls(searchParams.getAll("exclude"));
   const cacheOnly = searchParams.get("cacheOnly") === "1" || searchParams.get("cacheOnly") === "true";
   const exactAliasCandidates = buildRecipePhotoExactAliases({
@@ -189,6 +215,7 @@ export async function GET(request: Request) {
   const photoIdentityOverride = buildPhotoIdentityOverrideFromSearchParams(searchParams);
   const query = queryCandidates[0] ?? parsed.data.query.trim();
   const identities = queryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate, photoIdentityOverride));
+  const providerIdentities = providerQueryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate, photoIdentityOverride));
   const replicateIdentities = replicateQueryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate, photoIdentityOverride));
   const reuseKeyCandidates = buildRecipePhotoReuseKeyCandidates([
     ...queryCandidates,
@@ -445,12 +472,6 @@ export async function GET(request: Request) {
       replicateQueryCandidates,
       selectedReplicateQuery
     }) &&
-    canUseGeneratedRecipePhotoUrlForRequest(sharedQueryCached.imageUrl, {
-      exactNameHints,
-      queryCandidates,
-      replicateQueryCandidates,
-      selectedReplicateQuery
-    }) &&
     (!isRecipePhotoRecentlyUsedForDifferentSignature(sharedQueryCached.imageUrl, signatureCandidates, reuseKeyCandidates))
   ) {
     const sharedPhoto = buildCachedRecipePhotoFromShared(sharedQueryCached);
@@ -694,7 +715,9 @@ export async function GET(request: Request) {
       explicitlyExcludedImageUrls,
       query,
       queryCandidates,
+      providerQueryCandidates,
       replicateQueryCandidates,
+      providerIdentities,
       replicateIdentities,
       photoIdentityOverride,
       exactRecipeNameHint: selectExactRecipePhotoNameHint(exactNameHints),
@@ -776,10 +799,11 @@ function canUseCachedRecipePhotoForVisualRequest(
   strictVisualRequest: boolean,
   useReplicateGeneration: boolean
 ) {
-  if (!useReplicateGeneration) return entry.source !== "generated" || isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
-  if (entry.source !== "generated") return false;
+  void useReplicateGeneration;
+  if (entry.source !== "generated") return true;
+  if (!isDurableRecipeImageUrl(entry.imageUrl)) return false;
   if (!strictVisualRequest) return true;
-  return hasStrictGeneratedRecipePhotoSignature(entry.signature, entry.imageUrl);
+  return hasStrictGeneratedRecipePhotoSignature(entry.signature, entry.imageUrl) || !isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
 }
 
 function canUseSharedRecipePhotoForVisualRequest(
@@ -787,16 +811,11 @@ function canUseSharedRecipePhotoForVisualRequest(
   strictVisualRequest: boolean,
   useReplicateGeneration: boolean
 ) {
-  if (!useReplicateGeneration) {
-    return (
-      entry.source !== "generated" ||
-      (FIRESTORE_RECIPE_PHOTO_CACHE_ONLY && isDurableRecipeImageUrl(entry.imageUrl)) ||
-      isReplicateGeneratedRecipeImageUrl(entry.imageUrl)
-    );
-  }
-  if (entry.source !== "generated") return false;
+  void useReplicateGeneration;
+  if (entry.source !== "generated") return true;
+  if (!isDurableRecipeImageUrl(entry.imageUrl)) return false;
   if (!strictVisualRequest) return true;
-  return hasStrictGeneratedRecipePhotoSignature(entry.signature, entry.imageUrl);
+  return hasStrictGeneratedRecipePhotoSignature(entry.signature, entry.imageUrl) || !isReplicateGeneratedRecipeImageUrl(entry.imageUrl);
 }
 
 function canUseGeneratedRecipePhotoCacheForRequest(
@@ -817,9 +836,7 @@ function canUseGeneratedRecipePhotoCacheForRequest(
   if (isChickenRecipePhotoRequest(queryCandidates) && !isChickenRecipePhotoCacheEntry(entry)) return false;
   if (isShrimpRecipePhotoRequest(queryCandidates) && !isShrimpRecipePhotoCacheEntry(entry)) return false;
   if (entry.source !== "generated") return true;
-  const canUseStoredGeneratedCache =
-    FIRESTORE_RECIPE_PHOTO_CACHE_ONLY && isDurableRecipeImageUrl(entry.imageUrl);
-  if (!canUseStoredGeneratedCache && !isReplicateGeneratedRecipeImageUrl(entry.imageUrl)) return false;
+  if (!isDurableRecipeImageUrl(entry.imageUrl)) return false;
 
   const cachedQuery = normalizeGeneratedCacheQuery(entry.query || getGeneratedRecipePhotoUrlSignature(entry.imageUrl) || entry.signature);
   if (!cachedQuery) return false;
@@ -860,9 +877,7 @@ function canUseApproximateSharedRecipePhotoForRequest(entry: SharedRecipePhotoEn
   if (isChickenRecipePhotoRequest(queryCandidates) && !isChickenRecipePhotoCacheEntry(entry)) return false;
   if (isShrimpRecipePhotoRequest(queryCandidates) && !isShrimpRecipePhotoCacheEntry(entry)) return false;
   if (entry.source !== "generated") return true;
-  const canUseStoredGeneratedCache =
-    FIRESTORE_RECIPE_PHOTO_CACHE_ONLY && isDurableRecipeImageUrl(entry.imageUrl);
-  if (!canUseStoredGeneratedCache && !isReplicateGeneratedRecipeImageUrl(entry.imageUrl)) return false;
+  if (!isDurableRecipeImageUrl(entry.imageUrl)) return false;
 
   const cachedQuery = normalizeGeneratedCacheQuery(entry.query || getGeneratedRecipePhotoUrlSignature(entry.imageUrl) || entry.signature);
   if (!cachedQuery) return false;
@@ -959,55 +974,6 @@ function isShrimpRecipePhotoCacheEntry(entry: Pick<CachedRecipePhoto | SharedRec
   const text = [entry.query, entry.signature].filter(Boolean).join(" ").toLowerCase();
   if (!isShrimpRecipePhotoRequest([text])) return false;
   return !/(?:\b(?:kofta|kafta|kofte|kefta|meatball|meatballs|beef|lamb|meat|kebab|fish|salmon|tilapia|anchovy|hamsi|pescado|samke)\b|\u0643\u0641\u062a(?:\u0629|\u0647)|\u0644\u062d\u0645|\u0633\u0645\u0643)/iu.test(text);
-}
-
-function canUseGeneratedRecipePhotoUrlForRequest(
-  imageUrl: string,
-  {
-    exactNameHints,
-    queryCandidates,
-    replicateQueryCandidates,
-    selectedReplicateQuery
-  }: {
-    exactNameHints: string[];
-    queryCandidates: string[];
-    replicateQueryCandidates: string[];
-    selectedReplicateQuery: string | null;
-  }
-) {
-  const urlSignature = getGeneratedRecipePhotoUrlSignature(imageUrl);
-  if (!isStrictGeneratedRecipePhotoSignature(urlSignature)) return false;
-
-  const cachedQuery = normalizeGeneratedCacheQuery(urlSignature);
-  if (!cachedQuery) return false;
-  if (hasGeneratedRecipePhotoCacheTextConflict(cachedQuery, queryCandidates)) return false;
-
-  const requestQueries = normalizeRecipePhotoQueries([
-    ...(selectedReplicateQuery ? [selectedReplicateQuery] : []),
-    ...replicateQueryCandidates,
-    ...exactNameHints
-  ]);
-  const normalizedRequestQueries = new Set(requestQueries.map(normalizeRecipePhotoQuery).filter(Boolean));
-  if (normalizedRequestQueries.has(cachedQuery)) {
-    if (isGeneratedCacheQueryCompatibleWithTrustedRequest(cachedQuery, queryCandidates)) return true;
-  }
-
-  const cachedIdentity = buildRecipePhotoIdentity(cachedQuery);
-  if (isWeakGeneratedRecipePhotoCacheQuery(cachedQuery, cachedIdentity)) {
-    return false;
-  }
-
-  const trustedQueries = normalizeRecipePhotoQueries(queryCandidates).length ? queryCandidates : requestQueries;
-  return trustedQueries
-    .map((candidate) => buildRecipePhotoIdentity(candidate))
-    .some((candidateIdentity) =>
-      areGeneratedRecipePhotoIdentitiesCompatible(cachedIdentity, candidateIdentity) &&
-      Boolean(
-        cachedIdentity.canonicalDishKey &&
-          candidateIdentity.canonicalDishKey &&
-          cachedIdentity.canonicalDishKey === candidateIdentity.canonicalDishKey
-      )
-    );
 }
 
 function isGeneratedCacheQueryCompatibleWithTrustedRequest(cachedQuery: string, queryCandidates: string[]) {
@@ -1342,7 +1308,9 @@ async function performRecipePhotoLookup({
   explicitlyExcludedImageUrls,
   query,
   queryCandidates,
+  providerQueryCandidates,
   replicateQueryCandidates,
+  providerIdentities,
   replicateIdentities,
   photoIdentityOverride,
   exactRecipeNameHint,
@@ -1363,7 +1331,9 @@ async function performRecipePhotoLookup({
   explicitlyExcludedImageUrls: Set<string>;
   query: string;
   queryCandidates: string[];
+  providerQueryCandidates: string[];
   replicateQueryCandidates: string[];
+  providerIdentities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
   replicateIdentities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
   photoIdentityOverride?: RecipePhotoIdentityOverride;
   exactRecipeNameHint?: string;
@@ -1549,8 +1519,8 @@ async function performRecipePhotoLookup({
   }
 
   if (preferWikimediaFirst && WIKIMEDIA_ENABLED) {
-    for (const [index, candidateQuery] of queryCandidates.entries()) {
-      const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+    for (const [index, candidateQuery] of providerQueryCandidates.entries()) {
+      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       if (!shouldTryWikimediaRecipePhoto(candidateIdentity, index)) continue;
       const knownDishPhoto = await findFreeRecipePhoto(candidateQuery);
@@ -1572,8 +1542,8 @@ async function performRecipePhotoLookup({
   }
 
   if (effectiveAccessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
-    const unsplashResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
-      const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+    const unsplashResults = await Promise.allSettled(providerQueryCandidates.map(async (candidateQuery, index) => {
+      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto && !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl)) {
@@ -1600,8 +1570,8 @@ async function performRecipePhotoLookup({
   }
 
   if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && effectiveAccessAllowed && isPexelsRecipePhotoSearchConfigured()) {
-    const pexelsResults = await Promise.allSettled(queryCandidates.map(async (candidateQuery, index) => {
-      const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+    const pexelsResults = await Promise.allSettled(providerQueryCandidates.map(async (candidateQuery, index) => {
+      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       const searchedPhoto = await findPexelsRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
       if (searchedPhoto && !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl)) {
@@ -1626,8 +1596,8 @@ async function performRecipePhotoLookup({
   }
 
   if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && !preferWikimediaFirst && WIKIMEDIA_ENABLED) {
-    for (const [index, candidateQuery] of queryCandidates.entries()) {
-      const candidateIdentity = identities[index] ?? buildRecipePhotoIdentity(candidateQuery);
+    for (const [index, candidateQuery] of providerQueryCandidates.entries()) {
+      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
       const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
       if (!shouldTryWikimediaRecipePhoto(candidateIdentity, index)) continue;
       const knownDishPhoto = await findFreeRecipePhoto(candidateQuery);
@@ -1706,6 +1676,7 @@ async function performRecipePhotoLookup({
     source: "unavailable",
     query,
     queryCandidates,
+    providerQueryCandidates,
     imageMode,
     reason,
     replicateFallbackReason,

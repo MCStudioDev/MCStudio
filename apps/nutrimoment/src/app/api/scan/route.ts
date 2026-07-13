@@ -49,6 +49,16 @@ export async function POST(request: Request) {
     const language = normalizeRecipeLanguage(parsed.data.language, "English");
     const { image, isPantry = false } = parsed.data;
 
+    if (!isPantry && !accessCheck.access.isPremium && !accessCheck.access.isAdmin) {
+      return Response.json(
+        {
+          error: "Scan fridge is a premium feature.",
+          access: accessPayload(accessCheck.access)
+        },
+        { status: 403 }
+      );
+    }
+
     if (!accessCheck.allowed) {
       return Response.json({
         result: "[]",

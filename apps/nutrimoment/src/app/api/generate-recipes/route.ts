@@ -611,7 +611,6 @@ export async function POST(request: Request) {
         const shouldUseReferenceDirectly =
           !hasRecipeReferenceAdaptationConstraints({
             allergens: parsed.data.allergens,
-            conditions: parsed.data.conditions,
             diets: parsed.data.diets,
             excludedIngredients: parsed.data.excludedIngredients
           }) &&
@@ -4853,20 +4852,21 @@ function hasUnresolvedSensitiveRecipeAdaptationRequest(input: {
   requestedCount: number;
   safeReferenceCount: number;
 }) {
-  const hasSensitiveConstraints = hasRecipeReferenceAdaptationConstraints(input);
+  const hasSensitiveConstraints = Boolean(
+    input.diets?.length ||
+      input.conditions?.length ||
+      hasRecipeReferenceAdaptationConstraints(input)
+  );
   return hasSensitiveConstraints && input.safeReferenceCount < input.requestedCount;
 }
 
 function hasRecipeReferenceAdaptationConstraints(input: {
   allergens?: string[];
-  conditions?: string[];
   diets?: string[];
   excludedIngredients?: string[];
 }) {
   return Boolean(
     input.allergens?.length ||
-      input.conditions?.length ||
-      input.diets?.length ||
       input.excludedIngredients?.length
   );
 }

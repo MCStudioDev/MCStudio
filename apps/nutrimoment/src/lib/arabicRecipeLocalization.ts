@@ -917,8 +917,16 @@ function translateStep(value: string) {
 
 function buildArabicOnlySteps(steps: string[], recipe: Recipe) {
   const translatedSteps = steps.map(translateStep).map((step) => step.trim()).filter(Boolean);
-  if (translatedSteps.length >= 7 && translatedSteps.every((step) => !hasLatinText(step))) {
+  if (translatedSteps.length > 0 && translatedSteps.every((step) => !hasLatinText(step))) {
     return translatedSteps;
+  }
+
+  const displaySteps = translatedSteps
+    .map(ensureArabicDisplayText)
+    .map((step) => step.trim())
+    .filter(Boolean);
+  if (displaySteps.length > 0) {
+    return displaySteps;
   }
 
   const primary = recipe.ingredients[0] ?? recipe.missing_ingredients[0] ?? "المكون الرئيسي";

@@ -43,6 +43,24 @@ describe("recipe step details", () => {
     expect(steps).toMatch(/Keep cucumber fresh/i);
     expect(steps).toMatch(/do not simmer it with water/i);
   });
+
+  it("preserves existing source instructions instead of padding them with generic steps", () => {
+    const sourceSteps = [
+      "Cut deep slashes into the chicken pieces.",
+      "Mix yogurt, lemon juice, ginger-garlic paste, oil, and tandoori spices.",
+      "Coat the chicken and marinate for at least 2 hours.",
+      "Roast on a rack at 200 C until charred and cooked through."
+    ];
+    const recipe = ensureDetailedRecipeSteps(recipeFixture({
+      name: "Chicken Tandoori",
+      ingredients: ["chicken"],
+      missing_ingredients: ["yogurt", "lemon", "ginger-garlic paste"],
+      steps: sourceSteps
+    }));
+
+    expect(recipe.steps).toEqual(sourceSteps);
+    expect(recipe.steps.join(" ")).not.toMatch(/Warm the main pan|2 tbsp water|Add chicken first/i);
+  });
 });
 
 function recipeFixture(overrides: Partial<Recipe>): Recipe {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ensureArabicRecipeLanguage,
   localizeRecipeForArabic,
   localizeMealForArabic,
   localizeMealPlanForArabic,
@@ -87,6 +88,34 @@ describe("Arabic meal localization", () => {
     expect(localized.cuisine).not.toMatch(/[A-Za-z]/);
     expect(localized.ingredients?.join(" ")).not.toMatch(/[A-Za-z]/);
     expect(localized.steps?.join(" ")).not.toMatch(/[A-Za-z]/);
+  });
+
+  it("does not replace short sourced recipe instructions with generic Arabic filler steps", () => {
+    const localized = ensureArabicRecipeLanguage({
+      name: "Chicken Tandoori",
+      cuisine: "Indian",
+      ingredients: ["chicken"],
+      missing_ingredients: ["yogurt", "lemon", "ginger-garlic paste"],
+      steps: [
+        "Cut deep slashes into the chicken pieces.",
+        "Mix yogurt, lemon juice, ginger-garlic paste, oil, and tandoori spices.",
+        "Coat the chicken and marinate for at least 2 hours.",
+        "Roast on a rack at 200 C until charred and cooked through."
+      ],
+      calories: 520,
+      protein: "42g",
+      carbs: "12g",
+      fat: "24g",
+      cook_time: "45 mins",
+      difficulty: "Medium",
+      recipe_source_type: "local_database"
+    });
+
+    const userFacingSteps = localized.steps.join(" ");
+    expect(localized.steps).toHaveLength(4);
+    expect(userFacingSteps).not.toContain("\u0633\u062e\u0651\u0646 \u0627\u0644\u0645\u0642\u0644\u0627\u0629");
+    expect(userFacingSteps).not.toContain("\u0645\u0644\u0639\u0642\u062a\u064a\u0646 \u0643\u0628\u064a\u0631\u062a\u064a\u0646 \u0645\u0646 \u0627\u0644\u0645\u0627\u0621");
+    expect(userFacingSteps).not.toMatch(/[A-Za-z]/);
   });
 
   it("keeps all localized weekly plan user-facing fields free of Latin letters", () => {

@@ -806,6 +806,7 @@ function buildRealRecipeReferenceGuidance(
     "Use these references as source-of-truth examples for dish identity, ingredient structure, prep form, method, cooking time, and step sequence.",
     "For each generated card, choose one provided real recipe reference as the base unless the backend request explicitly requires creating a new recipe because no suitable reference exists.",
     "The generated ingredients and steps must preserve the chosen reference's real cooking logic. Do not output a dish name unless the ingredients and steps actually make that dish.",
+    "Do not rewrite source directions into a generic cooking template. Preserve whether ingredients are minced, chopped, sliced, cubed, marinated, breaded, stuffed, grilled, fried, baked, simmered, roasted, or served fresh, and preserve the order those actions happen in.",
     "Only edit a reference recipe when the user's diet, allergen, health condition, calorie target, cuisine choice, available quantity, or missing-ingredient limit requires it.",
     "When you adapt for health or diet, keep the plate recognizable: adjust fat, sodium, sugar, dairy, gluten, cooking method, or portion size without deleting the core sauce, marinade, breading, simmer, stuffing, or garnish that makes the dish what it is.",
     "If a reference uses a longer method such as marinating, baking, roasting, stewing, braising, frying, breading, or grilling, keep that method and realistic timing unless a health rule requires a lighter method.",
@@ -825,6 +826,7 @@ function buildRecipeSourcingDecisionGuidance(references: RecipeReferencePromptRe
       "Stop at the local database. Do not search externally. Do not invent external sources.",
       "Your job is to act as a recipe editor and culinary expert over the provided local recipes only.",
       "Keep the same dish identity for every local_database recipe. Adapt only for allergies, excluded ingredients, medical conditions, calories, macro targets, cultural preferences, and realistic cooking safety.",
+      "Never replace local recipe steps with generic pan instructions. Keep the source prep form, method, timing, and workflow unless a user restriction forces a targeted change.",
       "Set recipe_source_type to local_database unless the backend explicitly marks a recipe as external_source."
     ].join(" ");
   }
@@ -833,6 +835,7 @@ function buildRecipeSourcingDecisionGuidance(references: RecipeReferencePromptRe
     "Backend decision tree status: no suitable local NutriMoment recipe reference was provided.",
     "FORCE GOOGLE SEARCH MODE: use Google Search grounding to find classic, trusted, highly rated culinary recipes that feature the user's primary ingredients and requested cuisine or best-fitting cuisine.",
     "Do not invent a generic recipe in this mode. Select the strongest authentic source recipe, preserve its dish identity, then adapt it only for allergies, excluded ingredients, medical conditions, calories, macro targets, and cultural preferences.",
+    "External-source steps must read like the selected real recipe, including prep cuts, marinade or breading stages, heat method, order of additions, timing, doneness cues, and serving assembly.",
     "Prefer reputable culinary sources with complete ingredient lists, realistic method steps, temperatures, cooking times, and serving structure. Avoid low-detail snippets, spam pages, and generic AI-style recipe pages.",
     "Set recipe_source_type to external_source for every recipe created from grounded web search and include the exact source_url returned by grounding.",
     "If Google Search grounding cannot produce a usable source for a card, omit that card and choose another sourced recipe rather than filling the list with an unsourced generic recipe.",

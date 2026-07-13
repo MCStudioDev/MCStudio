@@ -60,7 +60,7 @@ function buildDetailedSteps(source: StepSource, language: StepLanguage) {
       ? []
       : rawExisting;
 
-  if (existing.length >= 7) {
+  if (existing.length > 0) {
     return existing;
   }
 

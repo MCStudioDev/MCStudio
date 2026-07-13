@@ -372,7 +372,9 @@ export async function POST(request: Request) {
       (wantsArabic ? recipes.map(ensureArabicRecipeLanguage) : recipes)
         .map(ensureRecipePhotoIdentity)
         .map((recipe) =>
-          ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
+          shouldPreserveSourceRecipeSteps(recipe)
+            ? recipe
+            : ensureDetailedRecipeSteps(recipe, wantsArabic ? "Arabic" : "English")
         )
         .map(ensureRecipeInstructionIntegrity);
     const finalizeRecipes = (recipes: Recipe[]) => {
@@ -771,10 +773,16 @@ export async function POST(request: Request) {
       const recipes = parseAiJsonPayload(text, "recipe_generation");
       const normalizedRecipes = recipes.recipes ?? recipes;
       if (Array.isArray(normalizedRecipes) && normalizedRecipes.length) {
+        const sourcedRecipes = enforceSourcedRecipeContract(normalizedRecipes, {
+          allowLocalDatabase: recipeReferences.length > 0,
+          phase: "ai_primary",
+          requestId,
+          requireSourcedRecipes: ingredients.length > 0
+        });
         const primaryOwnedRecipes = enforceAnyCuisineDiversity(
           rejectNearDuplicateAiRecipes(
             enforceDietOnRecipes(
-              applyStrictIngredientOwnership(normalizedRecipes, availableIngredients, {
+              applyStrictIngredientOwnership(sourcedRecipes, availableIngredients, {
                 preferredCuisine: parsed.data.preferredCuisine,
                 diets: parsed.data.diets,
                 conditions: parsed.data.conditions,
@@ -831,10 +839,16 @@ export async function POST(request: Request) {
           const retryNormalizedRecipes = retryRecipes.recipes ?? retryRecipes;
 
           if (Array.isArray(retryNormalizedRecipes) && retryNormalizedRecipes.length) {
+            const sourcedRepairRecipes = enforceSourcedRecipeContract(retryNormalizedRecipes, {
+              allowLocalDatabase: recipeReferences.length > 0,
+              phase: "ai_repair",
+              requestId,
+              requireSourcedRecipes: ingredients.length > 0
+            });
             const repairOwnedRecipes = enforceAnyCuisineDiversity(
               rejectNearDuplicateAiRecipes(
                 enforceDietOnRecipes(
-                  applyStrictIngredientOwnership(retryNormalizedRecipes, availableIngredients, {
+                  applyStrictIngredientOwnership(sourcedRepairRecipes, availableIngredients, {
                     preferredCuisine: parsed.data.preferredCuisine,
                     diets: parsed.data.diets,
                     conditions: parsed.data.conditions,
@@ -859,6 +873,12 @@ export async function POST(request: Request) {
             });
             strictRecipes = mergeRecipeResults(null, [...repairRecipes, ...strictRecipes], false, recipeCount);
           }
+        }
+        const requiredSourcedRecipeCount = Math.max(0, recipeCount - (exactScanMatch ? 1 : 0));
+        if (ingredients.length > 0 && strictRecipes.length < requiredSourcedRecipeCount) {
+          throw new Error(
+            `AI response did not provide enough sourced recipes: ${strictRecipes.length}/${requiredSourcedRecipeCount}`
+          );
         }
         const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
           allowProviderLookup: !hasGeneratedImageAccess
@@ -1345,6 +1365,39 @@ function cleanJsonCandidate(candidate: string) {
     .replace(/^\uFEFF/, "")
     .replace(/,\s*([}\]])/g, "$1")
     .trim();
+}
+
+function shouldPreserveSourceRecipeSteps(recipe: Recipe) {
+  return recipe.recipe_source_type === "local_database" || /^recipe-reference-/i.test(String(recipe.id ?? ""));
+}
+
+function enforceSourcedRecipeContract(
+  recipes: Recipe[],
+  context: { allowLocalDatabase: boolean; phase: string; requestId: string; requireSourcedRecipes: boolean }
+) {
+  if (!context.requireSourcedRecipes) {
+    return recipes;
+  }
+
+  const filtered = recipes.filter((recipe) => {
+    if (!recipe.steps?.length) return false;
+    if (recipe.recipe_source_type === "local_database") return context.allowLocalDatabase;
+    if (recipe.recipe_source_type === "external_source") {
+      return typeof recipe.source_url === "string" && /^https?:\/\//i.test(recipe.source_url.trim());
+    }
+    return false;
+  });
+
+  if (filtered.length !== recipes.length) {
+    logger.warn("Rejected unsourced generated recipes from AI response", {
+      requestId: context.requestId,
+      phase: context.phase,
+      rejectedCount: recipes.length - filtered.length,
+      keptCount: filtered.length
+    });
+  }
+
+  return filtered;
 }
 
 function normalizeScannedDishRecipe(recipe: unknown, availableIngredients: Set<string>) {

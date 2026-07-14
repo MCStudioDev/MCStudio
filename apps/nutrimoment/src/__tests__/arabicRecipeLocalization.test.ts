@@ -30,6 +30,38 @@ describe("Arabic meal localization", () => {
     expect(translateIngredientToArabic("cooking cream")).toBe("\u0643\u0631\u064a\u0645\u0629 \u0637\u0628\u062e");
   });
 
+  it("uses cookbook-quality Arabic names for Thai and dumpling dishes", () => {
+    const thai = ensureArabicRecipeLanguage({
+      name: "Gai Pad Krapow",
+      cuisine: "Thai",
+      ingredients: ["chicken", "thai basil"],
+      missing_ingredients: ["fish sauce"],
+      steps: ["Stir-fry the chicken with garlic and Thai basil."],
+      calories: 480,
+      protein: "34g",
+      carbs: "42g",
+      fat: "16g",
+      cook_time: "25 mins",
+      difficulty: "Easy"
+    });
+    const dumplings = ensureArabicRecipeLanguage({
+      name: "Chicken and Dumplings",
+      cuisine: "American",
+      ingredients: ["chicken"],
+      missing_ingredients: ["flour", "milk"],
+      steps: ["Simmer chicken in the sauce, then cook the dumplings."],
+      calories: 560,
+      protein: "38g",
+      carbs: "50g",
+      fat: "20g",
+      cook_time: "45 mins",
+      difficulty: "Medium"
+    });
+
+    expect(thai.name).toBe("دجاج بالريحان التايلندي");
+    expect(dumplings.name).toBe("دجاج بصوص كريمي مع زلابية آسيوية");
+  });
+
   it("carries photo_identity through Arabic localization without mutation", () => {
     const identity = {
       dish_slug: "lemon-herb-seafood-soup",
@@ -115,7 +147,12 @@ describe("Arabic meal localization", () => {
     expect(localized.steps).toHaveLength(4);
     expect(userFacingSteps).not.toContain("\u0633\u062e\u0651\u0646 \u0627\u0644\u0645\u0642\u0644\u0627\u0629");
     expect(userFacingSteps).not.toContain("\u0645\u0644\u0639\u0642\u062a\u064a\u0646 \u0643\u0628\u064a\u0631\u062a\u064a\u0646 \u0645\u0646 \u0627\u0644\u0645\u0627\u0621");
-    expect(userFacingSteps).not.toMatch(/[A-Za-z]/);
+    expect(localized.steps).toEqual([
+      "Cut deep slashes into the chicken pieces.",
+      "Mix yogurt, lemon juice, ginger-garlic paste, oil, and tandoori spices.",
+      "Coat the chicken and marinate for at least 2 hours.",
+      "Roast on a rack at 200 C until charred and cooked through."
+    ]);
   });
 
   it("keeps all localized weekly plan user-facing fields free of Latin letters", () => {

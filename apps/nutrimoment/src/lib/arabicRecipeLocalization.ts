@@ -51,6 +51,14 @@ const RECIPE_TITLES: Record<string, string> = {
   "Simple & Lime Skewers & Shrimp Marinade": "تتبيلة جمبري بسيطة بالليمون",
   "Butter Chicken": "دجاج بالزبدة",
   "Tandoori Chicken": "دجاج تندوري",
+  "Gai Pad Krapow": "دجاج بالريحان التايلندي",
+  "Pad Krapow Gai": "دجاج بالريحان التايلندي",
+  "Pad Krapow Goong": "جمبري بالريحان التايلندي",
+  "Cashew Chicken": "دجاج بالكاجو",
+  "Chicken Cashew": "دجاج بالكاجو",
+  "Chicken Cacciatore": "دجاج كاتشاتوري بصوص الطماطم",
+  "Chicken and Dumplings": "دجاج بصوص كريمي مع زلابية آسيوية",
+  "Creamy Chicken and Dumplings": "دجاج بصوص كريمي مع زلابية آسيوية",
   "Keema Matar": "كيما بالبازلاء",
   "Fish Curry": "كاري سمك",
   "Prawn Masala": "جمبري ماسالا",
@@ -489,7 +497,10 @@ export function ensureArabicRecipeLanguage(recipe: Recipe): Recipe {
 
   return {
     ...baseRecipe,
-    steps: buildArabicOnlySteps(localized.steps, baseRecipe)
+    // Do not transliterate an untranslated source instruction into fake Arabic.
+    // A complete Arabic rule-based translation is useful; otherwise preserve
+    // the original authored English step until a real translation is available.
+    steps: buildArabicOnlySteps(recipe.steps)
   };
 }
 
@@ -558,7 +569,10 @@ function translateRecipeTitle(value: string) {
   const exact = RECIPE_TITLES[value];
   if (exact) return exact;
   if (!/[A-Za-z]/.test(value)) return value;
-  return ensureArabicDisplayText(translateEnglishRecipeTitle(value));
+  // Recipe titles must be localized by meaning. Do not turn an unknown Latin
+  // dish name into Arabic-looking phonetics; ensureArabicTitleText will build
+  // a clean ingredient/cuisine title when no authored equivalent exists.
+  return translateEnglishRecipeTitle(value);
 }
 
 function ensureArabicTitleText(recipe: Pick<Recipe, "name" | "image_search_index" | "image_search_indices">, ingredients: string[], missingIngredients: string[]) {
@@ -915,33 +929,15 @@ function translateStep(value: string) {
   return translateEnglishCookingStep(value);
 }
 
-function buildArabicOnlySteps(steps: string[], recipe: Recipe) {
+function buildArabicOnlySteps(steps: string[]) {
   const translatedSteps = steps.map(translateStep).map((step) => step.trim()).filter(Boolean);
   if (translatedSteps.length > 0 && translatedSteps.every((step) => !hasLatinText(step))) {
     return translatedSteps;
   }
 
-  const displaySteps = translatedSteps
-    .map(ensureArabicDisplayText)
-    .map((step) => step.trim())
-    .filter(Boolean);
-  if (displaySteps.length > 0) {
-    return displaySteps;
-  }
-
-  const primary = recipe.ingredients[0] ?? recipe.missing_ingredients[0] ?? "المكون الرئيسي";
-  const secondary = recipe.ingredients[1] ?? recipe.missing_ingredients[1] ?? "المكون الثاني";
-  const finishing = [...recipe.ingredients, ...recipe.missing_ingredients].slice(2, 5).join("، ") || "باقي المكونات";
-
-  return [
-    `حضّر ${recipe.name}: جهز ${primary} و${secondary} وضع ${finishing} بجانبك قبل بدء الطبخ.`,
-    "سخّن المقلاة على نار متوسطة لمدة دقيقتين، ثم أضف ملعقة صغيرة من الزيت أو الدهن المناسب.",
-    `أضف ${primary} أولا واطهه لمدة 4 إلى 6 دقائق مع التقليب حتى يبدأ في النضج.`,
-    `أضف ${secondary} مع ملعقتين كبيرتين من الماء أو سائل الطبخ، واتركه 3 إلى 5 دقائق حتى تتجانس النكهات.`,
-    `أضف ${finishing} على دفعات صغيرة واطهه 2 إلى 4 دقائق حتى يبقى القوام متماسكا.`,
-    "تذوق واضبط الملح والفلفل أو التوابل حسب الحاجة، ثم اترك الخليط دقيقة أخيرة على النار.",
-    "ارفع الوجبة عن النار لمدة دقيقتين، ثم قدمها ساخنة في طبق مناسب."
-  ];
+  // The source remains readable and accurate. Never replace it with a
+  // transliteration or a generic cooking paragraph.
+  return steps.map((step) => step.trim()).filter(Boolean);
 }
 
 function translateStepToEnglish(value: string) {
@@ -1347,6 +1343,11 @@ function translateEnglishRecipeTitle(value: string) {
     [/\bparmesan chicken\b/gi, " دجاج بصلصة الطماطم والبارميزان "],
     [/\bchicken piccata\b/gi, " دجاج بيكاتا "],
     [/\bchicken cacciatore\b/gi, " دجاج كاتشاتوري "],
+    [/\bgai pad krapow\b/gi, " دجاج بالريحان التايلندي "],
+    [/\bpad krapow gai\b/gi, " دجاج بالريحان التايلندي "],
+    [/\bcashew chicken\b/gi, " دجاج بالكاجو "],
+    [/\bchicken and dumplings\b/gi, " دجاج بصوص كريمي مع زلابية آسيوية "],
+    [/\bcreamy chicken and dumplings\b/gi, " دجاج بصوص كريمي مع زلابية آسيوية "],
     [/\bsayadeya\b/gi, " صيادية سمك "],
     [/\bsamak singari\b/gi, " سمك سنجاري "],
     [/\begyptian fish tagine\b/gi, " طاجن سمك مصري "],

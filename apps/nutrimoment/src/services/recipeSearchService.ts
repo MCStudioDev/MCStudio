@@ -170,6 +170,7 @@ export function mapCatalogRecipeToUiRecipe(
       ? cleanedEnglishName
       : normalizedRecipe.localized?.English?.name ?? normalizedRecipe.title,
     cuisine: cleanedEnglishCuisine || normalizeCuisineLabel(normalizedRecipe.cuisine),
+    recipe_source_type: "local_database",
     ingredients: normalizedRecipe.ingredientCanonicals
       .filter((ingredient) => !missingIngredients.includes(ingredient))
       .map(translateIngredientToEnglish),

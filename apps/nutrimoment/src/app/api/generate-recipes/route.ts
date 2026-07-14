@@ -19,7 +19,6 @@ import {
   accessPayload,
   canUseApiFeature,
   consumeFreeAiCredit,
-  hasGeneratedRecipeImageAccess
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
@@ -219,7 +218,6 @@ export async function POST(request: Request) {
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
-    const hasGeneratedImageAccess = hasGeneratedRecipeImageAccess(requestAccess);
     // Free users with remaining trial credits should still receive fresh
     // Gemini recipes. The shared pool is the fallback for exhausted credits
     // or AI failures, not the default for every free account.
@@ -366,6 +364,7 @@ export async function POST(request: Request) {
         })
       : Promise.resolve([]);
     const requestRestriction = buildHardRequestRestrictionContext(candidateDishes, parsed.data.preferredCuisine, ingredients.length);
+    let referenceLibraryNeedsGroundedSearch = ingredients.length > 0;
     const shouldLabelSimilarRecipes = Boolean(parsed.data.referenceImage);
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const prepareRecipes = (recipes: Recipe[]) =>
@@ -378,28 +377,50 @@ export async function POST(request: Request) {
         )
         .map(ensureRecipeInstructionIntegrity);
     const finalizeRecipes = (recipes: Recipe[]) => {
+      const candidateRecipeCount = Math.min(60, Math.max(recipeCount * 3, 30));
+      const sourceBackedRecipes = ingredients.length
+        ? recipes.filter(isTrustedSourcedRecipe)
+        : recipes;
+      // Imported recipes already have a real dish identity and an ordered method.
+      // The candidate-family and authenticity rewriters below were designed to
+      // rescue AI-created recipes; applying them to sources can replace or
+      // discard legitimate recipes before the user ever sees them.
+      const preserveTrustedSources = ingredients.length > 0 && sourceBackedRecipes.length > 0;
       const cuisineSelected =
         parsed.data.preferredCuisine === "Any"
-          ? diversifyAnyCuisineRecipes(recipes, recipeCount, scoringIngredients)
-          : enforcePreferredCuisineRecipes(
-              recipes,
-              parsed.data.preferredCuisine,
-              parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
-              recipeCount
-            );
-      const hardRequestSelected = enforceHardRequestRecipes(cuisineSelected, requestRestriction, recipeCount);
-      const authenticSelected = enforceAuthenticCuisineRecipeSet(hardRequestSelected, {
-        availableIngredients: scoringIngredients,
-        preferredCuisine: parsed.data.preferredCuisine,
-        recipeLanguage,
-        recipeCount
-      });
-      const cuisineQualitySelected = filterWeakSpecificCuisineRecipes(authenticSelected, {
-        availableIngredients: scoringIngredients,
-        preferredCuisine: parsed.data.preferredCuisine,
-        recipeCount,
-        requestId
-      });
+          ? diversifyAnyCuisineRecipes(sourceBackedRecipes, candidateRecipeCount, scoringIngredients)
+          : preserveTrustedSources
+            ? selectTrustedSourceCuisineRecipes(
+                sourceBackedRecipes,
+                parsed.data.preferredCuisine,
+                scoringIngredients,
+                candidateRecipeCount
+              )
+            : enforcePreferredCuisineRecipes(
+                sourceBackedRecipes,
+                parsed.data.preferredCuisine,
+                parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
+                candidateRecipeCount
+              );
+      const hardRequestSelected = preserveTrustedSources
+        ? cuisineSelected
+        : enforceHardRequestRecipes(cuisineSelected, requestRestriction, candidateRecipeCount);
+      const authenticSelected = preserveTrustedSources
+        ? hardRequestSelected
+        : enforceAuthenticCuisineRecipeSet(hardRequestSelected, {
+            availableIngredients: scoringIngredients,
+            preferredCuisine: parsed.data.preferredCuisine,
+            recipeLanguage,
+            recipeCount: candidateRecipeCount
+          });
+      const cuisineQualitySelected = preserveTrustedSources
+        ? authenticSelected
+        : filterWeakSpecificCuisineRecipes(authenticSelected, {
+            availableIngredients: scoringIngredients,
+            preferredCuisine: parsed.data.preferredCuisine,
+            recipeCount: candidateRecipeCount,
+            requestId
+          });
       const proteinAlignedSelected = filterRecipesByInputMainProtein(cuisineQualitySelected, {
         availableIngredients,
         ingredients,
@@ -410,18 +431,8 @@ export async function POST(request: Request) {
         scoringIngredients
       });
       const pantryPrioritized = prioritizePantryUsageRecipes(sparseIngredientAlignedSelected, scoringIngredients);
-      const varied = enforceDistinctRecipeVariety(pantryPrioritized, recipeCount);
-      const finalized = ensureRequestedRecipeCount(varied, {
-        availableIngredients,
-        calorieTarget: parsed.data.calorieTarget ?? 2000,
-        ingredients,
-        allergens: parsed.data.allergens ?? [],
-        preferredCuisine: parsed.data.preferredCuisine ?? "Any",
-        recipeCount,
-        scoringIngredients,
-        diets: parsed.data.diets ?? [],
-        conditions: parsed.data.conditions ?? []
-      });
+      const varied = enforceDistinctRecipeVariety(pantryPrioritized, candidateRecipeCount);
+      const finalized = varied;
 
       const guardContext = {
         allergens: parsed.data.allergens ?? [],
@@ -430,18 +441,19 @@ export async function POST(request: Request) {
         diets: parsed.data.diets ?? [],
         inputIngredients: ingredients,
         preferredCuisine: parsed.data.preferredCuisine ?? "Any",
-        recipeCount,
+        recipeCount: candidateRecipeCount,
         recipeLanguage,
         scoringIngredients
       };
       const guarded = repairScanRecipesWithGuard(finalized, guardContext);
-      const finalQualitySelected =
-        parsed.data.preferredCuisine === "Any"
-          ? filterGenericAnyCuisineRecipes(guarded, { recipeCount, requestId })
+      const finalQualitySelected = preserveTrustedSources
+        ? guarded
+        : parsed.data.preferredCuisine === "Any"
+          ? filterGenericAnyCuisineRecipes(guarded, { recipeCount: candidateRecipeCount, requestId })
           : filterWeakSpecificCuisineRecipes(guarded, {
               availableIngredients: scoringIngredients,
               preferredCuisine: parsed.data.preferredCuisine,
-              recipeCount,
+              recipeCount: candidateRecipeCount,
               requestId
             });
       const finalProteinAlignedSelected = filterRecipesByInputMainProtein(finalQualitySelected, {
@@ -453,19 +465,9 @@ export async function POST(request: Request) {
         ingredients,
         scoringIngredients
       });
-      const finalCountRepaired = ensureRequestedRecipeCount(
-        enforceDistinctRecipeVariety(prioritizePantryUsageRecipes(finalSparseIngredientAlignedSelected, scoringIngredients), recipeCount),
-        {
-          availableIngredients,
-          calorieTarget: parsed.data.calorieTarget ?? 2000,
-          ingredients,
-          allergens: parsed.data.allergens ?? [],
-          preferredCuisine: parsed.data.preferredCuisine ?? "Any",
-          recipeCount,
-          scoringIngredients,
-          diets: parsed.data.diets ?? [],
-          conditions: parsed.data.conditions ?? []
-        }
+      const finalCountRepaired = enforceDistinctRecipeVariety(
+        prioritizePantryUsageRecipes(finalSparseIngredientAlignedSelected, scoringIngredients),
+        candidateRecipeCount
       );
 
       const prepared = enforceAnyCuisinePlateVariety(enforceDistinctPreparedRecipeDisplay(filterRecipesByInputMainProtein(
@@ -475,52 +477,19 @@ export async function POST(request: Request) {
           ingredients,
           scoringIngredients
         }
-      ), recipeCount), recipeCount, parsed.data.preferredCuisine ?? "Any");
-      if (prepared.length >= recipeCount) {
-        return applyRecentRecipeMemoryRotation(prepared, recentRecipeMemory, recipeCount);
-      }
-
-      const preparedFillers = filterRecipesByInputMainProtein(
-        prepareRecipes(filterRecipesByInputMainProtein(
-          buildSparseIngredientRecipeFillers({
-            availableIngredients,
-            calorieTarget: parsed.data.calorieTarget ?? 2000,
-            ingredients,
-            allergens: parsed.data.allergens ?? [],
-            preferredCuisine: parsed.data.preferredCuisine ?? "Any",
-            recipeCount,
-            scoringIngredients,
-            diets: parsed.data.diets ?? [],
-            conditions: parsed.data.conditions ?? []
-          }),
-          {
-            availableIngredients,
-            ingredients,
-            scoringIngredients
-          }
-        )),
-        {
-          availableIngredients,
-          ingredients,
-          scoringIngredients
-        }
-      );
-
-      return applyRecentRecipeMemoryRotation(
-        enforceAnyCuisinePlateVariety(
-          enforceDistinctPreparedRecipeDisplay([...prepared, ...preparedFillers], recipeCount),
-          recipeCount,
-          parsed.data.preferredCuisine ?? "Any"
-        ),
-        recentRecipeMemory,
-        recipeCount
-      );
+      ), candidateRecipeCount), candidateRecipeCount, parsed.data.preferredCuisine ?? "Any");
+      // A card shown in the same pantry context is ineligible for the next
+      // ten scans. This is a hard exclusion, not a score adjustment.
+      return excludeRecipesShownInRecentScans(prepared, recentRecipeMemory).slice(0, recipeCount);
     };
-    const finalizeRecipeResponse = async (recipes: Recipe[]) =>
-      attachRecipePhotosPreservingOrder(finalizeRecipes(recipes), {
-        allowProviderLookup: !hasGeneratedImageAccess
-      });
+    // Cards are returned as soon as the source recipe is validated. ScannerTab
+    // then hydrates cached/provider images concurrently without delaying recipes.
+    const finalizeRecipeResponse = async (recipes: Recipe[]) => finalizeRecipes(recipes);
     const strictRankingOptions = { ...parsed.data, ingredients: scoringIngredients, recipeCount, recentRecipeMemory, variationSeed };
+    const sourceRankingOptions = {
+      ...strictRankingOptions,
+      candidateLimit: Math.max(recipeCount * 6, 60)
+    };
 
     if (USE_MOCK && accessCheck.allowed) {
       const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
@@ -539,11 +508,8 @@ export async function POST(request: Request) {
         ),
         strictRankingOptions
       );
-      const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-        allowProviderLookup: !hasGeneratedImageAccess
-      });
       const finalRecipes = await finalizeRecipeResponse(
-        mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+        mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, recipeCount)
       );
       await queueRecipeCachePersist({
         uid: requestAccess.uid,
@@ -610,7 +576,7 @@ export async function POST(request: Request) {
             }),
             "recipe_reference_primary"
           ),
-          strictRankingOptions
+          sourceRankingOptions
         );
         const shouldUseReferenceDirectly =
           !hasRecipeReferenceAdaptationConstraints({
@@ -628,37 +594,108 @@ export async function POST(request: Request) {
             safeReferenceCount: strictReferenceRecipes.length
           });
 
+        const validatedReferenceRecipes = await finalizeRecipeResponse(
+          mergeRecipeResults(exactScanMatch, strictReferenceRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
+        );
+        referenceLibraryNeedsGroundedSearch = validatedReferenceRecipes.length < recipeCount;
+
         if (shouldUseReferenceDirectly && strictReferenceRecipes.length) {
-          const photoFirstRecipes = await applyImageFirstRecipeRanking(strictReferenceRecipes, ingredients.length, {
-            allowProviderLookup: !hasGeneratedImageAccess
-          });
-          const finalRecipes = await finalizeRecipeResponse(
-            mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
-          );
+          const finalRecipes = validatedReferenceRecipes;
+          if (finalRecipes.length < recipeCount) {
+            logger.warn("Reference library did not retain enough source-backed recipes after validation", {
+              requestId,
+              requestedCount: recipeCount,
+              returnedCount: finalRecipes.length
+            });
+          } else {
+            await queueRecipeCachePersist({
+              uid: requestAccess.uid,
+              recipeLanguage,
+              recipes: finalRecipes,
+              dietContext
+            });
+            await persistRecipeGenerationHistoryEntry({
+              historyEntryId,
+              recipes: finalRecipes,
+              status: "completed",
+              uid: requestAccess.uid
+            });
+            logger.info("Recipe generation served from real recipe reference library", {
+              ...aiTraceSummary,
+              servedFrom: "recipe_reference",
+              referenceCount: recipeReferences.length,
+              safeReferenceCount: strictReferenceRecipes.length,
+              recipeCountReturned: finalRecipes.length
+            });
+            return Response.json({
+              recipes: finalRecipes,
+              result: JSON.stringify(finalRecipes),
+              servedFrom: "recipe_reference",
+              canLoadMore: recipeReferences.length > recipeCount,
+              access: accessPayload(requestAccess)
+            });
+          }
+        }
+
+        // RecipeNLG is a broad reference corpus and may not contain enough
+        // correctly classified dishes for a chosen cuisine. Before falling
+        // back to Google grounding, combine it with the app's verified local
+        // recipe catalog. Both paths preserve authored source instructions.
+        const localCatalogResult = await loadSharedRecipeSearchResult();
+        const strictCatalogRecipes = rankStrictRecipes(
+          enforceDietOnRecipes(
+            applyStrictIngredientOwnership(localCatalogResult.recipes, availableIngredients, {
+              preferredCuisine: parsed.data.preferredCuisine,
+              diets: parsed.data.diets,
+              conditions: parsed.data.conditions,
+              allergens: parsed.data.allergens
+            }),
+            "catalog_local_source"
+          ),
+          sourceRankingOptions
+        );
+        const validatedLocalSourceRecipes = await finalizeRecipeResponse(
+          mergeRecipeResults(
+            exactScanMatch,
+            [...strictReferenceRecipes, ...strictCatalogRecipes],
+            shouldLabelSimilarRecipes,
+            sourceRankingOptions.candidateLimit
+          )
+        );
+        referenceLibraryNeedsGroundedSearch = validatedLocalSourceRecipes.length < recipeCount;
+
+        if (
+          !hasRecipeReferenceAdaptationConstraints({
+            allergens: parsed.data.allergens,
+            diets: parsed.data.diets,
+            excludedIngredients: parsed.data.excludedIngredients
+          }) &&
+          validatedLocalSourceRecipes.length >= recipeCount
+        ) {
           await queueRecipeCachePersist({
             uid: requestAccess.uid,
             recipeLanguage,
-            recipes: finalRecipes,
+            recipes: validatedLocalSourceRecipes,
             dietContext
           });
           await persistRecipeGenerationHistoryEntry({
             historyEntryId,
-            recipes: finalRecipes,
+            recipes: validatedLocalSourceRecipes,
             status: "completed",
             uid: requestAccess.uid
           });
-          logger.info("Recipe generation served from real recipe reference library", {
+          logger.info("Recipe generation served from validated local recipe sources", {
             ...aiTraceSummary,
-            servedFrom: "recipe_reference",
+            servedFrom: "local_recipe_sources",
             referenceCount: recipeReferences.length,
-            safeReferenceCount: strictReferenceRecipes.length,
-            recipeCountReturned: finalRecipes.length
+            catalogCount: strictCatalogRecipes.length,
+            recipeCountReturned: validatedLocalSourceRecipes.length
           });
           return Response.json({
-            recipes: finalRecipes,
-            result: JSON.stringify(finalRecipes),
-            servedFrom: "recipe_reference",
-            canLoadMore: recipeReferences.length > recipeCount,
+            recipes: validatedLocalSourceRecipes,
+            result: JSON.stringify(validatedLocalSourceRecipes),
+            servedFrom: "local_recipe_sources",
+            canLoadMore: recipeReferences.length + strictCatalogRecipes.length > recipeCount,
             access: accessPayload(requestAccess)
           });
         }
@@ -698,13 +735,10 @@ export async function POST(request: Request) {
           }),
           "catalog_free_tier"
         ),
-        strictRankingOptions
+          sourceRankingOptions
       );
-      const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-        allowProviderLookup: !hasGeneratedImageAccess
-      });
       const finalRecipes = await finalizeRecipeResponse(
-        mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+        mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
       );
       await queueRecipeCachePersist({
         uid: requestAccess.uid,
@@ -740,7 +774,9 @@ export async function POST(request: Request) {
     try {
       ensureAiAvailable();
       const recipeReferences = await recipeReferencesPromise;
-      const shouldUseGroundedRecipeSearch = recipeReferences.length === 0;
+      // A partial or wrong-cuisine local hit must not suppress web grounding.
+      // Search grounding is the source-of-truth fallback, never generic text.
+      const shouldUseGroundedRecipeSearch = referenceLibraryNeedsGroundedSearch || recipeReferences.length === 0;
       const prompt = ingredients.length
         ? buildRecipeGenerationPrompt(
             normalizedPromptIngredients.map((ingredient, index) => ({
@@ -797,8 +833,7 @@ export async function POST(request: Request) {
           recipeCount,
           requestId
         );
-        let strictRecipes = rankStrictRecipes(primaryOwnedRecipes, strictRankingOptions)
-          .slice(0, recipeCount);
+        let strictRecipes = rankStrictRecipes(primaryOwnedRecipes, sourceRankingOptions);
         logRecipeRankingSnapshot("gemini_primary_after_strict_ranking", primaryOwnedRecipes, strictRecipes, {
           requestId,
           recipeCount,
@@ -863,15 +898,14 @@ export async function POST(request: Request) {
               recipeCount,
               requestId
             );
-            const repairRecipes = rankStrictRecipes(repairOwnedRecipes, strictRankingOptions)
-              .slice(0, recipeCount);
+            const repairRecipes = rankStrictRecipes(repairOwnedRecipes, sourceRankingOptions);
             logRecipeRankingSnapshot("gemini_repair_after_strict_ranking", repairOwnedRecipes, repairRecipes, {
               requestId,
               recipeCount,
               rankingOptions: strictRankingOptions,
               sourceCount: retryNormalizedRecipes.length
             });
-            strictRecipes = mergeRecipeResults(null, [...repairRecipes, ...strictRecipes], false, recipeCount);
+            strictRecipes = mergeRecipeResults(null, [...repairRecipes, ...strictRecipes], false, sourceRankingOptions.candidateLimit);
           }
         }
         const requiredSourcedRecipeCount = Math.max(0, recipeCount - (exactScanMatch ? 1 : 0));
@@ -880,12 +914,12 @@ export async function POST(request: Request) {
             `AI response did not provide enough sourced recipes: ${strictRecipes.length}/${requiredSourcedRecipeCount}`
           );
         }
-        const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-          allowProviderLookup: !hasGeneratedImageAccess
-        });
         const finalRecipes = await finalizeRecipeResponse(
-          mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+          mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
         );
+        if (ingredients.length && finalRecipes.length < recipeCount) {
+          throw new Error(`Validated source recipes were insufficient after final quality checks: ${finalRecipes.length}/${recipeCount}`);
+        }
         await queueRecipeCachePersist({
           uid: requestAccess.uid,
           recipeLanguage,
@@ -945,13 +979,10 @@ export async function POST(request: Request) {
         }),
         "ai_failed_fallback"
       ),
-      strictRankingOptions
+      sourceRankingOptions
     );
-    const photoFirstRecipes = await applyImageFirstRecipeRanking(strictRecipes, ingredients.length, {
-      allowProviderLookup: !hasGeneratedImageAccess
-    });
     const finalRecipes = await finalizeRecipeResponse(
-      mergeRecipeResults(exactScanMatch, photoFirstRecipes, shouldLabelSimilarRecipes, recipeCount)
+      mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
     );
     await queueRecipeCachePersist({
       uid: requestAccess.uid,
@@ -1063,18 +1094,22 @@ async function loadRecentRecipeMemory(input: {
       .collection("history");
     let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
     try {
-      snapshot = await historyRef.orderBy("createdAt", "desc").limit(18).get();
+      snapshot = await historyRef.orderBy("createdAt", "desc").limit(30).get();
     } catch {
-      snapshot = await historyRef.limit(18).get();
+      snapshot = await historyRef.limit(30).get();
     }
 
-    const recipes = snapshot.docs
-      .flatMap((docSnap) => {
+    const recentScanRecipes = snapshot.docs
+      .map((docSnap) => {
         const data = docSnap.data() as { recipes?: Recipe[] };
-        return Array.isArray(data.recipes) ? data.recipes : [];
+        return Array.isArray(data.recipes) && data.recipes.length ? data.recipes : [];
       })
+      .filter((recipes) => recipes.length > 0)
+      .slice(0, 10)
+      .flat();
+    const recipes = recentScanRecipes
       .filter((recipe) => recipeMatchesRecentIngredientContext(recipe, input.inputIngredients, input.availableIngredients))
-      .slice(0, 80);
+      .slice(0, 50);
 
     const memory = buildRecentRecipeMemory(recipes);
     if (memory.recipes.length) {
@@ -1371,6 +1406,39 @@ function shouldPreserveSourceRecipeSteps(recipe: Recipe) {
   return recipe.recipe_source_type === "local_database" || /^recipe-reference-/i.test(String(recipe.id ?? ""));
 }
 
+function isTrustedSourcedRecipe(recipe: Recipe) {
+  const isLocalReference =
+    recipe.recipe_source_type === "local_database" ||
+    /^recipe-reference-/i.test(String(recipe.id ?? ""));
+  const isGroundedExternalRecipe =
+    recipe.recipe_source_type === "external_source" &&
+    typeof recipe.source_url === "string" &&
+    /^https?:\/\//i.test(recipe.source_url.trim());
+
+  if ((!isLocalReference && !isGroundedExternalRecipe) || !recipe.steps?.length) {
+    return false;
+  }
+
+  return !hasSyntheticFallbackInstructions(recipe.steps);
+}
+
+function hasSyntheticFallbackInstructions(steps: string[]) {
+  const source = steps.join(" ").replace(/\s+/g, " ").trim();
+  const markers = [
+    /سخّن المقلاة على نار متوسطة لمدة دقيقتين/u,
+    /ملعقتين كبيرتين من الماء أو سائل الطبخ/u,
+    /أضف .* أولا واطهه لمدة 4 إلى 6 دقائق/u,
+    /ارفع الوجبة عن النار لمدة دقيقتين/u,
+    /prep the scanned ingredients and slice any vegetables into even pieces/i,
+    /cook the main ingredient with garlic, herbs, citrus/i,
+    /add the vegetables or starch and simmer, roast, or toss/i,
+    /taste with lemon, herbs, and pepper instead of relying on heavy salt/i,
+    /serve warm with a fresh garnish/i
+  ];
+
+  return markers.filter((marker) => marker.test(source)).length >= 2;
+}
+
 function enforceSourcedRecipeContract(
   recipes: Recipe[],
   context: { allowLocalDatabase: boolean; phase: string; requestId: string; requireSourcedRecipes: boolean }
@@ -1628,6 +1696,9 @@ function getRecipePlateFormKey(recipe: Recipe) {
   return "";
 }
 
+// Retained temporarily for catalog migration utilities; the live generation route
+// deliberately does not call it because it manufactures unsourced filler cards.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ensureRequestedRecipeCount(
   recipes: Recipe[],
   context: {
@@ -5004,7 +5075,10 @@ function applyStrictIngredientOwnership(
     for (const ingredient of allRecipeIngredients) {
       const label = getRecipeIngredientLabel(ingredient);
       if (isIngredientAvailable(label, availableIngredients)) {
-        owned.push(label);
+        // Available chips describe the user's pantry, not every quantity or
+        // preparation variant from the source recipe. This keeps three forms
+        // of "chicken" from appearing as three separate available items.
+        owned.push(normalizeIngredientForStrictMatch(label) || label);
       } else {
         missing.push(label);
       }
@@ -5159,6 +5233,7 @@ function normalizeLocalizedRecipeVariant(value: unknown): NonNullable<Recipe["lo
 }
 
 interface RecipeRankingOptions {
+  candidateLimit?: number;
   ingredients?: string[];
   preferredCuisine?: string;
   calorieTarget?: number;
@@ -5184,7 +5259,9 @@ interface RankedRecipeCandidate {
 }
 
 function rankStrictRecipes(recipes: Recipe[], options: RecipeRankingOptions) {
-  const limit = clampRecipeCount(options.recipeCount);
+  const limit = options.candidateLimit == null
+    ? clampRecipeCount(options.recipeCount)
+    : Math.min(100, Math.max(MIN_RECIPE_RESULT_COUNT, Math.floor(options.candidateLimit)));
   const ranked = applyRunVariationToRankedCandidates(
     buildRankedRecipeCandidates(recipes, options),
     options.variationSeed,
@@ -5284,18 +5361,20 @@ function getRecentRecipeRepetitionPenalty(recipe: Recipe, memory?: RecentRecipeM
   return penalty;
 }
 
-function applyRecentRecipeMemoryRotation(recipes: Recipe[], memory: RecentRecipeMemory, recipeCount: number) {
-  if (!memory.recipes.length || recipes.length <= 1) return recipes.slice(0, recipeCount);
+function excludeRecipesShownInRecentScans(recipes: Recipe[], memory: RecentRecipeMemory) {
+  if (!memory.recipes.length) return recipes;
 
-  return [...recipes]
-    .map((recipe, index) => ({
-      index,
-      penalty: getRecentRecipeRepetitionPenalty(recipe, memory),
-      recipe
-    }))
-    .sort((left, right) => left.penalty - right.penalty || left.index - right.index)
-    .map((entry) => entry.recipe)
-    .slice(0, recipeCount);
+  return recipes.filter((recipe) => {
+    const selectionKey = getRecipeSelectionKey(recipe);
+    const nameKey = normalizeDishRestrictionKey(recipe.dish_intent?.dish_name || recipe.name);
+    const familyKey = getRecipeVarietyFamilyKey(recipe) || buildRecipeDishFamilyKey(recipe);
+
+    return !(
+      (selectionKey && memory.selectionKeys.has(selectionKey)) ||
+      (nameKey && memory.names.has(nameKey)) ||
+      (familyKey && memory.familyKeys.has(familyKey))
+    );
+  });
 }
 
 function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOptions): RankedRecipeCandidate[] {
@@ -5719,6 +5798,31 @@ function enforcePreferredCuisineRecipes(
   }
 
   return filtered.slice(0, recipeCount);
+}
+
+/**
+ * Local references are evidence, not suggestions. For a named cuisine we
+ * never pad a source-backed result with another cuisine merely to reach the
+ * requested card count. The caller then uses grounded external sources for
+ * the remaining cards.
+ */
+function selectTrustedSourceCuisineRecipes(
+  recipes: Recipe[],
+  preferredCuisine: string | undefined,
+  availableIngredients: string[],
+  recipeCount: number
+) {
+  if (!preferredCuisine || preferredCuisine === "Any") {
+    return recipes.slice(0, recipeCount);
+  }
+
+  return recipes
+    .filter(
+      (recipe) =>
+        cuisineMatchesPreference(recipe.cuisine, preferredCuisine) &&
+        hasStrongSpecificCuisineIdentity(recipe, preferredCuisine, availableIngredients)
+    )
+    .slice(0, recipeCount);
 }
 
 function filterWeakSpecificCuisineRecipes(
@@ -6738,6 +6842,11 @@ function isIngredientAvailable(ingredient: string, availableIngredients: Set<str
 }
 
 function isSafeIngredientSubsetMatch(recipeIngredient: string, availableIngredient: string) {
+  const requiresSeparatePurchase = /\b(broth|stock|bouillon|stuffing|soup|sauce|powder|seasoning|extract|concentrate)\b/i;
+  if (requiresSeparatePurchase.test(recipeIngredient) || requiresSeparatePurchase.test(availableIngredient)) {
+    return false;
+  }
+
   return (
     (recipeIngredient.length >= 4 && availableIngredient.includes(recipeIngredient)) ||
     (availableIngredient.length >= 4 && recipeIngredient.includes(availableIngredient))
@@ -6765,6 +6874,9 @@ function normalizeIngredientForStrictMatch(value: string) {
   return isSparseGroundMeatSource(normalized) ? "ground meat" : normalized;
 }
 
+// Photo resolution is intentionally client-side for scanner responses so recipe
+// cards are not held behind cache/provider latency.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function applyImageFirstRecipeRanking(
   recipes: Recipe[],
   availableIngredientCount = 0,
@@ -6817,6 +6929,14 @@ async function applyImageFirstRecipeRanking(
   return ensureUniqueRecipePhotos(sortedRecipes.map(({ recipe }) => recipe));
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function selectPhotoRankingCandidates(recipes: Recipe[], recipeCount: number) {
+  // Keep source retrieval broad for quality and variety, but only score enough
+  // leading candidates to fill the visible card set with image-ready recipes.
+  return recipes.slice(0, Math.max(recipeCount * 3, 30));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function attachRecipePhotosPreservingOrder(
   recipes: Recipe[],
   options?: {

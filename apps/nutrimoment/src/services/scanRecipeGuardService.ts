@@ -40,52 +40,21 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
   const cuisineMatchedRecipes = prefersSpecificCuisine
     ? repaired.filter((recipe) => recipeMatchesPreferredCuisine(recipe, context.preferredCuisine))
     : repaired;
-  const requestedSeafood = signals.some((signal) => signal.kind === "seafood");
-  const seafoodMinimum = requestedSeafood
-    ? Math.min(context.recipeCount, Math.max(1, Math.ceil(context.recipeCount * 0.4)))
-    : 0;
-  const seafoodCount = cuisineMatchedRecipes.filter(recipeContainsSeafood).length;
-  const cuisineGap = prefersSpecificCuisine ? Math.max(0, context.recipeCount - cuisineMatchedRecipes.length) : 0;
-  const fallbackCount = Math.max(0, seafoodMinimum - seafoodCount, cuisineGap);
-  const canUseSeafoodFallback = requestedSeafood && dietAllowsSeafoodFallback(dietContext);
-  const fallbackRecipes =
-    canUseSeafoodFallback && fallbackCount > 0
-      ? filterRecipesByGuardRules(buildSeafoodFallbackRecipes(context, fallbackCount, wantsArabic), context, dietContext)
-      : [];
-
-  let merged = dedupeRecipes(orderDiverseRecipes([
+  const merged = dedupeRecipes(orderDiverseRecipes([
     ...cuisineMatchedRecipes.filter(recipeContainsSeafood),
     ...repaired.filter((recipe) => recipeContainsSeafood(recipe) && !cuisineMatchedRecipes.includes(recipe)),
-    ...fallbackRecipes,
     ...cuisineMatchedRecipes.filter((recipe) => !recipeContainsSeafood(recipe)),
     ...repaired.filter((recipe) => !cuisineMatchedRecipes.includes(recipe))
   ]));
 
-  if (canUseSeafoodFallback && merged.length < context.recipeCount) {
-    merged = dedupeRecipes(orderDiverseRecipes([
-      ...merged,
-      ...filterRecipesByGuardRules(
-        buildSeafoodFallbackRecipes(context, context.recipeCount - merged.length, wantsArabic),
-        context,
-        dietContext
-      )
-    ]));
-  }
-
-  if (merged.length < context.recipeCount) {
-    merged = dedupeRecipes(orderDiverseRecipes([
-      ...merged,
-      ...filterRecipesByGuardRules(
-        buildIngredientFallbackRecipes(context, signals, context.recipeCount - merged.length),
-        context,
-        dietContext
-      )
-    ]));
-  }
-
+  // This guard is allowed to reorder or reject existing recipes, never to
+  // invent extra cards. Source retrieval must supply every visible recipe.
   return merged.slice(0, context.recipeCount);
 }
 
+// These legacy builders remain available only while old catalog repair data is
+// migrated. The scan guard no longer invokes them to create visible recipes.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function dietAllowsSeafoodFallback(dietContext: { diets: string[]; allergens: string[] }) {
   const selectedDiets = new Set(dietContext.diets.map((diet) => diet.trim().toLowerCase()));
   if (!selectedDiets.has("pescatarian")) return false;
@@ -99,6 +68,7 @@ function dietAllowsSeafoodFallback(dietContext: { diets: string[]; allergens: st
   }, dietContext);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function filterRecipesByGuardRules(
   recipes: Recipe[],
   context: ScanRecipeGuardContext,
@@ -156,6 +126,7 @@ function repairIngredientOwnership(recipe: Recipe, signals: IngredientSignal[], 
   return wantsArabic ? ensureArabicRecipeLanguage(repaired) : repaired;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildSeafoodFallbackRecipes(context: ScanRecipeGuardContext, count: number, wantsArabic: boolean): Recipe[] {
   const preferredCuisine = context.preferredCuisine && context.preferredCuisine !== "Any"
     ? context.preferredCuisine
@@ -338,6 +309,7 @@ function buildSeafoodFallbackRecipes(context: ScanRecipeGuardContext, count: num
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildIngredientFallbackRecipes(
   context: ScanRecipeGuardContext,
   signals: IngredientSignal[],

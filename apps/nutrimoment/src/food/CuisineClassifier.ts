@@ -10,12 +10,22 @@ import {
  * recipe; low-confidence records are explicitly marked for optional review.
  */
 export class CuisineClassifier {
+  constructor(private readonly minimumConfidence = 75) {}
+
   classify(input: RecipeCuisineClassifierInput): RecipeCuisineClassification {
     return classifyRecipeCuisine(input);
   }
 
-  shouldEscalate(classification: RecipeCuisineClassification, minimumConfidence = 75) {
+  predict(input: RecipeCuisineClassifierInput): RecipeCuisineClassification {
+    return this.classify(input);
+  }
+
+  shouldEscalate(classification: RecipeCuisineClassification, minimumConfidence = this.minimumConfidence) {
     return classification.needsReview || classification.confidence < minimumConfidence;
+  }
+
+  shouldUseGenerativeInference(classification: RecipeCuisineClassification) {
+    return this.shouldEscalate(classification, this.minimumConfidence);
   }
 }
 

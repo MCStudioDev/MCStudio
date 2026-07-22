@@ -117,19 +117,18 @@ async function startServer() {
     retries = 1
   ): Promise<any> {
 
-    const { GoogleGenAI } = require("@google/generative-ai");
-
     if (!process.env.GEMINI_API_KEY) {
       throw new Error("API_KEY_MISSING");
     }
 
+    process.env.GOOGLE_API_KEY = process.env.GEMINI_API_KEY;
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const model = process.env.FAST_MODE === "true"
-      ? "gemini-1.5-flash"
-      : "gemini-1.5-pro";
+      ? process.env.GEMINI_FAST_MODEL || "gemini-2.5-flash-lite"
+      : process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
 
-    const parts = [{ text: prompt }];
+    const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: prompt }];
 
     if (imageBase64) {
       parts.push({

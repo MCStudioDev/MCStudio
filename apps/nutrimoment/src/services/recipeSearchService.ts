@@ -3,6 +3,7 @@ import { cuisineMatchesPreference, normalizeCuisineLabel } from "@/lib/cuisines"
 import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { OFFLINE_RECIPES } from "@/data/offline/recipes";
 import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
+import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 import type { RankedRecipeResult, RecipeCatalogDoc, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
 import { buildPreferenceProfile } from "@/lib/preferences";
 import {
@@ -37,9 +38,11 @@ import {
 } from "@/services/userRecipeCacheService";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { getIngredientCulinaryPaths } from "@/lib/IngredientKnowledgeGraph";
+import { IngredientGraph } from "@/food/IngredientGraph";
 import { RecipeDiversityEngine } from "@/food/RecipeDiversityEngine";
 
 const recipeDiversityEngine = new RecipeDiversityEngine();
+const ingredientGraph = new IngredientGraph();
 
 export interface CatalogRecipeSearchInput {
   ingredients: string[];
@@ -90,19 +93,43 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
         : await listSharedCachedRecipes();
   const seededRecipes = OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe));
   const primaryRecipePool = dedupeCatalogRecipes([...userCachedRecipes, ...sharedCachedRecipes, ...seededRecipes]);
-  const ranked = rankRecipes({
-    recipes: primaryRecipePool,
-    normalizedIngredients: expandedNormalizedIngredients,
-    culinaryDishFamilies,
-    preferredCuisine: preferences.preferredCuisine,
-    maxCalories: preferences.nutritionGoals.maxCalories,
-    mealType: input.mealType,
-    preferences
-  });
+  const cuisineSearchOrder = buildCuisineSearchOrder(input.ingredients, preferences.preferredCuisine);
+  const ranked = cuisineSearchOrder.length
+    ? mergeCuisineRankedResults(
+        cuisineSearchOrder.map((cuisine, index) =>
+          filterRankedResultsForSpecificCuisineQuality(
+            rankRecipes({
+              recipes: primaryRecipePool,
+              normalizedIngredients: expandedNormalizedIngredients,
+              culinaryDishFamilies,
+              preferredCuisine: cuisine,
+              maxCalories: preferences.nutritionGoals.maxCalories,
+              mealType: input.mealType,
+              preferences
+            }),
+            primaryRecipePool,
+            cuisine
+          ).map((result) => ({
+            ...result,
+            score: result.score + Math.max(0, cuisineSearchOrder.length - index) * 0.1
+          }))
+        )
+      )
+    : rankRecipes({
+        recipes: primaryRecipePool,
+        normalizedIngredients: expandedNormalizedIngredients,
+        culinaryDishFamilies,
+        preferredCuisine: preferences.preferredCuisine,
+        maxCalories: preferences.nutritionGoals.maxCalories,
+        mealType: input.mealType,
+        preferences
+      });
   const ingredientMatchedRanked = ranked.filter(
     (result) => result.matchedRequiredCount + result.matchedOptionalCount > 0
   );
-  const rankedResults = filterRankedResultsForSpecificCuisineQuality(
+  const rankedResults = cuisineSearchOrder.length
+    ? (ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked)
+    : filterRankedResultsForSpecificCuisineQuality(
     ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked,
     primaryRecipePool,
     preferences.preferredCuisine
@@ -133,6 +160,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     ingredientsNormalized: normalized.normalized,
     recipes,
     servedFrom: "shared_pool",
+    generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
     canLoadMore:
       rankedResults.length > topRanked.length || primaryRecipePool.length > limit,
     rankedRecipeIds: topRanked.map((item) => item.recipeId),
@@ -338,6 +366,29 @@ function selectDisplayLocalizedVariant(recipe: RecipeCatalogDoc, englishBase: Re
 
 function dedupeCatalogRecipes(recipes: RecipeCatalogDoc[]) {
   return Array.from(new Map(recipes.map((recipe) => [recipe.id, recipe])).values());
+}
+
+function buildCuisineSearchOrder(ingredients: string[], preferredCuisine: string) {
+  if (preferredCuisine && preferredCuisine !== "Any") return [];
+  return ingredientGraph.possibleCuisines(ingredients, preferredCuisine).slice(0, 8);
+}
+
+function mergeCuisineRankedResults(searches: RankedRecipeResult[][]) {
+  const selected = new Map<string, RankedRecipeResult>();
+  const maxLength = Math.max(0, ...searches.map((items) => items.length));
+
+  for (let index = 0; index < maxLength; index += 1) {
+    for (const results of searches) {
+      const result = results[index];
+      if (!result) continue;
+      const current = selected.get(result.recipeId);
+      if (!current || result.score > current.score) {
+        selected.set(result.recipeId, result);
+      }
+    }
+  }
+
+  return Array.from(selected.values());
 }
 
 function selectDistinctRankedResults(

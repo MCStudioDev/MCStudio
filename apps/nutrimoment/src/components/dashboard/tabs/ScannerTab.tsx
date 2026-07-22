@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, ChefHat, Lock, Plus, Sparkles, Upload, Utensils, X } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChefHat, Info, Lock, Plus, Search, Sparkles, Upload, Utensils, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -25,6 +25,7 @@ import { buildRecipePhotoReuseKeyCandidates } from "@/lib/recipePhotoReuse";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import type { TranslationKey } from "@/lib/translations";
+import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 import {
   forgetPendingRecipeHistoryId,
   isLikelyBackgroundFetchInterruption,
@@ -191,6 +192,7 @@ export function ScannerTab() {
   const [scanLoading, setScanLoading] = useState(false);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [recipeGenerationStatus, setRecipeGenerationStatus] = useState<RecipeGenerationStatus | null>(null);
   const [imageRepairVersion, setImageRepairVersion] = useState(0);
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -794,6 +796,7 @@ export function ScannerTab() {
     const requestVersion = recipeRequestVersionRef.current + 1;
     recipeRequestVersionRef.current = requestVersion;
     setRecipeLoading(true);
+    setRecipeGenerationStatus(null);
     let pendingEntryId: string | null = null;
     try {
       const ingredientNames = ingredients.map((item) => item.name);
@@ -830,15 +833,13 @@ export function ScannerTab() {
       const data = (await response.json()) as {
         result?: string;
         error?: string;
-        servedFrom?: "shared_pool" | "fallback_ai" | "mock";
-        fallbackNotice?: string;
+        message?: string;
+        servedFrom?: "shared_pool" | "fallback_ai" | "mock" | "recipe_reference" | "local_recipe_sources";
+        generationStatus?: RecipeGenerationStatus;
       };
       await refreshAccess();
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to generate recipes");
-      }
-      if (data.fallbackNotice) {
-        setError(data.fallbackNotice);
       }
 
       const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "[]", []);
@@ -846,9 +847,16 @@ export function ScannerTab() {
         return;
       }
 
+      setRecipeGenerationStatus(
+        resolveRecipeGenerationStatus(data.generationStatus, data.servedFrom, nextRecipes.length, settings.recipeCount)
+      );
       setRecipes(nextRecipes);
       if (!nextRecipes.length) {
         setHistoryEntryId(null);
+        if (pendingEntryId) {
+          notifiedHistoryEntriesRef.current.add(pendingEntryId);
+          forgetPendingRecipeHistoryId(pendingEntryId);
+        }
         return;
       }
       setHistoryEntryId(pendingEntryId);
@@ -864,6 +872,7 @@ export function ScannerTab() {
         forgetPendingRecipeHistoryId(pendingEntryId);
       }
       setError(message);
+      setRecipeGenerationStatus(null);
     } finally {
       setRecipeLoading(false);
     }
@@ -1256,6 +1265,7 @@ export function ScannerTab() {
           </div>
         ) : recipes.length ? (
           <div className="space-y-4">
+            <RecipeGenerationStatusCard status={recipeGenerationStatus} rtl={rtl} />
             <ResultLegalNotice mode="recipes" />
             <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
               {recipes.map((recipe, index) => (
@@ -1325,6 +1335,8 @@ export function ScannerTab() {
               ))}
             </div>
           </div>
+        ) : recipeGenerationStatus === RecipeGenerationStatus.NO_RESULTS ? (
+          <RecipeGenerationStatusCard status={recipeGenerationStatus} rtl={rtl} />
         ) : (
           <EmptyState
             title={t("readyToCook")}
@@ -1349,6 +1361,103 @@ export function ScannerTab() {
       />
     </motion.div>
   );
+}
+
+function resolveRecipeGenerationStatus(
+  status: RecipeGenerationStatus | undefined,
+  servedFrom: string | undefined,
+  recipeCount: number,
+  requestedCount: number
+) {
+  if (status) return status;
+  if (recipeCount <= 0) return RecipeGenerationStatus.NO_RESULTS;
+  if (recipeCount < requestedCount) return RecipeGenerationStatus.PARTIAL_RESULTS;
+  if (servedFrom === "fallback_ai" || servedFrom === "mock") return RecipeGenerationStatus.SUCCESS_AI;
+  return RecipeGenerationStatus.SUCCESS_DATASET;
+}
+
+function RecipeGenerationStatusCard({
+  rtl,
+  status
+}: {
+  rtl: boolean;
+  status: RecipeGenerationStatus | null;
+}) {
+  if (!status) return null;
+
+  const copy = getRecipeGenerationStatusCopy(status, rtl);
+  const Icon = copy.icon;
+
+  return (
+    <div
+      role={status === RecipeGenerationStatus.NO_RESULTS ? "alert" : "status"}
+      aria-live="polite"
+      className={cn(
+        "rounded-[1.15rem] border px-4 py-3 text-sm shadow-[0_18px_55px_rgba(20,184,166,0.10)]",
+        copy.className
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+        <div className="space-y-1">
+          <p className="font-semibold">{copy.title}</p>
+          <p className="text-xs leading-relaxed opacity-80">{copy.detail}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: boolean) {
+  const copies = {
+    [RecipeGenerationStatus.SUCCESS_AI]: {
+      icon: CheckCircle2,
+      className: "border-emerald-200/28 bg-emerald-400/12 text-emerald-50",
+      title: rtl ? "\u062a\u0645 \u0625\u0646\u0634\u0627\u0621 \u0648\u0635\u0641\u0627\u062a \u0645\u062e\u0635\u0635\u0629" : "Custom recipes are ready",
+      detail: rtl
+        ? "\u0627\u0644\u0648\u0635\u0641\u0627\u062a \u0645\u0628\u0646\u064a\u0629 \u0639\u0644\u0649 \u0645\u0643\u0648\u0646\u0627\u062a\u0643 \u0648\u062a\u0641\u0636\u064a\u0644\u0627\u062a\u0643."
+        : "These recipes were tailored to your ingredients and preferences."
+    },
+    [RecipeGenerationStatus.SUCCESS_DATASET]: {
+      icon: Search,
+      className: "border-sky-200/28 bg-sky-400/12 text-sky-50",
+      title: rtl ? "\u0648\u062c\u062f\u0646\u0627 \u0648\u0635\u0641\u0627\u062a \u0645\u0646\u0627\u0633\u0628\u0629" : "We found matching recipes",
+      detail: rtl
+        ? "\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0648\u0635\u0641\u0627\u062a \u062a\u0646\u0627\u0633\u0628 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a \u0627\u0644\u062a\u064a \u0623\u0636\u0641\u062a\u0647\u0627."
+        : "These recipes match the ingredients you added."
+    },
+    [RecipeGenerationStatus.SUCCESS_CACHE]: {
+      icon: Info,
+      className: "border-cyan-200/28 bg-cyan-400/12 text-cyan-50",
+      title: rtl ? "\u0648\u062c\u062f\u0646\u0627 \u0648\u0635\u0641\u0627\u062a \u062c\u0627\u0647\u0632\u0629" : "Ready recipes found",
+      detail: rtl
+        ? "\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0648\u0635\u0641\u0627\u062a \u0645\u0646\u0627\u0633\u0628\u0629 \u0628\u0633\u0631\u0639\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a."
+        : "We quickly matched recipes that fit these ingredients."
+    },
+    [RecipeGenerationStatus.PARTIAL_RESULTS]: {
+      icon: Info,
+      className: "border-amber-200/30 bg-amber-400/12 text-amber-50",
+      title: rtl ? "\u0639\u0631\u0636\u0646\u0627 \u0623\u0641\u0636\u0644 \u0627\u0644\u0646\u062a\u0627\u0626\u062c" : "Best available matches",
+      detail: rtl
+        ? "\u0642\u062f \u062a\u0638\u0647\u0631 \u0646\u062a\u0627\u0626\u062c \u0623\u0643\u062b\u0631 \u0625\u0630\u0627 \u0623\u0636\u0641\u062a \u0645\u0643\u0648\u0646\u0627\u062a \u0623\u0648 \u063a\u064a\u0631\u062a \u0627\u0644\u0645\u0637\u0628\u062e."
+        : "Adding another ingredient or changing the cuisine may unlock more options."
+    },
+    [RecipeGenerationStatus.NO_RESULTS]: {
+      icon: AlertTriangle,
+      className: "border-amber-200/34 bg-amber-400/14 text-amber-50",
+      title: rtl ? "\u0644\u0645 \u0646\u062c\u062f \u0648\u0635\u0641\u0627\u062a \u0645\u0646\u0627\u0633\u0628\u0629" : "No matching recipes yet",
+      detail: rtl
+        ? "\u062c\u0631\u0628 \u0625\u0636\u0627\u0641\u0629 \u0645\u0643\u0648\u0646 \u0622\u062e\u0631 \u0623\u0648 \u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0645\u0637\u0628\u062e \u0644\u0646\u0642\u062a\u0631\u062d \u0648\u0635\u0641\u0627\u062a \u0623\u0641\u0636\u0644."
+        : "Try adding another ingredient or changing the cuisine for better matches."
+    }
+  } satisfies Record<RecipeGenerationStatus, {
+    icon: LucideIcon;
+    className: string;
+    title: string;
+    detail: string;
+  }>;
+
+  return copies[status];
 }
 
 function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {

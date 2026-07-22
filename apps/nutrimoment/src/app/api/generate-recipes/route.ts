@@ -2,7 +2,6 @@ import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 import { PromptBuilder } from "@/ai/PromptBuilder";
 import {
-  getClientFacingAiErrorMessage,
   isTransientModelError,
   USE_MOCK,
   callOpenAIVision,
@@ -11,12 +10,11 @@ import {
 } from "@/lib/openai";
 import {
   isFirebaseTransientError,
-  accessErrorResponse,
   accessPayload,
   canUseApiFeature,
   consumeFreeAiCredit,
 } from "@/services/authService";
-import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
+import { applyRateLimit, rateLimitHeaders } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { repairScanRecipesWithGuard } from "@/services/scanRecipeGuardService";
@@ -75,6 +73,7 @@ import { adaptRecipeForHealthConditions, findRecipeHealthViolation } from "@/lib
 import type { RecipeReferencePromptRecipe } from "@/lib/recipeReferenceTypes";
 import { getOrCreateRecipeEditorCache } from "@/services/recipeEditorSemanticCache";
 import { RecipeQualityGate } from "@/services/recipeQualityGate";
+import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
 const MIN_RECIPE_RESULT_COUNT = 1;
@@ -218,9 +217,8 @@ export async function POST(request: Request) {
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
-    // Free users with remaining trial credits should still receive fresh
-    // Gemini recipes. The shared pool is the fallback for exhausted credits
-    // or AI failures, not the default for every free account.
+    // Free users with remaining trial credits can receive freshly generated
+    // recipes. Curated matches are the first successful path, not an error.
     const isFreeTier = !requestAccess.isPremium && !requestAccess.isAdmin;
     const rl = applyRateLimit({
       uid: requestAccess.uid,
@@ -229,13 +227,23 @@ export async function POST(request: Request) {
       bypass: requestAccess.isAdmin
     });
     if (!rl.decision.allowed) {
-      return rateLimitedResponse(rl.decision, rl.config);
+      return Response.json(
+        {
+          error: "Recipe generation is busy right now. Please try again shortly.",
+          generationStatus: RecipeGenerationStatus.NO_RESULTS,
+          retryAfterSeconds: rl.decision.retryAfterSeconds
+        },
+        {
+          status: 429,
+          headers: rateLimitHeaders(rl.decision, rl.config)
+        }
+      );
     }
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
       return Response.json(
-        { error: "No ingredients provided" },
+        { error: "Add at least one ingredient to generate recipes.", generationStatus: RecipeGenerationStatus.NO_RESULTS },
         { status: 400 }
       );
     }
@@ -246,6 +254,7 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error: "Scan fridge recipe generation is a premium feature. Add ingredients manually to generate free recipe cards.",
+          generationStatus: RecipeGenerationStatus.NO_RESULTS,
           access: accessPayload(requestAccess)
         },
         { status: 403 }
@@ -259,7 +268,7 @@ export async function POST(request: Request) {
     const recipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
     if (!ingredients.length && !parsed.data.referenceImage) {
       return Response.json(
-        { error: "No ingredients or reference image provided" },
+        { error: "Add at least one ingredient to generate recipes.", generationStatus: RecipeGenerationStatus.NO_RESULTS },
         { status: 400 }
       );
     }
@@ -276,8 +285,8 @@ export async function POST(request: Request) {
     const expandedNormalizedIngredientNames = expandIngredientFamilies(normalizedIngredientNames);
     const scoringIngredients = Array.from(new Set([...ingredients, ...expandedNormalizedIngredientNames]));
     // Server-side hard filter context for diet + allergens. Used to drop
-    // anything Gemini returns that violates the user's rules, regardless of
-    // how confidently the prompt asked Gemini to respect them.
+    // anything generated that violates the user's rules, regardless of
+    // how confidently the prompt asked the model to respect them.
     const dietContext: DietEnforcementContext = {
       diets: parsed.data.diets ?? [],
       allergens: parsed.data.allergens ?? []
@@ -537,6 +546,7 @@ export async function POST(request: Request) {
         recipes: finalRecipes,
         result: JSON.stringify(finalRecipes),
         servedFrom: "mock",
+        generationStatus: RecipeGenerationStatus.SUCCESS_AI,
         access: accessPayload(nextAccess)
       });
     }
@@ -641,6 +651,7 @@ export async function POST(request: Request) {
               recipes: finalRecipes,
               result: JSON.stringify(finalRecipes),
               servedFrom: "recipe_reference",
+              generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
               canLoadMore: recipeReferences.length > recipeCount,
               access: accessPayload(requestAccess)
             });
@@ -705,6 +716,7 @@ export async function POST(request: Request) {
             recipes: validatedLocalSourceRecipes,
             result: JSON.stringify(validatedLocalSourceRecipes),
             servedFrom: "local_recipe_sources",
+            generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
             canLoadMore: recipeReferences.length + strictCatalogRecipes.length > recipeCount,
             access: accessPayload(requestAccess)
           });
@@ -723,63 +735,89 @@ export async function POST(request: Request) {
       }
     }
 
-    // Credit-exhausted users fall through to the curated catalog / shared
-    // recipe pool. Users with remaining free trial credits continue below
-    // into the Gemini generation path.
-    if (!accessCheck.allowed) {
-      const searchResult = await loadSharedRecipeSearchResult();
-      const reasonKind = "credits_used_shared_pool";
-      logger.info("Recipe generation served from shared recipe pool", {
-        reason: reasonKind,
-        accessReason: accessCheck.reason,
-        recipeCount: searchResult.recipes.length,
-        isFreeTier
-      });
-      const strictRecipes = rankStrictRecipes(
+    const datasetSearchResult = ingredients.length ? await loadSharedRecipeSearchResult() : null;
+    if (datasetSearchResult) {
+      const strictDatasetRecipes = rankStrictRecipes(
         enforceDietOnRecipes(
-          applyStrictIngredientOwnership(searchResult.recipes, availableIngredients, {
+          applyStrictIngredientOwnership(datasetSearchResult.recipes, availableIngredients, {
             preferredCuisine: parsed.data.preferredCuisine,
             diets: parsed.data.diets,
             conditions: parsed.data.conditions,
             allergens: parsed.data.allergens
           }),
-          "catalog_free_tier"
+          "recipe_dataset_primary"
         ),
-          sourceRankingOptions
+        sourceRankingOptions
       );
-      const finalRecipes = await finalizeRecipeResponse(
-        mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
+      const finalDatasetRecipes = await finalizeRecipeResponse(
+        mergeRecipeResults(exactScanMatch, strictDatasetRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
       );
-      await queueRecipeCachePersist({
-        uid: requestAccess.uid,
-        recipeLanguage,
-        recipes: finalRecipes,
-        dietContext
-      });
-      await persistRecipeGenerationHistoryEntry({
-        historyEntryId,
-        recipes: finalRecipes,
-        status: "completed",
-        uid: requestAccess.uid
-      });
-      logger.info("Recipe generation request completed", {
+
+      if (finalDatasetRecipes.length) {
+        await queueRecipeCachePersist({
+          uid: requestAccess.uid,
+          recipeLanguage,
+          recipes: finalDatasetRecipes,
+          dietContext
+        });
+        await persistRecipeGenerationHistoryEntry({
+          historyEntryId,
+          recipes: finalDatasetRecipes,
+          status: "completed",
+          uid: requestAccess.uid
+        });
+        logger.info("Recipe generation served from recipe dataset before AI", {
+          ...aiTraceSummary,
+          servedFrom: datasetSearchResult.servedFrom,
+          recipeCountReturned: finalDatasetRecipes.length
+        });
+        return Response.json({
+          recipes: finalDatasetRecipes,
+          result: JSON.stringify(finalDatasetRecipes),
+          servedFrom: datasetSearchResult.servedFrom,
+          generationStatus:
+            finalDatasetRecipes.length < recipeCount
+              ? RecipeGenerationStatus.PARTIAL_RESULTS
+              : RecipeGenerationStatus.SUCCESS_DATASET,
+          canLoadMore: datasetSearchResult.canLoadMore,
+          access: accessPayload(requestAccess)
+        });
+      }
+
+      logger.info("Recipe dataset search did not produce response-ready recipes; trying custom generation", {
         ...aiTraceSummary,
-        servedFrom: searchResult.servedFrom,
-        recipeCountReturned: finalRecipes.length,
+        candidateCount: datasetSearchResult.recipes.length
+      });
+    }
+
+    // If the dataset could not produce usable cards, only users with available
+    // generation access continue into custom generation. Otherwise the client gets a friendly
+    // empty-state message instead of a shared-pool warning.
+    if (!accessCheck.allowed) {
+      const message = buildRecipeUnavailableMessage(recipeLanguage);
+      logger.info("Recipe generation stopped after empty dataset search and unavailable AI access", {
+        accessReason: accessCheck.reason,
         isFreeTier
       });
+      await persistRecipeGenerationHistoryEntry({
+        errorMessage: message,
+        historyEntryId,
+        recipes: [],
+        status: "failed",
+        uid: requestAccess.uid
+      });
       return Response.json({
-        recipes: finalRecipes,
-        result: JSON.stringify(finalRecipes),
-        servedFrom: searchResult.servedFrom,
-        canLoadMore: searchResult.canLoadMore,
-        fallbackNotice: buildRecipeFallbackNotice(reasonKind, recipeLanguage),
+        message,
+        recipes: [],
+        result: "[]",
+        servedFrom: "shared_pool",
+        generationStatus: RecipeGenerationStatus.NO_RESULTS,
+        canLoadMore: false,
         access: accessPayload(requestAccess)
       });
     }
 
     const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
-    let offlineFallbackKind: "ai_unavailable_shared_pool" | "ai_busy_shared_pool" = "ai_unavailable_shared_pool";
 
     try {
       ensureAiAvailable();
@@ -1019,7 +1057,7 @@ export async function POST(request: Request) {
           status: "completed",
           uid: requestAccess.uid
         });
-        logger.info("Recipe generation served from Gemini fallback AI", {
+        logger.info("Recipe generation served from custom generation", {
           recipeCount: finalRecipes.length,
           hasExactScanMatch: Boolean(exactScanMatch)
         });
@@ -1034,15 +1072,15 @@ export async function POST(request: Request) {
           ...responsePayload,
           recipes: finalRecipes,
           servedFrom: "fallback_ai",
+          generationStatus: RecipeGenerationStatus.SUCCESS_AI,
           result: JSON.stringify(finalRecipes),
           access: accessPayload(nextAccess)
         });
       }
     } catch (aiError) {
-      if (isTransientAiOverload(aiError)) {
-        offlineFallbackKind = "ai_busy_shared_pool";
-      }
-      logger.error("AI recipe generation failed; using shared recipe pool fallback", aiError);
+      logger.error("AI recipe generation failed after empty dataset search", aiError, {
+        transientOverload: isTransientAiOverload(aiError)
+      });
     }
 
     const recipeReferences = await recipeReferencesPromise;
@@ -1071,6 +1109,26 @@ export async function POST(request: Request) {
     const finalRecipes = await finalizeRecipeResponse(
       mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
     );
+    if (!finalRecipes.length) {
+      const message = buildRecipeUnavailableMessage(recipeLanguage);
+      await persistRecipeGenerationHistoryEntry({
+        errorMessage: message,
+        historyEntryId,
+        recipes: [],
+        status: "failed",
+        uid: requestAccess.uid
+      });
+      return Response.json({
+        message,
+        recipes: [],
+        result: "[]",
+        servedFrom: "shared_pool",
+        generationStatus: RecipeGenerationStatus.NO_RESULTS,
+        canLoadMore: false,
+        access: accessPayload(nextAccess)
+      });
+    }
+
     await queueRecipeCachePersist({
       uid: requestAccess.uid,
       recipeLanguage,
@@ -1088,16 +1146,16 @@ export async function POST(request: Request) {
       servedFrom: "shared_pool",
       recipeCountReturned: finalRecipes.length
     });
-    const fallbackNotice =
-      offlineFallbackKind === "ai_busy_shared_pool" && finalRecipes.length
-        ? undefined
-        : buildRecipeFallbackNotice(offlineFallbackKind, recipeLanguage);
+
     return Response.json({
       recipes: finalRecipes,
       result: JSON.stringify(finalRecipes),
       servedFrom: referenceFallbackRecipes.length ? "recipe_reference" : "shared_pool",
+      generationStatus:
+        finalRecipes.length < recipeCount
+          ? RecipeGenerationStatus.PARTIAL_RESULTS
+          : RecipeGenerationStatus.SUCCESS_DATASET,
       canLoadMore: searchResult?.canLoadMore ?? recipeReferences.length > recipeCount,
-      fallbackNotice,
       access: accessPayload(nextAccess)
     });
   } catch (error) {
@@ -1114,14 +1172,19 @@ export async function POST(request: Request) {
         requestId,
         errorMessage: error instanceof Error ? error.message : String(error)
       });
-      return accessErrorResponse(error);
+      const message =
+        error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Premium"))
+          ? error.message
+          : "Recipe generation is temporarily unavailable. Please try again shortly.";
+      const status = isFirebaseTransientError(error) || message.includes("temporarily unavailable") ? 503 : 401;
+      return Response.json(
+        { error: message, generationStatus: RecipeGenerationStatus.NO_RESULTS, recipes: [], result: "[]" },
+        { status }
+      );
     }
     logger.error("Error generating recipes", error, { requestId });
-    const message = error instanceof Error ? error.message : "Failed to generate recipes";
-    const status = message.includes("GEMINI_API_KEY") ? 503 : isTransientModelError(error) ? 503 : 500;
-    const safeMessage = isTransientModelError(error)
-      ? getClientFacingAiErrorMessage(error, "Recipe generation is temporarily unavailable. Please try again in a few minutes.")
-      : message;
+    const safeMessage = buildRecipeUnavailableMessage("English");
+    const status = 200;
     await persistRecipeGenerationHistoryEntry({
       errorMessage: safeMessage,
       historyEntryId,
@@ -1130,7 +1193,7 @@ export async function POST(request: Request) {
       uid: historyUid
     });
     return Response.json(
-      { error: safeMessage },
+      { message: safeMessage, generationStatus: RecipeGenerationStatus.NO_RESULTS, recipes: [], result: "[]" },
       { status }
     );
   }
@@ -5580,44 +5643,12 @@ function clampRecipeCount(value?: number, maxRecipeCount = MAX_SHARED_POOL_RECIP
   return Math.min(maxRecipeCount, Math.max(MIN_RECIPE_RESULT_COUNT, Number(value)));
 }
 
-function buildRecipeFallbackNotice(
-  kind:
-    | "credits_used_shared_pool"
-    | "ai_unavailable_shared_pool"
-    | "ai_busy_shared_pool"
-    | "free_plan_shared_pool",
-  recipeLanguage: string
-) {
-  const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
-  if (wantsArabic && kind === "ai_busy_shared_pool") {
-    return "خدمة توليد الوصفات مشغولة حالياً، لذا عرضنا أفضل الوصفات المطابقة المتاحة الآن.";
+function buildRecipeUnavailableMessage(recipeLanguage: string) {
+  if (!isArabicRecipeLanguage(recipeLanguage)) {
+    return "We could not find a good recipe match for those ingredients right now. Try adding one more ingredient or changing the cuisine.";
   }
 
-  if (!wantsArabic) {
-    if (kind === "credits_used_shared_pool") {
-      return "Your 10 free recipe generations are used. These recipes are from the shared recipe pool.";
-    }
-
-    if (kind === "free_plan_shared_pool") {
-      return "Free plan: these recipes come from our curated kitchen library. Upgrade to premium for fresh AI-generated cards.";
-    }
-
-    if (kind === "ai_busy_shared_pool") {
-      return "AI recipe generation is busy right now, so we showed the best matches from the shared recipe pool.";
-    }
-
-    return "AI recipe generation was unavailable, so we used matches from the shared recipe pool.";
-  }
-
-  if (kind === "credits_used_shared_pool") {
-    return "تم استهلاك 10 طلبات توليد وصفات مجانية. هذه الوصفات من مجموعة الوصفات المشتركة.";
-  }
-
-  if (kind === "free_plan_shared_pool") {
-    return "الخطة المجانية: هذه الوصفات من مكتبتنا المختارة. ترقّى للبريميوم للحصول على وصفات جديدة توليدية.";
-  }
-
-  return "تعذر توليد الوصفات بالذكاء الاصطناعي، لذلك استخدمنا مطابقات من مجموعة الوصفات المشتركة.";
+  return "\u0644\u0645 \u0646\u062c\u062f \u0648\u0635\u0641\u0629 \u0645\u0646\u0627\u0633\u0628\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a \u0627\u0644\u0622\u0646. \u062c\u0631\u0628 \u0625\u0636\u0627\u0641\u0629 \u0645\u0643\u0648\u0646 \u0622\u062e\u0631 \u0623\u0648 \u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0645\u0637\u0628\u062e.";
 }
 
 /**

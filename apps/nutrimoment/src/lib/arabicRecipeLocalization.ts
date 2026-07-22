@@ -1,7 +1,9 @@
 ﻿import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
+import { ARABIC_CULINARY_DICTIONARY } from "@/data/culinary/arabicCulinaryDictionary";
 
 const RECIPE_TITLES: Record<string, string> = {
+  ...ARABIC_CULINARY_DICTIONARY.dishTitles,
   "Kofta": "كفتة",
   "Egyptian Kofta": "كفتة مصرية",
   "Kofta Kebab": "كفتة مشوية",
@@ -157,6 +159,7 @@ const CUISINES: Record<string, string> = {
 };
 
 const INGREDIENTS: Record<string, string> = {
+  ...ARABIC_CULINARY_DICTIONARY.ingredients,
   "greek yogurt": "زبادي يوناني",
   "mixed berries": "توت مشكل",
   granola: "جرانولا",
@@ -439,6 +442,9 @@ const STEP_TRANSLATIONS: Record<string, string> = {
 };
 
 const REVERSE_RECIPE_TITLES = reverseLookup(RECIPE_TITLES);
+const NORMALIZED_RECIPE_TITLE_LOOKUP: Record<string, string> = Object.fromEntries(
+  Object.entries(RECIPE_TITLES).map(([title, localizedTitle]) => [normalizeTranslationKey(title), localizedTitle])
+);
 const REVERSE_CUISINES = reverseLookup(CUISINES);
 const REVERSE_INGREDIENTS = reverseLookup(INGREDIENTS);
 const REVERSE_STEP_TRANSLATIONS = reverseLookup(STEP_TRANSLATIONS);
@@ -566,7 +572,7 @@ export function isArabicRecipeLanguage(language?: string) {
 }
 
 function translateRecipeTitle(value: string) {
-  const exact = RECIPE_TITLES[value];
+  const exact = RECIPE_TITLES[value] ?? NORMALIZED_RECIPE_TITLE_LOOKUP[normalizeTranslationKey(value)];
   if (exact) return exact;
   if (!/[A-Za-z]/.test(value)) return value;
   // Recipe titles must be localized by meaning. Do not turn an unknown Latin

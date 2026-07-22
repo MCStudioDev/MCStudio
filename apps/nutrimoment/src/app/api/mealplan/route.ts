@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
-import { buildMealPlanPrompt, buildMealPlanRepairPrompt } from "@/lib/aiPrompts";
+import { PromptBuilder } from "@/ai/PromptBuilder";
 import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson, getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/openai";
 import { normalizeMealPlanData, sanitizeMealPlanForFirestore } from "@/lib/mealPlan";
 import {
@@ -273,7 +273,7 @@ export async function POST(request: Request) {
 
       try {
         const repairText = await callOpenAIText(
-          buildMealPlanRepairPrompt({
+          PromptBuilder.mealPlanRepair({
             pantry: dietCompatiblePantry,
             pantryItems: pantryStock,
             diets: parsed.data.diets ?? [],
@@ -374,7 +374,7 @@ export async function POST(request: Request) {
     try {
       ensureAiAvailable();
       const text = await callOpenAIText(
-        buildMealPlanPrompt({
+        PromptBuilder.mealPlan({
           pantry: dietCompatiblePantry,
           pantryItems: pantryStock,
           diets: parsed.data.diets ?? [],

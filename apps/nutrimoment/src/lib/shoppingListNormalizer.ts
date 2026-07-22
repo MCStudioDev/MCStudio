@@ -509,7 +509,17 @@ function formatShoppingAmount(item: ShoppingAmount, displayLanguage: ShoppingLan
 }
 
 function localizeIngredientLabel(canonical: string, displayLanguage: ShoppingLanguage) {
-  return displayLanguage === "ar" ? translateIngredientToArabic(canonical) : translateIngredientToEnglish(canonical);
+  const label = displayLanguage === "ar" ? translateIngredientToArabic(canonical) : translateIngredientToEnglish(canonical);
+  return cleanShoppingDisplayLabel(label);
+}
+
+function cleanShoppingDisplayLabel(label: string) {
+  return label
+    .replace(ENGLISH_DESCRIPTOR_PATTERN, " ")
+    .replace(ARABIC_DESCRIPTOR_PATTERN, " ")
+    .replace(ARABIC_DESCRIPTOR_PATTERN_UNICODE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function localizeUnit(unit: string, displayLanguage: ShoppingLanguage) {

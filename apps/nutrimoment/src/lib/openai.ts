@@ -25,6 +25,9 @@ export interface AiTextGenerationOptions {
   groundWithGoogleSearch?: boolean;
   temperature?: number;
   topP?: number;
+  systemInstruction?: string;
+  responseMimeType?: string;
+  responseJsonSchema?: Record<string, unknown>;
 }
 
 const rawUseMock = process.env.USE_MOCK_API === "true";
@@ -179,6 +182,9 @@ export async function callOpenAIText(
             contents: prompt,
             config: {
               abortSignal: controller.signal,
+              ...(options?.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
+              ...(options?.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
+              ...(options?.responseJsonSchema ? { responseJsonSchema: options.responseJsonSchema } : {}),
               ...(options?.groundWithGoogleSearch ? { tools: [{ googleSearch: {} }] } : {}),
               ...(typeof options?.temperature === "number" ? { temperature: options.temperature } : {}),
               ...(typeof options?.topP === "number" ? { topP: options.topP } : {}),

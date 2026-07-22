@@ -15,6 +15,48 @@ type CuisineRule = {
   titleWeights?: Array<[RegExp, number, string]>;
 };
 
+export interface RecipeCuisineClassifierInput {
+  title: string;
+  ingredients: string[];
+  directions: string[];
+}
+
+export interface RecipeCuisineClassification {
+  cuisine: string;
+  confidence: number;
+  signals: string[];
+  candidates: Array<{ cuisine: string; score: number }>;
+  needsReview: boolean;
+}
+
+const CULINARY_SIGNAL_RULES: Array<{
+  cuisine: string;
+  kind: "technique" | "sauce" | "herb";
+  pattern: RegExp;
+  weight: number;
+  signal: string;
+}> = [
+  { cuisine: "Egyptian", kind: "technique", pattern: /\b(stew|stuffed|mahshi|braise)\b/i, weight: 8, signal: "egyptian technique marker" },
+  { cuisine: "Egyptian", kind: "herb", pattern: /\b(dill|parsley|coriander)\b/i, weight: 5, signal: "egyptian herb marker" },
+  { cuisine: "Turkish", kind: "technique", pattern: /\b(grill|skewer|stuffed|bake)\b/i, weight: 6, signal: "turkish technique marker" },
+  { cuisine: "Turkish", kind: "herb", pattern: /\b(dill|mint|parsley)\b/i, weight: 5, signal: "turkish herb marker" },
+  { cuisine: "Indian", kind: "technique", pattern: /\b(tandoor|temper|tadka|curry|simmer)\b/i, weight: 12, signal: "indian technique marker" },
+  { cuisine: "Indian", kind: "sauce", pattern: /\b(curry sauce|masala sauce|makhani)\b/i, weight: 10, signal: "indian sauce marker" },
+  { cuisine: "Indian", kind: "herb", pattern: /\b(cilantro|coriander leaves|curry leaves)\b/i, weight: 7, signal: "indian herb marker" },
+  { cuisine: "Mexican", kind: "technique", pattern: /\b(grill|char|roast|fry)\b/i, weight: 5, signal: "mexican technique marker" },
+  { cuisine: "Mexican", kind: "sauce", pattern: /\b(salsa|mole|adobo)\b/i, weight: 12, signal: "mexican sauce marker" },
+  { cuisine: "Mexican", kind: "herb", pattern: /\b(cilantro)\b/i, weight: 7, signal: "mexican herb marker" },
+  { cuisine: "Italian", kind: "technique", pattern: /\b(risotto|braise|bake|roast)\b/i, weight: 8, signal: "italian technique marker" },
+  { cuisine: "Italian", kind: "sauce", pattern: /\b(bechamel|marinara|pesto|alfredo)\b/i, weight: 12, signal: "italian sauce marker" },
+  { cuisine: "Italian", kind: "herb", pattern: /\b(basil|oregano|parsley)\b/i, weight: 7, signal: "italian herb marker" },
+  { cuisine: "Mediterranean", kind: "technique", pattern: /\b(grill|roast|stuffed|tagine|tajine)\b/i, weight: 6, signal: "mediterranean technique marker" },
+  { cuisine: "Mediterranean", kind: "sauce", pattern: /\b(tahini|harissa|tzatziki)\b/i, weight: 10, signal: "mediterranean sauce marker" },
+  { cuisine: "Mediterranean", kind: "herb", pattern: /\b(mint|dill|parsley|oregano)\b/i, weight: 6, signal: "mediterranean herb marker" },
+  { cuisine: "Thai", kind: "technique", pattern: /\b(stir fry|stir-fry|wok|curry)\b/i, weight: 8, signal: "thai technique marker" },
+  { cuisine: "Thai", kind: "sauce", pattern: /\b(fish sauce|coconut curry)\b/i, weight: 10, signal: "thai sauce marker" },
+  { cuisine: "Thai", kind: "herb", pattern: /\b(thai basil|cilantro)\b/i, weight: 6, signal: "thai herb marker" }
+];
+
 const CUISINE_RULES: CuisineRule[] = [
   {
     cuisine: "Egyptian",
@@ -128,7 +170,11 @@ export function classifyRecipeReferenceTaxonomy(input: ClassifierInput): RecipeR
   const ingredientText = normalizeFreeText(input.ingredients.join(" "));
   const directionText = normalizeFreeText(input.directions.join(" "));
   const allText = `${titleText} ${ingredientText} ${directionText}`;
-  const cuisineResult = classifyCuisine(titleText, ingredientText, directionText);
+  const cuisineResult = classifyRecipeCuisine({
+    title: input.title,
+    ingredients: input.ingredients,
+    directions: input.directions
+  });
   const protein = detectProtein(input, allText);
   const cookingMethod = detectCookingMethod(titleText, directionText, allText);
   const mealType = detectMealType(titleText, ingredientText);
@@ -209,7 +255,10 @@ export function buildRecipeReferenceTaxonomyBuckets(taxonomy: RecipeReferenceTax
   return Array.from(keys).slice(0, 60);
 }
 
-function classifyCuisine(titleText: string, ingredientText: string, directionText: string) {
+export function classifyRecipeCuisine(input: RecipeCuisineClassifierInput): RecipeCuisineClassification {
+  const titleText = normalizeFreeText(input.title);
+  const ingredientText = normalizeFreeText(input.ingredients.join(" "));
+  const directionText = normalizeFreeText(input.directions.join(" "));
   const scores = CUISINE_RULES.map((rule) => {
     let score = 0;
     const signals: string[] = [];
@@ -226,20 +275,36 @@ function classifyCuisine(titleText: string, ingredientText: string, directionTex
         signals.push(signal);
       }
     }
+    for (const signalRule of CULINARY_SIGNAL_RULES.filter((candidate) => candidate.cuisine === rule.cuisine)) {
+      const source = signalRule.kind === "technique" ? directionText : ingredientDirectionText;
+      if (signalRule.pattern.test(source)) {
+        score += signalRule.weight;
+        signals.push(signalRule.signal);
+      }
+    }
     return { cuisine: rule.cuisine, score, signals };
   }).sort((left, right) => right.score - left.score);
 
   const best = scores[0];
   const second = scores[1];
   if (!best || best.score < 35) {
-    return { cuisine: "Global", confidence: 0, signals: [] };
+    return {
+      cuisine: "Global",
+      confidence: 0,
+      signals: [],
+      candidates: scores.filter((candidate) => candidate.score > 0).slice(0, 5).map(({ cuisine, score }) => ({ cuisine, score })),
+      needsReview: true
+    };
   }
 
   const confidence = Math.max(0, Math.min(100, Math.round(best.score - Math.max(0, (second?.score ?? 0) * 0.35))));
+  const cuisine = confidence >= 55 ? best.cuisine : "Global";
   return {
-    cuisine: confidence >= 55 ? best.cuisine : "Global",
+    cuisine,
     confidence,
-    signals: best.signals.slice(0, 8)
+    signals: best.signals.slice(0, 8),
+    candidates: scores.filter((candidate) => candidate.score > 0).slice(0, 5).map(({ cuisine, score }) => ({ cuisine, score })),
+    needsReview: cuisine === "Global" || confidence < 75
   };
 }
 

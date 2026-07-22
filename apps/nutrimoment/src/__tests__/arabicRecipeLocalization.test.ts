@@ -62,6 +62,71 @@ describe("Arabic meal localization", () => {
     expect(dumplings.name).toBe("دجاج بصوص كريمي مع زلابية آسيوية");
   });
 
+  it("uses the curated dictionary for source-recipe titles and ingredients", () => {
+    const stroganoff = ensureArabicRecipeLanguage({
+      name: "Chicken Stroganoff",
+      cuisine: "Global",
+      ingredients: ["chicken breast", "mushrooms", "cornstarch", "chicken broth"],
+      missing_ingredients: ["egg noodles"],
+      steps: ["Cut the chicken into thin strips."],
+      calories: 520,
+      protein: "34g",
+      carbs: "42g",
+      fat: "18g",
+      cook_time: "30 mins",
+      difficulty: "Medium"
+    });
+
+    expect(stroganoff.name).toBe("دجاج بصوص كريمي بالفطر");
+    expect(stroganoff.ingredients).toEqual(["صدر دجاج", "فطر", "نشا الذرة", "مرق دجاج"]);
+    expect(stroganoff.missing_ingredients).toEqual(["مكرونة بالبيض"]);
+  });
+
+  it("localizes the barbecue-wing and stuffing-bake source terms", () => {
+    const wings = ensureArabicRecipeLanguage({
+      name: "Quick Barbecue Wings",
+      cuisine: "American",
+      ingredients: ["chicken wings", "flour", "barbecue sauce"],
+      missing_ingredients: ["microwave"],
+      steps: ["Coat the wings with flour and fry until cooked through."],
+      calories: 667,
+      protein: "34g",
+      carbs: "66g",
+      fat: "12g",
+      cook_time: "10 mins",
+      difficulty: "Easy"
+    });
+
+    expect(wings.name).toBe("أجنحة دجاج بصلصة الباربيكيو");
+    expect(wings.ingredients).toEqual(["أجنحة دجاج", "دقيق", "صلصة باربيكيو"]);
+    expect(wings.missing_ingredients).toEqual(["ميكروويف"]);
+  });
+
+  it("localizes creamy mushroom chicken without losing its dish identity", () => {
+    const creamyChicken = ensureArabicRecipeLanguage({
+      name: "Creamy Chicken and Mushrooms",
+      cuisine: "Global",
+      ingredients: ["margarine", "skinless boneless chicken breast halves", "mushrooms", "cream of mushroom soup", "dry sherry"],
+      missing_ingredients: [],
+      steps: ["Cook the chicken until browned on both sides."],
+      calories: 510,
+      protein: "42g",
+      carbs: "18g",
+      fat: "28g",
+      cook_time: "25 mins",
+      difficulty: "Medium"
+    });
+
+    expect(creamyChicken.name).toBe("دجاج بالفطر والصلصة الكريمية");
+    expect(creamyChicken.ingredients).toEqual([
+      "سمن نباتي",
+      "أنصاف صدور دجاج منزوعة الجلد والعظم",
+      "فطر",
+      "حساء كريمة الفطر",
+      "نبيذ شيري جاف"
+    ]);
+  });
+
   it("carries photo_identity through Arabic localization without mutation", () => {
     const identity = {
       dish_slug: "lemon-herb-seafood-soup",

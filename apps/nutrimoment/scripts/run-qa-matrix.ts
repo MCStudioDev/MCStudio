@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { buildMealPlanPrompt } from "../src/lib/aiPrompts";
+import { buildMealPlanPrompt } from "../src/ai/PromptBuilder";
 import { CUISINE_OPTIONS } from "../src/lib/cuisines";
 import { findIngredientDietViolation } from "../src/lib/dietEnforcement";
 import { findRecipeHealthViolation } from "../src/lib/healthEnforcement";

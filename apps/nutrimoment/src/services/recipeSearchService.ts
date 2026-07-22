@@ -36,6 +36,10 @@ import {
   primeFullSharedRecipeCache
 } from "@/services/userRecipeCacheService";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import { getIngredientCulinaryPaths } from "@/lib/IngredientKnowledgeGraph";
+import { RecipeDiversityEngine } from "@/food/RecipeDiversityEngine";
+
+const recipeDiversityEngine = new RecipeDiversityEngine();
 
 export interface CatalogRecipeSearchInput {
   ingredients: string[];
@@ -58,6 +62,9 @@ export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
 export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Promise<CatalogRecipeSearchResult> {
   const normalized = await normalizeIngredients(input.ingredients);
   const expandedNormalizedIngredients = expandIngredientFamilies(normalized.normalized);
+  const culinaryDishFamilies = expandedNormalizedIngredients
+    .flatMap((ingredient) => getIngredientCulinaryPaths(ingredient, input.preferredCuisine))
+    .map((path) => path.dishFamily);
   const cacheDiscoveryIngredients = expandSeafoodCacheDiscoveryIngredients(expandedNormalizedIngredients);
   const preferences = buildPreferenceProfile({
     preferredCuisine: input.preferredCuisine ?? "Any",
@@ -86,6 +93,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   const ranked = rankRecipes({
     recipes: primaryRecipePool,
     normalizedIngredients: expandedNormalizedIngredients,
+    culinaryDishFamilies,
     preferredCuisine: preferences.preferredCuisine,
     maxCalories: preferences.nutritionGoals.maxCalories,
     mealType: input.mealType,
@@ -103,7 +111,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
 
   const limit = input.maxResults ?? 3;
   const recipeMap = new Map(rankedRecipePool.map((recipe) => [recipe.id, recipe]));
-  const topRanked = selectDistinctRankedResults(rankedResults, recipeMap, limit);
+  const topRanked = selectDistinctRankedResults(rankedResults, recipeMap, limit, preferences.preferredCuisine);
   const recipes = topRanked
     .map((result) => {
       const recipe = recipeMap.get(result.recipeId);
@@ -335,27 +343,47 @@ function dedupeCatalogRecipes(recipes: RecipeCatalogDoc[]) {
 function selectDistinctRankedResults(
   rankedResults: RankedRecipeResult[],
   recipeMap: Map<string, RecipeCatalogDoc>,
-  limit: number
+  limit: number,
+  preferredCuisine: string
 ) {
-  const selected: RankedRecipeResult[] = [];
-  const selectedRecipes: RecipeCatalogDoc[] = [];
-  const selectedDistinctKeys = new Set<string>();
+  const selected = recipeDiversityEngine.select(
+    rankedResults.flatMap((result) => {
+      const recipe = recipeMap.get(result.recipeId);
+      if (!recipe) return [];
+      return [{
+        value: result,
+        score: result.score,
+        cuisine: recipe.cuisine,
+        dishFamily: normalizeRecipeDishFamily(recipe),
+        cookingMethod: recipe.dishIntent?.cooking_method ?? recipe.styleTags?.find((tag) => /grill|bake|stew|fry|roast|soup|pasta/i.test(tag))
+      }];
+    }),
+    { limit, rotateCuisines: !preferredCuisine || preferredCuisine === "Any" }
+  );
+  const selectedRecipes = selected
+    .map((result) => recipeMap.get(result.recipeId))
+    .filter((recipe): recipe is RecipeCatalogDoc => Boolean(recipe));
+  const selectedDistinctKeys = new Set(
+    selectedRecipes.map((recipe) => buildSharedRecipeDistinctKey(buildRecipeTitleSource(recipe)))
+  );
 
-  for (const result of rankedResults) {
-    const recipe = recipeMap.get(result.recipeId);
-    if (!recipe) continue;
-    const distinctKey = buildSharedRecipeDistinctKey(buildRecipeTitleSource(recipe));
-    if (selectedDistinctKeys.has(distinctKey)) {
-      continue;
-    }
-    if (selectedRecipes.some((existing) => areNearDuplicateRecipes(existing, recipe))) {
-      continue;
-    }
+  if (selected.length < limit) {
+    for (const result of rankedResults) {
+      const recipe = recipeMap.get(result.recipeId);
+      if (!recipe) continue;
+      const distinctKey = buildSharedRecipeDistinctKey(buildRecipeTitleSource(recipe));
+      if (selectedDistinctKeys.has(distinctKey)) {
+        continue;
+      }
+      if (selectedRecipes.some((existing) => areNearDuplicateRecipes(existing, recipe))) {
+        continue;
+      }
 
-    selected.push(result);
-    selectedRecipes.push(recipe);
-    selectedDistinctKeys.add(distinctKey);
-    if (selected.length >= limit) break;
+      selected.push(result);
+      selectedRecipes.push(recipe);
+      selectedDistinctKeys.add(distinctKey);
+      if (selected.length >= limit) break;
+    }
   }
 
   if (selected.length < limit) {

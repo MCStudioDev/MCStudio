@@ -7,6 +7,7 @@ import type { ResolvedPreferenceProfile } from "@/lib/preferences";
 export interface RankRecipesInput {
   recipes: RecipeCatalogDoc[];
   normalizedIngredients: string[];
+  culinaryDishFamilies?: string[];
   preferredCuisine: string;
   mealType?: string;
   maxCalories?: number;
@@ -16,6 +17,7 @@ export interface RankRecipesInput {
 export function rankRecipes({
   recipes,
   normalizedIngredients,
+  culinaryDishFamilies = [],
   preferredCuisine,
   mealType,
   maxCalories,
@@ -52,6 +54,7 @@ export function rankRecipes({
       const nutritionGoalScore = scoreNutritionGoals(recipe, preferences);
       const healthFit = scoreHealthMetadata(recipe, preferences);
       const aliasOverlapScore = scoreAliasOverlap(recipe, normalizedIngredients);
+      const knowledgePathScore = scoreKnowledgePath(recipe, culinaryDishFamilies);
       const preferenceHits = buildPreferenceHits(
         recipe,
         preferences,
@@ -75,6 +78,7 @@ export function rankRecipes({
         cuisineFit.score +
         healthFit.score +
         aliasOverlapScore +
+        knowledgePathScore +
         nutritionGoalScore +
         popularityBoost +
         qualityBoost -
@@ -189,6 +193,28 @@ function scoreAliasOverlap(recipe: RecipeCatalogDoc, normalizedIngredients: stri
   }
 
   return Math.min(overlap, 3);
+}
+
+/**
+ * A small prior from the deterministic ingredient graph. Ingredient and health
+ * fit still dominate ranking; this only helps surface authentic known families.
+ */
+function scoreKnowledgePath(recipe: RecipeCatalogDoc, dishFamilies: string[]) {
+  if (!dishFamilies.length) return 0;
+  const haystack = [
+    recipe.title,
+    recipe.slug,
+    recipe.dishIntent?.dish_name,
+    recipe.localized?.English?.name,
+    recipe.localized?.English?.dish_intent?.dish_name,
+    recipe.localized?.English?.image_search_index,
+    ...(recipe.localized?.English?.image_search_indices ?? [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return dishFamilies.some((family) => haystack.includes(family.toLowerCase())) ? 3 : 0;
 }
 
 function matchesAvailableIngredient(ingredient: string, available: Set<string>) {

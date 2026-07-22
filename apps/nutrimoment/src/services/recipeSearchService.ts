@@ -2,6 +2,7 @@ import type { Recipe, MealPlanMeal } from "@/lib/types";
 import { cuisineMatchesPreference, normalizeCuisineLabel } from "@/lib/cuisines";
 import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { OFFLINE_RECIPES } from "@/data/offline/recipes";
+import { getCuisineCatalogV2RecipeDocs } from "@/data/offline/cuisineCatalogV2Recipes";
 import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
 import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 import type { RankedRecipeResult, RecipeCatalogDoc, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
@@ -64,7 +65,12 @@ export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
 
 export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Promise<CatalogRecipeSearchResult> {
   const normalized = await normalizeIngredients(input.ingredients);
-  const expandedNormalizedIngredients = expandIngredientFamilies(normalized.normalized);
+  const expandedNormalizedIngredients = Array.from(new Set([
+    ...expandIngredientFamilies(input.ingredients),
+    ...expandIngredientFamilies(normalized.raw),
+    ...expandIngredientFamilies(normalized.normalized),
+    ...expandIngredientFamilies(normalized.resolved.map((ingredient) => ingredient.normalized))
+  ]));
   const culinaryDishFamilies = expandedNormalizedIngredients
     .flatMap((ingredient) => getIngredientCulinaryPaths(ingredient, input.preferredCuisine))
     .map((path) => path.dishFamily);
@@ -92,8 +98,14 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
         ? ingredientSharedCachedRecipes
         : await listSharedCachedRecipes();
   const seededRecipes = OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe));
-  const primaryRecipePool = dedupeCatalogRecipes([...userCachedRecipes, ...sharedCachedRecipes, ...seededRecipes]);
-  const cuisineSearchOrder = buildCuisineSearchOrder(input.ingredients, preferences.preferredCuisine);
+  const cuisineCatalogRecipes = getCuisineCatalogV2RecipeDocs();
+  const primaryRecipePool = dedupeCatalogRecipes([
+    ...userCachedRecipes,
+    ...sharedCachedRecipes,
+    ...seededRecipes,
+    ...cuisineCatalogRecipes
+  ]);
+  const cuisineSearchOrder = buildCuisineSearchOrder(expandedNormalizedIngredients, preferences.preferredCuisine);
   const ranked = cuisineSearchOrder.length
     ? mergeCuisineRankedResults(
         cuisineSearchOrder.map((cuisine, index) =>

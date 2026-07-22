@@ -100,8 +100,8 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
   const fullSnapshot = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
   if (fullSnapshot.length) return fullSnapshot;
 
-  const db = getAdminDb();
   try {
+    const db = getAdminDb();
     const cacheQuery = db
       .collection(SHARED_CACHE_COLLECTION)
       .orderBy("updatedAt", "desc")
@@ -126,6 +126,7 @@ export async function listSharedCachedRecipes(): Promise<RecipeCatalogDoc[]> {
     }
 
     try {
+      const db = getAdminDb();
       const reducedSnapshot = await withTimeout(
         db
           .collection(SHARED_CACHE_COLLECTION)
@@ -205,12 +206,12 @@ export async function listSharedCachedRecipesForIngredients(ingredients: string[
   ).slice(0, MAX_SHARED_CACHE_INGREDIENT_QUERIES);
   if (!canonicalIngredients.length) return [];
 
-  const db = getAdminDb();
   const recipesById = new Map<string, RecipeCatalogDoc>();
 
   await Promise.all(
     canonicalIngredients.map(async (ingredient) => {
       try {
+        const db = getAdminDb();
         const ingredientQuery = db
           .collection(SHARED_CACHE_COLLECTION)
           .where("ingredientCanonicals", "array-contains", ingredient)

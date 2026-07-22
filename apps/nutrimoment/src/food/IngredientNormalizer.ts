@@ -275,12 +275,18 @@ function findProfile(normalizedText: string) {
 
   for (const [alias, profile] of PROFILE_BY_ALIAS.entries()) {
     if (alias.length < 4) continue;
-    if (normalizedText.includes(alias) || alias.includes(normalizedText)) {
+    if (containsIngredientPhrase(normalizedText, alias) || containsIngredientPhrase(alias, normalizedText)) {
       return profile;
     }
   }
 
   return null;
+}
+
+function containsIngredientPhrase(value: string, phrase: string) {
+  if (!value || !phrase) return false;
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`, "u").test(value);
 }
 
 function getProfileTerms(profile: IngredientProfile) {

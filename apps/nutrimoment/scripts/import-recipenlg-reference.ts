@@ -19,6 +19,7 @@ loadEnv({ path: path.join(process.cwd(), ".env.local") });
 
 const DEFAULT_COLLECTION = "recipeReferenceRecipes";
 const DEFAULT_BATCH_SIZE = 400;
+const WRITE_BATCH_SIZE = getNumberArg("--batch-size") ?? DEFAULT_BATCH_SIZE;
 const CSV_PATH = getStringArg("--csv") ?? "C:\\Users\\gamal\\Downloads\\nutrimoment recipe import\\RecipeNLG_dataset.csv";
 const SERVICE_ACCOUNT_PATH =
   getStringArg("--service-account") ??
@@ -87,7 +88,7 @@ async function main() {
       batch.set(db.collection(COLLECTION).doc(doc.id), stripUndefinedDeep(doc), { merge: true });
       batchCount += 1;
 
-      if (batchCount >= DEFAULT_BATCH_SIZE) {
+      if (batchCount >= WRITE_BATCH_SIZE) {
         await batch.commit();
         process.stdout.write(`Imported ${importedRows} reference recipes, skipped ${skippedRows}...\n`);
         batch = db.batch();

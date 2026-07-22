@@ -11,8 +11,11 @@ export interface RecipeQualityGateResult {
 export class IngredientValidator {
   validate(recipe: Recipe) {
     const reasons: string[] = [];
-    const ingredients = [...readRecipeIngredients(recipe.ingredients), ...readRecipeIngredients(recipe.missing_ingredients)]
+    const availableIngredients = readRecipeIngredients(recipe.ingredients)
       .filter((ingredient) => ingredient.label);
+    const missingIngredients = readRecipeIngredients(recipe.missing_ingredients)
+      .filter((ingredient) => ingredient.label);
+    const ingredients = [...availableIngredients, ...missingIngredients];
     const normalizedIngredients = ingredients.map((ingredient) => normalizeIngredient(ingredient.label)).filter(Boolean);
     if (!ingredients.length) reasons.push("missing_ingredients");
     if (new Set(normalizedIngredients).size !== normalizedIngredients.length) reasons.push("duplicate_ingredients");
@@ -26,7 +29,11 @@ export class IngredientValidator {
     }
 
     const steps = recipe.steps.map(normalizeText).filter(Boolean);
-    for (const ingredient of ingredients) {
+    const stepRequiredIngredients = [
+      ...availableIngredients,
+      ...missingIngredients.filter((ingredient) => isProteinIngredient(ingredient.label))
+    ];
+    for (const ingredient of stepRequiredIngredients) {
       const tokens = ingredientTokens(ingredient.label);
       if (tokens.length && !steps.some((step) => tokens.some((token) => step.includes(token)))) {
         reasons.push(`ingredient_not_used:${normalizeIngredient(ingredient.label)}`);

@@ -185,7 +185,13 @@ function isArabicGroundMeat(value: string) {
 }
 
 function expandRawIngredientInput(value: string) {
-  return value
+  const normalizedSeparators = value
+    .replace(/\u060C/g, ",")
+    .replace(/\s+\u0627\u0648\s+/giu, ",")
+    .replace(/\s+\u0623\u0648\s+/giu, ",")
+    .replace(/\s+\u0648\s+/giu, ",");
+
+  return normalizedSeparators
     .split(/\s*(?:,|;|\/|\||\+|&|\band\b|\bor\b|\bwith\b|،|\s+او\s+|\s+أو\s+)\s*/giu)
     .map((part) => part.trim())
     .filter(Boolean);

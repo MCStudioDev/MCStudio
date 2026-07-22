@@ -121,4 +121,19 @@ describe("recipe quality gate", () => {
 
     expect(result.reasons).toContain("ingredient_missing_quantity_or_unit:olive oil");
   });
+
+  it("does not reject unused missing support ingredients", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      ingredients: ["1 lb chicken"],
+      missing_ingredients: ["1 cup rice", "1 tbsp mint"],
+      steps: [
+        "Brown the chicken for 5 minutes.",
+        "Simmer the chicken until tender."
+      ]
+    }, "English");
+
+    expect(result.reasons).not.toContain("ingredient_not_used:rice");
+    expect(result.reasons).not.toContain("ingredient_not_used:mint");
+  });
 });

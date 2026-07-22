@@ -71,6 +71,37 @@ describe("food intelligence layer", () => {
     expect(getCuisinePlaceholderPalette("Egyptian")).toEqual([168, 42, 205]);
   });
 
+  it("normalizes common Arabic pantry words through the shared dictionary", () => {
+    const normalizer = new IngredientNormalizer();
+    const cases: Array<[string, string]> = [
+      ["\u0644\u062d\u0645\u0647 \u0645\u0641\u0631\u0648\u0645\u0647", "ground_beef"],
+      ["\u0643\u0628\u062f\u0647", "liver"],
+      ["\u0641\u0631\u0627\u062e", "chicken"],
+      ["\u0633\u062a\u064a\u0643", "beef"],
+      ["\u0633\u0645\u0643", "fish"],
+      ["\u062c\u0645\u0628\u0631\u064a", "shrimp"],
+      ["\u062c\u0628\u0646", "cheese"],
+      ["\u0644\u0628\u0646", "milk"],
+      ["\u0632\u0628\u0627\u062f\u064a", "yogurt"],
+      ["\u0633\u0628\u0627\u0646\u062e", "spinach"],
+      ["\u0628\u062a\u0646\u062c\u0627\u0646", "eggplant"],
+      ["\u0637\u0645\u0627\u0637\u0645", "tomato"],
+      ["\u062c\u0632\u0631", "carrot"],
+      ["\u0628\u0633\u0644\u0647", "peas"],
+      ["\u062e\u0633", "lettuce"],
+      ["\u0645\u0643\u0631\u0648\u0646\u0629", "pasta"],
+      ["\u0639\u064a\u0634", "bread"],
+      ["\u0639\u062f\u0633", "lentils"],
+      ["\u0645\u0648\u0632", "banana"],
+      ["\u062a\u0641\u0627\u062d", "apple"],
+      ["\u0628\u0631\u062a\u0642\u0627\u0644", "orange"]
+    ];
+
+    for (const [input, expectedId] of cases) {
+      expect(normalizer.normalizeOne(input)?.id, input).toBe(expectedId);
+    }
+  });
+
   it("routes ingredients through cuisine candidates", () => {
     const graph = new IngredientGraph();
     const cuisines = graph.possibleCuisines(["ground beef"]);

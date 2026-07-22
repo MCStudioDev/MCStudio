@@ -90,4 +90,39 @@ describe("recipe acceptance engine", () => {
       "protein_missing_quantity:chicken breast"
     ]));
   });
+
+  it("accepts Arabic recipes localized at the top level", () => {
+    const arabicRecipe: Recipe = {
+      ...completeRecipe,
+      name: "\u062f\u062c\u0627\u062c \u0643\u0627\u062a\u0634\u0627\u062a\u0648\u0631\u064a",
+      cuisine: "\u0625\u064a\u0637\u0627\u0644\u064a",
+      ingredients: [
+        "2 \u0635\u062f\u0648\u0631 \u062f\u062c\u0627\u062c",
+        "1 \u0643\u0648\u0628 \u0635\u0644\u0635\u0629 \u0637\u0645\u0627\u0637\u0645",
+        "1 \u0643\u0648\u0628 \u0632\u064a\u062a \u0632\u064a\u062a\u0648\u0646"
+      ],
+      missing_ingredients: [],
+      steps: [
+        "\u0633\u062e\u0646 \u0632\u064a\u062a \u0632\u064a\u062a\u0648\u0646 \u0644\u0645\u062f\u0629 2 \u062f\u0642\u064a\u0642\u0629.",
+        "\u062d\u0645\u0631 2 \u0635\u062f\u0648\u0631 \u062f\u062c\u0627\u062c \u0644\u0645\u062f\u0629 5 \u062f\u0642\u0627\u0626\u0642.",
+        "\u0623\u0636\u0641 1 \u0643\u0648\u0628 \u0635\u0644\u0635\u0629 \u0637\u0645\u0627\u0637\u0645.",
+        "\u0627\u062a\u0631\u0643 \u0627\u0644\u062f\u062c\u0627\u062c \u064a\u0637\u0647\u0649 10 \u062f\u0642\u0627\u0626\u0642.",
+        "\u0642\u0644\u0628 \u0627\u0644\u0635\u0644\u0635\u0629 \u062d\u062a\u0649 \u062a\u062b\u062e\u0646 3 \u062f\u0642\u0627\u0626\u0642.",
+        "\u0627\u0631\u062d \u0627\u0644\u062f\u062c\u0627\u062c \u0644\u0645\u062f\u0629 2 \u062f\u0642\u064a\u0642\u0629.",
+        "\u0642\u062f\u0645 \u0627\u0644\u062f\u062c\u0627\u062c \u0645\u0639 \u0635\u0644\u0635\u0629 \u0637\u0645\u0627\u0637\u0645."
+      ],
+      cook_time: "35 \u062f\u0642\u064a\u0642\u0629",
+      difficulty: "\u0645\u062a\u0648\u0633\u0637",
+      localized: undefined
+    };
+    const quality = new RecipeQualityGate().validate(arabicRecipe, "Arabic");
+    const result = new RecipeAcceptanceEngine().evaluate(arabicRecipe, {
+      imageReady: false,
+      qualityGate: quality,
+      recipeLanguage: "Arabic"
+    });
+
+    expect(quality.valid).toBe(true);
+    expect(result.accepted).toBe(true);
+  });
 });

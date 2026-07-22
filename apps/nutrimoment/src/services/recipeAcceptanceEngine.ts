@@ -94,9 +94,20 @@ function scoreLocalization(recipe: Recipe, recipeLanguage: string) {
   const wantsArabic = recipeLanguage.toLowerCase() === "arabic";
   const hasEnglish = Boolean(recipe.localized?.English?.name?.trim());
   const hasArabic = Boolean(recipe.localized?.Arabic?.name?.trim());
-  if (wantsArabic && !hasArabic) return 0;
+  if (wantsArabic && !hasArabic) return hasArabicTopLevelRecipe(recipe) ? 15 : 0;
   if (!wantsArabic && !hasEnglish) return 10;
   return hasEnglish && hasArabic ? 15 : 12;
+}
+
+function hasArabicTopLevelRecipe(recipe: Recipe) {
+  const displayText = [
+    recipe.name,
+    recipe.cuisine,
+    ...recipe.ingredients,
+    ...recipe.missing_ingredients,
+    ...recipe.steps
+  ].join(" ");
+  return /[\u0600-\u06FF]/u.test(displayText) && !/[A-Za-z]{3,}/.test(displayText);
 }
 
 function buildReasons(

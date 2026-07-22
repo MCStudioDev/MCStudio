@@ -4,6 +4,8 @@ import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalog
 import { OFFLINE_RECIPES } from "@/data/offline/recipes";
 import { getCuisineCatalogV2RecipeDocs } from "@/data/offline/cuisineCatalogV2Recipes";
 import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
+import { listFirestoreReferenceCatalogRecipes } from "@/data/offline/firestoreRecipeReferenceCatalog";
+import { getRealSourceArtifactRecipes } from "@/data/offline/realSourceRecipeArtifacts";
 import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 import type { RankedRecipeResult, RecipeCatalogDoc, RecipeIngredient, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
 import { buildPreferenceProfile } from "@/lib/preferences";
@@ -42,6 +44,8 @@ import { getIngredientCulinaryPaths } from "@/lib/IngredientKnowledgeGraph";
 import { logger } from "@/lib/logger";
 import { IngredientGraph } from "@/food/IngredientGraph";
 import { RecipeDiversityEngine } from "@/food/RecipeDiversityEngine";
+import { getIngredientProfileForTerm, normalizeIngredientText } from "@/food/IngredientNormalizer";
+import type { IngredientNormalizationResult } from "@/services/ingredientNormalizationService";
 
 const recipeDiversityEngine = new RecipeDiversityEngine();
 const ingredientGraph = new IngredientGraph();
@@ -65,6 +69,7 @@ export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
 }
 
 export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Promise<CatalogRecipeSearchResult> {
+  const preferredCuisine = normalizeCuisineLabel(input.preferredCuisine ?? "Any");
   const normalized = await normalizeIngredients(input.ingredients);
   const expandedNormalizedIngredients = Array.from(new Set([
     ...normalized.searchTerms,
@@ -73,36 +78,45 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     ...expandIngredientFamilies(normalized.resolved.map((ingredient) => ingredient.normalized))
   ]));
   const culinaryDishFamilies = expandedNormalizedIngredients
-    .flatMap((ingredient) => getIngredientCulinaryPaths(ingredient, input.preferredCuisine))
+    .flatMap((ingredient) => getIngredientCulinaryPaths(ingredient, preferredCuisine))
     .map((path) => path.dishFamily);
   const cacheDiscoveryIngredients = expandSeafoodCacheDiscoveryIngredients(expandedNormalizedIngredients);
   const preferences = buildPreferenceProfile({
-    preferredCuisine: input.preferredCuisine ?? "Any",
+    preferredCuisine,
     calorieTarget: input.calorieTarget ?? 2000,
     diets: input.diets ?? [],
     conditions: input.conditions ?? [],
     allergens: input.allergens ?? []
   } satisfies UserPreferenceSnapshot);
 
-  primeFullSharedRecipeCache();
-  const warmSharedRecipeCache = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
-  const [userCachedRecipes, ingredientSharedCachedRecipes] = await Promise.all([
-    listUserCachedRecipes(input.uid),
-    warmSharedRecipeCache.length
-      ? Promise.resolve([])
-      : listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients)
-  ]);
-  const sharedCachedRecipes =
-    warmSharedRecipeCache.length
-      ? warmSharedRecipeCache
-      : ingredientSharedCachedRecipes.length
-        ? ingredientSharedCachedRecipes
-        : await listSharedCachedRecipes();
+  const limit = input.maxResults ?? 3;
+  const firestoreReferenceRecipes = await listFirestoreReferenceCatalogRecipes(normalized);
+  const shouldLoadSharedRecipeCache = firestoreReferenceRecipes.length === 0;
+  const userCachedRecipes = await listUserCachedRecipes(input.uid);
+  let sharedCachedRecipes: RecipeCatalogDoc[] = [];
+
+  if (shouldLoadSharedRecipeCache) {
+    primeFullSharedRecipeCache();
+    const warmSharedRecipeCache = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
+    const ingredientSharedCachedRecipes = warmSharedRecipeCache.length
+      ? []
+      : await listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients);
+    sharedCachedRecipes =
+      warmSharedRecipeCache.length
+        ? warmSharedRecipeCache
+        : ingredientSharedCachedRecipes.length
+          ? ingredientSharedCachedRecipes
+          : await listSharedCachedRecipes();
+  }
+
   const seededRecipes = OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe));
   const cuisineCatalogRecipes = getCuisineCatalogV2RecipeDocs();
+  const realSourceArtifactRecipes = firestoreReferenceRecipes.length ? [] : getRealSourceArtifactRecipes();
   const primaryRecipePool = dedupeCatalogRecipes([
     ...userCachedRecipes,
     ...sharedCachedRecipes,
+    ...firestoreReferenceRecipes,
+    ...realSourceArtifactRecipes,
     ...seededRecipes,
     ...cuisineCatalogRecipes
   ]);
@@ -137,20 +151,22 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
         mealType: input.mealType,
         preferences
       });
-  const ingredientMatchedRanked = ranked.filter(
-    (result) => result.matchedRequiredCount + result.matchedOptionalCount > 0
-  );
+  const hasRequestedIngredientConstraints = normalized.ingredientIds.length > 0;
+  const recipeMap = new Map(primaryRecipePool.map((recipe) => [recipe.id, recipe]));
+  const ingredientMatchedRanked = ranked.filter((result) => {
+    if (result.matchedRequiredCount + result.matchedOptionalCount <= 0) return false;
+    const recipe = recipeMap.get(result.recipeId);
+    return recipe ? recipeHasRequestedIngredientSignal(recipe, normalized) : false;
+  });
   const rankedResults = cuisineSearchOrder.length
-    ? (ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked)
+    ? (hasRequestedIngredientConstraints ? ingredientMatchedRanked : ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked)
     : filterRankedResultsForSpecificCuisineQuality(
-    ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked,
+    hasRequestedIngredientConstraints ? ingredientMatchedRanked : ingredientMatchedRanked.length ? ingredientMatchedRanked : ranked,
     primaryRecipePool,
     preferences.preferredCuisine
   );
   const rankedRecipePool = primaryRecipePool;
 
-  const limit = input.maxResults ?? 3;
-  const recipeMap = new Map(rankedRecipePool.map((recipe) => [recipe.id, recipe]));
   const topRanked = selectDistinctRankedResults(rankedResults, recipeMap, limit, preferences.preferredCuisine);
   const recipes = topRanked
     .map((result) => {
@@ -177,6 +193,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
       weight: alias.weight
     })),
     candidateRecipeCount: rankedRecipePool.length,
+    firestoreReferenceRecipeCount: firestoreReferenceRecipes.length,
     matchingRecipeCount: ingredientMatchedRanked.length,
     returnedRecipeCount: recipes.length
   });
@@ -191,6 +208,123 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     rankedRecipeIds: topRanked.map((item) => item.recipeId),
     candidateRecipes: rankedRecipePool
   };
+}
+
+const BROAD_RELEVANCE_TERMS = new Set([
+  "greens",
+  "seafood"
+]);
+
+const PRIMARY_IDENTITY_INGREDIENT_IDS = new Set([
+  "beef",
+  "chicken",
+  "fish",
+  "ground_beef",
+  "liver",
+  "shrimp"
+]);
+
+function recipeHasRequestedIngredientSignal(
+  recipe: RecipeCatalogDoc,
+  normalized: IngredientNormalizationResult
+) {
+  const requestedIds = new Set(normalized.ingredientIds);
+  if (!requestedIds.size) return true;
+
+  const allowedTerms = buildRequestedIngredientTerms(normalized, requestedIds);
+  const recipeDishIdentityText = normalizeIngredientText([
+    recipe.title,
+    recipe.slug,
+    recipe.description,
+    recipe.dishIntent?.dish_name,
+    recipe.localized?.English?.name,
+    recipe.localized?.English?.dish_intent?.dish_name,
+    recipe.localized?.Arabic?.name,
+    recipe.localized?.Arabic?.dish_intent?.dish_name
+  ].filter(Boolean).join(" "));
+
+  const recipeIdentityText = normalizeIngredientText([
+    recipeDishIdentityText,
+    recipe.image.sourceQuery,
+    ...(recipe.searchTokens ?? []),
+    ...(recipe.searchMetadata?.aliasTokens ?? [])
+  ].filter(Boolean).join(" "));
+
+  if (requiresPrimaryIngredientIdentity(requestedIds)) {
+    return (
+      recipeHasRequestedIngredientInTitle(recipeDishIdentityText, allowedTerms) ||
+      recipeHasRequestedIngredientInPrimaryCanonicals(recipe, requestedIds, allowedTerms)
+    );
+  }
+
+  const recipeIngredientTerms = [
+    ...recipe.ingredients.flatMap((ingredient) => [ingredient.canonical, ingredient.name]),
+    ...recipe.ingredientCanonicals,
+    ...recipe.requiredCanonicals,
+    ...recipe.optionalCanonicals
+  ].map(normalizeIngredientText).filter(Boolean);
+
+  for (const term of recipeIngredientTerms) {
+    const profile = getIngredientProfileForTerm(term);
+    if (profile && requestedIds.has(profile.id)) return true;
+    if (allowedTerms.has(term)) return true;
+  }
+
+  return Array.from(allowedTerms).some((term) => phraseAppearsInNormalizedText(recipeIdentityText, term));
+}
+
+function buildRequestedIngredientTerms(
+  normalized: IngredientNormalizationResult,
+  requestedIds: Set<string>
+) {
+  const terms = new Set<string>();
+  const add = (value: string | undefined) => {
+    const term = normalizeIngredientText(value ?? "");
+    if (!term || BROAD_RELEVANCE_TERMS.has(term)) return;
+    terms.add(term);
+  };
+
+  normalized.resolved.forEach((ingredient) => {
+    if (!ingredient.id || !requestedIds.has(ingredient.id)) return;
+    add(ingredient.id);
+    add(ingredient.id.replace(/_/g, " "));
+    add(ingredient.normalized);
+  });
+  normalized.canonicalEnglishNames.forEach(add);
+  normalized.expandedAliases.forEach((alias) => {
+    if (requestedIds.has(alias.ingredientId)) add(alias.term);
+  });
+
+  return terms;
+}
+
+function phraseAppearsInNormalizedText(haystack: string, phrase: string) {
+  if (!haystack || !phrase || BROAD_RELEVANCE_TERMS.has(phrase)) return false;
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`, "u").test(haystack);
+}
+
+function requiresPrimaryIngredientIdentity(requestedIds: Set<string>) {
+  return Array.from(requestedIds).some((id) => PRIMARY_IDENTITY_INGREDIENT_IDS.has(id));
+}
+
+function recipeHasRequestedIngredientInTitle(identityText: string, allowedTerms: Set<string>) {
+  return Array.from(allowedTerms).some((term) => phraseAppearsInNormalizedText(identityText, term));
+}
+
+function recipeHasRequestedIngredientInPrimaryCanonicals(
+  recipe: RecipeCatalogDoc,
+  requestedIds: Set<string>,
+  allowedTerms: Set<string>
+) {
+  return recipe.requiredCanonicals.slice(0, 2).some((canonical) => {
+    const term = normalizeIngredientText(canonical);
+    const profile = getIngredientProfileForTerm(term);
+    return Boolean(
+      (profile && requestedIds.has(profile.id)) ||
+        allowedTerms.has(term)
+    );
+  });
 }
 
 function expandSeafoodCacheDiscoveryIngredients(ingredients: string[]) {

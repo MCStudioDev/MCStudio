@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { RecipeCatalogDoc } from "../lib/domain";
 import { CuisineClassifier } from "../food/CuisineClassifier";
 import { getCuisineProfile } from "../food/CuisineProfiles";
+import { enrichRecipeDatasetRecord } from "../food/DatasetEnrichment";
+import { FOOD_DICTIONARY, getCuisinePlaceholderPalette } from "../food/FoodDictionary";
 import { IngredientGraph } from "../food/IngredientGraph";
 import { IngredientNormalizer } from "../food/IngredientNormalizer";
 import { RecipeScorer } from "../food/RecipeScorer";
@@ -41,16 +43,42 @@ describe("food intelligence layer", () => {
     const normalizer = new IngredientNormalizer();
 
     expect(normalizer.normalize([" Ground-Beef!! "])).toEqual([
-      { raw: " Ground-Beef!! ", normalized: "ground beef" }
+      expect.objectContaining({
+        raw: " Ground-Beef!! ",
+        id: "ground_beef",
+        normalized: "ground_beef",
+        canonicalEnglishName: "ground beef"
+      })
     ]);
-    expect(normalizer.expand(["ground beef"])).toContain("ground meat");
+    expect(normalizer.expand(["\u0644\u062d\u0645 \u0645\u0641\u0631\u0648\u0645"])).toEqual(expect.arrayContaining([
+      "ground beef",
+      "ground chuck",
+      "ground round",
+      "hamburger",
+      "ground meat"
+    ]));
+    const weightedAliases = new Map(normalizer.expandAliases(["ground beef"]).map((alias) => [alias.term, alias.weight]));
+    expect(weightedAliases.get("ground beef")).toBe(100);
+    expect(weightedAliases.get("ground meat")).toBe(96);
+    expect(weightedAliases.get("ground chuck")).toBe(94);
+    expect(weightedAliases.get("ground round")).toBe(92);
+  });
+
+  it("uses the shared food dictionary for high-frequency aliases", () => {
+    const groundBeef = FOOD_DICTIONARY.ingredients.find((ingredient) => ingredient.id === "ground_beef");
+
+    expect(groundBeef?.aliases).toEqual(expect.arrayContaining(["ground chuck", "ground round"]));
+    expect(getCuisinePlaceholderPalette("Egyptian")).toEqual([168, 42, 205]);
   });
 
   it("routes ingredients through cuisine candidates", () => {
     const graph = new IngredientGraph();
     const cuisines = graph.possibleCuisines(["ground beef"]);
+    const plan = graph.smartExpansionPlan(["ground beef"]);
 
     expect(cuisines).toEqual(expect.arrayContaining(["egyptian", "turkish", "mexican", "italian"]));
+    expect(plan.dishFamilies.length).toBeGreaterThan(0);
+    expect(plan.cuisines).toEqual(expect.arrayContaining(["egyptian", "turkish"]));
     expect(graph.cuisineRoutes(["chicken"], "egyptian")[0]?.dishFamilies.length).toBeGreaterThan(0);
   });
 
@@ -105,6 +133,60 @@ describe("food intelligence layer", () => {
     });
 
     expect(ranked[0]?.recipeId).toBe("hawawshi");
+  });
+
+  it("enriches dataset records with cuisine, technique, and ingredient metadata", () => {
+    const enriched = enrichRecipeDatasetRecord({
+      ...baseRecipe,
+      title: "Chicken Parmesan",
+      cuisine: "Italian",
+      ingredients: [
+        { canonical: "chicken", name: "Chicken Breast", quantity: 2, unit: "breasts", optional: false },
+        { canonical: "tomato sauce", name: "Tomato Sauce", quantity: 1, unit: "cup", optional: false }
+      ],
+      steps: ["Bread the chicken.", "Bake the chicken with tomato sauce until bubbling."]
+    });
+
+    expect(enriched.predictedCuisine).toBe("Italian");
+    expect(enriched.techniques).toEqual(expect.arrayContaining(["Bake", "Bread"]));
+    expect(enriched.ingredientIds).toContain("chicken");
+    expect(enriched.dishFamily).toBe("Chicken Parmesan");
+  });
+
+  it("matches recipe ingredients through weighted aliases instead of exact strings", () => {
+    const recipes: RecipeCatalogDoc[] = [
+      {
+        ...baseRecipe,
+        id: "chuck",
+        title: "Ground Chuck Chili",
+        slug: "ground-chuck-chili",
+        cuisine: "American",
+        ingredientCanonicals: ["ground chuck", "tomato", "onion"],
+        requiredCanonicals: ["ground chuck"],
+        optionalCanonicals: ["tomato", "onion"],
+        searchTokens: ["ground chuck"]
+      },
+      {
+        ...baseRecipe,
+        id: "plain",
+        title: "Plain Cucumber",
+        slug: "plain-cucumber",
+        cuisine: "Global",
+        ingredientCanonicals: ["cucumber"],
+        requiredCanonicals: ["cucumber"],
+        optionalCanonicals: [],
+        searchTokens: ["cucumber"]
+      }
+    ];
+
+    const ranked = new RecipeScorer().score({
+      recipes,
+      ingredients: ["ground beef"],
+      preferredCuisine: "Any"
+    });
+
+    expect(ranked[0]?.recipeId).toBe("chuck");
+    expect(ranked[0]?.matchedRequiredCount).toBe(1);
   });
 
   it("exposes cuisine profiles through the production profile module", () => {

@@ -9,6 +9,28 @@ import {
 import type { MealPlanData } from "../lib/types";
 
 describe("Arabic meal localization", () => {
+  it("uses the shared food dictionary for cuisine, ingredient aliases, and units", () => {
+    const localizedMeal = localizeMealForArabic({
+      name: "Greek Lemon Chicken",
+      cuisine: "Greek",
+      calories: 520,
+      protein: "38g",
+      carbs: "42g",
+      fat: "18g",
+      ingredients: ["ground round", "rice"],
+      steps: ["Brown the ground round."]
+    });
+    const localizedPlan = localizeMealPlanForArabic({
+      plan: [],
+      shoppingList: ["rice - 2 cups"],
+      recommendedRecipes: []
+    } as unknown as MealPlanData);
+
+    expect(localizedMeal.cuisine).toBe("\u064a\u0648\u0646\u0627\u0646\u064a");
+    expect(translateIngredientToArabic("ground round")).toBe("\u0644\u062d\u0645 \u0628\u0642\u0631\u064a \u0645\u0641\u0631\u0648\u0645");
+    expect(localizedPlan.shoppingList[0]).toContain("\u0643\u0648\u0628");
+  });
+
   it("localizes English culinary titles by meaning instead of transliteration", () => {
     const localized = localizeRecipeForArabic({
       name: "Creamy Tuscan Chicken",

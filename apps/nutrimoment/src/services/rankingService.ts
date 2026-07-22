@@ -3,6 +3,7 @@ import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import { expandIngredientFamilies } from "@/lib/ingredientFamilies";
 import type { ResolvedPreferenceProfile } from "@/lib/preferences";
+import { IngredientNormalizer, getIngredientProfileForTerm, normalizeIngredientText } from "@/food/IngredientNormalizer";
 
 export interface RankRecipesInput {
   recipes: RecipeCatalogDoc[];
@@ -23,14 +24,25 @@ export function rankRecipes({
   maxCalories,
   preferences
 }: RankRecipesInput): RankedRecipeResult[] {
-  const available = new Set(normalizedIngredients);
+  const ingredientNormalizer = new IngredientNormalizer();
+  const available = buildWeightedAvailableIngredientSet(normalizedIngredients, ingredientNormalizer);
 
   return recipes
     .map((recipe) => {
-      const matchedRequired = recipe.requiredCanonicals.filter((item) => matchesAvailableIngredient(item, available));
-      const missingRequired = recipe.requiredCanonicals.filter((item) => !matchesAvailableIngredient(item, available));
-      const matchedOptional = recipe.optionalCanonicals.filter((item) => matchesAvailableIngredient(item, available));
-      const missingOptional = recipe.optionalCanonicals.filter((item) => !matchesAvailableIngredient(item, available));
+      const requiredMatches = recipe.requiredCanonicals.map((item) => ({
+        item,
+        weight: getAvailableIngredientMatchWeight(item, available, ingredientNormalizer)
+      }));
+      const optionalMatches = recipe.optionalCanonicals.map((item) => ({
+        item,
+        weight: getAvailableIngredientMatchWeight(item, available, ingredientNormalizer)
+      }));
+      const matchedRequired = requiredMatches.filter((match) => match.weight > 0).map((match) => match.item);
+      const missingRequired = requiredMatches.filter((match) => match.weight <= 0).map((match) => match.item);
+      const matchedOptional = optionalMatches.filter((match) => match.weight > 0).map((match) => match.item);
+      const missingOptional = optionalMatches.filter((match) => match.weight <= 0).map((match) => match.item);
+      const requiredMatchWeight = requiredMatches.reduce((total, match) => total + match.weight, 0) / 100;
+      const optionalMatchWeight = optionalMatches.reduce((total, match) => total + match.weight, 0) / 100;
       const allergenViolation = (preferences.allergens ?? []).some((allergen) => recipe.allergenTags.includes(allergen));
       const dietViolation = preferences.requiredDietTags.some((dietTag) => !recipe.dietTags.includes(dietTag));
       const dietMatch = preferences.requiredDietTags.length
@@ -65,8 +77,8 @@ export function rankRecipes({
       );
 
       const score =
-        8 * matchedRequired.length +
-        3 * matchedOptional.length -
+        8 * requiredMatchWeight +
+        3 * optionalMatchWeight -
         7 * missingRequired.length -
         2 * missingOptional.length +
         5 * dietMatch +
@@ -217,10 +229,75 @@ function scoreKnowledgePath(recipe: RecipeCatalogDoc, dishFamilies: string[]) {
   return dishFamilies.some((family) => haystack.includes(family.toLowerCase())) ? 3 : 0;
 }
 
-function matchesAvailableIngredient(ingredient: string, available: Set<string>) {
-  if (available.has(ingredient)) return true;
+function buildWeightedAvailableIngredientSet(ingredients: string[], normalizer: IngredientNormalizer) {
+  const weighted = new Map<string, number>();
+  const add = (term: string, weight: number) => {
+    const normalized = normalizeIngredientText(term);
+    if (!normalized) return;
+    weighted.set(normalized, Math.max(weighted.get(normalized) ?? 0, weight));
+  };
 
-  return expandIngredientFamilies([ingredient]).some((candidate) => available.has(candidate));
+  for (const ingredient of ingredients) {
+    add(ingredient, 100);
+    const normalized = normalizer.normalizeOne(ingredient);
+    if (normalized) {
+      add(normalized.id, 100);
+      add(normalized.id.replace(/_/g, " "), 100);
+      add(normalized.canonicalEnglishName, 100);
+      normalized.aliases.forEach((alias) => add(alias.term, alias.weight));
+    }
+    expandIngredientFamilies([ingredient]).forEach((candidate) => add(candidate, 96));
+  }
+
+  return weighted;
+}
+
+function getAvailableIngredientMatchWeight(
+  ingredient: string,
+  available: Map<string, number>,
+  normalizer: IngredientNormalizer
+) {
+  const normalizedIngredient = normalizeIngredientText(ingredient);
+  if (!normalizedIngredient) return 0;
+
+  const direct = available.get(normalizedIngredient);
+  if (direct) return direct;
+
+  const profile = getIngredientProfileForTerm(normalizedIngredient);
+  if (profile) {
+    const idMatch = available.get(profile.id) ?? available.get(profile.id.replace(/_/g, " "));
+    if (idMatch) return idMatch;
+    const aliasMatch = normalizer
+      .expandAliasesForProfile(profile)
+      .map((alias) => available.get(alias.term) ?? 0)
+      .sort((left, right) => right - left)[0];
+    if (aliasMatch) return aliasMatch;
+  }
+
+  const familyMatch = expandIngredientFamilies([normalizedIngredient])
+    .map((candidate) => available.get(normalizeIngredientText(candidate)) ?? 0)
+    .sort((left, right) => right - left)[0];
+  if (familyMatch) return Math.min(96, familyMatch);
+
+  for (const [availableIngredient, weight] of available.entries()) {
+    if (isSafeIngredientSubsetMatch(normalizedIngredient, availableIngredient)) {
+      return Math.min(88, weight);
+    }
+  }
+
+  return 0;
+}
+
+function isSafeIngredientSubsetMatch(recipeIngredient: string, availableIngredient: string) {
+  const requiresSeparatePurchase = /\b(broth|stock|bouillon|stuffing|soup|sauce|powder|seasoning|extract|concentrate)\b/i;
+  if (requiresSeparatePurchase.test(recipeIngredient) || requiresSeparatePurchase.test(availableIngredient)) {
+    return false;
+  }
+
+  return (
+    (recipeIngredient.length >= 4 && availableIngredient.includes(recipeIngredient)) ||
+    (availableIngredient.length >= 4 && recipeIngredient.includes(availableIngredient))
+  );
 }
 
 function scoreHealthMetadata(recipe: RecipeCatalogDoc, preferences: ResolvedPreferenceProfile) {

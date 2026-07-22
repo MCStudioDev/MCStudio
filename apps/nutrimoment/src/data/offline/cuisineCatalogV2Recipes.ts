@@ -45,6 +45,8 @@ export function convertCuisineCatalogV2EntryToRecipeDoc(entry: CuisineCatalogV2E
     ingredients: ingredientCanonicals.map((canonical) => ({
       name: canonical,
       canonical,
+      quantity: inferIngredientQuantity(canonical),
+      unit: inferIngredientUnit(canonical),
       required: requiredCanonicals.includes(canonical)
     })),
     ingredientCanonicals,
@@ -82,7 +84,8 @@ export function convertCuisineCatalogV2EntryToRecipeDoc(entry: CuisineCatalogV2E
       visual_keywords: [title, cuisine, ...ingredientCanonicals.slice(0, 4)],
       exclude_keywords: []
     },
-    regionalCuisines: [entry.cuisine, cuisine, entry.region, entry.subCuisine].filter(Boolean) as string[],
+    regionalCuisines: [entry.cuisine, cuisine, entry.region, entry.subCuisine]
+      .filter((value): value is string => typeof value === "string" && value.length > 0),
     styleTags: inferStyleTags(entry),
     searchTokens: Array.from(new Set([
       title,
@@ -95,7 +98,7 @@ export function convertCuisineCatalogV2EntryToRecipeDoc(entry: CuisineCatalogV2E
       ...entry.names.native,
       ...(entry.names.other ?? []),
       ...ingredientCanonicals
-    ])).filter(Boolean),
+    ])).filter((value): value is string => typeof value === "string" && value.length > 0),
     popularityScore: entry.score,
     qualityScore: entry.authenticity.confidence === "high" ? 90 : entry.authenticity.confidence === "medium" ? 78 : 66,
     isActive: true,
@@ -167,6 +170,19 @@ function inferFiber(ingredients: string[]) {
 
 function inferSodium(ingredients: string[]) {
   return ingredients.some((ingredient) => /\b(cheese|pickle|soy sauce|fish sauce)\b/.test(ingredient)) ? 620 : 430;
+}
+
+function inferIngredientQuantity(canonical: string) {
+  if (/\b(egg)\b/.test(canonical)) return 2;
+  return 1;
+}
+
+function inferIngredientUnit(canonical: string) {
+  if (/\b(chicken breast)\b/.test(canonical)) return "breasts";
+  if (/\b(egg)\b/.test(canonical)) return "eggs";
+  if (/\b(beef|meat|lamb|chicken|turkey|fish|shrimp|tofu)\b/.test(canonical)) return "serving";
+  if (/\b(rice|pasta|flour|lentil|bean|chickpea|milk|sauce)\b/.test(canonical)) return "cup";
+  return "piece";
 }
 
 function inferDietTags(ingredients: string[]) {

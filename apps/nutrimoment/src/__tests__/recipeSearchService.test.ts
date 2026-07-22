@@ -37,4 +37,23 @@ describe("recipe search service", () => {
     expect(result.recipes.some((recipe) => recipe.matched_required_count > 0)).toBe(true);
     expect(new Set(result.recipes.map((recipe) => recipe.cuisine)).size).toBeGreaterThan(1);
   });
+
+  it("never returns an empty dataset result for highest-frequency ingredients", async () => {
+    const { searchCatalogRecipes } = await import("../services/recipeSearchService");
+
+    for (const ingredient of ["chicken", "beef", "rice", "egg", "tomato", "potato", "onion"]) {
+      const result = await searchCatalogRecipes({
+        ingredients: [ingredient],
+        preferredCuisine: "Any",
+        calorieTarget: 1650,
+        maxResults: 5,
+        recipeLanguage: "English",
+        uid: "test-user"
+      });
+
+      expect(result.generationStatus, ingredient).toBe(RecipeGenerationStatus.SUCCESS_DATASET);
+      expect(result.recipes.length, ingredient).toBeGreaterThan(0);
+      expect(result.recipes.some((recipe) => recipe.matched_required_count > 0), ingredient).toBe(true);
+    }
+  });
 });

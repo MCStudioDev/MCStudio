@@ -20,6 +20,7 @@ import { searchCatalogRecipes } from "@/services/recipeSearchService";
 import { repairScanRecipesWithGuard } from "@/services/scanRecipeGuardService";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
+import { getIngredientProfileForTerm, normalizeIngredientText } from "@/food/IngredientNormalizer";
 import {
   findRecipeReferencesForGeneration,
   mapRecipeReferencesToRecipes
@@ -72,7 +73,9 @@ import {
 import { adaptRecipeForHealthConditions, findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import type { RecipeReferencePromptRecipe } from "@/lib/recipeReferenceTypes";
 import { getOrCreateRecipeEditorCache } from "@/services/recipeEditorSemanticCache";
+import { RecipeAcceptanceEngine } from "@/services/recipeAcceptanceEngine";
 import { RecipeQualityGate } from "@/services/recipeQualityGate";
+import { enforceRecipeDiversity } from "@/services/recipeDiversityValidator";
 import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
@@ -92,6 +95,8 @@ const RECIPE_TEXT_GENERATION_OPTIONS = {
   topP: 0.95
 } as const;
 const recipeQualityGate = new RecipeQualityGate();
+const recipeAcceptanceEngine = new RecipeAcceptanceEngine();
+const RECIPE_SIMILARITY_REJECTION_THRESHOLD = 0.75;
 const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
   ...getAllDishes().map((dish) => dish.id),
   "cilbir",
@@ -282,8 +287,11 @@ export async function POST(request: Request) {
     const normalizedIngredientNames = ingredientNormalization.normalized.length
       ? ingredientNormalization.normalized
       : normalizedPromptIngredients.map((item) => item.normalized);
-    const expandedNormalizedIngredientNames = expandIngredientFamilies(normalizedIngredientNames);
-    const scoringIngredients = Array.from(new Set([...ingredients, ...expandedNormalizedIngredientNames]));
+    const expandedNormalizedIngredientNames = Array.from(new Set([
+      ...ingredientNormalization.searchTerms,
+      ...expandIngredientFamilies(normalizedIngredientNames)
+    ]));
+    const scoringIngredients = expandedNormalizedIngredientNames;
     // Server-side hard filter context for diet + allergens. Used to drop
     // anything generated that violates the user's rules, regardless of
     // how confidently the prompt asked the model to respect them.
@@ -312,7 +320,7 @@ export async function POST(request: Request) {
       }
       return healthAllowed;
     };
-    const availableIngredients = buildAvailableIngredientSet(ingredients, expandedNormalizedIngredientNames);
+    const availableIngredients = buildAvailableIngredientSet([], expandedNormalizedIngredientNames);
     const recentRecipeMemory = await loadRecentRecipeMemory({
       availableIngredients,
       inputIngredients: ingredients,
@@ -345,6 +353,11 @@ export async function POST(request: Request) {
     logger.info("Recipe generation request started", {
       requestId,
       ingredientCount: ingredients.length,
+      normalizedIngredientIds: ingredientNormalization.ingredientIds,
+      expandedAliases: ingredientNormalization.expandedAliases.slice(0, 20).map((alias) => ({
+        term: alias.term,
+        weight: alias.weight
+      })),
       recipeCountRequested: recipeCount,
       hasReferenceImage: aiTraceSummary.hadReferenceImage,
       preferredCuisine: parsed.data.preferredCuisine ?? "Any"
@@ -487,19 +500,75 @@ export async function POST(request: Request) {
           scoringIngredients
         }
       ), candidateRecipeCount), candidateRecipeCount, parsed.data.preferredCuisine ?? "Any");
-      const qualityGated = prepared.filter((recipe) => {
+      const acceptedRecipes: Recipe[] = [];
+      for (const recipe of prepared) {
         const quality = recipeQualityGate.validate(recipe, recipeLanguage);
-        if (quality.valid) return true;
-        logger.warn("Recipe quality gate rejected recipe before response", {
-          requestId,
-          recipeName: recipe.name,
-          reasons: quality.reasons
+        if (!quality.valid) {
+          logger.warn("Recipe quality gate rejected recipe before response", {
+            requestId,
+            recipeName: recipe.name,
+            reasons: quality.reasons
+          });
+          continue;
+        }
+        const acceptance = recipeAcceptanceEngine.evaluate(recipe, {
+          imageReady: isDurableRecipeImageUrl(recipe.image_url),
+          qualityGate: quality,
+          recipeLanguage,
+          selectedRecipes: acceptedRecipes
         });
-        return false;
+        if (!acceptance.accepted) {
+          logger.warn("Recipe acceptance engine rejected recipe before response", {
+            requestId,
+            recipeName: recipe.name,
+            score: acceptance.score,
+            reasons: acceptance.reasons
+          });
+          continue;
+        }
+        acceptedRecipes.push({
+          ...recipe,
+          acceptance_reasons: acceptance.reasons,
+          acceptance_score: acceptance.score
+        });
+      }
+      const qualityGated = acceptedRecipes;
+      const diversitySelected = enforceRecipeDiversity(qualityGated, {
+        limit: candidateRecipeCount,
+        similarityThreshold: RECIPE_SIMILARITY_REJECTION_THRESHOLD
       });
+      if (diversitySelected.length < qualityGated.length) {
+        logger.info("Recipe diversity validator removed near-duplicate recipes", {
+          requestId,
+          beforeCount: qualityGated.length,
+          afterCount: diversitySelected.length,
+          similarityThreshold: RECIPE_SIMILARITY_REJECTION_THRESHOLD
+        });
+      }
+      const localizedSelected = diversitySelected.filter((recipe) => {
+        const valid = isRecipeLocalizationAcceptable(recipe, recipeLanguage);
+        if (!valid) {
+          logger.warn("Recipe localization validator rejected recipe before response", {
+            requestId,
+            recipeName: recipe.name,
+            recipeLanguage
+          });
+        }
+        return valid;
+      });
+      if (localizedSelected.length < diversitySelected.length) {
+        logger.info("Recipe localization validation removed recipes", {
+          requestId,
+          beforeCount: diversitySelected.length,
+          afterCount: localizedSelected.length
+        });
+      }
+
       // A card shown in the same pantry context is ineligible for the next
       // ten scans. This is a hard exclusion, not a score adjustment.
-      return excludeRecipesShownInRecentScans(qualityGated, recentRecipeMemory).slice(0, recipeCount);
+      return markProgressiveRecipeImages(
+        excludeRecipesShownInRecentScans(localizedSelected, recentRecipeMemory).slice(0, recipeCount)
+      );
     };
     // Cards are returned as soon as the source recipe is validated. ScannerTab
     // then hydrates cached/provider images concurrently without delaying recipes.
@@ -753,7 +822,7 @@ export async function POST(request: Request) {
         mergeRecipeResults(exactScanMatch, strictDatasetRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
       );
 
-      if (finalDatasetRecipes.length) {
+      if (finalDatasetRecipes.length >= recipeCount) {
         await queueRecipeCachePersist({
           uid: requestAccess.uid,
           recipeLanguage,
@@ -775,18 +844,17 @@ export async function POST(request: Request) {
           recipes: finalDatasetRecipes,
           result: JSON.stringify(finalDatasetRecipes),
           servedFrom: datasetSearchResult.servedFrom,
-          generationStatus:
-            finalDatasetRecipes.length < recipeCount
-              ? RecipeGenerationStatus.PARTIAL_RESULTS
-              : RecipeGenerationStatus.SUCCESS_DATASET,
+          generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
           canLoadMore: datasetSearchResult.canLoadMore,
           access: accessPayload(requestAccess)
         });
       }
 
-      logger.info("Recipe dataset search did not produce response-ready recipes; trying custom generation", {
+      logger.info("Recipe dataset search did not produce enough response-ready recipes; trying custom generation", {
         ...aiTraceSummary,
-        candidateCount: datasetSearchResult.recipes.length
+        candidateCount: datasetSearchResult.recipes.length,
+        requestedCount: recipeCount,
+        responseReadyCount: finalDatasetRecipes.length
       });
     }
 
@@ -1039,9 +1107,63 @@ export async function POST(request: Request) {
             `AI response did not provide enough sourced recipes: ${strictRecipes.length}/${requiredSourcedRecipeCount}`
           );
         }
-        const finalRecipes = await finalizeRecipeResponse(
+        let finalRecipes = await finalizeRecipeResponse(
           mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
         );
+        if (ingredients.length && finalRecipes.length < recipeCount) {
+          const replacementCount = recipeCount - finalRecipes.length;
+          logger.info("Recipe acceptance left open slots; generating targeted replacements", {
+            requestId,
+            acceptedCount: finalRecipes.length,
+            replacementCount,
+            requestedCount: recipeCount
+          });
+          const replacementText = await generateRecipesWithTransientRetry(
+            PromptBuilder.scannerPantryBalanceRepair(prompt, replacementCount),
+            (attempt) => traceTextCall(attempt === 1 ? "acceptance_replacement_generation" : `acceptance_replacement_retry_${attempt}`),
+            { groundWithGoogleSearch: shouldUseGroundedRecipeSearch, systemInstruction: editorSystemInstruction }
+          );
+          const replacementPayload = parseAiJsonPayload(replacementText, "recipe_generation");
+          const replacementNormalizedRecipes = replacementPayload.recipes ?? replacementPayload;
+          if (Array.isArray(replacementNormalizedRecipes) && replacementNormalizedRecipes.length) {
+            const replacementOwnedRecipes = enforceAnyCuisineDiversity(
+              rejectNearDuplicateAiRecipes(
+                enforceDietOnRecipes(
+                  applyStrictIngredientOwnership(
+                    enforceSourcedRecipeContract(replacementNormalizedRecipes, {
+                      allowLocalDatabase: recipeReferences.length > 0,
+                      phase: "ai_acceptance_replacement",
+                      requestId,
+                      requireSourcedRecipes: ingredients.length > 0
+                    }),
+                    availableIngredients,
+                    {
+                      preferredCuisine: parsed.data.preferredCuisine,
+                      diets: parsed.data.diets,
+                      conditions: parsed.data.conditions,
+                      allergens: parsed.data.allergens
+                    }
+                  ),
+                  "ai_acceptance_replacement"
+                ),
+                requestId,
+                "ai_acceptance_replacement"
+              ),
+              parsed.data.preferredCuisine,
+              recipeCount,
+              requestId
+            );
+            const rankedReplacementRecipes = rankStrictRecipes(replacementOwnedRecipes, sourceRankingOptions);
+            finalRecipes = await finalizeRecipeResponse(
+              mergeRecipeResults(
+                exactScanMatch,
+                [...finalRecipes, ...rankedReplacementRecipes, ...strictRecipes],
+                shouldLabelSimilarRecipes,
+                sourceRankingOptions.candidateLimit
+              )
+            );
+          }
+        }
         if (ingredients.length && finalRecipes.length < recipeCount) {
           throw new Error(`Validated source recipes were insufficient after final quality checks: ${finalRecipes.length}/${recipeCount}`);
         }
@@ -1109,7 +1231,7 @@ export async function POST(request: Request) {
     const finalRecipes = await finalizeRecipeResponse(
       mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
     );
-    if (!finalRecipes.length) {
+    if (finalRecipes.length < recipeCount) {
       const message = buildRecipeUnavailableMessage(recipeLanguage);
       await persistRecipeGenerationHistoryEntry({
         errorMessage: message,
@@ -1151,10 +1273,7 @@ export async function POST(request: Request) {
       recipes: finalRecipes,
       result: JSON.stringify(finalRecipes),
       servedFrom: referenceFallbackRecipes.length ? "recipe_reference" : "shared_pool",
-      generationStatus:
-        finalRecipes.length < recipeCount
-          ? RecipeGenerationStatus.PARTIAL_RESULTS
-          : RecipeGenerationStatus.SUCCESS_DATASET,
+      generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
       canLoadMore: searchResult?.canLoadMore ?? recipeReferences.length > recipeCount,
       access: accessPayload(nextAccess)
     });
@@ -5675,7 +5794,7 @@ function mergeRecipeEditorOutput(
 
   return {
     ...sourceRecipe,
-    name: stringField("name") as string,
+    name: preserveSourceDishIdentityName(sourceRecipe, stringField("name") as string),
     cuisine: stringField("cuisine") as string,
     ingredients: stringArrayField("ingredients") as string[],
     missing_ingredients: stringArrayField("missing_ingredients") as string[],
@@ -5684,6 +5803,33 @@ function mergeRecipeEditorOutput(
     difficulty: stringField("difficulty") as string,
     preference_hits: stringArrayField("preference_hits") as string[]
   };
+}
+
+function preserveSourceDishIdentityName(sourceRecipe: Recipe, editedName: string) {
+  const identity = sourceRecipe.dish_identity || sourceRecipe.name;
+  if (!identity.trim()) return editedName;
+  if (doesNamePreserveDishIdentity(editedName, identity)) return editedName;
+  return sourceRecipe.name;
+}
+
+function doesNamePreserveDishIdentity(name: string, identity: string) {
+  const nameText = normalizeIdentityText(name);
+  const identityTokens = normalizeIdentityText(identity)
+    .split(" ")
+    .filter((token) => token.length >= 4)
+    .filter((token) => !new Set(["chicken", "beef", "fish", "rice", "italian", "egyptian", "turkish", "greek"]).has(token));
+  if (!identityTokens.length) return nameText === normalizeIdentityText(identity);
+  return identityTokens.some((token) => nameText.includes(token));
+}
+
+function normalizeIdentityText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function generateRecipesWithTransientRetry(
@@ -6968,6 +7114,29 @@ function isIngredientAvailable(ingredient: string, availableIngredients: Set<str
   const normalizedIngredient = normalizeIngredientForStrictMatch(ingredient);
   if (!normalizedIngredient) return false;
   if (availableIngredients.has(normalizedIngredient)) return true;
+  const ingredientProfile = getIngredientProfileForTerm(normalizedIngredient);
+  if (ingredientProfile) {
+    if (
+      availableIngredients.has(ingredientProfile.id) ||
+      availableIngredients.has(ingredientProfile.id.replace(/_/g, " ")) ||
+      availableIngredients.has(normalizeIngredientForStrictMatch(ingredientProfile.canonicalEnglishName))
+    ) {
+      return true;
+    }
+
+    if (
+      [
+        ...ingredientProfile.aliases,
+        ...ingredientProfile.synonyms,
+        ...ingredientProfile.pluralForms,
+        ...ingredientProfile.ocrMistakes,
+        ...ingredientProfile.spellingMistakes
+      ].some((alias) => availableIngredients.has(normalizeIngredientForStrictMatch(alias)))
+    ) {
+      return true;
+    }
+  }
+
   if (expandIngredientFamilies([normalizedIngredient]).some((candidate) => availableIngredients.has(candidate))) {
     return true;
   }
@@ -6992,8 +7161,7 @@ function isSafeIngredientSubsetMatch(recipeIngredient: string, availableIngredie
 }
 
 function normalizeIngredientForStrictMatch(value: string) {
-  const normalized = value
-    .toLowerCase()
+  const normalized = normalizeIngredientText(value)
     .replace(/\s+-\s+.*$/, "")
     .replace(/\b\d+(?:\/\d+)?\b/g, " ")
     .replace(/\b(cup|cups|tbsp|tsp|g|gram|grams|kg|lb|oz|can|cans|large|small|medium|whole|clove|cloves|fresh|cooked|dry|rinsed|drained|chopped|diced|sliced|pressed|crumbled|optional)\b/g, " ")
@@ -7008,6 +7176,9 @@ function normalizeIngredientForStrictMatch(value: string) {
   if (/\b(bell\s*pep+er|sweet\s+pep+er|capsicum)\b/i.test(normalized)) return "bell pepper";
   if (/\b(flatbread|pita|tortilla|lavash|naan|baladi\s+bread|wrap)\b/i.test(normalized)) return "bread";
   if (/\b(chicken\s+breast|chicken\s+thigh|chicken\s+leg|chicken\s+tender)\b/i.test(normalized)) return "chicken";
+
+  const profile = getIngredientProfileForTerm(normalized);
+  if (profile) return profile.canonicalEnglishName;
 
   return isSparseGroundMeatSource(normalized) ? "ground meat" : normalized;
 }
@@ -7210,6 +7381,47 @@ function dedupeResolvedRecipeImages(
 function canKeepExistingRecipeImageUrl(recipe: Recipe) {
   if (!isStrictVisualRecipePhotoRequest(recipe, collectRecipePhotoIdentities(recipe))) return true;
   return getStrictRecipePhotoRequestMainIngredientKeys(recipe, buildRecipePhotoQueriesForRanking(recipe)).size === 0;
+}
+
+function markProgressiveRecipeImages(recipes: Recipe[]) {
+  return recipes.map((recipe) => {
+    const placeholder = buildRecipeImagePlaceholder(recipe);
+    if (isDurableRecipeImageUrl(recipe.image_url)) {
+      return {
+        ...recipe,
+        image_error: false,
+        image_loading: false,
+        image_placeholder: placeholder
+      };
+    }
+
+    return {
+      ...recipe,
+      image_attribution_name: undefined,
+      image_attribution_url: undefined,
+      image_error: false,
+      image_loading: true,
+      image_placeholder: placeholder,
+      image_source: undefined,
+      image_url: undefined
+    };
+  });
+}
+
+function isRecipeLocalizationAcceptable(recipe: Recipe, recipeLanguage: string) {
+  if (recipeLanguage.toLowerCase() !== "arabic") return true;
+  const arabic = recipe.localized?.Arabic;
+  if (arabic?.name?.trim() && arabic.steps?.length && arabic.ingredients?.length) return true;
+  return /[\u0600-\u06ff]/u.test(recipe.name) && recipe.steps.some((step) => /[\u0600-\u06ff]/u.test(step));
+}
+
+function buildRecipeImagePlaceholder(recipe: Recipe) {
+  const cuisine = recipe.photo_identity?.cuisine_key || recipe.dish_intent?.cuisine || recipe.cuisine || "global";
+  const method = recipe.photo_identity?.method || recipe.dish_intent?.cooking_method || "plated";
+  return {
+    label: `${recipe.name} ${method} plate`.replace(/\s+/g, " ").trim(),
+    tone: toIdentityKey(cuisine) || "global"
+  };
 }
 
 function collectRecipePhotoIdentities(recipe: Recipe) {

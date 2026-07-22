@@ -67,6 +67,7 @@ export interface RecipeReferenceTaxonomy {
 export interface RecipeReferencePromptRecipe {
   id: string;
   title: string;
+  dishIdentity?: string;
   cuisine: string;
   taxonomy?: RecipeReferenceTaxonomy;
   imagePrompt?: string;

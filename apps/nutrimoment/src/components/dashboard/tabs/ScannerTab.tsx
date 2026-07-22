@@ -1286,6 +1286,7 @@ export function ScannerTab() {
                   imageAttributionUrl={recipe.image_attribution_url}
                   imageLoading={recipe.image_loading}
                   imageError={recipe.image_error}
+                  imagePlaceholder={recipe.image_placeholder}
                   imageQuery={buildRecipePhotoQuery(recipe)}
                   imageExactNames={buildRecipePhotoExactNames(recipe)}
                   imageCuisine={buildRecipePhotoCuisine(recipe)}

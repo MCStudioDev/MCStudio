@@ -5,7 +5,7 @@ import { OFFLINE_RECIPES } from "@/data/offline/recipes";
 import { getCuisineCatalogV2RecipeDocs } from "@/data/offline/cuisineCatalogV2Recipes";
 import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
 import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
-import type { RankedRecipeResult, RecipeCatalogDoc, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
+import type { RankedRecipeResult, RecipeCatalogDoc, RecipeIngredient, RecipeSearchResponse, UserPreferenceSnapshot } from "@/lib/domain";
 import { buildPreferenceProfile } from "@/lib/preferences";
 import {
   buildRecipeTitleSource,
@@ -39,6 +39,7 @@ import {
 } from "@/services/userRecipeCacheService";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { getIngredientCulinaryPaths } from "@/lib/IngredientKnowledgeGraph";
+import { logger } from "@/lib/logger";
 import { IngredientGraph } from "@/food/IngredientGraph";
 import { RecipeDiversityEngine } from "@/food/RecipeDiversityEngine";
 
@@ -66,7 +67,7 @@ export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
 export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Promise<CatalogRecipeSearchResult> {
   const normalized = await normalizeIngredients(input.ingredients);
   const expandedNormalizedIngredients = Array.from(new Set([
-    ...expandIngredientFamilies(input.ingredients),
+    ...normalized.searchTerms,
     ...expandIngredientFamilies(normalized.raw),
     ...expandIngredientFamilies(normalized.normalized),
     ...expandIngredientFamilies(normalized.resolved.map((ingredient) => ingredient.normalized))
@@ -168,6 +169,18 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     })
     .filter((recipe): recipe is Recipe => Boolean(recipe));
 
+  logger.info("Recipe dataset retrieval completed", {
+    inputIngredientCount: input.ingredients.length,
+    normalizedIngredientIds: normalized.ingredientIds,
+    expandedAliases: normalized.expandedAliases.slice(0, 20).map((alias) => ({
+      term: alias.term,
+      weight: alias.weight
+    })),
+    candidateRecipeCount: rankedRecipePool.length,
+    matchingRecipeCount: ingredientMatchedRanked.length,
+    returnedRecipeCount: recipes.length
+  });
+
   return {
     ingredientsNormalized: normalized.normalized,
     recipes,
@@ -219,10 +232,12 @@ export function mapCatalogRecipeToUiRecipe(
       : normalizedRecipe.localized?.English?.name ?? normalizedRecipe.title,
     cuisine: cleanedEnglishCuisine || normalizeCuisineLabel(normalizedRecipe.cuisine),
     recipe_source_type: "local_database",
-    ingredients: normalizedRecipe.ingredientCanonicals
-      .filter((ingredient) => !missingIngredients.includes(ingredient))
-      .map(translateIngredientToEnglish),
-    missing_ingredients: missingIngredients.map(translateIngredientToEnglish),
+    dish_identity: cleanedEnglishName,
+    source_recipe_id: normalizedRecipe.id,
+    ingredients: normalizedRecipe.ingredients
+      .filter((ingredient) => !missingIngredients.includes(ingredient.canonical))
+      .map((ingredient) => formatCatalogIngredientForDisplay(ingredient, false)),
+    missing_ingredients: missingIngredients.map((ingredient) => formatCanonicalIngredientForDisplay(ingredient, false)),
     steps: normalizedRecipe.localized?.English?.steps?.length ? normalizedRecipe.localized.English.steps : normalizedRecipe.steps,
     calories: normalizedRecipe.calories,
     protein: normalizedRecipe.localized?.English?.protein ?? `${normalizedRecipe.protein}g`,
@@ -254,18 +269,18 @@ export function mapCatalogRecipeToUiRecipe(
 
   const localized = selectDisplayLocalizedVariant(normalizedRecipe, englishBase, wantsArabic);
 
-  const availableIngredients = normalizedRecipe.ingredientCanonicals
-    .filter((ingredient) => !missingIngredients.includes(ingredient))
-    .map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
-  const missingLocalized = missingIngredients.map(wantsArabic ? translateIngredientToArabic : translateIngredientToEnglish);
+  const availableIngredients = normalizedRecipe.ingredients
+    .filter((ingredient) => !missingIngredients.includes(ingredient.canonical))
+    .map((ingredient) => formatCatalogIngredientForDisplay(ingredient, wantsArabic));
+  const missingLocalized = missingIngredients.map((ingredient) => formatCanonicalIngredientForDisplay(ingredient, wantsArabic));
 
   const localizedImageUrl = normalizeRecipeImageUrl(localized.image_url) ?? englishBase.image_url;
   const localizedRecipe: Recipe = {
     ...englishBase,
     name: localized.name,
     cuisine: wantsArabic ? cleanedArabicCuisine || localized.cuisine : cleanedEnglishCuisine || localized.cuisine,
-    ingredients: localized.ingredients?.length ? localized.ingredients : availableIngredients,
-    missing_ingredients: localized.missing_ingredients?.length ? localized.missing_ingredients : missingLocalized,
+    ingredients: availableIngredients,
+    missing_ingredients: missingLocalized,
     steps: localized.steps?.length ? localized.steps : englishBase.steps,
     protein: localized.protein ?? englishBase.protein,
     carbs: localized.carbs ?? englishBase.carbs,
@@ -341,6 +356,78 @@ function normalizeRecipeImageUrl(value?: string) {
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function formatCatalogIngredientForDisplay(ingredient: RecipeIngredient, wantsArabic: boolean) {
+  return formatCanonicalIngredientForDisplay(
+    ingredient.canonical || ingredient.name,
+    wantsArabic,
+    ingredient.quantity,
+    ingredient.unit
+  );
+}
+
+function formatCanonicalIngredientForDisplay(
+  canonical: string,
+  wantsArabic: boolean,
+  quantity?: number,
+  unit?: string
+) {
+  const displayName = wantsArabic ? translateIngredientToArabic(canonical) : translateIngredientToEnglish(canonical);
+  const normalizedUnit = unit?.trim() || inferDefaultIngredientUnit(canonical);
+  const safeQuantity = Number.isFinite(quantity) && quantity != null ? quantity : inferDefaultIngredientQuantity(canonical);
+  return [
+    formatIngredientQuantity(safeQuantity),
+    wantsArabic ? translateIngredientUnitToArabic(normalizedUnit) : normalizedUnit,
+    displayName
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function inferDefaultIngredientQuantity(canonical: string) {
+  const normalized = canonical.toLowerCase();
+  if (/\b(chicken|beef|meat|lamb|fish|salmon|shrimp|turkey|tofu)\b/.test(normalized)) return 1;
+  if (/\b(egg)\b/.test(normalized)) return 2;
+  if (/\b(rice|pasta|tomato|potato|onion|bread|beans|lentil|chickpea)\b/.test(normalized)) return 1;
+  return 1;
+}
+
+function inferDefaultIngredientUnit(canonical: string) {
+  const normalized = canonical.toLowerCase();
+  if (/\b(chicken breast)\b/.test(normalized)) return "breasts";
+  if (/\b(egg)\b/.test(normalized)) return "eggs";
+  if (/\b(chicken|beef|meat|lamb|fish|salmon|shrimp|turkey|tofu)\b/.test(normalized)) return "serving";
+  if (/\b(rice|pasta|beans|lentil|chickpea)\b/.test(normalized)) return "cup";
+  if (/\b(tomato|potato|onion|bread)\b/.test(normalized)) return "piece";
+  return "portion";
+}
+
+function formatIngredientQuantity(value: number) {
+  return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+}
+
+function translateIngredientUnitToArabic(unit: string) {
+  const normalized = unit.trim().toLowerCase();
+  const units: Record<string, string> = {
+    breast: "\u0635\u062f\u0631",
+    breasts: "\u0635\u062f\u0648\u0631",
+    cup: "\u0643\u0648\u0628",
+    cups: "\u0623\u0643\u0648\u0627\u0628",
+    egg: "\u0628\u064a\u0636\u0629",
+    eggs: "\u0628\u064a\u0636\u0627\u062a",
+    lb: "\u0631\u0637\u0644",
+    ounce: "\u0623\u0648\u0646\u0635\u0629",
+    ounces: "\u0623\u0648\u0646\u0635\u0627\u062a",
+    piece: "\u062d\u0628\u0629",
+    pieces: "\u062d\u0628\u0627\u062a",
+    portion: "\u062d\u0635\u0629",
+    serving: "\u062d\u0635\u0629",
+    tbsp: "\u0645\u0644\u0639\u0642\u0629 \u0643\u0628\u064a\u0631\u0629",
+    tsp: "\u0645\u0644\u0639\u0642\u0629 \u0635\u063a\u064a\u0631\u0629"
+  };
+  return units[normalized] ?? unit;
 }
 
 function selectDisplayLocalizedVariant(recipe: RecipeCatalogDoc, englishBase: Recipe, wantsArabic: boolean) {

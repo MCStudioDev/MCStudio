@@ -6,6 +6,8 @@ import {
   type IngredientKnowledgeMatch,
   type IngredientKnowledgeProfile
 } from "@/lib/IngredientKnowledgeGraph";
+import { getDictionaryDishFamiliesForIngredientIds } from "@/food/FoodDictionary";
+import { IngredientNormalizer } from "@/food/IngredientNormalizer";
 
 export interface IngredientCuisineRoute {
   cuisine: string;
@@ -13,7 +15,16 @@ export interface IngredientCuisineRoute {
   paths: CulinaryPath[];
 }
 
+export interface SmartIngredientExpansionPlan {
+  cuisines: string[];
+  dishFamilies: string[];
+  ingredientIds: string[];
+  routes: IngredientCuisineRoute[];
+}
+
 export class IngredientGraph {
+  private readonly normalizer = new IngredientNormalizer();
+
   resolve(ingredient: string): IngredientKnowledgeMatch | null {
     return resolveIngredientKnowledge(ingredient);
   }
@@ -43,5 +54,22 @@ export class IngredientGraph {
         paths
       };
     });
+  }
+
+  smartExpansionPlan(ingredients: string[], preferredCuisine = "Any"): SmartIngredientExpansionPlan {
+    const profile = this.profile(ingredients);
+    const routes = this.cuisineRoutes(ingredients, preferredCuisine);
+    const normalized = this.normalizer.normalize(ingredients);
+    const normalizedIds = normalized.map((ingredient) => ingredient.id);
+    const dictionaryDishFamilies = getDictionaryDishFamiliesForIngredientIds(normalizedIds);
+    return {
+      cuisines: routes.map((route) => route.cuisine),
+      dishFamilies: Array.from(new Set([...routes.flatMap((route) => route.dishFamilies), ...dictionaryDishFamilies])),
+      ingredientIds: Array.from(new Set([
+        ...normalizedIds,
+        ...profile.matches.map((match) => match.canonical)
+      ])),
+      routes
+    };
   }
 }

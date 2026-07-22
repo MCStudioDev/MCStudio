@@ -8,6 +8,7 @@ import { useApp } from "@/contexts/AppContext";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
 import { buildRecipePhotoReuseKeyFromQuery } from "@/lib/recipePhotoReuse";
+import { getCuisinePlaceholderPalette as getDictionaryCuisinePlaceholderPalette } from "@/food/FoodDictionary";
 import type { PhotoIdentity, RecipeImageSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,10 @@ interface MealRevealCardProps {
   imageAttributionUrl?: string;
   imageLoading?: boolean;
   imageError?: boolean;
+  imagePlaceholder?: {
+    label: string;
+    tone: string;
+  };
   imageQuery?: string | string[];
   imageExactNames?: string[];
   imageCuisine?: string;
@@ -83,6 +88,7 @@ export function MealRevealCard({
   imageUrl,
   imageLoading,
   imageError,
+  imagePlaceholder,
   imageQuery,
   imageExactNames,
   imageCuisine,
@@ -213,8 +219,8 @@ export function MealRevealCard({
     [failedImageUrls, queryKey, reuseKey]
   );
   const placeholderStyle = useMemo(
-    () => buildRecipePlaceholderStyle(primaryQuery || name),
-    [name, primaryQuery]
+    () => buildRecipePlaceholderStyle(primaryQuery || imagePlaceholder?.label || name, imagePlaceholder?.tone || imageCuisine),
+    [imageCuisine, imagePlaceholder?.label, imagePlaceholder?.tone, name, primaryQuery]
   );
   const visibleStats = useMemo(
     () => stats.filter((stat) => stat.value !== undefined && stat.value !== ""),
@@ -985,17 +991,19 @@ function normalizeRecipePhotoParam(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function buildRecipePlaceholderStyle(seed: string): CSSProperties {
+function buildRecipePlaceholderStyle(seed: string, tone?: string): CSSProperties {
   const hash = hashRecipeSeed(seed || "recipe");
-  const hueA = hash % 360;
-  const hueB = (hueA + 62) % 360;
-  const hueC = (hueA + 190) % 360;
+  const palette = getDictionaryCuisinePlaceholderPalette(tone);
+  const hueA = palette?.[0] ?? hash % 360;
+  const hueB = palette?.[1] ?? (hueA + 62) % 360;
+  const hueC = palette?.[2] ?? (hueA + 190) % 360;
 
   return {
     background: [
-      `radial-gradient(circle at 24% 18%, hsla(${hueB}, 78%, 68%, 0.42), transparent 30%)`,
-      `radial-gradient(circle at 82% 20%, hsla(${hueC}, 74%, 64%, 0.28), transparent 26%)`,
-      `linear-gradient(135deg, hsl(${hueA}, 48%, 16%), hsl(${hueB}, 46%, 10%) 58%, hsl(${hueC}, 46%, 15%))`
+      `radial-gradient(circle at 22% 18%, hsla(${hueB}, 78%, 68%, 0.44), transparent 28%)`,
+      `radial-gradient(circle at 78% 22%, hsla(${hueC}, 76%, 64%, 0.32), transparent 25%)`,
+      `radial-gradient(circle at 50% 78%, hsla(${hueA}, 80%, 70%, 0.20), transparent 34%)`,
+      `linear-gradient(135deg, hsl(${hueA}, 48%, 15%), hsl(${hueB}, 44%, 10%) 58%, hsl(${hueC}, 46%, 15%))`
     ].join(", ")
   };
 }

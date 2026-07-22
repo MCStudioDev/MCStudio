@@ -1,6 +1,7 @@
 ﻿import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
 import { ARABIC_CULINARY_DICTIONARY } from "@/data/culinary/arabicCulinaryDictionary";
+import { buildFoodDictionaryLocalizationLookups } from "@/food/FoodDictionary";
 
 const RECIPE_TITLES: Record<string, string> = {
   ...ARABIC_CULINARY_DICTIONARY.dishTitles,
@@ -277,6 +278,7 @@ const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
   seafood: "مأكولات بحرية",
   "ground beef": "لحم مفروم",
   "ground meat": "لحم مفروم",
+  beef: "لحم",
   "minced meat": "لحم مفروم",
   "minced beef": "لحم مفروم",
   liver: "كبدة",
@@ -442,6 +444,7 @@ const STEP_TRANSLATIONS: Record<string, string> = {
 };
 
 const REVERSE_RECIPE_TITLES = reverseLookup(RECIPE_TITLES);
+const FOOD_DICTIONARY_TRANSLATIONS = buildFoodDictionaryLocalizationLookups();
 const NORMALIZED_RECIPE_TITLE_LOOKUP: Record<string, string> = Object.fromEntries(
   Object.entries(RECIPE_TITLES).map(([title, localizedTitle]) => [normalizeTranslationKey(title), localizedTitle])
 );
@@ -456,12 +459,14 @@ const {
 
 const ENGLISH_TO_ARABIC_INGREDIENT_LOOKUP: Record<string, string> = {
   ...TAXONOMY_ENGLISH_TO_ARABIC,
+  ...FOOD_DICTIONARY_TRANSLATIONS.englishToArabic,
   ...INGREDIENTS,
   ...ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES
 };
 
 const ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP: Record<string, string> = {
   ...TAXONOMY_ARABIC_TO_ENGLISH,
+  ...FOOD_DICTIONARY_TRANSLATIONS.arabicToEnglish,
   ...REVERSE_INGREDIENTS,
   ...ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES
 };
@@ -572,7 +577,11 @@ export function isArabicRecipeLanguage(language?: string) {
 }
 
 function translateRecipeTitle(value: string) {
-  const exact = RECIPE_TITLES[value] ?? NORMALIZED_RECIPE_TITLE_LOOKUP[normalizeTranslationKey(value)];
+  const normalized = normalizeTranslationKey(value);
+  const exact =
+    RECIPE_TITLES[value] ??
+    NORMALIZED_RECIPE_TITLE_LOOKUP[normalized] ??
+    FOOD_DICTIONARY_TRANSLATIONS.englishToArabic[normalized];
   if (exact) return exact;
   if (!/[A-Za-z]/.test(value)) return value;
   // Recipe titles must be localized by meaning. Do not turn an unknown Latin
@@ -861,7 +870,7 @@ function translateWeakArabicIngredientTitleToEnglish(normalized: string) {
 }
 
 function translateCuisine(value: string) {
-  return CUISINES[value] ?? value;
+  return CUISINES[value] ?? FOOD_DICTIONARY_TRANSLATIONS.englishToArabic[normalizeTranslationKey(value)] ?? value;
 }
 
 function ensureArabicCuisineText(value: string) {
@@ -874,7 +883,7 @@ function ensureArabicCuisineText(value: string) {
 }
 
 export function translateCuisineToEnglish(value: string) {
-  return REVERSE_CUISINES[value] ?? value;
+  return REVERSE_CUISINES[value] ?? FOOD_DICTIONARY_TRANSLATIONS.arabicToEnglish[normalizeTranslationKey(value)] ?? value;
 }
 
 function translateIngredient(value: string) {
@@ -1062,7 +1071,7 @@ function translateShoppingItem(value: string) {
 }
 
 function translateUnitText(value: string) {
-  return value
+  return replaceIngredientPhrases(value, FOOD_DICTIONARY_TRANSLATIONS.englishToArabic)
     .replace(/\bcup\b/g, "كوب")
     .replace(/\bcups\b/g, "أكواب")
     .replace(/\bwhole\b/g, "حبة")

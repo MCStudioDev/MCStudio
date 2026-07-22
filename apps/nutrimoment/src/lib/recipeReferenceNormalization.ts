@@ -1,3 +1,7 @@
+import { IngredientNormalizer } from "@/food/IngredientNormalizer";
+
+const ingredientNormalizer = new IngredientNormalizer();
+
 const QUANTITY_WORDS =
   /\b(?:about|approx(?:imately)?|optional|divided|plus|more|extra|large|small|medium|fresh|frozen|canned|drained|rinsed|chopped|diced|minced|sliced|grated|shredded|cubed|boneless|skinless|whole|lean|raw|cooked|uncooked|packed|firmly|loosely|bite size|bite-size)\b/giu;
 
@@ -31,6 +35,13 @@ export function expandRecipeReferenceIngredient(value: string) {
     /\bchicken\s+(?:broth|stock|bouillon|gravy|soup|stuffing|base|flavo(?:u)?r(?:ed)?)\b/.test(source) ||
     /\bchicken\s+of\s+the\s+sea\b/.test(source);
   const beefFlavorOnly = /\bbeef\s+(?:broth|stock|bouillon|gravy|soup|base|flavo(?:u)?r(?:ed)?)\b/.test(source);
+  const ingredientSearchPlan = ingredientNormalizer.buildSearchPlan([normalized]);
+  ingredientSearchPlan.searchTerms
+    .map(normalizeRecipeReferenceIngredient)
+    .filter(Boolean)
+    .filter((term) => !(chickenFlavorOnly && term === "chicken"))
+    .filter((term) => !(beefFlavorOnly && (term === "beef" || term === "ground beef" || term === "ground meat")))
+    .forEach((term) => expanded.add(term));
 
   if (!chickenFlavorOnly) {
     addIf(source, expanded, /\b(chicken|hen|poultry|chicken\s+drumstick|chicken\s+thigh|chicken\s+breast|chicken\s+wing|chicken\s+tenderloin|chicken\s+tender)\b/, "chicken");
@@ -40,7 +51,7 @@ export function expandRecipeReferenceIngredient(value: string) {
     addIf(source, expanded, /\b(beef|steak|sirloin|ribeye|beef\s+tenderloin|beef\s+chuck|brisket|round roast|pot roast)\b/, "beef");
   }
   addIf(source, expanded, /\b(steak|sirloin|ribeye|beef\s+tenderloin)\b/, "steak");
-  addIf(source, expanded, /\b(ground beef|minced beef|beef mince|hamburger meat|hamburger)\b/, "ground beef");
+  addIf(source, expanded, /\b(ground beef|ground chuck|ground round|ground sirloin|lean beef|extra lean beef|minced beef|beef mince|hamburger meat|hamburger)\b/, "ground beef");
   addIf(source, expanded, /\b(ground meat|minced meat|mince)\b/, "ground meat");
   addIf(source, expanded, /\b(lamb|mutton)\b/, "lamb");
   addIf(source, expanded, /\b(liver|kebda|calf liver|beef liver|chicken liver)\b/, "liver");

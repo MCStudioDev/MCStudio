@@ -733,6 +733,7 @@ function buildLegacyRecipeGenerationPrompt(ingredients: RecipePromptIngredient[]
     variationGuidance,
     recentRecipeAvoidanceGuidance,
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative marketing titles.",
+    "Recipe title hard rule: the name must describe a finished dish, not a single pantry ingredient. Never use names such as Chicken, Beef, Fish, Rice, Egg, Tomato, Potato, Ground Beef, or Shrimp by themselves. Use finished plate names such as Chicken Parmesan, Chicken Shawarma, Teriyaki Chicken, Beef Stroganoff, Egyptian Hawawshi, or Greek Lemon Chicken.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the recipe's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
     realRecipeGuardrails,
     namedPlatePolicy,
@@ -863,7 +864,7 @@ function buildLegacyRecipeGenerationPrompt(ingredients: RecipePromptIngredient[]
     "For all seafood/fish cards, image_search_index must name the same exact family chosen in the recipe name; do not use generic phrases like shrimp recipe, fish plate, seafood dinner, baked fish, or grilled seafood unless no named family fits.",
     "Return a JSON array, not an object.",
     "Each recipe object must include: name, cuisine, recipe_source_type, source_url when applicable, dish_intent, photo_identity, plated_visual_description, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings. steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent and photo_identity must be English-only internal image metadata. plated_visual_description must be English-only finished-dish visual metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
+    "ingredients and missing_ingredients must be arrays of strings. Every ingredient string must start with a realistic quantity and unit, followed by the ingredient name, for example: \"2 breasts chicken breast\", \"1 cup tomato sauce\", or \"1 tbsp olive oil\". Never return bare ingredient strings such as \"Chicken Breast\" or \"Tomato\". steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent and photo_identity must be English-only internal image metadata. plated_visual_description must be English-only finished-dish visual metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
   ]);
 }
 
@@ -2098,6 +2099,7 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
     realRecipeGuardrails,
     namedPlatePolicy,
     "Even for free-form prompts, use actual established recipes or widely recognized dish families. If the request is vague, choose real dish families instead of inventing generic bowls, skillets, wraps, or fake house specials.",
+    "Recipe title hard rule: the name must describe a finished dish, not a single ingredient. Never use names such as Chicken, Beef, Fish, Rice, Egg, Tomato, Potato, Ground Beef, or Shrimp by themselves.",
     "Variety hard rule: do not return repeated versions of the same recipe under different titles or photos. Each recipe must be a distinct named dish family or distinct serving structure.",
     `Recipe language: ${recipeLanguage}.`,
     languageOutputGuidance,
@@ -2107,7 +2109,7 @@ export function buildPromptOnlyRecipeGenerationPrompt(prompt: string, recipeLang
     "Before returning JSON, verify cooking temperatures, cooking times, ingredient quantities, food safety, realistic workflow order, allergen/exclusion safety, calories, macro plausibility, and that every ingredient is used in the steps.",
     "Return a JSON array, not an object.",
     "Each recipe object must include: name, cuisine, recipe_source_type, source_url when applicable, plated_visual_description, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings in the requested recipe language. steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings in the requested recipe language. plated_visual_description must be English-only finished-dish visual metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields.",
+    "ingredients and missing_ingredients must be arrays of strings in the requested recipe language. Every ingredient string must start with a realistic quantity and unit, followed by the ingredient name, for example: \"2 breasts chicken breast\", \"1 cup tomato sauce\", or \"1 tbsp olive oil\". Never return bare ingredient strings such as \"Chicken Breast\" or \"Tomato\". steps must be an array of 7 to 10 detailed strings with timing and quantities. preference_hits must be an array of strings in the requested recipe language. plated_visual_description must be English-only finished-dish visual metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields.",
     `User request: ${prompt}`
   ].join(" ");
 }

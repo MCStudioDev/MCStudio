@@ -85,6 +85,8 @@ export interface Recipe {
   plated_visual_description?: string;
   recipe_origin?: "exact_scan_match" | "similar_ingredients";
   recipe_source_type?: "local_database" | "external_source" | "generated";
+  dish_identity?: string;
+  source_recipe_id?: string;
   scan_match_explanation?: string;
   source_url?: string;
   dish_intent?: RecipeDishIntent;
@@ -108,6 +110,12 @@ export interface Recipe {
   image_attribution_url?: string;
   image_loading?: boolean;
   image_error?: boolean;
+  image_placeholder?: {
+    label: string;
+    tone: string;
+  };
+  acceptance_score?: number;
+  acceptance_reasons?: string[];
   match_quality?: "great" | "good" | "possible" | "stretch";
   matched_required_count?: number;
   matched_optional_count?: number;

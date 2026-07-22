@@ -92,6 +92,11 @@ export async function findRecipeReferencesForGeneration(
     }
 
     const candidateRecipes = Array.from(recipesById.values());
+    logger.info("Recipe reference retrieval completed", {
+      normalizedQueryTerms: queryTerms,
+      candidateRecipeCount: candidateRecipes.length,
+      preferredCuisine: input.preferredCuisine ?? "Any"
+    });
     const coreMatchedRecipes = candidateRecipes.filter((recipe) => recipeMatchesCoreProteinAnchors(recipe, queryTerms));
     const rankingPool = coreMatchedRecipes.length ? coreMatchedRecipes : candidateRecipes;
     const ranked = rankingPool
@@ -288,6 +293,8 @@ export function mapRecipeReferencesToRecipes(
       id: `recipe-reference-${reference.id || index}`,
       name: reference.title,
       cuisine: reference.cuisine || "Global",
+      dish_identity: reference.dishIdentity || reference.title,
+      source_recipe_id: reference.id,
       plated_visual_description: reference.imagePrompt || buildReferencePlatedVisualDescription(reference),
       recipe_source_type: "local_database",
       source_url: reference.sourceUrl,
@@ -444,6 +451,7 @@ function selectDistinctReferenceSnippets(
     const snippet = {
       id: recipe.id,
       title: recipe.title.trim(),
+      dishIdentity: recipe.title.trim(),
       cuisine: recipe.cuisine?.trim() || "Global",
       taxonomy: recipe.taxonomy,
       imagePrompt: recipe.imagePrompt || recipe.taxonomy?.imagePrompt,

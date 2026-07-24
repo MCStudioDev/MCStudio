@@ -2,6 +2,7 @@
 import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
 import { ARABIC_CULINARY_DICTIONARY } from "@/data/culinary/arabicCulinaryDictionary";
 import { buildFoodDictionaryLocalizationLookups } from "@/food/FoodDictionary";
+import { localizationService } from "@/lib/localization/LocalizationService";
 
 const RECIPE_TITLES: Record<string, string> = {
   ...ARABIC_CULINARY_DICTIONARY.dishTitles,
@@ -955,7 +956,7 @@ function translateIngredient(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 
-  return translated || value;
+  return localizationService.normalizeIngredient(translated || value, "en");
 }
 
 function ensureArabicIngredientText(value: string) {
@@ -973,15 +974,15 @@ function ensureArabicIngredientText(value: string) {
 }
 
 export function translateIngredientToArabic(value: string) {
-  return translateIngredient(value);
+  return localizationService.normalizeIngredient(translateIngredient(value), "ar");
 }
 
 export function translateIngredientToEnglish(value: string) {
   const trimmed = value.trim();
   const normalized = normalizeTranslationKey(trimmed);
   const exact = ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[trimmed] ?? ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[normalized];
-  if (exact) return exact;
-  if (!/[\u0600-\u06FF]/.test(value)) return value;
+  if (exact) return localizationService.normalizeIngredient(exact, "en");
+  if (!/[\u0600-\u06FF]/.test(value)) return localizationService.normalizeIngredient(value, "en");
 
   const translated = replaceIngredientPhrases(trimmed, ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP)
     .replace(/\s+/g, " ")
@@ -1318,7 +1319,7 @@ function translateEnglishCookingStep(value: string) {
     .replace(/\s+([.,])/g, "$1")
     .trim();
 
-  return translated || value;
+  return localizationService.normalizeCookingStep(translated || value, "ar");
 }
 
 function replaceRecipeTitlesInSentence(value: string) {

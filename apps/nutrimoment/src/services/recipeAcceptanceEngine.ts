@@ -18,6 +18,8 @@ export interface RecipeAcceptanceResult {
 }
 
 export interface RecipeAcceptanceOptions {
+  allowRepairableQualityIssues?: boolean;
+  blockingQualityReasons?: string[];
   imageReady?: boolean;
   minimumScore?: number;
   qualityGate?: RecipeQualityGateResult;
@@ -42,9 +44,10 @@ export class RecipeAcceptanceEngine {
     const score = Object.values(checks).reduce((sum, value) => sum + value, 0);
     const reasons = buildReasons(checks, qualityReasons);
     const minimumScore = options.minimumScore ?? MINIMUM_ACCEPTANCE_SCORE;
+    const blockingQualityReasons = options.blockingQualityReasons ?? qualityReasons;
 
     return {
-      accepted: score >= minimumScore && qualityReasons.length === 0,
+      accepted: score >= minimumScore && (qualityReasons.length === 0 || (Boolean(options.allowRepairableQualityIssues) && blockingQualityReasons.length === 0)),
       checks,
       reasons,
       score

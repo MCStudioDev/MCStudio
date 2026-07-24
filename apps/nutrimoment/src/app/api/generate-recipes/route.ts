@@ -34,6 +34,10 @@ import {
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipePhotoIdentity, isStrictRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
+import {
+  normalizeRecipeThroughLocalizationService,
+  validateArabicRecipeLocalization
+} from "@/lib/localization/LocalizationService";
 import { getAllDishes, getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
@@ -76,6 +80,16 @@ import { getOrCreateRecipeEditorCache } from "@/services/recipeEditorSemanticCac
 import { RecipeAcceptanceEngine } from "@/services/recipeAcceptanceEngine";
 import { RecipeQualityGate } from "@/services/recipeQualityGate";
 import { enforceRecipeDiversity } from "@/services/recipeDiversityValidator";
+import {
+  createRecipeValidationReport,
+  increaseRecipeValidationDatabaseFound,
+  persistRecipeValidationReport,
+  qualityReasonsAreBlocking,
+  qualityReasonsAreRepairable,
+  recordRecipeValidationTrace,
+  repairRecipeForValidation,
+  updateRecipeValidationFunnel
+} from "@/services/recipeValidationRepairService";
 import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
@@ -218,6 +232,43 @@ export async function POST(request: Request) {
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
   let historyEntryId: string | undefined;
   let historyUid: string | undefined;
+  const validationReport = createRecipeValidationReport({
+    inputIngredients: [],
+    requestedCount: 0,
+    requestId
+  });
+  const respondWithValidationReport = async (payload: Record<string, unknown>, init?: ResponseInit) => {
+    let validationReportPath: string | undefined;
+    const recipes = payload.recipes;
+    const returned = Array.isArray(recipes) ? recipes.length : 0;
+    const failureReason = typeof payload.message === "string"
+      ? payload.message
+      : typeof payload.error === "string"
+        ? payload.error
+        : returned === 0
+          ? inferValidationFailureReason(validationReport)
+          : null;
+    updateRecipeValidationFunnel(validationReport, {
+      failure_reason: failureReason,
+      returned
+    });
+    try {
+      validationReportPath = await persistRecipeValidationReport(validationReport);
+    } catch (reportError) {
+      logger.warn("Recipe validation report persistence failed", {
+        requestId,
+        errorMessage: reportError instanceof Error ? reportError.message : String(reportError)
+      });
+    }
+    return Response.json(
+      {
+        ...payload,
+        validation_report: validationReport,
+        validationReportPath
+      },
+      init
+    );
+  };
   logger.info("Recipe generation HTTP request received", { requestId });
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
@@ -232,7 +283,7 @@ export async function POST(request: Request) {
       bypass: requestAccess.isAdmin
     });
     if (!rl.decision.allowed) {
-      return Response.json(
+      return await respondWithValidationReport(
         {
           error: "Recipe generation is busy right now. Please try again shortly.",
           generationStatus: RecipeGenerationStatus.NO_RESULTS,
@@ -247,7 +298,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
-      return Response.json(
+      return await respondWithValidationReport(
         { error: "Add at least one ingredient to generate recipes.", generationStatus: RecipeGenerationStatus.NO_RESULTS },
         { status: 400 }
       );
@@ -256,7 +307,7 @@ export async function POST(request: Request) {
     historyUid = requestAccess.uid;
 
     if (parsed.data.referenceImage && !requestAccess.isPremium && !requestAccess.isAdmin) {
-      return Response.json(
+      return await respondWithValidationReport(
         {
           error: "Scan fridge recipe generation is a premium feature. Add ingredients manually to generate free recipe cards.",
           generationStatus: RecipeGenerationStatus.NO_RESULTS,
@@ -271,8 +322,13 @@ export async function POST(request: Request) {
       .filter(Boolean);
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
     const recipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
+    updateRecipeValidationFunnel(validationReport, {
+      requested: recipeCount,
+      requestedCount: recipeCount
+    });
+    validationReport.inputIngredients = ingredients;
     if (!ingredients.length && !parsed.data.referenceImage) {
-      return Response.json(
+      return await respondWithValidationReport(
         { error: "Add at least one ingredient to generate recipes.", generationStatus: RecipeGenerationStatus.NO_RESULTS },
         { status: 400 }
       );
@@ -499,20 +555,66 @@ export async function POST(request: Request) {
           ingredients,
           scoringIngredients
         }
-      ), candidateRecipeCount), candidateRecipeCount, parsed.data.preferredCuisine ?? "Any");
+      ), candidateRecipeCount), candidateRecipeCount, parsed.data.preferredCuisine ?? "Any")
+        .map((recipe) => normalizeRecipeThroughLocalizationService(recipe, wantsArabic ? "ar" : "en"));
       const acceptedRecipes: Recipe[] = [];
+      let afterTitleValidation = 0;
+      let afterQuantityValidation = 0;
       for (const recipe of prepared) {
-        const quality = recipeQualityGate.validate(recipe, recipeLanguage);
-        if (!quality.valid) {
-          logger.warn("Recipe quality gate rejected recipe before response", {
-            requestId,
-            recipeName: recipe.name,
-            reasons: quality.reasons
+        const repair = repairRecipeForValidation(recipe, {
+          recipeLanguage,
+          scoringIngredients
+        });
+        const repairedRecipe = repair.actions.length
+          ? normalizeRecipeThroughLocalizationService(repair.recipe, wantsArabic ? "ar" : "en")
+          : repair.recipe;
+        if (repair.actions.length) {
+          recordRecipeValidationTrace(validationReport, {
+            finalDecision: "repaired",
+            reason: repair.actions.join(","),
+            recipe: repairedRecipe,
+            repairActions: repair.actions,
+            repairAttempted: true,
+            validator: "RecipeValidationRepairService"
           });
-          continue;
         }
-        const acceptance = recipeAcceptanceEngine.evaluate(recipe, {
-          imageReady: isDurableRecipeImageUrl(recipe.image_url),
+        const quality = recipeQualityGate.validate(repairedRecipe, recipeLanguage);
+        if (!quality.reasons.some(isTitleValidationReason)) afterTitleValidation += 1;
+        if (!quality.reasons.some(isQuantityValidationReason)) afterQuantityValidation += 1;
+        if (!quality.valid) {
+          const repairable = qualityReasonsAreRepairable(quality.reasons);
+          const blocking = qualityReasonsAreBlocking(quality.reasons);
+          if (!blocking && repairable && isTrustedSourcedRecipe(repairedRecipe)) {
+            logger.info("Recipe quality gate kept repaired source recipe with repairable residual issues", {
+              requestId,
+              recipeName: repairedRecipe.name,
+              reasons: quality.reasons,
+              repairActions: repair.actions
+            });
+          } else {
+            logger.warn("Recipe quality gate rejected recipe before response", {
+              requestId,
+              recipeName: repairedRecipe.name,
+              reasons: quality.reasons,
+              repairActions: repair.actions
+            });
+            recordRecipeValidationTrace(validationReport, {
+              finalDecision: "rejected",
+              reason: quality.reasons.join(","),
+              recipe: repairedRecipe,
+              repairActions: repair.actions,
+              repairAttempted: true,
+              validator: "RecipeQualityGate"
+            });
+            continue;
+          }
+        }
+        const blockingQualityReasons = quality.reasons.filter((reason) => qualityReasonsAreBlocking([reason]));
+        const acceptance = recipeAcceptanceEngine.evaluate(repairedRecipe, {
+          allowRepairableQualityIssues: isTrustedSourcedRecipe(repairedRecipe) && qualityReasonsAreRepairable(quality.reasons),
+          blockingQualityReasons,
+          imageReady: isDurableRecipeImageUrl(repairedRecipe.image_url),
+          minimumScore: isTrustedSourcedRecipe(repairedRecipe) ? 70 : undefined,
           qualityGate: quality,
           recipeLanguage,
           selectedRecipes: acceptedRecipes
@@ -520,22 +622,48 @@ export async function POST(request: Request) {
         if (!acceptance.accepted) {
           logger.warn("Recipe acceptance engine rejected recipe before response", {
             requestId,
-            recipeName: recipe.name,
+            recipeName: repairedRecipe.name,
             score: acceptance.score,
-            reasons: acceptance.reasons
+            reasons: acceptance.reasons,
+            repairActions: repair.actions
+          });
+          recordRecipeValidationTrace(validationReport, {
+            finalDecision: "rejected",
+            reason: acceptance.reasons.join(","),
+            recipe: repairedRecipe,
+            repairActions: repair.actions,
+            repairAttempted: true,
+            validator: "RecipeAcceptanceEngine"
           });
           continue;
         }
         acceptedRecipes.push({
-          ...recipe,
+          ...repairedRecipe,
           acceptance_reasons: acceptance.reasons,
           acceptance_score: acceptance.score
         });
+        recordRecipeValidationTrace(validationReport, {
+          finalDecision: "accepted",
+          reason: acceptance.reasons.join(",") || "accepted",
+          recipe: repairedRecipe,
+          repairActions: repair.actions,
+          repairAttempted: true,
+          validator: "RecipeAcceptanceEngine"
+        });
       }
       const qualityGated = acceptedRecipes;
+      updateRecipeValidationFunnel(validationReport, {
+        after_quality_gate: qualityGated.length,
+        after_quantity_validation: afterQuantityValidation,
+        after_title_validation: afterTitleValidation
+      });
       const diversitySelected = enforceRecipeDiversity(qualityGated, {
         limit: candidateRecipeCount,
+        softFill: true,
         similarityThreshold: RECIPE_SIMILARITY_REJECTION_THRESHOLD
+      });
+      updateRecipeValidationFunnel(validationReport, {
+        after_diversity: diversitySelected.length
       });
       if (diversitySelected.length < qualityGated.length) {
         logger.info("Recipe diversity validator removed near-duplicate recipes", {
@@ -543,6 +671,30 @@ export async function POST(request: Request) {
           beforeCount: qualityGated.length,
           afterCount: diversitySelected.length,
           similarityThreshold: RECIPE_SIMILARITY_REJECTION_THRESHOLD
+        });
+        const selectedDiversityKeys = new Set(diversitySelected.map(getRecipeDuplicateCardKey));
+        qualityGated
+          .filter((recipe) => !selectedDiversityKeys.has(getRecipeDuplicateCardKey(recipe)))
+          .forEach((recipe) => {
+            recordRecipeValidationTrace(validationReport, {
+              finalDecision: "soft_dropped",
+              reason: "diversity_limit_or_similarity",
+              recipe,
+              repairActions: [],
+              repairAttempted: false,
+              validator: "RecipeDiversityValidator"
+            });
+          });
+      } else if (diversitySelected.length) {
+        diversitySelected.forEach((recipe) => {
+          recordRecipeValidationTrace(validationReport, {
+            finalDecision: "soft_selected",
+            reason: "diversity_soft_fill",
+            recipe,
+            repairActions: [],
+            repairAttempted: false,
+            validator: "RecipeDiversityValidator"
+          });
         });
       }
       const localizedSelected = diversitySelected.filter((recipe) => {
@@ -552,6 +704,14 @@ export async function POST(request: Request) {
             requestId,
             recipeName: recipe.name,
             recipeLanguage
+          });
+          recordRecipeValidationTrace(validationReport, {
+            finalDecision: "rejected",
+            reason: "localization_not_acceptable",
+            recipe,
+            repairActions: ["normalized_with_localization_service"],
+            repairAttempted: true,
+            validator: "RecipeLocalizationValidator"
           });
         }
         return valid;
@@ -578,6 +738,7 @@ export async function POST(request: Request) {
       ...strictRankingOptions,
       candidateLimit: Math.max(recipeCount * 6, 60)
     };
+    let responseReadySourceRecipes: Recipe[] = [];
 
     if (USE_MOCK && accessCheck.allowed) {
       const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
@@ -611,7 +772,7 @@ export async function POST(request: Request) {
         status: "completed",
         uid: requestAccess.uid
       });
-      return Response.json({
+      return await respondWithValidationReport({
         recipes: finalRecipes,
         result: JSON.stringify(finalRecipes),
         servedFrom: "mock",
@@ -650,6 +811,7 @@ export async function POST(request: Request) {
 
     if (ingredients.length) {
       const recipeReferences = await recipeReferencesPromise;
+      increaseRecipeValidationDatabaseFound(validationReport, recipeReferences.length);
       const referenceRecipes = mapRecipeReferencesToRecipes(recipeReferences, {
         calorieTarget: parsed.data.calorieTarget,
         recipeLanguage
@@ -686,6 +848,9 @@ export async function POST(request: Request) {
         const validatedReferenceRecipes = await finalizeRecipeResponse(
           mergeRecipeResults(exactScanMatch, strictReferenceRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
         );
+        if (validatedReferenceRecipes.length > responseReadySourceRecipes.length) {
+          responseReadySourceRecipes = validatedReferenceRecipes;
+        }
         referenceLibraryNeedsGroundedSearch = validatedReferenceRecipes.length < recipeCount;
 
         if (shouldUseReferenceDirectly && strictReferenceRecipes.length) {
@@ -716,7 +881,7 @@ export async function POST(request: Request) {
               safeReferenceCount: strictReferenceRecipes.length,
               recipeCountReturned: finalRecipes.length
             });
-            return Response.json({
+            return await respondWithValidationReport({
               recipes: finalRecipes,
               result: JSON.stringify(finalRecipes),
               servedFrom: "recipe_reference",
@@ -732,6 +897,7 @@ export async function POST(request: Request) {
         // back to Google grounding, combine it with the app's verified local
         // recipe catalog. Both paths preserve authored source instructions.
         const localCatalogResult = await loadSharedRecipeSearchResult();
+        increaseRecipeValidationDatabaseFound(validationReport, recipeReferences.length + localCatalogResult.recipes.length);
         const strictCatalogRecipes = rankStrictRecipes(
           enforceDietOnRecipes(
             applyStrictIngredientOwnership(localCatalogResult.recipes, availableIngredients, {
@@ -752,6 +918,9 @@ export async function POST(request: Request) {
             sourceRankingOptions.candidateLimit
           )
         );
+        if (validatedLocalSourceRecipes.length > responseReadySourceRecipes.length) {
+          responseReadySourceRecipes = validatedLocalSourceRecipes;
+        }
         referenceLibraryNeedsGroundedSearch = validatedLocalSourceRecipes.length < recipeCount;
 
         if (
@@ -781,7 +950,7 @@ export async function POST(request: Request) {
             catalogCount: strictCatalogRecipes.length,
             recipeCountReturned: validatedLocalSourceRecipes.length
           });
-          return Response.json({
+          return await respondWithValidationReport({
             recipes: validatedLocalSourceRecipes,
             result: JSON.stringify(validatedLocalSourceRecipes),
             servedFrom: "local_recipe_sources",
@@ -806,6 +975,7 @@ export async function POST(request: Request) {
 
     const datasetSearchResult = ingredients.length ? await loadSharedRecipeSearchResult() : null;
     if (datasetSearchResult) {
+      increaseRecipeValidationDatabaseFound(validationReport, datasetSearchResult.recipes.length);
       const strictDatasetRecipes = rankStrictRecipes(
         enforceDietOnRecipes(
           applyStrictIngredientOwnership(datasetSearchResult.recipes, availableIngredients, {
@@ -821,6 +991,9 @@ export async function POST(request: Request) {
       const finalDatasetRecipes = await finalizeRecipeResponse(
         mergeRecipeResults(exactScanMatch, strictDatasetRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
       );
+      if (finalDatasetRecipes.length > responseReadySourceRecipes.length) {
+        responseReadySourceRecipes = finalDatasetRecipes;
+      }
 
       if (finalDatasetRecipes.length >= recipeCount) {
         await queueRecipeCachePersist({
@@ -840,7 +1013,7 @@ export async function POST(request: Request) {
           servedFrom: datasetSearchResult.servedFrom,
           recipeCountReturned: finalDatasetRecipes.length
         });
-        return Response.json({
+        return await respondWithValidationReport({
           recipes: finalDatasetRecipes,
           result: JSON.stringify(finalDatasetRecipes),
           servedFrom: datasetSearchResult.servedFrom,
@@ -862,6 +1035,28 @@ export async function POST(request: Request) {
     // generation access continue into custom generation. Otherwise the client gets a friendly
     // empty-state message instead of a shared-pool warning.
     if (!accessCheck.allowed) {
+      if (responseReadySourceRecipes.length) {
+        await queueRecipeCachePersist({
+          uid: requestAccess.uid,
+          recipeLanguage,
+          recipes: responseReadySourceRecipes,
+          dietContext
+        });
+        await persistRecipeGenerationHistoryEntry({
+          historyEntryId,
+          recipes: responseReadySourceRecipes,
+          status: "completed",
+          uid: requestAccess.uid
+        });
+        return await respondWithValidationReport({
+          recipes: responseReadySourceRecipes,
+          result: JSON.stringify(responseReadySourceRecipes),
+          servedFrom: "shared_pool",
+          generationStatus: RecipeGenerationStatus.PARTIAL_RESULTS,
+          canLoadMore: false,
+          access: accessPayload(requestAccess)
+        });
+      }
       const message = buildRecipeUnavailableMessage(recipeLanguage);
       logger.info("Recipe generation stopped after empty dataset search and unavailable AI access", {
         accessReason: accessCheck.reason,
@@ -874,7 +1069,7 @@ export async function POST(request: Request) {
         status: "failed",
         uid: requestAccess.uid
       });
-      return Response.json({
+      return await respondWithValidationReport({
         message,
         recipes: [],
         result: "[]",
@@ -1103,12 +1298,20 @@ export async function POST(request: Request) {
         }
         const requiredSourcedRecipeCount = Math.max(0, recipeCount - (exactScanMatch ? 1 : 0));
         if (ingredients.length > 0 && strictRecipes.length < requiredSourcedRecipeCount) {
-          throw new Error(
-            `AI response did not provide enough sourced recipes: ${strictRecipes.length}/${requiredSourcedRecipeCount}`
-          );
+          logger.warn("AI response underfilled sourced recipe target; keeping repaired source recipes and best generated candidates", {
+            requestId,
+            generatedCount: strictRecipes.length,
+            repairedSourceCount: responseReadySourceRecipes.length,
+            requiredSourcedRecipeCount
+          });
         }
         let finalRecipes = await finalizeRecipeResponse(
-          mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
+          mergeRecipeResults(
+            exactScanMatch,
+            [...responseReadySourceRecipes, ...strictRecipes],
+            shouldLabelSimilarRecipes,
+            sourceRankingOptions.candidateLimit
+          )
         );
         if (ingredients.length && finalRecipes.length < recipeCount) {
           const replacementCount = recipeCount - finalRecipes.length;
@@ -1157,7 +1360,7 @@ export async function POST(request: Request) {
             finalRecipes = await finalizeRecipeResponse(
               mergeRecipeResults(
                 exactScanMatch,
-                [...finalRecipes, ...rankedReplacementRecipes, ...strictRecipes],
+                [...finalRecipes, ...rankedReplacementRecipes, ...responseReadySourceRecipes, ...strictRecipes],
                 shouldLabelSimilarRecipes,
                 sourceRankingOptions.candidateLimit
               )
@@ -1165,7 +1368,14 @@ export async function POST(request: Request) {
           }
         }
         if (ingredients.length && finalRecipes.length < recipeCount) {
-          throw new Error(`Validated source recipes were insufficient after final quality checks: ${finalRecipes.length}/${recipeCount}`);
+          if (!finalRecipes.length) {
+            throw new Error("No response-ready recipes survived repair-first validation.");
+          }
+          logger.warn("Recipe generation returning partial results after repair-first validation", {
+            requestId,
+            returnedCount: finalRecipes.length,
+            requestedCount: recipeCount
+          });
         }
         await queueRecipeCachePersist({
           uid: requestAccess.uid,
@@ -1190,11 +1400,11 @@ export async function POST(request: Request) {
           servedFrom: "fallback_ai",
           recipeCountReturned: finalRecipes.length
         });
-        return Response.json({
+        return await respondWithValidationReport({
           ...responsePayload,
           recipes: finalRecipes,
           servedFrom: "fallback_ai",
-          generationStatus: RecipeGenerationStatus.SUCCESS_AI,
+          generationStatus: finalRecipes.length >= recipeCount ? RecipeGenerationStatus.SUCCESS_AI : RecipeGenerationStatus.PARTIAL_RESULTS,
           result: JSON.stringify(finalRecipes),
           access: accessPayload(nextAccess)
         });
@@ -1206,11 +1416,15 @@ export async function POST(request: Request) {
     }
 
     const recipeReferences = await recipeReferencesPromise;
+    increaseRecipeValidationDatabaseFound(validationReport, recipeReferences.length);
     const referenceFallbackRecipes = mapRecipeReferencesToRecipes(recipeReferences, {
       calorieTarget: parsed.data.calorieTarget,
       recipeLanguage
     });
     const searchResult = referenceFallbackRecipes.length >= recipeCount ? null : await loadSharedRecipeSearchResult();
+    if (searchResult) {
+      increaseRecipeValidationDatabaseFound(validationReport, recipeReferences.length + searchResult.recipes.length);
+    }
     logger.info("Recipe generation served from shared recipe pool after AI failure", {
       recipeCount: searchResult?.recipes.length ?? referenceFallbackRecipes.length,
       canLoadMore: Boolean(searchResult?.canLoadMore),
@@ -1232,6 +1446,28 @@ export async function POST(request: Request) {
       mergeRecipeResults(exactScanMatch, strictRecipes, shouldLabelSimilarRecipes, sourceRankingOptions.candidateLimit)
     );
     if (finalRecipes.length < recipeCount) {
+      if (finalRecipes.length) {
+        await queueRecipeCachePersist({
+          uid: requestAccess.uid,
+          recipeLanguage,
+          recipes: finalRecipes,
+          dietContext
+        });
+        await persistRecipeGenerationHistoryEntry({
+          historyEntryId,
+          recipes: finalRecipes,
+          status: "completed",
+          uid: requestAccess.uid
+        });
+        return await respondWithValidationReport({
+          recipes: finalRecipes,
+          result: JSON.stringify(finalRecipes),
+          servedFrom: referenceFallbackRecipes.length ? "recipe_reference" : "shared_pool",
+          generationStatus: RecipeGenerationStatus.PARTIAL_RESULTS,
+          canLoadMore: searchResult?.canLoadMore ?? recipeReferences.length > recipeCount,
+          access: accessPayload(nextAccess)
+        });
+      }
       const message = buildRecipeUnavailableMessage(recipeLanguage);
       await persistRecipeGenerationHistoryEntry({
         errorMessage: message,
@@ -1240,7 +1476,7 @@ export async function POST(request: Request) {
         status: "failed",
         uid: requestAccess.uid
       });
-      return Response.json({
+      return await respondWithValidationReport({
         message,
         recipes: [],
         result: "[]",
@@ -1269,7 +1505,7 @@ export async function POST(request: Request) {
       recipeCountReturned: finalRecipes.length
     });
 
-    return Response.json({
+    return await respondWithValidationReport({
       recipes: finalRecipes,
       result: JSON.stringify(finalRecipes),
       servedFrom: referenceFallbackRecipes.length ? "recipe_reference" : "shared_pool",
@@ -1296,7 +1532,7 @@ export async function POST(request: Request) {
           ? error.message
           : "Recipe generation is temporarily unavailable. Please try again shortly.";
       const status = isFirebaseTransientError(error) || message.includes("temporarily unavailable") ? 503 : 401;
-      return Response.json(
+      return await respondWithValidationReport(
         { error: message, generationStatus: RecipeGenerationStatus.NO_RESULTS, recipes: [], result: "[]" },
         { status }
       );
@@ -1311,7 +1547,7 @@ export async function POST(request: Request) {
       status: "failed",
       uid: historyUid
     });
-    return Response.json(
+    return await respondWithValidationReport(
       { message: safeMessage, generationStatus: RecipeGenerationStatus.NO_RESULTS, recipes: [], result: "[]" },
       { status }
     );
@@ -7410,9 +7646,28 @@ function markProgressiveRecipeImages(recipes: Recipe[]) {
 
 function isRecipeLocalizationAcceptable(recipe: Recipe, recipeLanguage: string) {
   if (recipeLanguage.toLowerCase() !== "arabic") return true;
+  const validation = validateArabicRecipeLocalization(recipe);
+  if (!validation.valid) return false;
   const arabic = recipe.localized?.Arabic;
   if (arabic?.name?.trim() && arabic.steps?.length && arabic.ingredients?.length) return true;
   return /[\u0600-\u06ff]/u.test(recipe.name) && recipe.steps.some((step) => /[\u0600-\u06ff]/u.test(step));
+}
+
+function isTitleValidationReason(reason: string) {
+  return reason === "ingredient_only_title" || reason === "title_does_not_describe_recipe" || reason === "missing_title_or_cuisine";
+}
+
+function isQuantityValidationReason(reason: string) {
+  return reason.startsWith("ingredient_missing_quantity_or_unit") || reason.startsWith("protein_missing_quantity");
+}
+
+function inferValidationFailureReason(report: { after_diversity: number; after_quality_gate: number; after_quantity_validation: number; after_title_validation: number; database_found: number }) {
+  if (report.database_found === 0) return "No source recipes matched the request.";
+  if (report.after_title_validation === 0) return "Title validation rejected remaining recipes.";
+  if (report.after_quantity_validation === 0) return "Quantity validation rejected remaining recipes.";
+  if (report.after_quality_gate === 0) return "Quality gate rejected remaining recipes.";
+  if (report.after_diversity === 0) return "Diversity validator removed remaining recipes.";
+  return "No recipes could be returned after final validation.";
 }
 
 function buildRecipeImagePlaceholder(recipe: Recipe) {

@@ -2,6 +2,7 @@ import type { Recipe } from "@/lib/types";
 
 export interface RecipeDiversityValidationOptions {
   limit: number;
+  softFill?: boolean;
   targets?: RecipeDiversityTargets;
   similarityThreshold?: number;
 }
@@ -104,6 +105,20 @@ export function enforceRecipeDiversity(
     if (method) selectedMethods.add(method);
   }
 
+  if (options.softFill && selected.length < options.limit && remaining.length) {
+    const selectedKeys = new Set(selected.map((recipe) => recipeKey(recipe)));
+    const fill = remaining
+      .map((entry) => ({
+        ...entry,
+        score: scoreSoftFillCandidate(entry.recipe, selected)
+      }))
+      .filter((entry) => !selectedKeys.has(recipeKey(entry.recipe)))
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, options.limit - selected.length)
+      .map((entry) => entry.recipe);
+    selected.push(...fill);
+  }
+
   return selected;
 }
 
@@ -170,6 +185,16 @@ function scoreDiversityTargetFit(
   if (isCreamyRecipe(recipe)) score -= selected.filter(isCreamyRecipe).length * 4;
   if (isTomatoBasedRecipe(recipe)) score -= selected.filter(isTomatoBasedRecipe).length * 4;
   return score;
+}
+
+function scoreSoftFillCandidate(recipe: Recipe, selected: Recipe[]) {
+  if (!selected.length) return 100;
+  const maxSimilarity = Math.max(...selected.map((existing) => calculateRecipeSimilarity(existing, recipe).total));
+  return 100 - maxSimilarity * 100;
+}
+
+function recipeKey(recipe: Recipe) {
+  return normalizeKey(recipe.id ?? recipe.source_recipe_id ?? recipe.dish_identity ?? recipe.name);
 }
 
 function techniqueSimilarity(left: Recipe, right: Recipe) {

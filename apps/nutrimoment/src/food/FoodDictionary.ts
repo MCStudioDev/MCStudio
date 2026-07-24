@@ -51,12 +51,19 @@ export const FOOD_DICTIONARY: FoodDictionary = {
     { en: "boil", ar: "\u0627\u0633\u0644\u0642", aliases: ["boiled"] },
     { en: "braise", ar: "\u0627\u0637\u0647 \u0628\u0628\u0637\u0621", aliases: ["braised"] },
     { en: "brown", ar: "\u062d\u0645\u0631" },
+    { en: "chop", ar: "\u0641\u0631\u0645", aliases: ["chopped"] },
+    { en: "dice", ar: "\u0642\u0637\u0639 \u0645\u0643\u0639\u0628\u0627\u062a", aliases: ["diced"] },
+    { en: "fold", ar: "\u0642\u0644\u0628 \u0628\u0631\u0641\u0642", aliases: ["folded"] },
     { en: "fry", ar: "\u0627\u0642\u0644", aliases: ["fried"] },
     { en: "grill", ar: "\u0627\u0634\u0648", aliases: ["grilled"] },
+    { en: "marinate", ar: "\u062a\u0628\u0644", aliases: ["marinated"] },
+    { en: "mince", ar: "\u0627\u0641\u0631\u0645 \u0646\u0627\u0639\u0645\u0627", aliases: ["minced"] },
     { en: "roast", ar: "\u0627\u0634\u0648", aliases: ["roasted"] },
     { en: "saute", ar: "\u0634\u0648\u062d", aliases: ["sauté", "sautéed", "sauteed"] },
     { en: "simmer", ar: "\u0627\u0637\u0647 \u0639\u0644\u0649 \u0646\u0627\u0631 \u0647\u0627\u062f\u0626\u0629" },
-    { en: "stir fry", ar: "\u0634\u0648\u062d \u0633\u0631\u064a\u0639\u0627", aliases: ["stir-fry"] }
+    { en: "steam", ar: "\u0627\u0637\u0647 \u0639\u0644\u0649 \u0627\u0644\u0628\u062e\u0627\u0631", aliases: ["steamed"] },
+    { en: "stir fry", ar: "\u0634\u0648\u062d \u0633\u0631\u064a\u0639\u0627", aliases: ["stir-fry"] },
+    { en: "whisk", ar: "\u0627\u062e\u0641\u0642", aliases: ["whisked"] }
   ],
   dishNames: [
     { en: "Chicken Cacciatore", ar: "\u062f\u062c\u0627\u062c \u0643\u0627\u062a\u0634\u0627\u062a\u0648\u0631\u064a \u0628\u0635\u0648\u0635 \u0627\u0644\u0637\u0645\u0627\u0637\u0645" },
@@ -499,10 +506,19 @@ export const FOOD_DICTIONARY: FoodDictionary = {
   ],
   kitchenTools: [
     { en: "baking dish", ar: "\u0635\u064a\u0646\u064a\u0629 \u062e\u0628\u0632", aliases: ["oven dish"] },
+    { en: "blender", ar: "\u062e\u0644\u0627\u0637" },
+    { en: "bowl", ar: "\u0648\u0639\u0627\u0621" },
+    { en: "cutting board", ar: "\u0644\u0648\u062d \u062a\u0642\u0637\u064a\u0639" },
     { en: "grill pan", ar: "\u0645\u0642\u0644\u0627\u0629 \u0634\u0648\u064a" },
+    { en: "knife", ar: "\u0633\u0643\u064a\u0646" },
+    { en: "mixing bowl", ar: "\u0648\u0639\u0627\u0621 \u062e\u0644\u0637" },
+    { en: "oven", ar: "\u0641\u0631\u0646" },
     { en: "pot", ar: "\u0642\u062f\u0631" },
+    { en: "saucepan", ar: "\u0642\u062f\u0631 \u0635\u063a\u064a\u0631" },
     { en: "sheet pan", ar: "\u0635\u064a\u0646\u064a\u0629 \u0641\u0631\u0646" },
-    { en: "skillet", ar: "\u0645\u0642\u0644\u0627\u0629" }
+    { en: "skillet", ar: "\u0645\u0642\u0644\u0627\u0629" },
+    { en: "strainer", ar: "\u0645\u0635\u0641\u0627\u0629" },
+    { en: "whisk", ar: "\u0645\u0636\u0631\u0628 \u064a\u062f\u0648\u064a" }
   ],
   placeholderPalettes: {
     american: [188, 22, 270],
@@ -524,7 +540,11 @@ export const FOOD_DICTIONARY: FoodDictionary = {
     { en: "cup", ar: "\u0643\u0648\u0628", aliases: ["cups"] },
     { en: "eggs", ar: "\u0628\u064a\u0636\u0627\u062a", aliases: ["egg"] },
     { en: "g", ar: "\u062c\u0631\u0627\u0645", aliases: ["gram", "grams"] },
+    { en: "kg", ar: "\u0643\u064a\u0644\u0648\u062c\u0631\u0627\u0645", aliases: ["kilogram", "kilograms"] },
+    { en: "l", ar: "\u0644\u062a\u0631", aliases: ["liter", "liters", "litre", "litres"] },
     { en: "lb", ar: "\u0631\u0637\u0644", aliases: ["pound", "pounds"] },
+    { en: "ml", ar: "\u0645\u0644", aliases: ["milliliter", "milliliters", "millilitre", "millilitres"] },
+    { en: "oz", ar: "\u0623\u0648\u0646\u0635\u0629", aliases: ["ounce", "ounces"] },
     { en: "piece", ar: "\u0642\u0637\u0639\u0629", aliases: ["pieces"] },
     { en: "serving", ar: "\u062d\u0635\u0629", aliases: ["servings"] },
     { en: "tbsp", ar: "\u0645\u0644\u0639\u0642\u0629 \u0643\u0628\u064a\u0631\u0629", aliases: ["tablespoon", "tablespoons"] },

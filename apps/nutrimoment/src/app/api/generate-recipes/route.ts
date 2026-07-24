@@ -725,10 +725,14 @@ export async function POST(request: Request) {
       }
 
       // A card shown in the same pantry context is ineligible for the next
-      // ten scans. This is a hard exclusion, not a score adjustment.
-      return markProgressiveRecipeImages(
-        excludeRecipesShownInRecentScans(localizedSelected, recentRecipeMemory).slice(0, recipeCount)
-      );
+      // ten scans when alternatives exist. If the exclusion empties or
+      // underfills the response, return the best validated recipes anyway;
+      // common ingredients must never turn into an empty screen.
+      const recentFiltered = excludeRecipesShownInRecentScans(localizedSelected, recentRecipeMemory);
+      const responseReadyRecipes = recentFiltered.length >= Math.min(recipeCount, localizedSelected.length)
+        ? recentFiltered
+        : localizedSelected;
+      return markProgressiveRecipeImages(responseReadyRecipes.slice(0, recipeCount));
     };
     // Cards are returned as soon as the source recipe is validated. ScannerTab
     // then hydrates cached/provider images concurrently without delaying recipes.
@@ -3072,7 +3076,7 @@ function filterRecipesByInputMainProtein(
     return recipeProteinSetMatchesInput(recipeProteins, inputProteins);
   });
 
-  return filtered;
+  return filtered.length ? filtered : recipes;
 }
 
 function filterRecipesByRequestedSparseIngredient(
@@ -3081,14 +3085,17 @@ function filterRecipesByRequestedSparseIngredient(
 ) {
   const requestedSource = [...context.ingredients, ...context.scoringIngredients].join(" ");
   if (isChickenSparseIngredientSource(requestedSource)) {
-    return recipes.filter((recipe) => recipeMatchesRequestedChickenSparseIngredient(recipe));
+    const filtered = recipes.filter((recipe) => recipeMatchesRequestedChickenSparseIngredient(recipe));
+    return filtered.length ? filtered : recipes;
   }
   if (isEggSparseIngredientSource(requestedSource)) {
-    return recipes.filter((recipe) => recipeMatchesRequestedEggSparseIngredient(recipe));
+    const filtered = recipes.filter((recipe) => recipeMatchesRequestedEggSparseIngredient(recipe));
+    return filtered.length ? filtered : recipes;
   }
   if (!isLegumeSparseIngredientSource(requestedSource)) return recipes;
 
-  return recipes.filter((recipe) => recipeMatchesRequestedLegumeSparseIngredient(recipe, requestedSource));
+  const filtered = recipes.filter((recipe) => recipeMatchesRequestedLegumeSparseIngredient(recipe, requestedSource));
+  return filtered.length ? filtered : recipes;
 }
 
 function recipeMatchesRequestedChickenSparseIngredient(recipe: Recipe) {

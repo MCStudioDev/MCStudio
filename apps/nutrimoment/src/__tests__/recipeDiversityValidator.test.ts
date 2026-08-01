@@ -96,6 +96,31 @@ describe("recipe diversity validator", () => {
     expect(selected.map((item) => item.name)).toEqual(["Chicken Parmesan", "Chicken Teriyaki Bowl"]);
   });
 
+  it("does not force foreign cuisines when a cuisine was explicitly selected", () => {
+    const egyptianGrilled = recipe({
+      name: "Egyptian Grilled Chicken",
+      cuisine: "Egyptian",
+      dish_intent: { ...baseRecipe.dish_intent!, cuisine: "Egyptian", cooking_method: "grilled" }
+    });
+    const egyptianStew = recipe({
+      name: "Egyptian Chicken Stew",
+      cuisine: "Egyptian",
+      dish_intent: { ...baseRecipe.dish_intent!, cuisine: "Egyptian", cooking_method: "stewed" }
+    });
+    const italianBaked = recipe({
+      name: "Italian Baked Chicken",
+      cuisine: "Italian",
+      dish_intent: { ...baseRecipe.dish_intent!, cuisine: "Italian", cooking_method: "baked" }
+    });
+
+    const selected = enforceRecipeDiversity(
+      [egyptianGrilled, egyptianStew, italianBaked],
+      { limit: 10, rotateCuisines: false }
+    );
+
+    expect(selected.slice(0, 2).map((item) => item.cuisine)).toEqual(["Egyptian", "Egyptian"]);
+  });
+
   it("caps repeated baked, creamy, and tomato-based cards when filling large sets", () => {
     const candidates = [
       recipe({ name: "Baked Tomato Chicken", cuisine: "Italian" }),
@@ -119,5 +144,60 @@ describe("recipe diversity validator", () => {
 
     expect(selected.filter((item) => /baked|roasted/i.test(item.name)).length).toBeLessThanOrEqual(2);
     expect(new Set(selected.map((item) => item.cuisine)).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("does not soft-fill two title variants of the same dish family", () => {
+    const tabbouleh = recipe({
+      id: "tabbouleh-1",
+      name: "Tabbouleh",
+      dish_identity: "Tabbouleh",
+      dish_intent: { ...baseRecipe.dish_intent!, dish_name: "Tabbouleh", cooking_method: "assembled" }
+    });
+    const authenticTabbouleh = recipe({
+      id: "tabbouleh-2",
+      name: "Authentic Tabbouleh",
+      dish_identity: "Authentic Tabbouleh",
+      dish_intent: { ...baseRecipe.dish_intent!, dish_name: "Authentic Tabbouleh", cooking_method: "assembled" }
+    });
+
+    expect(enforceRecipeDiversity([tabbouleh, authenticTabbouleh], { limit: 2, softFill: true }))
+      .toEqual([tabbouleh]);
+  });
+
+  it("collapses localized and qualified variants of the same named dish", () => {
+    const cacciatore = recipe({
+      id: "cacciatore-1",
+      name: "Chicken Cacciatore",
+      dish_identity: "Chicken Cacciatore",
+      dish_intent: { ...baseRecipe.dish_intent!, dish_name: "Italian tomato chicken" }
+    });
+    const localizedCacciatore = recipe({
+      id: "cacciatore-2",
+      name: "\u062f\u062c\u0627\u062c \u0643\u0627\u062a\u0634\u0627\u062a\u0648\u0631\u064a \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a",
+      dish_identity: "Easy Chicken Cacciatore",
+      dish_intent: { ...baseRecipe.dish_intent!, dish_name: "Microwave chicken" }
+    });
+    const piccata = recipe({
+      id: "piccata",
+      name: "Chicken Piccata",
+      dish_identity: "Chicken Piccata",
+      dish_intent: { ...baseRecipe.dish_intent!, dish_name: "Lemon chicken" }
+    });
+
+    expect(enforceRecipeDiversity(
+      [cacciatore, localizedCacciatore, piccata],
+      { limit: 3, softFill: true }
+    ).map((item) => item.id)).toEqual(["cacciatore-1", "piccata"]);
+  });
+
+  it("keeps named regional kofte dishes as distinct recipes", () => {
+    const genericKofte = recipe({ id: "kofte", name: "Turkish Kofte", dish_identity: "Turkish Kofte" });
+    const cigKofte = recipe({ id: "cig-kofte", name: "Cig Kofte", dish_identity: "Cig Kofte" });
+    const izmirKofte = recipe({ id: "izmir-kofte", name: "Izmir Kofte", dish_identity: "Izmir Kofte" });
+
+    expect(enforceRecipeDiversity(
+      [genericKofte, cigKofte, izmirKofte],
+      { limit: 3, softFill: true }
+    ).map((item) => item.id)).toEqual(["kofte", "cig-kofte", "izmir-kofte"]);
   });
 });

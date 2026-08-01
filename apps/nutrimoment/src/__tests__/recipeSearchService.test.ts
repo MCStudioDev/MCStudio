@@ -149,4 +149,23 @@ describe("recipe search service", () => {
       expect(result.recipes.some((recipe) => recipe.matched_required_count > 0), ingredient).toBe(true);
     }
   });
+
+  it("does not fill an egg-and-vegetable search with unrequested animal proteins", async () => {
+    const { searchCatalogRecipes } = await import("../services/recipeSearchService");
+
+    const result = await searchCatalogRecipes({
+      ingredients: ["bell pepper", "yellow bell pepper", "tomato", "cucumber", "lemon", "egg", "banana", "water", "juice"],
+      preferredCuisine: "Any",
+      calorieTarget: 2000,
+      maxResults: 10,
+      recipeLanguage: "English",
+      uid: "test-user"
+    });
+    const returnedText = result.recipes
+      .flatMap((recipe) => [recipe.name, recipe.dish_identity ?? "", ...recipe.ingredients])
+      .join(" ")
+      .toLowerCase();
+
+    expect(returnedText).not.toMatch(/\b(chicken|beef|lamb|pork|fish|grouper|salmon|tuna|shrimp|prawn)\b/);
+  });
 });

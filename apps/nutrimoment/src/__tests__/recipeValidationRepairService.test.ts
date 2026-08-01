@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { readFile, rm } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Recipe } from "../lib/types";
 import { enforceRecipeDiversity } from "../services/recipeDiversityValidator";
 import {
   createRecipeValidationReport,
   qualityReasonsAreRepairable,
+  persistRecipePipelineReport,
   recordRecipeValidationTrace,
   updateRecipeValidationFunnel,
   repairRecipeForValidation
@@ -115,6 +118,41 @@ describe("recipe validation repair service", () => {
     });
   });
 
+  it("writes a pipeline debug report with the request outcome", async () => {
+    const report = createRecipeValidationReport({
+      inputIngredients: ["Chicken"],
+      requestedCount: 10,
+      requestId: `pipeline-${Date.now()}`
+    });
+    updateRecipeValidationFunnel(report, {
+      after_diversity: 8,
+      after_quality_gate: 8,
+      after_quantity_validation: 8,
+      after_title_validation: 8,
+      database_found: 24,
+      returned: 8
+    });
+    recordRecipeValidationTrace(report, {
+      finalDecision: "repaired",
+      reason: "inferred_missing_quantity",
+      recipe: brokenSourceRecipe,
+      repairActions: ["inferred_missing_quantity"],
+      repairAttempted: true,
+      validator: "RecipeValidationRepairService"
+    });
+
+    const persisted = await persistRecipePipelineReport(report, Date.now() - 12);
+    const written = JSON.parse(await readFile(persisted.reportPath, "utf8"));
+
+    expect(written).toMatchObject({
+      finalReturnedCount: 8,
+      recipesLoaded: 24,
+      recipesRepaired: 1,
+      requestId: report.requestId
+    });
+    await rm(dirname(persisted.reportPath), { force: true, recursive: true });
+  });
+
   it("soft-fills similar recipes when strict diversity would underfill", () => {
     const duplicate = {
       ...brokenSourceRecipe,
@@ -133,7 +171,13 @@ describe("recipe validation repair service", () => {
       fat: "18g"
     };
 
-    const selected = enforceRecipeDiversity([duplicate, { ...duplicate, id: "source-3" }], {
+    const distinctFamily = {
+      ...duplicate,
+      id: "source-3",
+      name: "Chicken Parmesan",
+      dish_identity: "Chicken Parmesan"
+    };
+    const selected = enforceRecipeDiversity([duplicate, distinctFamily], {
       limit: 2,
       similarityThreshold: 0.1,
       softFill: true

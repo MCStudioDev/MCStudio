@@ -16,6 +16,58 @@ export interface RecipeValidationTraceEntry {
   validator: string;
 }
 
+export interface RecipePipelineCandidate {
+  id: string;
+  name: string;
+}
+
+export interface RecipePipelineRemoval extends RecipePipelineCandidate {
+  reason: string;
+}
+
+export interface RecipePipelineStage {
+  entered: number;
+  enteredRecipes: RecipePipelineCandidate[];
+  exited: number;
+  exitedRecipes: RecipePipelineCandidate[];
+  removed: RecipePipelineRemoval[];
+  stage: string;
+}
+
+export interface RecipeGenerationTrace {
+  gemini: {
+    failed: Array<{ attempt: number; phase: string; reason: string }>;
+    started: Array<{ attempt: number; phase: string }>;
+    succeeded: Array<{ attempt: number; phase: string }>;
+  };
+  postProcessing: {
+    rejected: Array<{ id: string; name: string; reason: string }>;
+  };
+  response: {
+    recipeIds: string[];
+    recipeCount: number;
+  };
+  search: {
+    candidatesFound: number;
+    compatibleCandidatesFound: number;
+    selectedIds: string[];
+  };
+  recipes: RecipeLifecycleTrace[];
+}
+
+export interface RecipeLifecycleTrace {
+  geminiStatus: "cached" | "failed" | "not_attempted" | "skipped" | "succeeded";
+  imageStatus: "pending_client_hydration" | "ready" | "skipped";
+  recipeId: string;
+  rejectionReason: string | null;
+  repairStatus: "not_needed" | "repaired" | "skipped";
+  returnedStatus: "not_returned" | "returned";
+  searchScore: number | null;
+  selected: boolean;
+  title: string;
+  validationStatus: "accepted" | "failed" | "not_attempted" | "skipped";
+}
+
 export interface RecipeValidationReport {
   requested: number;
   database_found: number;
@@ -30,6 +82,9 @@ export interface RecipeValidationReport {
   requestedCount: number;
   requestId: string;
   reportPath?: string;
+  firstStageBelowRequested: string | null;
+  generationTrace: RecipeGenerationTrace;
+  stages: RecipePipelineStage[];
   summary: {
     accepted: number;
     rejected: number;
@@ -39,9 +94,30 @@ export interface RecipeValidationReport {
   traces: RecipeValidationTraceEntry[];
 }
 
+export interface RecipePipelineReport {
+  executionTimeMs: number;
+  finalReturnedCount: number;
+  inputIngredients: string[];
+  reasons: RecipeValidationTraceEntry[];
+  recipesLoaded: number;
+  recipesMatched: number;
+  recipesRanked: number;
+  recipesRejected: number;
+  recipesRepaired: number;
+  requestId: string;
+  firstStageBelowRequested: string | null;
+  generationTrace: RecipeGenerationTrace;
+  stages: RecipePipelineStage[];
+}
+
 export interface RecipeRepairContext {
   recipeLanguage: string;
   scoringIngredients: string[];
+  /**
+   * Source recipes must retain their documented method. The editor pipeline can
+   * opt out of synthetic recovery and reject incomplete references instead.
+   */
+  allowSyntheticFallbacks?: boolean;
 }
 
 export interface RecipeRepairResult {
@@ -91,6 +167,15 @@ export function createRecipeValidationReport(input: {
     inputIngredients: input.inputIngredients,
     requestedCount: input.requestedCount,
     requestId: input.requestId,
+    firstStageBelowRequested: null,
+    generationTrace: {
+      gemini: { failed: [], started: [], succeeded: [] },
+      postProcessing: { rejected: [] },
+      response: { recipeIds: [], recipeCount: 0 },
+      search: { candidatesFound: 0, compatibleCandidatesFound: 0, selectedIds: [] },
+      recipes: []
+    },
+    stages: [],
     summary: {
       accepted: 0,
       rejected: 0,
@@ -99,6 +184,124 @@ export function createRecipeValidationReport(input: {
     },
     traces: []
   };
+}
+
+export function recordRecipeLifecycle(
+  report: RecipeValidationReport,
+  input: Partial<RecipeLifecycleTrace> & { recipeId: string; title: string }
+) {
+  const existing = report.generationTrace.recipes.find((recipe) => recipe.recipeId === input.recipeId);
+  const base: RecipeLifecycleTrace = existing ?? {
+    geminiStatus: "not_attempted",
+    imageStatus: "pending_client_hydration",
+    recipeId: input.recipeId,
+    rejectionReason: null,
+    repairStatus: "not_needed",
+    returnedStatus: "not_returned",
+    searchScore: null,
+    selected: false,
+    title: input.title,
+    validationStatus: "not_attempted"
+  };
+  const next = { ...base, ...input, title: input.title || base.title };
+  if (existing) {
+    Object.assign(existing, next);
+  } else {
+    report.generationTrace.recipes.push(next);
+  }
+}
+
+export function recordRecipeGenerationTrace(
+  report: RecipeValidationReport,
+  input:
+    | { type: "gemini_started"; attempt: number; phase: string }
+    | { type: "gemini_succeeded"; attempt: number; phase: string }
+    | { type: "gemini_failed"; attempt: number; phase: string; reason: string }
+    | { type: "post_rejected"; id: string; name: string; reason: string }
+    | { type: "search"; candidatesFound: number; compatibleCandidatesFound?: number; selectedIds: string[] }
+    | { type: "response"; recipes: Recipe[] }
+) {
+  if (input.type === "gemini_started") report.generationTrace.gemini.started.push({ attempt: input.attempt, phase: input.phase });
+  if (input.type === "gemini_succeeded") report.generationTrace.gemini.succeeded.push({ attempt: input.attempt, phase: input.phase });
+  if (input.type === "gemini_failed") report.generationTrace.gemini.failed.push({ attempt: input.attempt, phase: input.phase, reason: input.reason });
+  if (input.type === "post_rejected") {
+    report.generationTrace.postProcessing.rejected.push({
+      id: input.id,
+      name: input.name,
+      reason: input.reason
+    });
+  }
+  if (input.type === "search") {
+    report.generationTrace.search.candidatesFound = Math.max(
+      report.generationTrace.search.candidatesFound,
+      input.candidatesFound
+    );
+    report.generationTrace.search.compatibleCandidatesFound = Math.max(
+      report.generationTrace.search.compatibleCandidatesFound,
+      input.compatibleCandidatesFound ?? input.candidatesFound
+    );
+    report.generationTrace.search.selectedIds = Array.from(new Set([
+      ...report.generationTrace.search.selectedIds,
+      ...input.selectedIds
+    ]));
+  }
+  if (input.type === "response") {
+    report.generationTrace.response = {
+      recipeCount: input.recipes.length,
+      recipeIds: input.recipes.map(readRecipeId)
+    };
+    input.recipes.forEach((recipe) => {
+      recordRecipeLifecycle(report, {
+        recipeId: readRecipeId(recipe),
+        title: recipe.name,
+        returnedStatus: "returned",
+        imageStatus: recipe.image_url ? "ready" : "pending_client_hydration"
+      });
+    });
+    const returnedIds = new Set(input.recipes.map(readRecipeId));
+    report.generationTrace.recipes
+      .filter((recipe) => recipe.selected && !returnedIds.has(recipe.recipeId) && !recipe.rejectionReason)
+      .forEach((recipe) => {
+        recipe.rejectionReason = "superseded_by_higher_ranked_result";
+      });
+  }
+}
+
+/**
+ * Records every candidate transition in the request pipeline. The caller
+ * supplies a stage-level reason; safety stages can pass a per-recipe reason.
+ */
+export function recordRecipePipelineStage(
+  report: RecipeValidationReport,
+  input: {
+    entered: Recipe[];
+    exited: Recipe[];
+    reason?: string | ((recipe: Recipe) => string);
+    stage: string;
+  }
+) {
+  const enteredRecipes = input.entered.map(toPipelineCandidate);
+  const exitedRecipes = input.exited.map(toPipelineCandidate);
+  const exitedKeys = new Set(input.exited.map(readRecipeId));
+  const removed = input.entered
+    .filter((recipe) => !exitedKeys.has(readRecipeId(recipe)))
+    .map((recipe) => ({
+      ...toPipelineCandidate(recipe),
+      reason: typeof input.reason === "function" ? input.reason(recipe) : input.reason ?? "not_selected"
+    }));
+
+  report.stages.push({
+    entered: enteredRecipes.length,
+    enteredRecipes,
+    exited: exitedRecipes.length,
+    exitedRecipes,
+    removed,
+    stage: input.stage
+  });
+
+  if (!report.firstStageBelowRequested && input.exited.length < report.requestedCount) {
+    report.firstStageBelowRequested = input.stage;
+  }
 }
 
 export function updateRecipeValidationFunnel(
@@ -154,6 +357,39 @@ export async function persistRecipeValidationReport(report: RecipeValidationRepo
   return reportPath;
 }
 
+export async function persistRecipePipelineReport(
+  report: RecipeValidationReport,
+  startedAtMs: number
+) {
+  const reportDirectory = join(tmpdir(), "nutrimoment-recipe-validation", report.requestId);
+  const reportPath = join(reportDirectory, "pipeline_report.json");
+  const pipelineReport: RecipePipelineReport = {
+    executionTimeMs: Date.now() - startedAtMs,
+    finalReturnedCount: report.returned,
+    inputIngredients: report.inputIngredients,
+    reasons: report.traces,
+    recipesLoaded: report.database_found,
+    recipesMatched: Math.max(report.after_title_validation, report.after_quantity_validation),
+    recipesRanked: report.after_diversity,
+    recipesRejected: report.summary.rejected,
+    recipesRepaired: report.summary.repaired,
+    requestId: report.requestId,
+    firstStageBelowRequested: report.firstStageBelowRequested,
+    generationTrace: report.generationTrace,
+    stages: report.stages
+  };
+  await mkdir(reportDirectory, { recursive: true });
+  await writeFile(reportPath, `${JSON.stringify(pipelineReport, null, 2)}\n`, "utf8");
+  return { pipelineReport, reportPath };
+}
+
+function toPipelineCandidate(recipe: Recipe): RecipePipelineCandidate {
+  return {
+    id: readRecipeId(recipe),
+    name: recipe.name
+  };
+}
+
 export function repairRecipeForValidation(recipe: Recipe, context: RecipeRepairContext): RecipeRepairResult {
   const actions: string[] = [];
   let repaired: Recipe = { ...recipe };
@@ -181,7 +417,7 @@ export function repairRecipeForValidation(recipe: Recipe, context: RecipeRepairC
     actions.push("removed_duplicate_steps");
   }
 
-  if (repaired.steps.length < 2) {
+  if (repaired.steps.length < 2 && context.allowSyntheticFallbacks !== false) {
     repaired = { ...repaired, steps: buildFallbackSteps(repaired, wantsArabic) };
     actions.push("estimated_missing_steps");
   }

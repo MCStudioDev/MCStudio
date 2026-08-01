@@ -2,6 +2,7 @@ import type { Recipe } from "@/lib/types";
 
 export interface RecipeDiversityValidationOptions {
   limit: number;
+  rotateCuisines?: boolean;
   softFill?: boolean;
   targets?: RecipeDiversityTargets;
   similarityThreshold?: number;
@@ -81,7 +82,14 @@ export function enforceRecipeDiversity(
   options: RecipeDiversityValidationOptions
 ) {
   const threshold = options.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
-  const targets = options.targets ?? (options.limit >= 10 ? DEFAULT_TEN_RECIPE_TARGETS : {});
+  const targets = options.targets ?? (
+    options.limit >= 10
+      ? {
+          ...DEFAULT_TEN_RECIPE_TARGETS,
+          minimumCuisines: options.rotateCuisines === false ? 1 : DEFAULT_TEN_RECIPE_TARGETS.minimumCuisines
+        }
+      : {}
+  );
   const remaining = recipes.map((recipe, index) => ({ recipe, index }));
   const selected: Recipe[] = [];
   const selectedCuisines = new Set<string>();
@@ -106,16 +114,26 @@ export function enforceRecipeDiversity(
   }
 
   if (options.softFill && selected.length < options.limit && remaining.length) {
-    const selectedKeys = new Set(selected.map((recipe) => recipeKey(recipe)));
-    const fill = remaining
+    const selectedIds = new Set(selected.map((recipe) => recipe.id).filter(Boolean));
+    const selectedFamilies = new Set(selected.map(recipeKey).filter(Boolean));
+    const rankedFill = remaining
       .map((entry) => ({
         ...entry,
         score: scoreSoftFillCandidate(entry.recipe, selected)
       }))
-      .filter((entry) => !selectedKeys.has(recipeKey(entry.recipe)))
-      .sort((left, right) => right.score - left.score || left.index - right.index)
-      .slice(0, options.limit - selected.length)
-      .map((entry) => entry.recipe);
+      .filter((entry) => !entry.recipe.id || !selectedIds.has(entry.recipe.id))
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+    const fill: Recipe[] = [];
+
+    for (const entry of rankedFill) {
+      const family = recipeKey(entry.recipe);
+      if (family && selectedFamilies.has(family)) continue;
+      fill.push(entry.recipe);
+      if (entry.recipe.id) selectedIds.add(entry.recipe.id);
+      if (family) selectedFamilies.add(family);
+      if (selected.length + fill.length >= options.limit) break;
+    }
+
     selected.push(...fill);
   }
 
@@ -148,7 +166,14 @@ function selectNextDiverseRecipeIndex(
 }
 
 function canSelectDiverseRecipe(recipe: Recipe, selected: Recipe[], threshold: number) {
-  return selected.every((existing) => calculateRecipeSimilarity(existing, recipe).total <= threshold);
+  const candidateKey = canonicalNamedDishKey(normalizeKey(recipe.dish_identity ?? recipe.name));
+  return selected.every((existing) =>
+    (
+      !candidateKey ||
+      canonicalNamedDishKey(normalizeKey(existing.dish_identity ?? existing.name)) !== candidateKey
+    ) &&
+    calculateRecipeSimilarity(existing, recipe).total <= threshold
+  );
 }
 
 function canSelectWithinDiversityCaps(recipe: Recipe, selected: Recipe[], targets: RecipeDiversityTargets) {
@@ -194,7 +219,53 @@ function scoreSoftFillCandidate(recipe: Recipe, selected: Recipe[]) {
 }
 
 function recipeKey(recipe: Recipe) {
-  return normalizeKey(recipe.id ?? recipe.source_recipe_id ?? recipe.dish_identity ?? recipe.name);
+  const canonicalIdentity = canonicalNamedDishKey(normalizeKey(
+    recipe.dish_identity ?? recipe.name
+  ));
+  if (canonicalIdentity) return canonicalIdentity;
+
+  return normalizeKey(recipe.dish_intent?.dish_name ?? recipe.dish_identity ?? recipe.name)
+    .replace(/\b(?:authentic|classic|easy|quick|traditional|original)\b/g, " ")
+    .replace(/(?:أصيل(?:ة)?|تقليدي(?:ة)?|كلاسيكي(?:ة)?|سريع(?:ة)?|سهل(?:ة)?)/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalNamedDishKey(value: string) {
+  const koftaVariant = canonicalKoftaVariantKey(value);
+  if (koftaVariant) return koftaVariant;
+
+  const identities: Array<[string, RegExp]> = [
+    ["cacciatore", /\b(?:cacciatore|cacciatora)\b|(?:كاتشاتوري|كاستياتوري)/u],
+    ["parmigiana", /\b(?:parmesan|parmigiana|parmigiano)\b|(?:بارميزان|باريميجيانا)/u],
+    ["piccata", /\bpiccata\b|بيكاتا/u],
+    ["alfredo", /\balfredo\b|ألفريدو/u],
+    ["lasagna", /\b(?:lasagna|lasagne)\b|لازانيا/u],
+    ["minestrone", /\bminestrone\b|مينستروني/u],
+    ["shawarma", /\bshawarma\b|شاورما/u],
+    ["kofta", /\b(?:kofta|kofte|kafta|kefta)\b|كفتة/u],
+    ["hawawshi", /\bhawawshi\b|حواوشي/u],
+    ["biryani", /\bbiryani\b|برياني/u],
+    ["tandoori", /\btandoori\b|تندوري/u],
+    ["pad-thai", /\bpad\s+thai\b|باد\s+تاي/u],
+    ["tom-yum", /\btom\s+yum\b|توم\s+يام/u],
+    ["enchilada", /\benchiladas?\b|إنشيلادا/u],
+    ["fajita", /\bfajitas?\b|فاهيتا/u],
+    ["risotto", /\brisotto\b|ريزوتو/u]
+  ];
+  return identities.find(([, pattern]) => pattern.test(value))?.[0] ?? "";
+}
+
+function canonicalKoftaVariantKey(value: string) {
+  if (!/\b(?:kofta|kofte|kafta|kefta)\b|\u0643\u0641\u062a\u0629/u.test(value)) return "";
+
+  const modifier = normalizeKey(value)
+    .replace(/\b(?:kofta|kofte|kafta|kefta|authentic|classic|easy|quick|traditional|original|turkish|beef|lamb|chicken|meat|meatball|meatballs|dairy free|keto)\b/g, " ")
+    .replace(/\u0643\u0641\u062a\u0629/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return modifier ? `kofta:${modifier}` : "kofta";
 }
 
 function techniqueSimilarity(left: Recipe, right: Recipe) {

@@ -41,7 +41,10 @@ const RECIPE_TITLES: Record<string, string> = {
   "Samak Harra": "سمك حار",
   "Shrimp Sayadieh": "صيادية جمبري",
   "Pollo Cacciatore": "دجاج كاتشاتوري",
-  "Chicken Piccata": "دجاج بيكاتا",
+  "Chicken Piccata": "دجاج بصلصة الليمون والكبر على الطريقة الإيطالية",
+  "Herbed Chicken Marsala": "دجاج بالفطر والأعشاب على الطريقة الإيطالية",
+  "Chicken Marsala": "دجاج بالفطر على الطريقة الإيطالية",
+  "Chicken Pizzaiola": "دجاج بصوص الطماطم والموزاريلا على الطريقة الإيطالية",
   "Tagliatelle al Ragu": "تالياتيلي بالراجو",
   "Shrimp Scampi": "جمبري سكامبي",
   "Shrimp Ceviche": "سيفيتشي جمبري",
@@ -70,6 +73,23 @@ const RECIPE_TITLES: Record<string, string> = {
   "Cashew Chicken": "دجاج بالكاجو",
   "Chicken Cashew": "دجاج بالكاجو",
   "Chicken Cacciatore": "دجاج كاتشاتوري بصوص الطماطم",
+  "Italian Chicken Cacciatore": "دجاج كاتشاتوري بصوص الطماطم",
+  "Easy Chicken Cacciatore": "دجاج كاتشاتوري بصوص الطماطم",
+  "Chicken and Pasta Alfredo": "مكرونة ألفريدو بالدجاج",
+  "Chicken Alfredo Primavera": "مكرونة بالدجاج والخضروات الموسمية",
+  "Pasta Primavera": "مكرونة بالخضروات الموسمية",
+  "Baked Italian Chicken and Pasta": "طاجن مكرونة بالدجاج على الطريقة الإيطالية",
+  "Baked Spaghetti with Chicken": "سباجيتي مخبوزة بالدجاج",
+  "Basil Chicken and Pasta": "مكرونة بالدجاج والريحان",
+  "Italian Chicken": "دجاج بالطماطم والأعشاب على الطريقة الإيطالية",
+  "Chicken Italian-Style": "دجاج بالطماطم والأعشاب على الطريقة الإيطالية",
+  "Baked Italian Chicken": "دجاج مخبوز بالأعشاب على الطريقة الإيطالية",
+  "Baked Zesty Italian Chicken": "دجاج مخبوز بالليمون والأعشاب على الطريقة الإيطالية",
+  "Italian Sauteed Chicken With Italian Mushroom Rice": "دجاج مشوح مع أرز بالفطر على الطريقة الإيطالية",
+  "Italian Chicken Saute with Italian Mushroom Rice": "دجاج مشوح مع أرز بالفطر على الطريقة الإيطالية",
+  "Chicken And Pasta Neapolitan": "مكرونة نابوليتان بالدجاج",
+  "Minestrone": "شوربة مينستروني بالخضروات",
+  "Italian Country Chicken(6 To 8 Servings)": "دجاج ريفي بالطماطم والأعشاب على الطريقة الإيطالية",
   "Chicken and Dumplings": "دجاج بصوص كريمي مع زلابية آسيوية",
   "Creamy Chicken and Dumplings": "دجاج بصوص كريمي مع زلابية آسيوية",
   "Keema Matar": "كيما بالبازلاء",
@@ -286,6 +306,7 @@ const INGREDIENTS: Record<string, string> = {
 };
 
 const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
+  pastina: "معكرونة صغيرة",
   bean: "فول",
   beans: "فول",
   "broad beans": "فول",
@@ -641,11 +662,31 @@ function translateRecipeTitle(value: string) {
     NORMALIZED_RECIPE_TITLE_LOOKUP[normalized] ??
     FOOD_DICTIONARY_TRANSLATIONS.englishToArabic[normalized];
   if (exact) return exact;
-  if (!/[A-Za-z]/.test(value)) return value;
+  if (!/[A-Za-z]/.test(value)) return normalizeArabicRecipeTitle(value);
   // Recipe titles must be localized by meaning. Do not turn an unknown Latin
   // dish name into Arabic-looking phonetics; ensureArabicTitleText will build
   // a clean ingredient/cuisine title when no authored equivalent exists.
   return translateEnglishRecipeTitle(value);
+}
+
+export function localizeRecipeTitleForArabic(value: string) {
+  return translateRecipeTitle(value).trim();
+}
+
+export function hasApprovedArabicRecipeTitle(value: string) {
+  const normalized = normalizeTranslationKey(value);
+  return Boolean(
+    RECIPE_TITLES[value] ??
+    NORMALIZED_RECIPE_TITLE_LOOKUP[normalized] ??
+    FOOD_DICTIONARY_TRANSLATIONS.englishToArabic[normalized]
+  );
+}
+
+function normalizeArabicRecipeTitle(value: string) {
+  return value
+    .replace(/(?:كاشياتوري|كاشاتوري|كاتشياتوري)/gu, "كاتشاتوري")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function ensureArabicTitleText(recipe: Pick<Recipe, "name" | "image_search_index" | "image_search_indices">, ingredients: string[], missingIngredients: string[]) {
@@ -1029,10 +1070,12 @@ function translatePreferenceHit(value: string) {
   if (normalized.includes("dairy")) return "مراعي لتفضيلاتك";
   if (normalized.includes("lower-sodium")) return "أخف في الملح";
   if (normalized.includes("entered protein")) return "يركز على البروتين المتوفر";
+  if (normalized === "calorie-aligned") return "مناسب لهدف السعرات";
 
   return value
     .replace("cuisine-aligned", "متوافق مع المطبخ المفضل")
     .replace("calorie-target", "مناسب لهدف السعرات")
+    .replace("calorie-aligned", "مناسب لهدف السعرات")
     .replace("pantry", "مناسب للمكونات المتوفرة");
 }
 
@@ -1412,6 +1455,7 @@ function translateEnglishRecipeTitle(value: string) {
   let translated = ` ${value.trim()} `;
 
   const phraseReplacements: Array<[RegExp, string]> = [
+    [/\bbrodo di pollo\b/gi, " شوربة الدجاج الإيطالية "],
     [/\bmacarona bechamel\b/gi, " مكرونة بشاميل "],
     [/\bmacaroni bechamel\b/gi, " مكرونة بشاميل "],
     [/\bbechamel pasta\b/gi, " مكرونة بشاميل "],

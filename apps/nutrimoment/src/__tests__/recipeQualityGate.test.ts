@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecipeQualityGate } from "../services/recipeQualityGate";
+import { hasAuthenticRecipeInstructions } from "../services/recipePipeline/recipeValidator";
 import type { Recipe } from "../lib/types";
 
 const validRecipe: Recipe = {
@@ -135,5 +136,62 @@ describe("recipe quality gate", () => {
 
     expect(result.reasons).not.toContain("ingredient_not_used:rice");
     expect(result.reasons).not.toContain("ingredient_not_used:mint");
+  });
+
+  it("matches ingredient use through bilingual canonical aliases", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      name: "دجاج بالثوم والطماطم",
+      cuisine: "إيطالي",
+      ingredients: ["500 جرام دجاج", "2 كوب طماطم", "3 فصوص ثوم"],
+      steps: [
+        "Brown the chicken with minced garlic.",
+        "Add tomato and simmer until the chicken is cooked through."
+      ],
+      cook_time: "30 دقيقة",
+      difficulty: "سهل"
+    }, "Arabic");
+
+    expect(result.reasons).not.toContain("ingredient_not_used:ثوم");
+    expect(result.reasons).toContain("english_leakage_in_arabic");
+  });
+
+  it("rejects editorial prose masquerading as recipe instructions", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      name: "Black Bean Hummus",
+      ingredients: ["1 cup black beans", "2 tbsp tahini", "1 tbsp lemon juice"],
+      steps: [
+        "This is the absolute best hummus I have ever had.",
+        "My friends love it with toasted bread and I think you will too."
+      ]
+    }, "English");
+
+    expect(result.reasons).toContain("invalid_recipe_instructions");
+  });
+
+  it("rejects imported website descriptions even when localized repair steps exist elsewhere", () => {
+    expect(hasAuthenticRecipeInstructions([
+      "Recipes, cooking techniques, and news, updated daily.",
+      "Chow.com - devoted to the pleasure of food and drink."
+    ])).toBe(false);
+    expect(hasAuthenticRecipeInstructions([
+      "Fattoush is a Lebanese salad, good for hot weather.",
+      "This recipe uses two unusual ingredients: sumac and purslane."
+    ])).toBe(false);
+  });
+
+  it("rejects Arabic fallback titles that begin with the word recipe", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      name: "وصفة بيض 2 مع دقيق",
+      ingredients: ["2 حبة بيض", "1 كوب دقيق", "1 ملعقة كبيرة زيت"],
+      steps: ["اخفق البيض مع الدقيق.", "سخن الزيت واطه الخليط حتى ينضج."],
+      cuisine: "عالمي",
+      cook_time: "20 دقيقة",
+      difficulty: "سهل"
+    }, "Arabic");
+
+    expect(result.reasons).toContain("malformed_recipe_title");
   });
 });

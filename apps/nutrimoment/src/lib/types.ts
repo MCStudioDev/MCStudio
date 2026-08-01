@@ -1,7 +1,7 @@
 export type Tab = "scanner" | "pantry" | "mealplan" | "health" | "history" | "settings";
 
 export type Language = "en" | "ar";
-export type RecipeImageSource = "api" | "cache" | "search" | "unsplash" | "wikimedia";
+export type RecipeImageSource = "api" | "cache" | "pexels" | "replicate" | "search" | "shared_pool" | "unsplash" | "wikimedia";
 export type DashboardTheme = "auroraDark" | "mintWhite";
 export type RecipeMealType = "breakfast" | "lunch" | "dinner" | "snack";
 

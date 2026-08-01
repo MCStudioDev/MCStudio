@@ -1,7 +1,7 @@
 import { getAllCuisineCatalogV2Entries } from "@/lib/cuisineCatalogs/v2";
 import type { CuisineCatalogV2Entry } from "@/lib/cuisineCatalogs/types";
 import type { MealType, RecipeCatalogDoc } from "@/lib/domain";
-import { normalizeCachedRecipeCatalogDoc } from "@/data/offline/recipeMetadata";
+import type { Recipe } from "@/lib/types";
 
 const CUISINE_LABELS: Record<string, string> = {
   american: "American",
@@ -76,6 +76,15 @@ export function convertCuisineCatalogV2EntryToRecipeDoc(entry: CuisineCatalogV2E
     source: {
       provider: "cuisine-catalog-v2"
     },
+    localized: buildCuratedArabicVariant(entry, {
+      calories,
+      carbs,
+      cuisine,
+      fat,
+      protein,
+      title,
+      totalMinutes
+    }),
     dishIntent: {
       dish_name: title.toLowerCase(),
       cuisine,
@@ -106,7 +115,79 @@ export function convertCuisineCatalogV2EntryToRecipeDoc(entry: CuisineCatalogV2E
     updatedAt: timestamp
   };
 
-  return normalizeCachedRecipeCatalogDoc(recipe);
+  // Retrieval only needs normalized catalog fields. Full bilingual display
+  // metadata is created lazily by mapCatalogRecipeToUiRecipe for the handful
+  // of selected cards, rather than for every catalog entry on a cold search.
+  return recipe;
+}
+
+function buildCuratedArabicVariant(
+  entry: CuisineCatalogV2Entry,
+  nutrition: {
+    calories: number;
+    carbs: number;
+    cuisine: string;
+    fat: number;
+    protein: number;
+    title: string;
+    totalMinutes: number;
+  }
+): RecipeCatalogDoc["localized"] {
+  if (entry.id === "ratatouille") {
+    const arabicRecipe: Recipe = {
+      id: `catalog-v2-${entry.cuisine}-${entry.id}`,
+      name: "يخنة الخضروات الفرنسية",
+      cuisine: "فرنسي",
+      recipe_source_type: "local_database",
+      dish_identity: nutrition.title,
+      ingredients: [],
+      missing_ingredients: [],
+      steps: [
+        "قطّع الباذنجان والكوسة إلى مكعبات متوسطة، وقطّع الفلفل والطماطم إلى قطع متقاربة الحجم، ثم افرم البصل والثوم ناعماً.",
+        "سخّن ملعقتين كبيرتين من زيت الزيتون في قدر واسع على نار متوسطة، ثم شوّح البصل لمدة 4 دقائق حتى يطرى.",
+        "أضف الباذنجان والفلفل واطههما لمدة 6 دقائق مع التقليب حتى يبدآ في اكتساب لون ذهبي.",
+        "أضف الكوسة والثوم وقلّب لمدة دقيقتين، ثم أضف الطماطم والزعتر والفلفل الأسود وقليلاً من الملح.",
+        "غطّ القدر واترك الخضروات تُطهى على نار هادئة لمدة 20 دقيقة، مع التقليب مرة أو مرتين، حتى تنضج مع احتفاظ القطع بقوامها.",
+        "ارفع الغطاء واترك الصلصة تتكثف لمدة 5 دقائق، ثم قدّم الطبق دافئاً بعد تزيينه بالبقدونس أو الريحان."
+      ],
+      calories: nutrition.calories,
+      protein: `${nutrition.protein} جم`,
+      carbs: `${nutrition.carbs} جم`,
+      fat: `${nutrition.fat} جم`,
+      cook_time: `${nutrition.totalMinutes} دقيقة`,
+      difficulty: "سهلة"
+    };
+
+    return { Arabic: arabicRecipe };
+  }
+
+  if (entry.id !== "mesaqaa") return undefined;
+
+  const arabicRecipe: Recipe = {
+    id: `catalog-v2-${entry.cuisine}-${entry.id}`,
+    name: "مسقعة مصرية بالباذنجان",
+    cuisine: "مصري",
+    recipe_source_type: "local_database",
+    dish_identity: nutrition.title,
+    ingredients: [],
+    missing_ingredients: [],
+    steps: [
+      "قطّع حبتين من الباذنجان إلى شرائح متوسطة، ورشّها بقليل من الملح واتركها 20 دقيقة، ثم جففها جيداً.",
+      "ادهن شرائح الباذنجان بملعقتين كبيرتين من الزيت، ثم حمّرها في الفرن على حرارة 220 درجة مئوية لمدة 20 دقيقة مع تقليبها في منتصف الوقت.",
+      "شوّح بصلة مفرومة وفلفلة مقطعة في ملعقة كبيرة من الزيت على نار متوسطة لمدة 5 دقائق حتى يطروا.",
+      "أضف فصين من الثوم المفروم وكوبين من الطماطم المفرومة، وتبّل بالكمون والفلفل الأسود، ثم اترك الصلصة على نار هادئة لمدة 15 دقيقة.",
+      "رتّب الباذنجان المحمّر في صينية، ووزّع فوقه صلصة الطماطم والفلفل بالتساوي.",
+      "اخبز المسقعة على حرارة 190 درجة مئوية لمدة 20 دقيقة حتى تتماسك الصلصة وتحمر الحواف، ثم اتركها 5 دقائق قبل التقديم."
+    ],
+    calories: nutrition.calories,
+    protein: `${nutrition.protein} جم`,
+    carbs: `${nutrition.carbs} جم`,
+    fat: `${nutrition.fat} جم`,
+    cook_time: `${nutrition.totalMinutes} دقيقة`,
+    difficulty: "سهلة"
+  };
+
+  return { Arabic: arabicRecipe };
 }
 
 function normalizeCanonicals(values: string[]) {

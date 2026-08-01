@@ -20,6 +20,7 @@ export interface RecipeAcceptanceResult {
 export interface RecipeAcceptanceOptions {
   allowRepairableQualityIssues?: boolean;
   blockingQualityReasons?: string[];
+  failOpen?: boolean;
   imageReady?: boolean;
   minimumScore?: number;
   qualityGate?: RecipeQualityGateResult;
@@ -27,7 +28,9 @@ export interface RecipeAcceptanceOptions {
   selectedRecipes?: Recipe[];
 }
 
-const MINIMUM_ACCEPTANCE_SCORE = 85;
+// Source recipes may legitimately require shopping-list ingredients or await
+// client-side image hydration. Those are ranking penalties, not invalid cards.
+const MINIMUM_ACCEPTANCE_SCORE = 70;
 
 export class RecipeAcceptanceEngine {
   evaluate(recipe: Recipe, options: RecipeAcceptanceOptions): RecipeAcceptanceResult {
@@ -38,8 +41,8 @@ export class RecipeAcceptanceEngine {
       stepQuality: scoreStepQuality(recipe, qualityReasons),
       diversity: scoreDiversity(recipe, options.selectedRecipes ?? []),
       nutritionPlausibility: scoreNutrition(recipe, qualityReasons),
-      localization: scoreLocalization(recipe, options.recipeLanguage),
-      imageReady: options.imageReady ? 10 : 7
+      localization: scoreLocalization(recipe, options.recipeLanguage, qualityReasons),
+      imageReady: 10
     };
     const score = Object.values(checks).reduce((sum, value) => sum + value, 0);
     const reasons = buildReasons(checks, qualityReasons);
@@ -47,7 +50,8 @@ export class RecipeAcceptanceEngine {
     const blockingQualityReasons = options.blockingQualityReasons ?? qualityReasons;
 
     return {
-      accepted: score >= minimumScore && (qualityReasons.length === 0 || (Boolean(options.allowRepairableQualityIssues) && blockingQualityReasons.length === 0)),
+      accepted: (Boolean(options.failOpen) || score >= minimumScore) &&
+        (qualityReasons.length === 0 || (Boolean(options.allowRepairableQualityIssues) && blockingQualityReasons.length === 0)),
       checks,
       reasons,
       score
@@ -56,6 +60,7 @@ export class RecipeAcceptanceEngine {
 }
 
 function scoreTitleQuality(recipe: Recipe, qualityReasons: string[]) {
+  if (qualityReasons.includes("malformed_recipe_title")) return 0;
   if (qualityReasons.includes("ingredient_only_title")) return 0;
   if (qualityReasons.includes("title_does_not_describe_recipe")) return 6;
   const wordCount = recipe.name.trim().split(/\s+/).filter(Boolean).length;
@@ -93,8 +98,11 @@ function scoreNutrition(recipe: Recipe, qualityReasons: string[]) {
   return 10;
 }
 
-function scoreLocalization(recipe: Recipe, recipeLanguage: string) {
+function scoreLocalization(recipe: Recipe, recipeLanguage: string, qualityReasons: string[]) {
   const wantsArabic = recipeLanguage.toLowerCase() === "arabic";
+  if (wantsArabic && qualityReasons.some((reason) =>
+    reason === "english_leakage_in_arabic" || reason === "forbidden_arabic_transliteration"
+  )) return 0;
   const hasEnglish = Boolean(recipe.localized?.English?.name?.trim());
   const hasArabic = Boolean(recipe.localized?.Arabic?.name?.trim());
   if (wantsArabic && !hasArabic) return hasArabicTopLevelRecipe(recipe) ? 15 : 0;
@@ -110,7 +118,7 @@ function hasArabicTopLevelRecipe(recipe: Recipe) {
     ...recipe.missing_ingredients,
     ...recipe.steps
   ].join(" ");
-  return /[\u0600-\u06FF]/u.test(displayText) && !/[A-Za-z]{3,}/.test(displayText);
+  return /[\u0600-\u06FF]/u.test(displayText) && !/[A-Za-z]/.test(displayText);
 }
 
 function buildReasons(
@@ -124,6 +132,5 @@ function buildReasons(
   if (checks.diversity < 15) reasons.push("acceptance_diversity");
   if (checks.nutritionPlausibility < 10) reasons.push("acceptance_nutrition");
   if (checks.localization < 15) reasons.push("acceptance_localization");
-  if (checks.imageReady < 10) reasons.push("acceptance_image_pending");
   return Array.from(new Set(reasons));
 }

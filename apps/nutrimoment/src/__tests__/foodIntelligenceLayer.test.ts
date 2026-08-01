@@ -7,6 +7,7 @@ import { FOOD_DICTIONARY, getCuisinePlaceholderPalette } from "../food/FoodDicti
 import { IngredientGraph } from "../food/IngredientGraph";
 import { IngredientNormalizer } from "../food/IngredientNormalizer";
 import { RecipeScorer } from "../food/RecipeScorer";
+import { resolveAuthenticCuisineDishes } from "../lib/cuisineAuthenticityResolver";
 
 const baseRecipe: RecipeCatalogDoc = {
   id: "base",
@@ -111,6 +112,23 @@ describe("food intelligence layer", () => {
     expect(plan.dishFamilies.length).toBeGreaterThan(0);
     expect(plan.cuisines).toEqual(expect.arrayContaining(["egyptian", "turkish"]));
     expect(graph.cuisineRoutes(["chicken"], "egyptian")[0]?.dishFamilies.length).toBeGreaterThan(0);
+  });
+
+  it("offers multiple named Italian chicken identities before grounded search", () => {
+    const dishes = resolveAuthenticCuisineDishes({
+      cuisine: "Italian",
+      ingredients: ["chicken", "tomato", "garlic", "olive oil"]
+    }, 20)
+      .filter((candidate) => candidate.dish.primaryIngredients.includes("chicken"))
+      .map((candidate) => candidate.dishName);
+
+    expect(dishes).toEqual(expect.arrayContaining([
+      "Chicken Cacciatore",
+      "Pollo al Limone",
+      "Pollo alla Romana",
+      "Pollo Arrosto"
+    ]));
+    expect(dishes.length).toBeGreaterThanOrEqual(8);
   });
 
   it("predicts cuisine confidence and gates low-confidence inference", () => {

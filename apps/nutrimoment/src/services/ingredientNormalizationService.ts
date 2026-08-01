@@ -27,14 +27,22 @@ export interface IngredientNormalizationResult {
   searchTerms: string[];
 }
 
-export async function normalizeIngredients(rawIngredients: string[]): Promise<IngredientNormalizationResult> {
+export async function normalizeIngredients(
+  rawIngredients: string[],
+  options: { allowRemoteAliases?: boolean } = {}
+): Promise<IngredientNormalizationResult> {
   const ingredientNormalizer = new IngredientNormalizer();
   const cleaned = rawIngredients
     .flatMap(expandRawIngredientInput)
     .map(normalizeIngredientText)
     .filter(Boolean);
 
-  const aliases = await findIngredientAliases(cleaned);
+  const aliases = shouldQueryRemoteIngredientAliases({
+    allowRemoteAliases: options.allowRemoteAliases === true,
+    cleanedTermCount: cleaned.length
+  })
+    ? await findIngredientAliases(cleaned)
+    : [];
   const aliasByKey = buildAliasLookup([...OFFLINE_INGREDIENT_ALIASES, ...aliases]);
 
   const normalized: string[] = [];
@@ -151,6 +159,13 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
     expandedAliases: searchPlan.aliases,
     searchTerms: searchPlan.searchTerms
   };
+}
+
+export function shouldQueryRemoteIngredientAliases(input: {
+  allowRemoteAliases: boolean;
+  cleanedTermCount: number;
+}) {
+  return input.allowRemoteAliases && input.cleanedTermCount > 0;
 }
 
 function buildAliasLookup(aliases: IngredientAliasDoc[]) {

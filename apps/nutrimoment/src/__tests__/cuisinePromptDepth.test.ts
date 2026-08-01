@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PromptBuilder, buildRecipeEditorSystemPrompt, buildRecipeGenerationPrompt } from "../ai/PromptBuilder";
+import {
+  PromptBuilder,
+  buildRecipeDiscoverySystemPrompt,
+  buildRecipeEditorSystemPrompt,
+  buildRecipeGenerationPrompt
+} from "../ai/PromptBuilder";
 
 const reference = {
   id: "chicken-cacciatore",
@@ -54,6 +59,28 @@ describe("compact recipe editor prompt", () => {
     expect(JSON.stringify(context)).not.toContain("missing_ingredients");
   });
 
+  it("states active substitutions compactly and requires consistent replacement", () => {
+    const context = JSON.parse(buildRecipeGenerationPrompt(
+      [{ name: "eggplant" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Italian",
+        calorieTarget: 1800,
+        maxMissingIngredients: 5,
+        recipeCount: 1,
+        diets: ["vegetarian", "glutenFree"],
+        conditions: [],
+        allergens: [],
+        recipeReferences: [reference]
+      }
+    ));
+
+    expect(context.requiredChanges).toHaveLength(2);
+    expect(context.requiredChanges.join(" ")).toContain("gluten-free equivalent");
+    expect(context.requiredChanges.join(" ")).toContain("vegetarian protein");
+    expect(buildRecipeEditorSystemPrompt("English")).toContain("replace every occurrence consistently");
+  });
+
   it("adds localization guidance only to the matching system instruction", () => {
     const englishSystem = buildRecipeEditorSystemPrompt("English");
     const arabicSystem = buildRecipeEditorSystemPrompt("Arabic");
@@ -68,5 +95,30 @@ describe("compact recipe editor prompt", () => {
     const combinedCharacterCount = buildPrompt("Arabic").length + buildRecipeEditorSystemPrompt("Arabic").length;
 
     expect(combinedCharacterCount).toBeLessThan(5_000);
+  });
+
+  it("uses a grounded discovery contract when no source recipe exists", () => {
+    const prompt = buildRecipeGenerationPrompt([{ name: "chicken" }], {
+      recipeLanguage: "Arabic",
+      preferredCuisine: "Italian",
+      calorieTarget: 1800,
+      maxMissingIngredients: 4,
+      recipeCount: 5,
+      diets: [],
+      conditions: [],
+      recipeReferences: []
+    });
+    const context = JSON.parse(prompt);
+    const system = buildRecipeDiscoverySystemPrompt("Arabic");
+    const schema = PromptBuilder.recipeDiscoveryResponseSchema(5);
+
+    expect(context.task).toBe("discover_grounded_recipes");
+    expect(context.sourceRecipe).toBeNull();
+    expect(context.recipeCount).toBe(5);
+    expect(system).toContain("Google Search grounding");
+    expect(system).toContain("Modern Standard Arabic");
+    expect(schema.maxItems).toBe(5);
+    expect(schema.items.required).toContain("source_url");
+    expect(schema.items.required).toContain("dish_identity");
   });
 });

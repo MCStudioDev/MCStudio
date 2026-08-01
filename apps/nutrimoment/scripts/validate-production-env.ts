@@ -15,7 +15,6 @@ const requiredEnv: RequiredEnv[] = [
   { name: "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET", description: "Firebase Storage bucket" },
   { name: "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", description: "Firebase messaging sender ID" },
   { name: "NEXT_PUBLIC_FIREBASE_APP_ID", description: "Firebase web app ID" },
-  { name: "NEXT_PUBLIC_FIRESTORE_DATABASE_ID", description: "Firestore database ID" },
   {
     name: "NEXT_PUBLIC_APP_URL",
     description: "Production app URL",
@@ -43,6 +42,10 @@ const requiredEnv: RequiredEnv[] = [
 ];
 
 const optionalEnv = [
+  {
+    name: "NEXT_PUBLIC_FIRESTORE_DATABASE_ID",
+    description: "Firestore database ID; defaults to (default) when unset"
+  },
   { name: "PEXELS_API_KEY", description: "Pexels fallback recipe photo key" },
   { name: "LOG_LEVEL", description: "Server log verbosity" },
   {

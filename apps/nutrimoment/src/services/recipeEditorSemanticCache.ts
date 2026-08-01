@@ -6,7 +6,7 @@ import { getAdminDb } from "@/lib/firebaseAdmin";
 import { logger } from "@/lib/logger";
 
 const CACHE_COLLECTION = "recipeEditorSemanticCache";
-const CACHE_VERSION = "recipe-editor-v1";
+const CACHE_VERSION = "recipe-editor-v3";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 type CacheOrigin = "firestore" | "memory" | "inflight" | "generated";
@@ -63,14 +63,18 @@ export function buildRecipeEditorCacheKey(input: RecipeEditorCacheInput) {
 
 export async function getOrCreateRecipeEditorCache(
   input: RecipeEditorCacheInput,
-  generate: () => Promise<Recipe>
+  generate: () => Promise<Recipe>,
+  isUsable?: (recipe: Recipe) => boolean
 ): Promise<RecipeEditorCacheResult> {
   const cacheKey = buildRecipeEditorCacheKey(input);
   const memoryRecipe = readMemory(cacheKey);
-  if (memoryRecipe) return { cacheKey, origin: "memory", recipe: memoryRecipe };
+  if (memoryRecipe && (!isUsable || isUsable(memoryRecipe))) {
+    return { cacheKey, origin: "memory", recipe: memoryRecipe };
+  }
+  if (memoryRecipe) memory.delete(cacheKey);
 
   const firestoreRecipe = await readFirestore(cacheKey);
-  if (firestoreRecipe) {
+  if (firestoreRecipe && (!isUsable || isUsable(firestoreRecipe))) {
     writeMemory(cacheKey, firestoreRecipe);
     return { cacheKey, origin: "firestore", recipe: firestoreRecipe };
   }

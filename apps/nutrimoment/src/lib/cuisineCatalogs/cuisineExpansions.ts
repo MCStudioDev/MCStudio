@@ -1265,6 +1265,94 @@ export const ITALIAN_EXPANSION: readonly CuisineDish[] = [
     iconicScore: 90
   },
   {
+    id: "pollo-al-limone",
+    cuisine: "italian",
+    region: "Italy",
+    names: { english: ["Pollo al Limone", "Italian Lemon Chicken"], native: ["Pollo al Limone"] },
+    description: "Pan-seared chicken finished with fresh lemon, garlic, and parsley",
+    primaryIngredients: ["chicken", "lemon"],
+    optionalIngredients: ["garlic", "parsley", "olive oil"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 88
+  },
+  {
+    id: "pollo-alla-romana",
+    cuisine: "italian",
+    region: "Rome",
+    names: { english: ["Pollo alla Romana", "Roman-Style Chicken"], native: ["Pollo alla Romana"] },
+    description: "Roman chicken braised with sweet peppers, tomato, garlic, and herbs",
+    primaryIngredients: ["chicken", "pepper", "tomato"],
+    optionalIngredients: ["garlic", "onion", "olive oil"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 88
+  },
+  {
+    id: "pollo-alla-diavola",
+    cuisine: "italian",
+    region: "Rome",
+    names: { english: ["Pollo alla Diavola", "Devil's Chicken"], native: ["Pollo alla Diavola"] },
+    description: "Butterflied chicken grilled or roasted with chili, lemon, and herbs",
+    primaryIngredients: ["chicken", "chili", "lemon"],
+    optionalIngredients: ["rosemary", "garlic", "olive oil"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 87
+  },
+  {
+    id: "pollo-al-mattone",
+    cuisine: "italian",
+    region: "Tuscany",
+    names: { english: ["Pollo al Mattone", "Tuscan Chicken Under a Brick"], native: ["Pollo al Mattone"] },
+    description: "Tuscan flattened chicken grilled under a weight with rosemary, lemon, and garlic",
+    primaryIngredients: ["chicken", "rosemary", "lemon"],
+    optionalIngredients: ["garlic", "olive oil"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 86
+  },
+  {
+    id: "pollo-alla-pizzaiola",
+    cuisine: "italian",
+    region: "Southern Italy",
+    names: { english: ["Pollo alla Pizzaiola", "Chicken Pizzaiola"], native: ["Pollo alla Pizzaiola"] },
+    description: "Chicken simmered in tomato, garlic, oregano, and olive oil",
+    primaryIngredients: ["chicken", "tomato", "oregano"],
+    optionalIngredients: ["garlic", "olive oil", "basil"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 86
+  },
+  {
+    id: "involtini-di-pollo",
+    cuisine: "italian",
+    region: "Italy",
+    names: { english: ["Involtini di Pollo", "Italian Chicken Rolls"], native: ["Involtini di Pollo"] },
+    description: "Thin chicken cutlets rolled around herbs and a light filling, then braised or baked",
+    primaryIngredients: ["chicken", "herbs"],
+    optionalIngredients: ["spinach", "cheese", "tomato", "garlic"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 85
+  },
+  {
+    id: "pollo-arrosto",
+    cuisine: "italian",
+    region: "Italy",
+    names: { english: ["Pollo Arrosto", "Italian Roast Chicken"], native: ["Pollo Arrosto"] },
+    description: "Italian roast chicken with garlic, rosemary, lemon, and olive oil",
+    primaryIngredients: ["chicken", "rosemary", "garlic"],
+    optionalIngredients: ["lemon", "olive oil", "potato"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 85
+  },
+  {
+    id: "cotoletta-di-pollo",
+    cuisine: "italian",
+    region: "Lombardy",
+    names: { english: ["Cotoletta di Pollo", "Italian Breaded Chicken Cutlet"], native: ["Cotoletta di Pollo"] },
+    description: "Thin chicken cutlet coated with breadcrumbs and cooked until crisp and golden",
+    primaryIngredients: ["chicken", "breadcrumbs"],
+    optionalIngredients: ["egg", "lemon", "olive oil"],
+    mealTypes: ["lunch", "dinner"],
+    iconicScore: 84
+  },
+  {
     id: "pasta-primavera",
     cuisine: "italian",
     region: "Italian-American",

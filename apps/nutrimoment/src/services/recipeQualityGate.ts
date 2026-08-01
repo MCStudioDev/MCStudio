@@ -1,5 +1,9 @@
 import { FORBIDDEN_ARABIC_RECIPE_TRANSLITERATIONS } from "@/data/culinary/arabicCulinaryDictionary";
-import { getIngredientProfileForExactTerm, normalizeIngredientText } from "@/food/IngredientNormalizer";
+import {
+  getIngredientProfileForExactTerm,
+  getIngredientProfileForTerm,
+  normalizeIngredientText
+} from "@/food/IngredientNormalizer";
 import type { Recipe } from "@/lib/types";
 import { RecipeValidator } from "@/services/recipePipeline/recipeValidator";
 
@@ -34,8 +38,8 @@ export class IngredientValidator {
       ...missingIngredients.filter((ingredient) => isProteinIngredient(ingredient.label))
     ];
     for (const ingredient of stepRequiredIngredients) {
-      const tokens = ingredientTokens(ingredient.label);
-      if (tokens.length && !steps.some((step) => tokens.some((token) => step.includes(token)))) {
+      const signals = ingredientMatchSignals(ingredient.label);
+      if (signals.length && !steps.some((step) => signals.some((signal) => step.includes(signal)))) {
         reasons.push(`ingredient_not_used:${normalizeIngredient(ingredient.label)}`);
       }
     }
@@ -60,7 +64,7 @@ export class LanguageValidator {
     if (FORBIDDEN_ARABIC_RECIPE_TRANSLITERATIONS.some((term) => userFacingText.includes(term))) {
       reasons.push("forbidden_arabic_transliteration");
     }
-    if (/[A-Za-z]{3,}/.test(userFacingText)) reasons.push("english_leakage_in_arabic");
+    if (/[A-Za-z]/.test(userFacingText)) reasons.push("english_leakage_in_arabic");
     return reasons;
   }
 }
@@ -110,6 +114,7 @@ function validateRecipeShape(recipe: Recipe) {
 }
 
 function validateTitle(recipe: Recipe) {
+  if (isMalformedRecipeTitle(recipe.name)) return ["malformed_recipe_title"];
   if (isIngredientOnlyRecipeTitle(recipe)) return ["ingredient_only_title"];
 
   const titleTokens = ingredientTokens(recipe.name);
@@ -122,7 +127,21 @@ function validateTitle(recipe: Recipe) {
   return titleTokens.some((token) => recipeText.includes(token)) ? [] : ["title_does_not_describe_recipe"];
 }
 
+export function isMalformedRecipeTitle(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return true;
+  if (/^[\d¼½¾]/u.test(normalized)) return true;
+  if (/^(?:و|مع)\s+\S+/u.test(normalized)) return true;
+  if (/^وصفة(?:\s|$)/u.test(normalized) || /^recipe\b/iu.test(normalized)) return true;
+  if (/\b(?:cup|cups|tbsp|tsp|ounce|ounces|pound|pounds)\b/i.test(normalized)) return true;
+  return false;
+}
+
 function isIngredientOnlyRecipeTitle(recipe: Recipe) {
+  // A catalog-v2 source ID means the title was selected from the curated dish
+  // catalog. Some authentic dishes (for example, molokhia) are also ingredient
+  // names, so their one-word cookbook title is valid in this narrow case.
+  if (recipe.source_recipe_id?.startsWith("catalog-v2-")) return false;
   const titleIdentity = buildIngredientIdentity(recipe.name);
   if (!titleIdentity) return false;
 
@@ -239,6 +258,25 @@ function ingredientTokens(value: string) {
     .split(" ")
     .filter((token) => token.length >= 3)
     .filter((token) => !new Set(["with", "and", "from", "fresh", "dried", "optional", "taste", "حسب", "الرغبة", "طازج"]).has(token));
+}
+
+function ingredientMatchSignals(value: string) {
+  const profile = getIngredientProfileForTerm(value);
+  const profileTerms = profile
+    ? [
+        profile.canonicalEnglishName,
+        profile.canonicalArabicName,
+        ...profile.aliases,
+        ...profile.synonyms,
+        ...profile.pluralForms
+      ]
+    : [];
+
+  return Array.from(new Set(
+    [...ingredientTokens(value), ...profileTerms]
+      .map(normalizeText)
+      .filter((signal) => signal.length >= 2)
+  ));
 }
 
 function normalizeText(value: string) {

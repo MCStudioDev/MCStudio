@@ -262,6 +262,12 @@ export function AppProvider({ children }: AppProviderProps) {
   const settings = state.settings;
   const health = user ? state.health : DEFAULT_HEALTH;
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.lang = settings.uiLanguage;
+    root.dir = isRtl(settings.uiLanguage) ? "rtl" : "ltr";
+  }, [settings.uiLanguage]);
+
   const saveSettings = useCallback(
     async (next: Partial<UserSettings>) => {
       const merged = normalizeSettings({ ...settings, ...next }, settings.uiLanguage);

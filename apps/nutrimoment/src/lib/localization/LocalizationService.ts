@@ -380,6 +380,16 @@ export function validateArabicRecipeLocalization(recipe: Recipe) {
 
 function replaceKnownTerm(value: string, source: string, replacement: string) {
   if (!source || source === replacement) return value;
+  const sourceKey = normalizeDictionaryLookupKey(source);
+  const replacementKey = normalizeDictionaryLookupKey(replacement);
+  if (
+    sourceKey &&
+    replacementKey &&
+    replacementKey.includes(sourceKey) &&
+    termAppears(value, replacement)
+  ) {
+    return value;
+  }
   const escaped = escapeRegExp(source.trim());
   if (!escaped) return value;
   return value.replace(new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?=$|[^\\p{L}\\p{N}])`, "giu"), (_match, prefix) => {

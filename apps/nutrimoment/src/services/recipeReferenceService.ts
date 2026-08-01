@@ -1,8 +1,8 @@
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { logger } from "@/lib/logger";
 import { CUISINE_OPTIONS } from "@/lib/cuisines";
+import { resolveAuthenticCuisineDishes } from "@/lib/cuisineAuthenticityResolver";
 import {
-  buildRecipeReferenceIngredientSet,
   expandRecipeReferenceIngredient,
   normalizeRecipeReferenceCuisineKey,
   normalizeRecipeReferenceIngredient
@@ -10,14 +10,59 @@ import {
 import type { RecipeReferenceDoc, RecipeReferencePromptRecipe } from "@/lib/recipeReferenceTypes";
 import type { Recipe } from "@/lib/types";
 import { withTimeout } from "@/lib/utils";
+import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 
 const RECIPE_REFERENCE_COLLECTION = process.env.RECIPE_REFERENCE_COLLECTION || "recipeReferenceRecipes";
 const RECIPE_REFERENCE_READ_TIMEOUT_MS = 4500;
-const MAX_REFERENCE_QUERY_TERMS = 10;
-const MAX_REFERENCE_DOCS_PER_TERM = 60;
-const MAX_REFERENCE_BUCKET_DOCS = 140;
-const MAX_ANY_CUISINE_BUCKET_DOCS = 24;
+const MAX_REFERENCE_QUERY_TERMS = 6;
+const MAX_REFERENCE_DOCS_PER_TERM = 40;
+const MAX_REFERENCE_BUCKET_DOCS = 50;
+const MAX_ANY_CUISINE_BUCKET_DOCS = 10;
+const MAX_REFERENCE_RESULTS = 60;
+const MAX_REFERENCE_HYDRATION_DOCS = 90;
 const RECIPE_REFERENCE_DISABLED = process.env.DISABLE_RECIPE_REFERENCE_LIBRARY === "true";
+const LOW_SIGNAL_REFERENCE_QUERY_TERMS = new Set([
+  "black pepper",
+  "cooking oil",
+  "juice",
+  "oil",
+  "salt",
+  "water"
+]);
+const REFERENCE_CANDIDATE_FIELDS = [
+  "id",
+  "title",
+  "cuisine",
+  "cuisineKey",
+  "ingredientCanonicals",
+  "mainIngredients",
+  "protein",
+  "proteinKey",
+  "mealType",
+  "cookingMethod",
+  "difficulty",
+  "techniques",
+  "tags",
+  "commonAllergens",
+  "qualityScore",
+  "searchTokens"
+] as const;
+const GENERIC_NAMED_DISH_SEARCH_TOKENS = new Set([
+  "american",
+  "baked",
+  "beef",
+  "chicken",
+  "classic",
+  "easy",
+  "egyptian",
+  "fish",
+  "fried",
+  "grilled",
+  "italian",
+  "recipe",
+  "shrimp",
+  "turkish"
+]);
 const APP_RECIPE_REFERENCE_SELECTION_CUISINE_KEYS = Array.from(new Set(CUISINE_OPTIONS
   .filter((cuisine) => cuisine !== "Any")
   .map((cuisine) => normalizeRecipeReferenceCuisineKey(cuisine))
@@ -28,6 +73,8 @@ const APP_RECIPE_REFERENCE_BUCKET_QUERY_KEYS = Array.from(new Set(CUISINE_OPTION
 
 export interface RecipeReferenceSearchInput {
   avoidRecipeNames?: string[];
+  allergens?: string[];
+  diets?: string[];
   ingredients: string[];
   preferredCuisine?: string;
   maxReferences?: number;
@@ -39,7 +86,7 @@ export async function findRecipeReferencesForGeneration(
 ): Promise<RecipeReferencePromptRecipe[]> {
   if (RECIPE_REFERENCE_DISABLED) return [];
 
-  const queryTerms = buildRecipeReferenceIngredientSet(input.ingredients).slice(0, MAX_REFERENCE_QUERY_TERMS);
+  const queryTerms = buildBalancedRecipeReferenceQueryTerms(input.ingredients);
   if (!queryTerms.length) return [];
 
   try {
@@ -47,36 +94,70 @@ export async function findRecipeReferencesForGeneration(
     const recipesById = new Map<string, RecipeReferenceDoc>();
     const preferredCuisineKey = normalizeRecipeReferenceCuisineKey(input.preferredCuisine);
     const mainIngredientKeys = queryTerms.filter(isReferenceCategoryIngredient).slice(0, MAX_REFERENCE_QUERY_TERMS);
-    const targetLimit = Math.max(input.maxReferences ?? 14, 14);
-
-    await loadRecipeReferenceBucketMatches({
-      cuisineKey: preferredCuisineKey,
-      db,
-      mainIngredientKeys,
+    const readPlan = buildRecipeReferenceReadPlan(input.maxReferences ?? 14);
+    const namedDishSearchTokens = buildNamedDishReferenceSearchTokens({
+      ingredients: input.ingredients,
       preferredCuisine: input.preferredCuisine,
-      recipesById
-    });
-    await loadRecipeReferenceTaxonomyMatches({
-      cuisineKey: preferredCuisineKey,
-      db,
-      mainIngredientKeys,
-      preferredCuisine: input.preferredCuisine,
-      recipesById
-    });
-    await loadAnyCuisineRotationBucketMatches({
-      db,
-      mainIngredientKeys,
-      preferredCuisine: input.preferredCuisine,
-      recipesById
+      queryTerms
     });
 
-    if (recipesById.size < targetLimit * 2) {
+    await Promise.all([
+      loadRecipeReferenceBucketMatches({
+        candidateQueryLimit: readPlan.candidateQueryLimit,
+        cuisineKey: preferredCuisineKey,
+        db,
+        mainIngredientKeys,
+        preferredCuisine: input.preferredCuisine,
+        recipesById,
+        targetCount: readPlan.requestedReferences
+      }),
+      loadNamedDishReferenceMatches({
+        candidateQueryLimit: readPlan.candidateQueryLimit,
+        db,
+        recipesById,
+        searchTokens: namedDishSearchTokens
+      })
+    ]);
+    if (shouldLoadRecipeReferenceTaxonomyMatches({
+      candidateCount: recipesById.size,
+      mainIngredientKeys,
+      preferredCuisine: input.preferredCuisine,
+      requestedReferences: readPlan.requestedReferences
+    })) {
+      await loadRecipeReferenceTaxonomyMatches({
+        candidateQueryLimit: readPlan.candidateQueryLimit,
+        cuisineKey: preferredCuisineKey,
+        db,
+        mainIngredientKeys,
+        preferredCuisine: input.preferredCuisine,
+        recipesById,
+        targetCount: readPlan.requestedReferences
+      });
+    }
+    if (shouldContinueRecipeReferenceCandidateSearch({
+      candidateCount: recipesById.size,
+      requestedReferences: readPlan.requestedReferences
+    })) {
+      await loadAnyCuisineRotationBucketMatches({
+        db,
+        mainIngredientKeys,
+        preferredCuisine: input.preferredCuisine,
+        recipesById,
+        targetCount: readPlan.requestedReferences
+      });
+    }
+
+    if (shouldContinueRecipeReferenceCandidateSearch({
+      candidateCount: recipesById.size,
+      requestedReferences: readPlan.requestedReferences
+    })) {
       await Promise.all(
         queryTerms.map(async (term) => {
           const snapshot = await withTimeout(
             db
               .collection(RECIPE_REFERENCE_COLLECTION)
               .where("ingredientCanonicals", "array-contains", term)
+              .select(...REFERENCE_CANDIDATE_FIELDS)
               .limit(MAX_REFERENCE_DOCS_PER_TERM)
               .get(),
             RECIPE_REFERENCE_READ_TIMEOUT_MS,
@@ -84,8 +165,8 @@ export async function findRecipeReferencesForGeneration(
           );
 
           snapshot.docs.forEach((docSnap) => {
-            const data = docSnap.data() as RecipeReferenceDoc;
-            if (isUsableRecipeReference(data)) recipesById.set(docSnap.id, { ...data, id: data.id || docSnap.id });
+            const data = toRecipeReferenceCandidate(docSnap.id, docSnap.data());
+            if (isUsableRecipeReferenceCandidate(data)) recipesById.set(docSnap.id, data);
           });
         })
       );
@@ -97,13 +178,27 @@ export async function findRecipeReferencesForGeneration(
       candidateRecipeCount: candidateRecipes.length,
       preferredCuisine: input.preferredCuisine ?? "Any"
     });
-    const coreMatchedRecipes = candidateRecipes.filter((recipe) => recipeMatchesCoreProteinAnchors(recipe, queryTerms));
-    const rankingPool = coreMatchedRecipes.length ? coreMatchedRecipes : candidateRecipes;
+    const cuisineMatchedRecipes = filterRecipeReferenceCandidatesByCuisine(
+      candidateRecipes,
+      input.preferredCuisine
+    );
+    const cuisineRankingPool = selectRecipeReferenceCuisineRankingPool(
+      candidateRecipes,
+      cuisineMatchedRecipes,
+      input.preferredCuisine
+    );
+    const coreMatchedRecipes = cuisineRankingPool.filter((recipe) =>
+      recipeMatchesCoreProteinAnchors(recipe, queryTerms)
+    );
+    const rankingPool = coreMatchedRecipes.length ? coreMatchedRecipes : cuisineRankingPool;
     const ranked = rankingPool
       .map((recipe) => ({
         recipe,
         score: scoreRecipeReference(recipe, queryTerms, {
           avoidRecipeNames: input.avoidRecipeNames,
+          allergens: input.allergens,
+          diets: input.diets,
+          namedDishSearchTokens,
           preferredCuisine: input.preferredCuisine,
           variationSeed: input.variationSeed
         })
@@ -113,9 +208,14 @@ export async function findRecipeReferencesForGeneration(
     const rankedForSelection =
       input.preferredCuisine && input.preferredCuisine !== "Any"
         ? ranked
-        : diversifyAnyCuisineReferenceRanking(ranked, input.maxReferences ?? 14);
+        : diversifyAnyCuisineReferenceRanking(ranked, readPlan.hydrationLimit);
+    const hydratedRecipes = await hydrateRecipeReferenceCandidates(
+      db,
+      rankedForSelection,
+      readPlan.hydrationLimit
+    );
 
-    return selectDistinctReferenceSnippets(rankedForSelection, queryTerms, input.maxReferences ?? 14, {
+    return selectDistinctReferenceSnippets(hydratedRecipes, queryTerms, readPlan.requestedReferences, {
       avoidRecipeNames: input.avoidRecipeNames
     });
   } catch (error) {
@@ -127,12 +227,147 @@ export async function findRecipeReferencesForGeneration(
   }
 }
 
+export function buildNamedDishReferenceSearchTokens(input: {
+  ingredients: string[];
+  preferredCuisine?: string;
+  queryTerms?: string[];
+}) {
+  if (!input.preferredCuisine || input.preferredCuisine === "Any") return [];
+  const queryTerms = input.queryTerms ?? buildBalancedRecipeReferenceQueryTerms(input.ingredients);
+  const requestedProteins = new Set(queryTerms.filter(isCoreProteinAnchor));
+  const requestedIngredients = new Set(queryTerms.filter(isReferenceCategoryIngredient));
+
+  const candidates = resolveAuthenticCuisineDishes({
+    cuisine: input.preferredCuisine,
+    ingredients: input.ingredients
+  }, 30).filter((candidate) => {
+    const dishProteins = [...candidate.dish.primaryIngredients, ...candidate.dish.optionalIngredients]
+      .flatMap(expandRecipeReferenceIngredient)
+      .filter(isCoreProteinAnchor);
+    if (requestedProteins.size) {
+      return dishProteins.some((protein) => requestedProteins.has(protein));
+    }
+
+    const dishIngredients = [...candidate.dish.primaryIngredients, ...candidate.dish.optionalIngredients]
+      .flatMap(expandRecipeReferenceIngredient);
+    return dishProteins.length === 0 && dishIngredients.some((ingredient) => requestedIngredients.has(ingredient));
+  });
+
+  return Array.from(new Set(candidates.flatMap((candidate) =>
+    [candidate.dishName, ...candidate.aliases]
+      .flatMap((alias) => {
+        const normalizedAlias = normalizeRecipeReferenceIngredient(alias);
+        const distinctiveWords = normalizedAlias
+          .split(/\s+/g)
+          .filter((token) => token.length >= 5)
+          .filter((token) => !GENERIC_NAMED_DISH_SEARCH_TOKENS.has(token));
+        return [normalizedAlias, ...distinctiveWords];
+      })
+  )))
+    .filter((token) => token.length >= 5)
+    .filter((token) => !GENERIC_NAMED_DISH_SEARCH_TOKENS.has(token))
+    .slice(0, 60);
+}
+
+export function buildRecipeReferenceReadPlan(requestedCount: number) {
+  const requestedReferences = Math.max(1, Math.min(MAX_REFERENCE_RESULTS, Math.floor(requestedCount || 1)));
+  return {
+    candidateQueryLimit: Math.min(MAX_REFERENCE_BUCKET_DOCS, Math.max(24, requestedReferences + 20)),
+    hydrationLimit: Math.min(
+      MAX_REFERENCE_HYDRATION_DOCS,
+      Math.max(requestedReferences * 3, requestedReferences + 20)
+    ),
+    requestedReferences
+  };
+}
+
+export function shouldContinueRecipeReferenceCandidateSearch(input: {
+  candidateCount: number;
+  requestedReferences: number;
+}) {
+  return input.candidateCount < input.requestedReferences;
+}
+
+export function shouldLoadRecipeReferenceTaxonomyMatches(input: {
+  candidateCount: number;
+  mainIngredientKeys: string[];
+  preferredCuisine?: string;
+  requestedReferences: number;
+}) {
+  if (shouldContinueRecipeReferenceCandidateSearch(input)) return true;
+
+  const cuisineSelected = Boolean(input.preferredCuisine && input.preferredCuisine !== "Any");
+  return cuisineSelected && input.mainIngredientKeys.some(isCoreProteinAnchor);
+}
+
+export function filterRecipeReferenceCandidatesByCuisine<T extends Pick<RecipeReferenceDoc, "cuisine" | "cuisineKey">>(
+  recipes: T[],
+  preferredCuisine?: string
+) {
+  if (!preferredCuisine || preferredCuisine === "Any") return recipes;
+  const preferredCuisineKey = normalizeRecipeReferenceCuisineKey(preferredCuisine);
+  return recipes.filter((recipe) =>
+    recipe.cuisineKey === preferredCuisineKey ||
+    normalizeRecipeReferenceCuisineKey(recipe.cuisine) === preferredCuisineKey
+  );
+}
+
+export function selectRecipeReferenceCuisineRankingPool<T>(
+  allCandidates: T[],
+  cuisineMatches: T[],
+  preferredCuisine?: string
+) {
+  const explicitCuisine = Boolean(preferredCuisine && preferredCuisine !== "Any");
+  return explicitCuisine ? cuisineMatches : allCandidates;
+}
+
+export function filterMeaningfulRecipeReferenceQueryTerms(queryTerms: string[]) {
+  return queryTerms.filter((term) => {
+    const normalized = normalizeRecipeReferenceIngredient(term);
+    return normalized.length > 0 && !LOW_SIGNAL_REFERENCE_QUERY_TERMS.has(normalized);
+  });
+}
+
+export function buildBalancedRecipeReferenceQueryTerms(ingredients: string[]) {
+  const expandedByIngredient = ingredients
+    .map((ingredient) => filterMeaningfulRecipeReferenceQueryTerms(expandRecipeReferenceIngredient(ingredient)))
+    .filter((terms) => terms.length > 0);
+  const balanced: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (term: string | undefined) => {
+    if (!term || seen.has(term) || balanced.length >= MAX_REFERENCE_QUERY_TERMS) return;
+    seen.add(term);
+    balanced.push(term);
+  };
+
+  // First preserve one canonical signal from every user ingredient. Previously
+  // the aliases for the first ingredient occupied the entire Firestore query,
+  // so "tomato, bell pepper, egg" searched only tomato recipes.
+  expandedByIngredient.forEach((terms) => add(terms.find(isReferenceCategoryIngredient) ?? terms[0]));
+
+  for (let aliasIndex = 0; balanced.length < MAX_REFERENCE_QUERY_TERMS; aliasIndex += 1) {
+    let foundAlias = false;
+    for (const terms of expandedByIngredient) {
+      if (aliasIndex >= terms.length) continue;
+      foundAlias = true;
+      add(terms[aliasIndex]);
+      if (balanced.length >= MAX_REFERENCE_QUERY_TERMS) break;
+    }
+    if (!foundAlias) break;
+  }
+
+  return balanced;
+}
+
 async function loadRecipeReferenceTaxonomyMatches(input: {
+  candidateQueryLimit: number;
   cuisineKey: string;
   db: ReturnType<typeof getAdminDb>;
   mainIngredientKeys: string[];
   preferredCuisine?: string;
   recipesById: Map<string, RecipeReferenceDoc>;
+  targetCount: number;
 }) {
   if (!input.mainIngredientKeys.length) return;
 
@@ -144,21 +379,28 @@ async function loadRecipeReferenceTaxonomyMatches(input: {
   });
   if (!taxonomyBuckets.length) return;
 
-  for (const buckets of chunkArray(taxonomyBuckets, 10)) {
+  const taxonomyBucketGroups = groupRecipeReferenceTaxonomyBuckets(
+    taxonomyBuckets,
+    input.cuisineKey,
+    cuisineSelected
+  );
+  for (const bucketGroup of taxonomyBucketGroups) {
+    for (const buckets of chunkArray(bucketGroup, 10)) {
     try {
       const snapshot = await withTimeout(
         input.db
           .collection(RECIPE_REFERENCE_COLLECTION)
           .where("taxonomyLookupBuckets", "array-contains-any", buckets)
-          .limit(MAX_REFERENCE_BUCKET_DOCS)
+          .select(...REFERENCE_CANDIDATE_FIELDS)
+          .limit(input.candidateQueryLimit)
           .get(),
         RECIPE_REFERENCE_READ_TIMEOUT_MS,
         `load recipe reference taxonomy buckets ${buckets.join(",")}`
       );
 
       snapshot.docs.forEach((docSnap) => {
-        const data = docSnap.data() as RecipeReferenceDoc;
-        if (isUsableRecipeReference(data)) input.recipesById.set(docSnap.id, { ...data, id: data.id || docSnap.id });
+        const data = toRecipeReferenceCandidate(docSnap.id, docSnap.data());
+        if (isUsableRecipeReferenceCandidate(data)) input.recipesById.set(docSnap.id, data);
       });
     } catch (error) {
       logger.warn("Recipe reference taxonomy bucket lookup failed", {
@@ -167,8 +409,68 @@ async function loadRecipeReferenceTaxonomyMatches(input: {
       });
     }
 
-    if (input.recipesById.size >= MAX_REFERENCE_BUCKET_DOCS) return;
+    if (input.recipesById.size >= input.targetCount) return;
+    }
   }
+}
+
+async function loadNamedDishReferenceMatches(input: {
+  candidateQueryLimit: number;
+  db: ReturnType<typeof getAdminDb>;
+  recipesById: Map<string, RecipeReferenceDoc>;
+  searchTokens: string[];
+}) {
+  if (!input.searchTokens.length) return;
+
+  await Promise.all(chunkArray(input.searchTokens, 10).map(async (tokens) => {
+    try {
+      const snapshot = await withTimeout(
+        input.db
+          .collection(RECIPE_REFERENCE_COLLECTION)
+          .where("searchTokens", "array-contains-any", tokens)
+          .select(...REFERENCE_CANDIDATE_FIELDS)
+          .limit(input.candidateQueryLimit)
+          .get(),
+        RECIPE_REFERENCE_READ_TIMEOUT_MS,
+        `load named recipe references for ${tokens.join(",")}`
+      );
+
+      snapshot.docs.forEach((docSnap) => {
+        const data = toRecipeReferenceCandidate(docSnap.id, docSnap.data());
+        if (isUsableRecipeReferenceCandidate(data)) input.recipesById.set(docSnap.id, data);
+      });
+    } catch (error) {
+      logger.warn("Named recipe reference lookup failed", {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        tokens
+      });
+    }
+  }));
+}
+
+export function groupRecipeReferenceTaxonomyBuckets(
+  buckets: string[],
+  cuisineKey: string,
+  cuisineSelected: boolean
+) {
+  const cuisinePrefix = `${cuisineKey}::`;
+  const exactCuisineBuckets = cuisineSelected
+    ? buckets.filter((bucket) => bucket.startsWith(cuisinePrefix))
+    : [];
+  const genericBuckets = cuisineSelected
+    ? buckets.filter((bucket) => !bucket.startsWith(cuisinePrefix))
+    : buckets;
+  const exactProteinBuckets = exactCuisineBuckets.filter((bucket) => bucket.includes("::protein::"));
+  const exactIngredientBuckets = exactCuisineBuckets.filter((bucket) => bucket.includes("::ingredient::"));
+  const genericProteinBuckets = genericBuckets.filter((bucket) => bucket.startsWith("protein::"));
+  const genericIngredientBuckets = genericBuckets.filter((bucket) => bucket.startsWith("ingredient::"));
+
+  return [
+    exactProteinBuckets,
+    exactIngredientBuckets,
+    genericProteinBuckets,
+    genericIngredientBuckets
+  ].filter((group) => group.length > 0);
 }
 
 async function loadAnyCuisineRotationBucketMatches(input: {
@@ -176,9 +478,10 @@ async function loadAnyCuisineRotationBucketMatches(input: {
   mainIngredientKeys: string[];
   preferredCuisine?: string;
   recipesById: Map<string, RecipeReferenceDoc>;
+  targetCount: number;
 }) {
   if (input.preferredCuisine && input.preferredCuisine !== "Any") return;
-  const primaryIngredients = input.mainIngredientKeys.filter(isReferenceCategoryIngredient).slice(0, 3);
+  const primaryIngredients = input.mainIngredientKeys.filter(isReferenceCategoryIngredient).slice(0, 1);
   if (!primaryIngredients.length) return;
 
   await Promise.all(
@@ -190,6 +493,7 @@ async function loadAnyCuisineRotationBucketMatches(input: {
             input.db
               .collection(RECIPE_REFERENCE_COLLECTION)
               .where("lookupBuckets", "array-contains", bucket)
+              .select(...REFERENCE_CANDIDATE_FIELDS)
               .limit(MAX_ANY_CUISINE_BUCKET_DOCS)
               .get(),
             RECIPE_REFERENCE_READ_TIMEOUT_MS,
@@ -197,8 +501,8 @@ async function loadAnyCuisineRotationBucketMatches(input: {
           );
 
           snapshot.docs.forEach((docSnap) => {
-            const data = docSnap.data() as RecipeReferenceDoc;
-            if (isUsableRecipeReference(data)) input.recipesById.set(docSnap.id, { ...data, id: data.id || docSnap.id });
+            const data = toRecipeReferenceCandidate(docSnap.id, docSnap.data());
+            if (isUsableRecipeReferenceCandidate(data)) input.recipesById.set(docSnap.id, data);
           });
         } catch (error) {
           logger.warn("Any-cuisine recipe reference bucket lookup failed", {
@@ -229,11 +533,13 @@ function buildReferenceTaxonomyQueryBuckets(input: {
 }
 
 async function loadRecipeReferenceBucketMatches(input: {
+  candidateQueryLimit: number;
   cuisineKey: string;
   db: ReturnType<typeof getAdminDb>;
   mainIngredientKeys: string[];
   preferredCuisine?: string;
   recipesById: Map<string, RecipeReferenceDoc>;
+  targetCount: number;
 }) {
   if (!input.mainIngredientKeys.length) return;
 
@@ -250,19 +556,20 @@ async function loadRecipeReferenceBucketMatches(input: {
       bucketChunks.map(async (buckets) => {
         try {
           const snapshot = await withTimeout(
-            input.db
-              .collection(RECIPE_REFERENCE_COLLECTION)
-              .where("lookupBuckets", "array-contains-any", buckets)
-              .limit(MAX_REFERENCE_BUCKET_DOCS)
-              .get(),
+          input.db
+            .collection(RECIPE_REFERENCE_COLLECTION)
+            .where("lookupBuckets", "array-contains-any", buckets)
+            .select(...REFERENCE_CANDIDATE_FIELDS)
+            .limit(input.candidateQueryLimit)
+            .get(),
             RECIPE_REFERENCE_READ_TIMEOUT_MS,
             `load recipe reference buckets ${buckets.join(",")}`
           );
 
-          snapshot.docs.forEach((docSnap) => {
-            const data = docSnap.data() as RecipeReferenceDoc;
-            if (isUsableRecipeReference(data)) input.recipesById.set(docSnap.id, { ...data, id: data.id || docSnap.id });
-          });
+        snapshot.docs.forEach((docSnap) => {
+          const data = toRecipeReferenceCandidate(docSnap.id, docSnap.data());
+          if (isUsableRecipeReferenceCandidate(data)) input.recipesById.set(docSnap.id, data);
+        });
         } catch (error) {
           logger.warn("Recipe reference bucket lookup failed", {
             buckets,
@@ -272,7 +579,7 @@ async function loadRecipeReferenceBucketMatches(input: {
       })
     );
 
-    if (input.recipesById.size >= MAX_REFERENCE_BUCKET_DOCS) return;
+    if (input.recipesById.size >= input.targetCount) return;
   }
 }
 
@@ -351,11 +658,78 @@ function isUsableRecipeReference(recipe: RecipeReferenceDoc) {
   );
 }
 
+function isUsableRecipeReferenceCandidate(recipe: RecipeReferenceDoc) {
+  return Boolean(
+    recipe &&
+      typeof recipe.title === "string" &&
+      recipe.title.trim().length >= 3 &&
+      (recipe.ingredientCanonicals.length > 0 || recipe.mainIngredients.length > 0)
+  );
+}
+
+function toRecipeReferenceCandidate(
+  docId: string,
+  value: FirebaseFirestore.DocumentData
+): RecipeReferenceDoc {
+  const ingredientCanonicals = Array.isArray(value.ingredientCanonicals)
+    ? value.ingredientCanonicals.filter((item: unknown): item is string => typeof item === "string")
+    : [];
+  const mainIngredients = Array.isArray(value.mainIngredients)
+    ? value.mainIngredients.filter((item: unknown): item is string => typeof item === "string")
+    : [];
+
+  return {
+    ...value,
+    // Candidate IDs must remain Firestore document IDs so the selected records
+    // can be hydrated with direct document reads.
+    id: docId,
+    title: typeof value.title === "string" ? value.title : "",
+    ingredients: ingredientCanonicals.length ? ingredientCanonicals : mainIngredients,
+    ingredientCanonicals,
+    mainIngredients,
+    directions: [],
+    searchTokens: Array.isArray(value.searchTokens) ? value.searchTokens : [],
+    qualityScore: typeof value.qualityScore === "number" ? value.qualityScore : 0,
+    createdAt: typeof value.createdAt === "number" ? value.createdAt : 0,
+    updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : 0
+  } as RecipeReferenceDoc;
+}
+
+async function hydrateRecipeReferenceCandidates(
+  db: ReturnType<typeof getAdminDb>,
+  rankedCandidates: RecipeReferenceDoc[],
+  hydrationLimit: number
+) {
+  const candidateIds = Array.from(new Set(rankedCandidates.map((recipe) => recipe.id).filter(Boolean)))
+    .slice(0, hydrationLimit);
+  if (!candidateIds.length) return [];
+
+  const snapshots = await withTimeout(
+    db.getAll(...candidateIds.map((id) => db.collection(RECIPE_REFERENCE_COLLECTION).doc(id))),
+    RECIPE_REFERENCE_READ_TIMEOUT_MS,
+    `hydrate ${candidateIds.length} selected recipe references`
+  );
+  const recipesById = new Map<string, RecipeReferenceDoc>();
+  snapshots.forEach((snapshot) => {
+    if (!snapshot.exists) return;
+    const data = snapshot.data() as RecipeReferenceDoc;
+    const recipe = { ...data, id: data.id || snapshot.id };
+    if (isUsableRecipeReference(recipe)) recipesById.set(snapshot.id, recipe);
+  });
+
+  return candidateIds
+    .map((id) => recipesById.get(id))
+    .filter((recipe): recipe is RecipeReferenceDoc => Boolean(recipe));
+}
+
 function scoreRecipeReference(
   recipe: RecipeReferenceDoc,
   queryTerms: string[],
   options: {
     avoidRecipeNames?: string[];
+    allergens?: string[];
+    diets?: string[];
+    namedDishSearchTokens?: string[];
     preferredCuisine?: string;
     variationSeed?: string;
   } = {}
@@ -380,18 +754,64 @@ function scoreRecipeReference(
   const qualityScore = Math.min(20, Math.max(0, recipe.qualityScore ?? 0) / 5);
   const repeatPenalty = getAvoidedReferencePenalty(recipe, options.avoidRecipeNames);
   const methodExplorationBonus = getCookingMethodExplorationBonus(recipe);
+  const namedDishBonus = getNamedDishReferenceBonus(recipe, options.namedDishSearchTokens);
+  const restrictionPenalty = getRecipeReferenceRestrictionPenalty(recipe, {
+    allergens: options.allergens ?? [],
+    diets: options.diets ?? []
+  });
   const jitter = stableJitter(`${options.variationSeed ?? ""}|${recipe.id}|${recipe.title}`) * 8;
 
-  return matched.length * 18 + mainMatches.length * 12 + cuisineScore + stepScore + ingredientScore + qualityScore + methodExplorationBonus + jitter - repeatPenalty;
+  return matched.length * 18 + mainMatches.length * 12 + cuisineScore + stepScore + ingredientScore + qualityScore + methodExplorationBonus + namedDishBonus + jitter - repeatPenalty - restrictionPenalty;
 }
 
-function recipeMatchesCoreProteinAnchors(recipe: RecipeReferenceDoc, queryTerms: string[]) {
+export function getRecipeReferenceRestrictionPenalty(
+  recipe: RecipeReferenceDoc,
+  restrictions: { allergens: string[]; diets: string[] }
+) {
+  if (!restrictions.allergens.length && !restrictions.diets.length) return 0;
+  const violation = findRecipeDietViolation(
+    {
+      ingredients: [
+        ...(recipe.ingredientCanonicals ?? []),
+        ...(recipe.mainIngredients ?? []),
+        ...(recipe.commonAllergens ?? []),
+        ...(recipe.tags ?? [])
+      ],
+      name: recipe.title
+    },
+    restrictions
+  );
+
+  // Safety gates still run on hydrated recipes. This penalty simply ensures
+  // compatible candidates are hydrated before recipes that require repair.
+  return violation ? 1_000 : 0;
+}
+
+function getNamedDishReferenceBonus(recipe: RecipeReferenceDoc, namedDishSearchTokens: string[] | undefined) {
+  if (!namedDishSearchTokens?.length) return 0;
+  const title = normalizeRecipeReferenceIngredient(recipe.title);
+  const recipeTokens = new Set([
+    title,
+    ...(recipe.searchTokens ?? []).map(normalizeRecipeReferenceIngredient)
+  ]);
+  const matchedToken = namedDishSearchTokens.some((token) =>
+    recipeTokens.has(token) || (token.length >= 6 && title.split(/\s+/g).includes(token))
+  );
+  return matchedToken ? 42 : 0;
+}
+
+export function recipeMatchesCoreProteinAnchors(recipe: RecipeReferenceDoc, queryTerms: string[]) {
   const requestedProteins = queryTerms.filter(isCoreProteinAnchor);
   if (!requestedProteins.length) return true;
 
+  const classifiedProtein = normalizeRecipeReferenceIngredient(recipe.proteinKey ?? recipe.protein ?? "");
+  if (classifiedProtein) {
+    return requestedProteins.includes(classifiedProtein);
+  }
+
   const titleIngredients = new Set(expandRecipeReferenceIngredient(recipe.title));
   const ingredientLineProteins = new Set(
-    (recipe.ingredients ?? [])
+    [...(recipe.ingredients ?? []), ...(recipe.mainIngredients ?? []), ...(recipe.ingredientCanonicals ?? [])]
       .flatMap(expandRecipeReferenceIngredient)
       .filter(isCoreProteinAnchor)
   );
@@ -596,7 +1016,14 @@ function getCookingMethodExplorationBonus(recipe: RecipeReferenceDoc) {
 }
 
 function inferRecipeReferenceCookingMethod(recipe: RecipeReferenceDoc) {
-  const source = [recipe.title, ...(recipe.directions ?? []), ...(recipe.ingredients ?? [])].join(" ").toLowerCase();
+  const source = [
+    recipe.taxonomy?.cookingMethod,
+    recipe.cookingMethod,
+    ...(recipe.techniques ?? []),
+    recipe.title,
+    ...(recipe.directions ?? []),
+    ...(recipe.ingredients ?? [])
+  ].filter(Boolean).join(" ").toLowerCase();
   if (/\b(grill|grilled|barbecue|bbq|broil)\b/.test(source)) return "grilled";
   if (/\b(stew|braise|simmer|slow cooker|crock)\b/.test(source)) return "stew";
   if (/\b(stir fry|stir-fry|wok)\b/.test(source)) return "stir-fry";

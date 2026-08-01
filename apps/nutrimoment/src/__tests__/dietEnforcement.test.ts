@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { findRecipeDietViolation } from "../lib/dietEnforcement";
+import { adaptRecipeForDietRestrictions, findRecipeDietViolation } from "../lib/dietEnforcement";
 
 describe("diet enforcement", () => {
-  it("treats dairy-free as blocking dairy and eggs", () => {
-    expect(
-      findRecipeDietViolation(
-        { name: "Shakshuka", ingredients: ["eggs", "tomato", "bell pepper", "olive oil"] },
-        { diets: ["dairyFree"], allergens: [] }
-      )
-    ).toEqual({ kind: "diet", diet: "dairyFree", match: "egg" });
+  it("treats dairy-free as blocking dairy but not eggs", () => {
+    expect(findRecipeDietViolation(
+      { name: "Shakshuka", ingredients: ["eggs", "tomato", "bell pepper", "olive oil"] },
+      { diets: ["dairyFree"], allergens: [] }
+    )).toBeNull();
 
     expect(
       findRecipeDietViolation(
@@ -166,5 +164,133 @@ describe("diet enforcement", () => {
       diet: "paleo",
       match: "yogurt"
     });
+  });
+
+  it("allows explicitly gluten-free substitutes while blocking ordinary gluten sources", () => {
+    const ctx = { diets: ["glutenFree"], allergens: [] };
+
+    expect(findRecipeDietViolation({
+      name: "Gluten-Free Eggplant Parmesan",
+      ingredients: ["gluten-free breadcrumbs", "eggplant", "tomato"],
+      steps: ["Coat with gluten-free breadcrumbs and bake."]
+    }, ctx)).toBeNull();
+    expect(findRecipeDietViolation({
+      name: "Gluten-Free Polenta with Marinara",
+      ingredients: ["polenta", "tomato"],
+      steps: ["Serve instead of gluten-free ravioli."]
+    }, ctx)).toBeNull();
+    expect(findRecipeDietViolation({ name: "Eggplant Parmesan", ingredients: ["breadcrumbs", "eggplant"] }, ctx)).toEqual({
+      kind: "diet",
+      diet: "glutenFree",
+      match: "breadcrumb"
+    });
+  });
+
+  it("repairs every remaining gluten carrier before final validation", () => {
+    const ctx = { diets: ["glutenFree"], allergens: [] };
+    const recipe = adaptRecipeForDietRestrictions({
+      name: "Eggplant Pasta",
+      ingredients: ["gluten-free pasta", "breadcrumbs", "eggplant"],
+      missing_ingredients: ["bread"],
+      steps: ["Boil spaghetti, coat with breadcrumbs, and serve with bread."],
+      dish_intent: { dish_name: "Eggplant Pasta", visual_keywords: ["pasta plate"] }
+    }, ctx);
+
+    expect(recipe.ingredients).toEqual(["gluten-free pasta", "gluten-free breadcrumbs", "eggplant"]);
+    expect(recipe.steps[0]).toContain("gluten-free spaghetti");
+    expect(recipe.steps[0]).toContain("gluten-free breadcrumbs");
+    expect(findRecipeDietViolation(recipe, ctx)).toBeNull();
+  });
+
+  it("adapts incompatible meat variants consistently for a pescatarian recipe", () => {
+    const ctx = {
+      diets: ["pescatarian"],
+      allergens: [],
+      preferredProteinIngredients: ["shrimp", "white fish"]
+    };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Thai Chicken Pineapple Fried Rice",
+      ingredients: ["chicken", "rice", "pineapple", "chicken stock"],
+      missing_ingredients: ["bacon"],
+      steps: [
+        "Brown the chicken, add chicken stock, and finish with crisp bacon."
+      ],
+      dish_intent: {
+        dish_name: "Thai Chicken Pineapple Fried Rice",
+        visual_keywords: ["chicken fried rice"]
+      }
+    }, ctx);
+
+    expect(adapted.name).toBe("Thai shrimp Pineapple Fried Rice");
+    expect(adapted.ingredients).toContain("shrimp");
+    expect(adapted.ingredients).toContain("low-sodium vegetable stock");
+    expect(adapted.steps[0]).not.toMatch(/chicken|bacon/i);
+    expect(findRecipeDietViolation(adapted, ctx)).toBeNull();
+  });
+
+  it("adapts dairy ingredients consistently before the dairy-free safety gate", () => {
+    const ctx = { diets: ["dairyFree"], allergens: [] };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Manti with Yogurt Sauce",
+      ingredients: ["yogurt", "butter", "milk", "ground beef"],
+      missing_ingredients: ["feta cheese"],
+      steps: ["Whisk the yogurt with milk, then finish the sauce with butter and feta cheese."]
+    }, ctx);
+
+    expect(adapted.ingredients).toContain("dairy-free unsweetened yogurt");
+    expect(adapted.ingredients).toContain("olive oil");
+    expect(adapted.ingredients).toContain("unsweetened almond milk");
+    expect(findRecipeDietViolation(adapted, ctx)).toBeNull();
+  });
+
+  it("adapts documented carbohydrate carriers before the keto safety gate", () => {
+    const ctx = { diets: ["keto", "dairyFree"], allergens: [] };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Cig Kofte with Pita",
+      ingredients: ["bulgur", "bread flour", "yogurt", "ground beef", "potato"],
+      missing_ingredients: ["bread"],
+      steps: ["Mix bulgur with yogurt, shape it, and serve with pita bread."],
+      dish_intent: { dish_name: "Cig Kofte", visual_keywords: ["bulgur kofte plate"] }
+    }, ctx);
+
+    expect(adapted.ingredients).toContain("cauliflower rice");
+    expect(adapted.ingredients).toContain("finely ground almonds");
+    expect(adapted.ingredients).toContain("dairy-free unsweetened yogurt");
+    expect(adapted.ingredients).toContain("cauliflower florets");
+    expect(adapted.steps[0]).toContain("low-carb flatbread");
+    expect(findRecipeDietViolation(adapted, ctx)).toBeNull();
+  });
+
+  it("adapts animal and dairy ingredients before the vegan safety gate", () => {
+    const ctx = {
+      diets: ["vegan"],
+      allergens: [],
+      preferredProteinIngredients: ["lentils", "chickpeas"]
+    };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Creamy Chicken Curry",
+      ingredients: ["chicken", "ghee", "heavy cream", "egg", "honey"],
+      missing_ingredients: ["fish sauce"],
+      steps: ["Brown the chicken in ghee, then add cream, egg, honey, and fish sauce."]
+    }, ctx);
+
+    expect(adapted.ingredients).toContain("chickpeas");
+    expect(adapted.ingredients).toContain("olive oil");
+    expect(adapted.ingredients).toContain("unsweetened coconut cream");
+    expect(adapted.ingredients).toContain("ground flaxseed slurry");
+    expect(findRecipeDietViolation(adapted, ctx)).toBeNull();
+  });
+
+  it("preserves a named dairy dish identity while veganizing its ingredients", () => {
+    const ctx = { diets: ["vegan"], allergens: [] };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Palak Paneer",
+      ingredients: ["paneer", "spinach", "cream", "ghee"],
+      steps: ["Brown the paneer in ghee and finish the spinach sauce with cream."]
+    }, ctx);
+
+    expect(adapted.name).toBe("Vegan Palak Paneer");
+    expect(adapted.ingredients).toContain("dairy-free cheese");
+    expect(findRecipeDietViolation(adapted, ctx)).toBeNull();
   });
 });

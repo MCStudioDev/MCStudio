@@ -125,4 +125,31 @@ describe("recipe acceptance engine", () => {
     expect(quality.valid).toBe(true);
     expect(result.accepted).toBe(true);
   });
+
+  it("keeps a fundamentally usable searched source in fail-open mode", () => {
+    const sourceRecipe: Recipe = {
+      ...completeRecipe,
+      name: "دجاج كاتشاتوري الإيطالي",
+      cuisine: "إيطالي",
+      ingredients: ["500 جرام صدر دجاج", "2 كوب طماطم", "1 ملعقة كبيرة زيت زيتون"],
+      steps: [
+        "Brown the chicken in olive oil.",
+        "Add the tomatoes and simmer until the chicken is cooked through."
+      ],
+      localized: undefined
+    };
+    const quality = new RecipeQualityGate().validate(sourceRecipe, "Arabic");
+    const result = new RecipeAcceptanceEngine().evaluate(sourceRecipe, {
+      allowRepairableQualityIssues: true,
+      blockingQualityReasons: [],
+      failOpen: true,
+      imageReady: false,
+      qualityGate: quality,
+      recipeLanguage: "Arabic"
+    });
+
+    expect(quality.reasons).toContain("english_leakage_in_arabic");
+    expect(result.accepted).toBe(true);
+    expect(result.reasons).not.toContain("acceptance_image_pending");
+  });
 });

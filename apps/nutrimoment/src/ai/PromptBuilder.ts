@@ -6,11 +6,9 @@
  */
 
 import { buildPreferenceProfile, type NutritionGoals } from "@/lib/preferences";
-import { getCuisineDishReferenceText, getCuisinePantryAnchors } from "@/lib/cuisineDishCatalog";
+import { getCuisineDishReferenceText } from "@/lib/cuisineDishCatalog";
 import { getCuisineVisualReferenceText } from "@/lib/cuisineVisualReferences";
-import { isPastaLikeIngredient } from "@/lib/ingredientFamilies";
 import {
-  buildPromptForbiddenIngredientsLine,
   buildPromptForbiddenMealPlanLine,
   findIngredientDietViolation
 } from "@/lib/dietEnforcement";
@@ -27,14 +25,14 @@ export interface RecipePromptOptions {
   preferredCuisine: string;
   calorieTarget: number;
   maxMissingIngredients: number;
+  primaryIngredient?: string;
   recipeCount: number;
   diets: string[];
   conditions: string[];
   allergens?: string[];
   excludedIngredients?: string[];
-  candidateDishHints?: string;
-  canonicalDishHint?: string;
   recentRecipeAvoidance?: string;
+  discoveryFocus?: string;
   variationSeed?: string;
   recipeReferences?: RecipeReferencePromptRecipe[];
 }
@@ -55,8 +53,25 @@ const RECIPE_EDITOR_SYSTEM_PROMPT = [
   "Edit only the validated source recipe provided.",
   "Preserve the dish identity, ingredient relationships, preparation forms, cooking method, order, timing, and food-safety cues.",
   "Make only targeted changes required by the supplied dietary restrictions, allergens, excluded ingredients, or health conditions.",
+  "When a substitution is required, replace every occurrence consistently in the title, ingredient lists, and cooking steps.",
+  "Remove source-site introductions, personal stories, promotional copy, and serving commentary that is not a cooking instruction.",
   "Do not invent a recipe, ingredients, cooking steps, cuisine, nutrition, shopping list, source, image metadata, or URLs.",
   "Return valid JSON only."
+].join(" ");
+
+const RECIPE_DISCOVERY_SYSTEM_PROMPT = [
+  "You are NutriMoment's grounded Recipe Researcher.",
+  "Use the enabled Google Search grounding tool to find established, authentic recipes from reputable culinary sources.",
+  "Return recipe facts supported by the discovered source; do not invent a dish, cuisine, ingredients, method, timing, temperature, nutrition, or URL.",
+  "Choose distinct canonical dishes that match the requested ingredients and cuisine.",
+  "Every recipe must feature the supplied primaryIngredient as a central ingredient; never substitute another protein or return a side dish that omits it.",
+  "Every title must be an established dish name from its source, never a generic ingredient list or a health-condition label.",
+  "Copy the source page's exact established dish title into dish_identity; dish_identity is evidence and must never contain a health label or a newly invented title.",
+  "Apply only supplied dietary, allergen, and exclusion constraints without changing each dish's identity; medical adaptation is handled after discovery.",
+  "Return valid JSON only as an array of recipe objects.",
+  "Each recipe must contain name, dish_identity, cuisine, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, sodium, cook_time, difficulty, source_url, recipe_source_type, and preference_hits.",
+  "Keep those JSON property names exactly in English even when their values are Arabic; ingredients and steps must be non-empty arrays copied from the source recipe.",
+  "Set recipe_source_type to external_source and source_url to the exact culinary page used."
 ].join(" ");
 
 const ARABIC_RECIPE_EDITOR_RULES = [
@@ -102,6 +117,61 @@ export function buildRecipeEditorSystemPrompt(recipeLanguage: string) {
   ].join(" ");
 }
 
+export function buildRecipeDiscoverySystemPrompt(recipeLanguage: string) {
+  return [
+    RECIPE_DISCOVERY_SYSTEM_PROMPT,
+    recipeLanguage.toLowerCase() === "arabic" ? ARABIC_RECIPE_EDITOR_RULES : "Write every user-facing value in English only."
+  ].join(" ");
+}
+
+export function buildRecipeDiscoveryResponseSchema(recipeCount: number) {
+  return {
+    type: "array",
+    minItems: 1,
+    maxItems: Math.max(1, Math.min(10, Math.floor(recipeCount || 1))),
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "name",
+        "dish_identity",
+        "cuisine",
+        "ingredients",
+        "missing_ingredients",
+        "steps",
+        "calories",
+        "protein",
+        "carbs",
+        "fat",
+        "sodium",
+        "cook_time",
+        "difficulty",
+        "source_url",
+        "recipe_source_type",
+        "preference_hits"
+      ],
+      properties: {
+        name: { type: "string" },
+        dish_identity: { type: "string" },
+        cuisine: { type: "string" },
+        ingredients: { type: "array", items: { type: "string" } },
+        missing_ingredients: { type: "array", items: { type: "string" } },
+        steps: { type: "array", items: { type: "string" } },
+        calories: { type: "number" },
+        protein: { type: "string" },
+        carbs: { type: "string" },
+        fat: { type: "string" },
+        sodium: { type: "string" },
+        cook_time: { type: "string" },
+        difficulty: { type: "string" },
+        source_url: { type: "string" },
+        recipe_source_type: { type: "string", enum: ["external_source"] },
+        preference_hits: { type: "array", items: { type: "string" } }
+      }
+    }
+  } as const;
+}
+
 function buildCompactSourceRecipe(reference?: RecipeReferencePromptRecipe) {
   if (!reference) return null;
 
@@ -111,6 +181,30 @@ function buildCompactSourceRecipe(reference?: RecipeReferencePromptRecipe) {
     ingredients: reference.ingredients.slice(0, 24),
     steps: reference.steps.slice(0, 12)
   };
+}
+
+function buildCompactRestrictionActions(options: RecipePromptOptions) {
+  const actions: string[] = [];
+  const diets = new Set(options.diets.map((diet) => diet.trim().toLowerCase()));
+  if (diets.has("glutenfree") || diets.has("gluten-free")) {
+    actions.push("Replace every wheat pasta, noodle, ravioli, bread, flour, breadcrumb, and crust with an explicitly gluten-free equivalent in both ingredients and steps.");
+  }
+  if (diets.has("vegetarian")) {
+    actions.push("Remove all meat, poultry, fish, seafood, and meat stock; use a dish-appropriate vegetarian protein or vegetable substitute everywhere.");
+  }
+  if (diets.has("vegan")) {
+    actions.push("Remove all animal products; use dish-appropriate plant substitutes everywhere.");
+  }
+  if (diets.has("dairyfree") || diets.has("dairy-free")) {
+    actions.push("Replace every dairy ingredient with a dish-appropriate dairy-free equivalent everywhere.");
+  }
+  for (const allergen of options.allergens ?? []) {
+    if (allergen.trim()) actions.push(`Remove or safely replace every occurrence of allergen: ${allergen.trim()}.`);
+  }
+  for (const excluded of options.excludedIngredients ?? []) {
+    if (excluded.trim()) actions.push(`Remove or safely replace every occurrence of excluded ingredient: ${excluded.trim()}.`);
+  }
+  return actions;
 }
 
 /**
@@ -127,16 +221,27 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     allergens: (options.allergens ?? []).filter(Boolean),
     excludedIngredients: (options.excludedIngredients ?? []).filter(Boolean)
   };
+  const requiredChanges = sourceRecipe ? buildCompactRestrictionActions(options) : [];
 
   return JSON.stringify({
-    task: "edit_validated_recipe",
+    task: sourceRecipe ? "edit_validated_recipe" : "discover_grounded_recipes",
     language: options.recipeLanguage.toLowerCase() === "arabic" ? "ar" : "en",
     preferredCuisine: options.preferredCuisine,
+    ...(options.primaryIngredient ? { primaryIngredient: options.primaryIngredient } : {}),
+    ...(sourceRecipe
+      ? {}
+      : {
+          recipeCount: options.recipeCount,
+          ...(options.discoveryFocus ? { discoveryFocus: options.discoveryFocus } : {}),
+          ...(options.variationSeed ? { variationSeed: options.variationSeed } : {}),
+          ...(options.recentRecipeAvoidance ? { avoidRecipeNames: options.recentRecipeAvoidance } : {})
+        }),
     availableIngredients: ingredients.map((ingredient) => ({
       name: ingredient.name,
       ...(ingredient.quantity ? { quantity: ingredient.quantity } : {})
     })),
     restrictions,
+    ...(requiredChanges.length ? { requiredChanges } : {}),
     sourceRecipe
   });
 }
@@ -580,410 +685,6 @@ const CUISINE_KNOWLEDGE: Record<string, CuisineKnowledge> = {
   }
 };
 
-function buildLegacyRecipeGenerationPrompt(ingredients: RecipePromptIngredient[], options: RecipePromptOptions) {
-  const cuisineHint = options.preferredCuisine === "Any" ? "Use any cuisine." : `Prefer ${options.preferredCuisine} cuisine.`;
-  const cuisineSpecificGuidance = buildCuisineSpecificGuidance(options.preferredCuisine);
-  const cuisineKnowledgeGuidance = buildCuisineKnowledgeGuidance(options.preferredCuisine);
-  const cuisineDishCatalogGuidance = buildCuisineDishCatalogGuidance(options.preferredCuisine);
-  const cuisineVisualReferenceGuidance = buildCuisineVisualReferenceGuidance(options.preferredCuisine);
-  const languageOutputGuidance = buildLanguageOutputGuidance(options.recipeLanguage);
-  const substyleGuidance = buildCuisineSubstyleGuidance(options.preferredCuisine, ingredients);
-  const mealTypeRoutingGuidance = buildMealTypeRoutingGuidance(options.preferredCuisine, ingredients);
-  const imageGuidance = buildCuisineImageGuidance(options.preferredCuisine);
-  const ingredientDrivenCuisineGuidance = buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
-  const recipeCount = Math.min(10, Math.max(1, options.recipeCount || 5));
-  const sparseIngredientGuidance = buildSparseIngredientGuidance(ingredients, options.preferredCuisine, recipeCount);
-  const realRecipeGuardrails = buildRealRecipeGuardrails(options.preferredCuisine);
-  const namedPlatePolicy = buildNamedPlateGenerationPolicy({
-    allergens: options.allergens ?? [],
-    conditions: options.conditions,
-    diets: options.diets,
-    mode: "recipe",
-    preferredCuisine: options.preferredCuisine
-  });
-  const preferenceBrief = buildPromptPreferenceBrief({
-    preferredCuisine: options.preferredCuisine,
-    calorieTarget: options.calorieTarget,
-    diets: options.diets,
-    conditions: options.conditions,
-    allergens: options.allergens ?? []
-  });
-  const ingredientNames = ingredients.map((item) => item.name).filter(Boolean);
-  const ingredientQuantities = ingredients
-    .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
-    .filter(Boolean);
-  const hasPastaSignals = ingredientNames.some((ingredient) => isPastaLikeIngredient(String(ingredient)));
-  const perMealCalories = Math.round(options.calorieTarget / 3);
-  const organMeatGuidance = buildOrganMeatGuidance(ingredients, recipeCount, options.preferredCuisine);
-  const dietVarietyGuidance = buildDietVarietyGuidance(options.diets, options.conditions, recipeCount);
-  const vegetarianVarietyGuidance = buildVegetarianVarietyGuidance(options.diets, recipeCount);
-  const allowedProteinRotationGuidance = buildAllowedProteinRotationGuidance(options.diets, options.conditions, recipeCount);
-  const pescatarianFishGate = buildPescatarianFishGate(options.diets, options.conditions, recipeCount);
-  const chickenDistinctCardGuidance = buildChickenDistinctCardGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const groundMeatDistinctCardGuidance = buildGroundMeatDistinctCardGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const seafoodDistinctCardGuidance = buildSeafoodDistinctCardGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const beefFormPriorityGuidance = buildBeefFormPriorityGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const shawarmaDishGuidance = buildShawarmaDishGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const stuffedDishGuidance = buildStuffedDishGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const dessertCatalogGuidance = buildDessertCatalogGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const healthyPlateGuidance = buildHealthyPlateVarietyGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine,
-    options.diets,
-    options.conditions
-  );
-  const ingredientPrepFormGuidance = buildIngredientPrepFormGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const cuisineDepthExplorationGuidance = buildCuisineDepthExplorationGuidance(
-    options.preferredCuisine,
-    ingredients,
-    recipeCount,
-    "recipe cards"
-  );
-  const anyCuisineRotationGuidance =
-    normalizeCuisinePromptKey(options.preferredCuisine) === "any"
-      ? buildAnyCuisineRotationGuidance(recipeCount, "recipe cards")
-      : "";
-  const ingredientCombinationGuidance = buildIngredientCombinationGuidance(
-    ingredients,
-    recipeCount,
-    options.preferredCuisine
-  );
-  const cuisineTargetCount = recipeCount <= 2 ? recipeCount : recipeCount - 1;
-  const candidateDishHints = options.candidateDishHints?.trim();
-  const canonicalDishHint = options.canonicalDishHint?.trim();
-  const isArabicMode = options.recipeLanguage.toLowerCase() === "arabic";
-  const availableIngredientsLine = isArabicMode
-    ? `مكونات المستخدم المتاحة، اتركها كما كتبها المستخدم ولا تترجمها داخل هذا السطر: ${ingredientNames.join(", ") || "لا توجد مكونات"}.`
-    : `Available pantry ingredients: ${ingredientNames.join(", ") || "none provided"}.`;
-  const availableQuantitiesLine = isArabicMode
-    ? `كميات المكونات المتاحة، اترك أسماء المكونات كما كتبها المستخدم: ${ingredientQuantities.join(", ") || "غير متوفرة"}.`
-    : `Available ingredient quantities: ${ingredientQuantities.join(", ") || "not provided"}.`;
-  const arabicPromptPriorityBlock = isArabicMode
-    ? [
-        "تعليمات مهمة لوضع اللغة العربية:",
-        "اترك أسماء مكونات المستخدم كما هي بالضبط في سطر المكونات المتاحة ولا تترجمها داخل البرومبت.",
-        "اكتب كل الحقول التي يقرأها المستخدم بالعربية فقط: الاسم، المطبخ، المكونات، المكونات الناقصة، الخطوات، وقت الطبخ، الصعوبة، أسباب المطابقة، قائمة التسوق، وشرح المطابقة.",
-        "اترك حقول الصور والبحث باللغة الإنجليزية فقط لأنها تذهب إلى البحث وتوليد الصور: image_search_index و image_search_indices وكل حقول dish_intent.",
-        "لا تخلط الإنجليزية داخل الحقول العربية إلا إذا كانت الكلمة دارجة كتعريب شائع.",
-        "يجب أن يحتوي localized على مفتاحين فقط بهذه الأحرف الكبيرة: English و Arabic."
-      ].join(" ")
-    : "";
-
-  const forbiddenIngredientsLine = buildPromptForbiddenIngredientsLine({
-    diets: options.diets ?? [],
-    allergens: options.allergens ?? []
-  });
-  const variationGuidance = buildRecipeRunVariationGuidance(options.variationSeed);
-  const recentRecipeAvoidanceGuidance = buildRecentRecipeAvoidanceGuidance(options.recentRecipeAvoidance);
-  const sourcingDecisionGuidance = buildRecipeSourcingDecisionGuidance(options.recipeReferences);
-  const realRecipeReferenceGuidance = buildRealRecipeReferenceGuidance(options.recipeReferences, recipeCount);
-  const excludedIngredientsGuidance = buildExcludedIngredientsGuidance(options.excludedIngredients);
-
-  return PromptBuilder.compose([
-    "You are NutriMoment's recipe generation assistant.",
-    "Gemini role boundary: you are a recipe editor and culinary expert. Do not search RecipeNLG_dataset.csv yourself. The backend either provides local recipe references, or enables Google Search grounding when no local reference exists.",
-    arabicPromptPriorityBlock,
-    // Hard gate near the top so Gemini sees it before all the cuisine / dish-
-    // family guidance below.
-    forbiddenIngredientsLine,
-    excludedIngredientsGuidance,
-    pescatarianFishGate,
-    "Return ONLY valid JSON. Do not include markdown, prose, comments, or code fences.",
-    sourcingDecisionGuidance,
-    `Generate exactly ${recipeCount} practical recipes.`,
-    "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the calorie target, third use available pantry ingredients and minimize missing items.",
-    `Order the ${recipeCount} recipes from best to worst by: most available pantry ingredients used, fewest missing ingredients, strongest dietary and health preference match, closest calorie target.`,
-    "General pantry expansion rule: treat scanned or typed ingredients as anchors, not as the full recipe boundary. Users may list only one item or a partial pantry. For every request, use real recipes that naturally center the listed anchor ingredients, then add reasonable support ingredients to missing_ingredients when needed for an authentic dish identity.",
-    realRecipeReferenceGuidance,
-    "This expansion applies to all ingredient types: proteins, seafood, eggs, dairy, legumes, grains, vegetables, fruits, bread, sauces, and mixed scans. Do not limit output to recipes possible from the listed ingredients alone unless the user explicitly asks for pantry-only cooking.",
-    "Missing support items should make the recipe more authentic and specific, not random. They may complete sauces, starches, fillings, breading, marinades, dairy finishes, aromatics, herbs, or garnishes, but they must not replace the scanned anchor ingredient or create a dish where the anchor becomes incidental.",
-    variationGuidance,
-    recentRecipeAvoidanceGuidance,
-    "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative marketing titles.",
-    "Recipe title hard rule: the name must describe a finished dish, not a single pantry ingredient. Never use names such as Chicken, Beef, Fish, Rice, Egg, Tomato, Potato, Ground Beef, or Shrimp by themselves. Use finished plate names such as Chicken Parmesan, Chicken Shawarma, Teriyaki Chicken, Beef Stroganoff, Egyptian Hawawshi, or Greek Lemon Chicken.",
-    "Cuisine must be structurally authentic. Do not assign a cuisine label unless the recipe's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
-    realRecipeGuardrails,
-    namedPlatePolicy,
-    options.preferredCuisine === "Any"
-      ? "When preferred cuisine is Any, intentionally diversify the final list across multiple authentic cuisine styles when the pantry allows it. Do not cluster the whole response around one kitchen if there are strong matches from different cuisines."
-      : `When a preferred cuisine is provided, act like a professional traditional ${options.preferredCuisine} chef. Start from that cuisine's real dish universe first, then fit the pantry into those dishes. Do not start from generic ingredient combinations and add a ${options.preferredCuisine} label later.`,
-    options.preferredCuisine === "Any"
-      ? "For Any cuisine, prefer a varied mix such as different cuisine families, dish structures, and meal contexts while still keeping the strongest pantry-first matches at the top."
-      : `For ${options.preferredCuisine}, generate the requested count by choosing traditional or directly related named dishes from that cuisine. Use missing_ingredients for authentic support items instead of drifting to off-cuisine recipes.`,
-    options.preferredCuisine === "Any"
-      ? `Try to cover at least ${Math.min(recipeCount, recipeCount >= 8 ? 5 : 3)} different cuisine styles when enough plausible options exist.`
-      : `At least ${cuisineTargetCount} of the ${recipeCount} recipes must clearly belong to ${options.preferredCuisine}. Only go outside ${options.preferredCuisine} when the user selected highly restrictive diets, allergies, or medical conditions that make a traditional option unsafe; explain that compromise in preference_hits.`,
-    "Avoid filler adjectives like simple, hearty, lean, classic, spiced, vibrant, or loaded unless they are essential to distinguish the dish.",
-    "When a recipe resembles a known dish family, use that family name in the title, for example: shakshuka, fasolia, ful medames, mujadara, koshary, kafta, white bean stew, bean salad, lentil soup, or chickpea salad.",
-    "If the pantry points to a more specific regional branch or substyle inside the selected cuisine, choose that substyle explicitly and reflect it in the recipe name, cuisine label, and image search phrases.",
-    "Do ingredient-to-dish reasoning before generating recipes. First infer which authentic dish families are most plausible from the pantry ingredients, then generate recipes from those families.",
-    cuisineDepthExplorationGuidance,
-    anyCuisineRotationGuidance,
-    canonicalDishHint
-      ? `Deterministic catalog resolver result: ${canonicalDishHint}`
-      : "",
-    "When the pantry strongly matches a known cuisine-specific dish, prefer that exact dish family over a generic fallback. Example: Egyptian plus ground meat should bias toward kofta, hawawshi, or macarona bechamel when the supporting starches and aromatics fit.",
-    "Variety hard rule: do not return the same named plate, same dish_intent.dish_name, or same visual structure twice with only a different sauce, garnish, photo, or wording. Each recipe should represent a meaningfully different meal family, cooking form, starch/sauce structure, or serving format while staying accurate to the pantry and cuisine.",
-    "Image identity hard rule: every recipe must have a different first image_search_index and a different dish_intent.dish_name. Never let multiple cards collapse to generic phrases such as ground meat, beef, minced meat, meat plate, liver plate, fish plate, seafood plate, chicken plate, or dinner plate.",
-    "Duplicate card rule: do not output the same dish family twice unless the core ingredients clearly change the plate. Method-only changes such as grilled versus baked are not enough by themselves; a repeat needs a real ingredient difference such as rice, tomato sauce, tahini, pasta, feta, chickpeas, broccoli, potato, bread, or a different named sauce.",
-    "If two recipes share the same main protein, they must differ in at least two visible dimensions: cuisine, cooking method, starch/base, sauce, shape, serving format, or plating. Do not output repeated diet variants of the same plate.",
-    "Egg variety rule: when eggs are the main pantry item, use distinct real forms instead of ten generic egg plates. Valid forms include shakshuka, eggah, Turkish sunny-side eggs, eggs with basterma, sunny-side eggs with meat, sunny-side eggs with red pepper, sunny-side eggs with sausage, fried eggs with onion, eggs with mushrooms, egg mushroom sandwich, avocado toast with egg, ful with fried egg, or ful tagine with eggs only when the differentiating ingredient is available or explicitly listed in missing_ingredients.",
-    "Basic fallback ban: do not fill the list with plain grilled, pan-seared, garlic-lemon, garlic butter, lemon herb, or protein-with-pasta recipes. Those are allowed only when the ingredient set truly points there, and never more than one card in a 10-card set.",
-    "Accuracy plus creativity rule: be creative inside real cuisine boundaries. Prefer a spread of different authentic forms such as grilled plate, stuffed bread, stew, baked casserole, rice dish, pasta dish, soup, salad, skillet, or sandwich only when that form is genuinely correct for the cuisine and ingredients.",
-    beefFormPriorityGuidance,
-    shawarmaDishGuidance,
-    chickenDistinctCardGuidance,
-    options.preferredCuisine === "Any"
-      ? "Chicken variety examples for Any cuisine: when chicken is the main pantry ingredient, build a Google-recipes-style spread of distinct recognizable dishes such as grilled chicken salad, grilled chicken fettuccine, chicken Alfredo fettuccine, crispy fried chicken with sauce, honey garlic chicken, sweet chili chicken, sweet and sour chicken, BBQ chicken, stuffed fried chicken cutlet, chicken cordon bleu style when dairy is allowed, roast chicken, butter chicken, garlic butter chicken, kung pao chicken, southern buttermilk fried chicken, cilantro lime chicken, creamy spinach chicken or chicken Florentine, creamy chicken soup, sumac chicken, desi gravy chicken, Korean fried chicken, soy garlic chicken, chicken and rice skillet, shish tawook, chicken shawarma wrap, chicken shawarma plate, chicken piccata, chicken negresco pasta, chicken Alfredo pasta, teriyaki chicken, chicken biryani, or arroz con pollo. Pick only those that fit the available pantry, diet, and missing-ingredient budget."
-      : `Chicken rule for selected cuisine: if chicken is the main pantry ingredient, choose chicken dishes that genuinely belong to ${options.preferredCuisine} or its closest traditional regional family. Do not use global chicken ideas like honey garlic chicken, tenders, alfredo, teriyaki, piccata, or arroz con pollo unless ${options.preferredCuisine} is Any or that cuisine truly owns the dish.`,
-    options.preferredCuisine === "Any"
-      ? "Beef variety examples for Any cuisine: when beef is the main pantry ingredient and the user did not explicitly say ground/minced, build a Google-recipes-style spread of distinct intact-beef dishes such as Mongolian beef, Chinese beef and onion stir-fry, beef bourguignon, classic beef stew, beef and broccoli, roast beef or beef tenderloin, black pepper beef, garlic butter steak bites, French onion braised beef, crispy ginger beef, beef shawarma wrap or beef shawarma bowl, beef stroganoff, pepper steak, shredded Italian-style beef, beef tacos with sliced steak, beef soup, crispy fried beef strips, steak bites over potatoes, or braised beef over rice. Pick forms that fit steak, cubes, roast, strips, slices, chunks, thin shawarma slices, or shredded braised beef. Reserve Korean ground beef bowl, kofta, meatballs, hamburger stew, ground beef pasta, and minced fillings only for explicit ground/minced beef input."
-      : `Beef rule for selected cuisine: if beef is the main pantry ingredient, choose beef dishes that genuinely belong to ${options.preferredCuisine} or its closest traditional regional family. Match the cut/form: strips for stir-fry, cubes for stew, roast slices for roast beef, steak bites for skillet plates, shredded meat only for braises, and crumbles or shaped kofta only when the user explicitly provided ground/minced beef.`,
-    options.preferredCuisine === "Any"
-      ? "Shrimp variety examples for Any cuisine: when shrimp, prawns, or seafood are the main pantry ingredient, build a Google-recipes-style spread of distinct recognizable dishes such as simple garlic shrimp, shrimp with oyster sauce, fried shrimp, honey garlic shrimp, Cajun shrimp, pan-seared shrimp, shrimp spaghetti or shrimp linguine, shrimp and broccoli, garlic butter shrimp, grilled shrimp with garlic butter, garlic shrimp quinoa, lemon garlic shrimp, boom boom shrimp, drunken shrimp, shrimp boil, head-on spicy garlic shrimp, spicy grilled shrimp, butterfly shrimp, shrimp soup, Cajun honey shrimp, Portuguese garlic shrimp, coconut shrimp, seafood bake, seafood pasta, seafood Creole, seafood Bicol Express, seafood salad, creamy Italian seafood bake, and grilled seafood medley. Pick forms that fit peeled vs shell-on shrimp, pasta/rice, frying, grilling, soup, stew, and mixed seafood."
-      : `Shrimp and seafood rule for selected cuisine: if shrimp, prawns, fish, or mixed seafood are the main pantry ingredient, choose seafood dishes that genuinely belong to ${options.preferredCuisine} or its closest traditional regional family. Match the form: whole shell-on shrimp for grills/boils, peeled shrimp for saute/stir-fry/pasta, breaded shrimp for fried forms, mixed seafood for paella/pasta/bake/medley, and fish fillets or whole fish for fish families.`,
-    hasPastaSignals
-      ? "Pasta rule: if the pantry contains pasta or specific pasta shapes, diversify across structurally different dish families instead of returning near-identical pasta variants."
-      : "",
-    hasPastaSignals
-      ? "For pasta-like inputs, prefer a spread such as shrimp pasta, macarona bechamel, baked pasta, koshary, pomodoro, arrabbiata, creamy pasta, or other real pasta families that genuinely fit the pantry."
-      : "",
-    "Think like a chef finishing a real plate from that cuisine. Every dish should have the right aromatics, spice base, herbs, acid, and finishing garnish that make the cuisine recognizable.",
-    candidateDishHints
-      ? `Internally generate at least 10 dish-family candidates first, then rerank them before writing the final recipes. Use this ranked candidate universe as the starting point: ${candidateDishHints}.`
-      : "Internally generate at least 10 dish-family candidates first, then rerank them before writing the final recipes.",
-    "Infer meal context when possible. If the pantry strongly suggests breakfast ingredients, prefer real breakfast dishes from the selected cuisine; if it suggests grilled meats, rice, stews, or pasta, prefer lunch or dinner families from that cuisine.",
-    cuisineSpecificGuidance,
-    cuisineKnowledgeGuidance,
-    cuisineDishCatalogGuidance,
-    cuisineVisualReferenceGuidance,
-    substyleGuidance,
-    mealTypeRoutingGuidance,
-    ingredientDrivenCuisineGuidance,
-    dietVarietyGuidance,
-    allowedProteinRotationGuidance,
-    vegetarianVarietyGuidance,
-    healthyPlateGuidance,
-    organMeatGuidance,
-    groundMeatDistinctCardGuidance,
-    seafoodDistinctCardGuidance,
-    stuffedDishGuidance,
-    dessertCatalogGuidance,
-    ingredientPrepFormGuidance,
-    ingredientCombinationGuidance,
-    sparseIngredientGuidance,
-    "For every recipe also output image_search_indices: an array of 3 to 5 short English food-photo search phrases tuned for Unsplash first and Pexels second, ordered from most exact to broader backup searches.",
-    "Each image_search_indices item should be 2 to 6 words, use canonical dish nouns first, add cuisine, protein, sauce, cooking method, or starch only when they improve image accuracy, and avoid quantities, health claims, macro words, filler adjectives, and branding.",
-    "The first image_search_indices item must name the exact dish family or exact plated form, not only the ingredient. Examples: use hawawshi, Egyptian rice kofta, Turkish lahmacun, Turkish karniyarik, beef bourguignon, Mongolian beef, hamburger stew, ground beef penne, or garlic shrimp linguine instead of ground meat, beef, shrimp, or seafood.",
-    "When the dish has an important visual or prep-form variant, encode it in the search phrases and visual_keywords. Examples: chicken cubes vs chicken cutlet, minced fish cakes vs whole grilled fish, sliced beef doner vs beef stew cubes, red sauce pasta vs white sauce pasta, grilled chicken vs fried chicken, rice noodles vs pasta, tomato soup vs creamy soup.",
-    imageGuidance,
-    "Also include image_search_index as the first/best string from image_search_indices for backward compatibility.",
-    "Examples of good image_search_indices values: [\"mujadara\",\"lentils and rice\",\"middle eastern lentils rice\"], [\"white bean stew\",\"fasolia\",\"bean tomato stew\"], [\"grilled chicken red sauce pasta\",\"chicken tomato pasta\",\"grilled chicken pasta\"], [\"creamy chicken pasta\",\"white sauce pasta\",\"chicken alfredo pasta\"], [\"greek yogurt berries\",\"yogurt bowl\",\"breakfast yogurt bowl\"].",
-    "Every recipe must also include dish_intent with exactly these keys: dish_name, cuisine, meal_type, diet_type, cooking_method, visual_keywords, exclude_keywords.",
-    "dish_intent.dish_name must be the canonical plated dish identity used for image lookup. visual_keywords should describe what the finished plate looks like. exclude_keywords should list obvious wrong-image traps such as dessert, salad, wrong protein, or wrong sauce style.",
-    "Every recipe MUST also include a photo_identity object in English, even when the recipe name itself is Arabic. Shape: {\"dish_slug\":\"kebab-case-canonical-dish-key\",\"english_name\":\"Canonical English Dish Name\",\"protein\":\"seafood|shrimp|chicken|beef|lamb|fish|liver|tofu|chickpeas|lentils|beans|egg|...\",\"starch\":\"rice|pasta|bread|potato|quinoa|tortilla|...\",\"sauce\":\"tomato|lemon-herb|garlic|cream|curry|bechamel|tahini|salsa|...\",\"method\":\"grilled|fried|roasted|skillet|soup|stew|baked|raw|salad|sandwich|wrap|...\",\"cuisine_key\":\"egyptian|mediterranean|italian|mexican|indian|thai|turkish|american|global|...\"}. dish_slug must be unique, lowercase, hyphen-only, ASCII-only, and different for recipes that should not share a photo.",
-    "Every recipe MUST include recipe_source_type: local_database when based on a backend RecipeNLG/local reference, external_source when Google Search grounding or a backend-provided external trusted culinary source URL was used, or generated only when neither local references nor grounded external search are available.",
-    "source_url rule: include source_url for every external_source recipe using the exact grounded source URL or backend-provided URL. Never invent, guess, or hallucinate a source URL.",
-    "Every recipe MUST include plated_visual_description: a professional food-photography description of ONLY the finished plated dish. Do not describe preparation, raw ingredients, loose grocery items, hands, utensils doing prep, pans on a stove, packages, labels, or step-by-step process. Describe what should be visible on the final plate or bowl.",
-    "Do not use a pantry ingredient when it conflicts with the user's diet or health profile; choose a safer substitute and list it as a missing ingredient instead.",
-    "The ingredients array must contain ONLY items explicitly listed in Available pantry ingredients. Any other ingredient, seasoning, garnish, sauce, or produce item must go in missing_ingredients.",
-    "Ownership guardrail: for each recipe, the count of ingredients must be greater than or equal to the count of missing_ingredients whenever possible.",
-    "Scanner API hard rule: for the strongest recipes, the available pantry ingredients must clearly outnumber or at least match the missing support items.",
-    "Start from pantry-first recipes that visibly center the scanned or typed ingredients, then degrade only later if the pantry is too sparse.",
-    "If the pantry is too sparse to satisfy the full recipe count under that rule, keep the most pantry-heavy recipes first and only then allow later recipes to have more missing_ingredients than ingredients.",
-    "If the recipe needs canonical spices, herbs, pepper paste, yogurt sauce, tahini, butter, citrus, or finishing oil to feel authentic, include those exact items in missing_ingredients instead of silently omitting them or replacing them with generic 'seasoning'.",
-    availableIngredientsLine,
-    availableQuantitiesLine,
-    preferenceBrief,
-    cuisineHint,
-    `Recipe language: ${options.recipeLanguage}.`,
-    languageOutputGuidance,
-    "Bilingual cache rule: every recipe object must include top-level fields in the requested recipe language and also include localized.English and localized.Arabic variants with those exact capitalized keys. The helper translator should only be used as a fallback when one localized side is incomplete.",
-    `Target calories per meal: approximately ${perMealCalories} kcal; keep each recipe within about 15% unless the health profile requires a tighter limit.`,
-    `Maximum missing ingredients allowed per recipe: ${options.maxMissingIngredients}.`,
-    "Missing ingredients must be compatible with the diet and health rules. Be strict: never put cucumber, herbs, spices, oil, sauces, or staple ingredients in ingredients unless they are in Available pantry ingredients.",
-    "Avoid medical claims; describe meals as compatible with the stated profile, not as treatment.",
-    "Step detail requirement: every recipe steps array must contain 7 to 10 detailed home-cooking steps.",
-    "Every step string must include: the action, exact ingredient quantities used in that step, pan/oven/heat level when relevant, timing in minutes, and the target visual or texture cue.",
-    "Verification rule before returning JSON: check cooking temperatures, cooking times, ingredient quantities, food safety, realistic workflow order, allergen removal, excluded ingredient removal, health-condition adaptations, calorie target, macro plausibility, cultural preference fit, and that every ingredient is used in the steps.",
-    "Cooking-time logic rule: times must match the ingredient and method. Shrimp may cook in 2 to 4 minutes, fish fillets in 3 to 6 minutes per side, chicken pieces usually need 8 to 12 minutes, whole chicken pieces need longer, steak slices/cubes need 6 to 10 minutes, and beef/lamb stews or braises need searing plus a long covered simmer such as 45 to 120 minutes until tender. Never reuse a generic 4 to 6 minute step for every protein.",
-    "Prep-form logic rule: if a dish family requires a transformed ingredient form, explain the transformation. For kofta/kafta/kofte/kebab made from steak or intact meat, include a clear step to finely chop, mince, or grind the meat, mix it with aromatics/spices, shape it, and then cook it. If you do not want to explain that transformation, choose an intact-meat dish instead of kofta.",
-    "Method-name consistency rule: if the name says grilled, BBQ, smoked, fried, baked, stew, curry, or soup, the steps must use that same primary method. Do not title a dish grilled and then bake it in a pan as the main method; use a grill, grill pan, broiler, or clearly rename the dish.",
-    "Use the available ingredient quantities when provided. If quantity is not provided, choose realistic single-meal quantities and make them explicit inside the step text.",
-    "Do not write vague steps like 'cook until done', 'season to taste', or 'serve'. Replace them with specific timing, doneness cues, and quantities.",
-    "Include prep, cooking, finishing, and plating steps; if a sauce, dressing, spice mix, or garnish is needed, tell the user exactly when and how much to add.",
-    "For cuisine-authentic recipes, build the seasoning profile explicitly in the steps. State the spice amounts, when they bloom or get mixed in, and what flavor role they play on the final plate.",
-    "For ground/minced meat only, translate the protein into cuisine-native dish forms and names. Examples: Egyptian kofta or hawawshi, Turkish kofte or adana kebab, Middle Eastern kebab or kofta, Indian keema. Do not apply this ground-meat rule to plain beef, steak, beef cubes, beef slices, or intact meat.",
-    "For liver, kebda, kibda, ciger, or cigeri, treat it as organ meat, not generic beef or red meat. Recipe names, dish_intent.dish_name, visual_keywords, image_search_index, and image_search_indices must explicitly say liver, kebda, kibda, ciger, or cigeri. Do not rename it to beef, steak, meat cubes, kofta, kebab, burger, or ground meat.",
-    "Egyptian ful priority: when preferred cuisine is Egyptian and the input is ful/ÙÙˆÙ„/fava beans/broad beans, generate distinct Egyptian ful cards first. Good forms include classic ful medames, ful bil zeit, spicy ful bil zeit, Arabiata-style ful with hot oil tahini lemon cumin, Alexandrian ful, ful with tahini, ful with fried egg, ful tagine with eggs and cheese, ful tray with eggs and sausage, ful tagine with eggs and basterma, ful sandwich, ful salad plate, and taameya only when herbs/aromatics are plausible. Do not replace these with generic bean salad until Egyptian ful forms are used or ruled out.",
-    "For seafood, choose the correct dish form instead of a generic fish or shrimp recipe. Use cuisine plus starch plus method reasoning to decide between grilled fish, fish rice, fish soup, shrimp linguine, garlic shrimp rice, curry shrimp, fried shrimp, or sandwich-style fish dishes.",
-    "Egyptian fish priority: when preferred cuisine is Egyptian and the input is fish/سمك/tilapia/bouri/sea bass/snapper, generate distinct Egyptian fish cards first. Good Egyptian forms include sayadeya fish rice, samak singari, grilled Egyptian fish, samak bel radah, smoked fish, fried tilapia or Barboon Maklee, Egyptian baked fish tray, Egyptian fish tagine with tomato sauce, roasted whole fish with Egyptian spices, and Egyptian fried fish sandwich. Do not replace these with generic Mediterranean baked fish until the Egyptian forms have been used or ruled out.",
-    "Egyptian shrimp priority: when preferred cuisine is Egyptian and the input is shrimp/جمبري/prawn/seafood, generate distinct Egyptian shrimp cards first. Good Egyptian forms include Alexandrian shrimp, seafood sayadeya, shrimp rice with browned onion, Egyptian shrimp tagine with tomato sauce, grilled shrimp skewers with cumin and coriander, garlic-lemon shrimp, shrimp with tahini-lemon sauce, spicy shrimp stew, seafood soup, and fried shrimp. Do not replace these with generic Mediterranean garlic shrimp until the Egyptian forms have been used or ruled out.",
-    "General shrimp variety priority: if the input is shrimp, prawns, روبيان, قريدس, or جمبري and the user asks for many recipes or Any cuisine, avoid repeating garlic/cumin/lemon shrimp. Use a broad shrimp menu with visibly different dishes: fried shrimp, butterfly shrimp, honey garlic shrimp, sweet chili shrimp, shrimp tacos, shrimp fajitas, shrimp rice bowl, shrimp noodle bowl, shrimp soup, shrimp chowder, shrimp curry, shrimp linguine, shrimp stir-fry, Chinese shrimp and broccoli, Kung Pao shrimp, salt and pepper shrimp, Cajun shrimp boil, coconut shrimp, shrimp cakes, shrimp toast, and shrimp po' boy when diet rules allow.",
-    "Chicken visual reference set: for chicken choose named families such as grilled chicken salad, grilled chicken fettuccine, chicken Alfredo fettuccine, chicken negresco pasta, chicken bechamel casserole, crispy fried chicken with sauce, stuffed fried chicken cutlet, sweet and sour chicken, honey garlic chicken, sweet chili chicken, BBQ chicken, roast chicken, butter chicken, garlic butter chicken, kung pao chicken, sesame chicken, orange chicken, southern buttermilk fried chicken, cilantro lime chicken, creamy spinach chicken, chicken Florentine, creamy chicken soup, chicken noodle soup, sumac chicken, desi gravy chicken, Korean fried chicken, soy garlic chicken, chicken and rice skillet, shish tawook, chicken shawarma wrap, chicken shawarma plate, chicken shawarma bowl, chicken piccata, chicken cacciatore, teriyaki chicken, chicken biryani, arroz con pollo, farakh meshwi, chicken molokhia, or chicken fattah when pantry and cuisine fit.",
-    "For all chicken cards, image_search_index must name the same exact family chosen in the recipe name; do not use generic phrases like chicken recipe, chicken bowl, chicken plate, chicken rice, or healthy chicken unless no named family fits.",
-    "Beef visual reference set: for plain beef choose named intact-beef families such as Mongolian beef, Chinese beef and onion stir-fry, beef bourguignon, classic beef stew, beef and broccoli, roast beef, beef tenderloin roast, black pepper beef, garlic butter steak bites, French onion braised beef, crispy ginger beef, beef stroganoff, pepper steak, shredded Italian beef, sliced steak tacos, beef soup, crispy ginger beef strips, beef stir-fry, beef goulash, or braised beef over rice when pantry, beef cut, and cuisine fit.",
-    "Ground beef visual reference set applies only when the user explicitly wrote ground beef, minced beef, minced meat, mince, or Arabic minced meat: Korean ground beef bowl, beef kofta, beef kebab, hamburger stew, ground beef pasta, ground beef penne, meatballs, hawawshi, lahmacun, or Adana kebab.",
-    "For all beef cards, image_search_index must name the same exact family chosen in the recipe name and must imply the correct beef form: thin strips, cubes, roast slices, steak bites, shredded braise, soup chunks, or fried strips for plain beef; crumbles, meatballs, or kofta only for explicit ground/minced beef. Do not use generic phrases like beef recipe, beef plate, meat bowl, steak dinner, or healthy beef unless no named family fits.",
-    "Shrimp visual reference set: for shrimp choose named families such as fried shrimp, butterfly shrimp, coconut shrimp, honey garlic shrimp, sweet chili shrimp, shrimp with oyster sauce, shrimp stir-fry bowl, shrimp rice bowl, shrimp burrito bowl, shrimp tacos, shrimp fajitas, shrimp po' boy, shrimp cakes, shrimp toast, shrimp soup, shrimp chowder, Thai tom yum shrimp, shrimp red curry, green curry shrimp, prawn curry, shrimp spaghetti, shrimp linguine, shrimp pasta salad, shrimp and broccoli, garlic butter shrimp, grilled shrimp kebabs, shrimp boil or Cajun seafood boil, boom boom shrimp, drunken shrimp, head-on spicy garlic shrimp, spicy grilled shrimp, Cajun honey shrimp, Portuguese garlic shrimp, Alexandrian shrimp, Egyptian shrimp tagine, Mediterranean shrimp with feta, Turkish prawns with feta, Karides Guvec, Kung Pao shrimp, Asian garlic shrimp, Chinese salt and pepper shrimp, or Chinese shrimp and broccoli when pantry and cuisine fit.",
-    "Mixed seafood visual reference set: for mixed seafood choose named families such as seafood bake, seafood pasta, seafood Creole, seafood Bicol Express, sauteed seafood medley, grilled seafood medley, Cajun seafood boil, seafood paella, seafood chowder, creamy Italian seafood bake, spicy tomato seafood pasta, seafood salad, cioppino, ginger garlic seafood stir fry, or seafood sayadeya when pantry and cuisine fit.",
-    "Fish visual reference set: for fish choose named families such as fish Florentine, baked fish with lemon cream sauce, emergency easy baked fish, spicy fish fry, skillet garlic butter white fish, baked fish with slow-cooked peppers, creamy fish fillet, baked fish with asparagus, salt-grilled fish, quick baked fish fillets, salt and pepper fish, herb roasted fish, baked fish masala, white fish with brown butter, steamed fish with ginger, baked basa fish, grilled Indian fish, crispy oven-baked fish, honey garlic pan-seared fish, crispy panko crusted fish, fish nuggets, fish curry, oily fish grill, Egyptian sayadeya, samak singari, grilled Egyptian fish, samak bel radah, smoked fish, fried tilapia, Egyptian fish tagine, Egyptian baked fish tray, Mediterranean fish soup, Thai Pla Pad Cha fried fish, Thai chilli lime fish, Mediterranean baked fish with olives and capers, Barboon Maklee fried red mullet, Egyptian fried fish sandwich, lemon herb Parmesan crusted fish, or garlic butter cod when pantry and cuisine fit.",
-    "For all seafood/fish cards, image_search_index must name the same exact family chosen in the recipe name; do not use generic phrases like shrimp recipe, fish plate, seafood dinner, baked fish, or grilled seafood unless no named family fits.",
-    "Return a JSON array, not an object.",
-    "Each recipe object must include: name, cuisine, recipe_source_type, source_url when applicable, dish_intent, photo_identity, plated_visual_description, image_search_index, image_search_indices, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, fiber, sugar, sodium, cook_time, difficulty, preference_hits, localized.",
-    "ingredients and missing_ingredients must be arrays of strings. Every ingredient string must start with a realistic quantity and unit, followed by the ingredient name, for example: \"2 breasts chicken breast\", \"1 cup tomato sauce\", or \"1 tbsp olive oil\". Never return bare ingredient strings such as \"Chicken Breast\" or \"Tomato\". steps must be an array of detailed strings with timing and quantities. preference_hits must name the diet, health, calorie, or pantry rules the recipe satisfies in the requested recipe language. image_search_index must be a single short English string and image_search_indices must be an array of 3 to 5 short English strings. dish_intent and photo_identity must be English-only internal image metadata. plated_visual_description must be English-only finished-dish visual metadata. localized must contain exactly the case-sensitive keys English and Arabic, and each localized variant must include the same user-facing recipe fields."
-  ]);
-}
-
-function buildRealRecipeReferenceGuidance(
-  references: RecipeReferencePromptRecipe[] | undefined,
-  recipeCount: number
-) {
-  const usableReferences = (references ?? [])
-    .filter((reference) => reference.title && reference.ingredients.length && reference.steps.length)
-    .slice(0, Math.max(8, Math.min(20, recipeCount * 2)));
-
-  if (!usableReferences.length) return "";
-
-  const referenceText = usableReferences
-    .map((reference, index) => {
-      const ingredients = reference.ingredients
-        .map((ingredient) => ingredient.replace(/\s+/g, " ").trim())
-        .filter(Boolean)
-        .slice(0, 16)
-        .join("; ");
-      const steps = reference.steps
-        .map((step, stepIndex) => `${stepIndex + 1}. ${step.replace(/\s+/g, " ").trim()}`)
-        .filter(Boolean)
-        .slice(0, 8)
-        .join(" ");
-      const matched = reference.matchedIngredients.length
-        ? `Matched pantry anchors: ${reference.matchedIngredients.join(", ")}.`
-        : "";
-      const sourceUrl = reference.sourceUrl ? ` Source URL metadata: ${reference.sourceUrl}.` : "";
-
-      return `[R${index + 1}] ${reference.title} | cuisine: ${reference.cuisine}.${sourceUrl} ${matched} Ingredients: ${ingredients}. Directions: ${steps}`;
-    })
-    .join(" || ");
-
-  return PromptBuilder.compose([
-    "REAL RECIPE REFERENCE MODE: a Firestore RecipeNLG reference library returned the recipes below as the best matches for this pantry.",
-    "Do not claim that you searched RecipeNLG or the internet; these references were provided by the backend.",
-    "Use these references as source-of-truth examples for dish identity, ingredient structure, prep form, method, cooking time, and step sequence.",
-    "For each generated card, choose one provided real recipe reference as the base unless the backend request explicitly requires creating a new recipe because no suitable reference exists.",
-    "The generated ingredients and steps must preserve the chosen reference's real cooking logic. Do not output a dish name unless the ingredients and steps actually make that dish.",
-    "Do not rewrite source directions into a generic cooking template. Preserve whether ingredients are minced, chopped, sliced, cubed, marinated, breaded, stuffed, grilled, fried, baked, simmered, roasted, or served fresh, and preserve the order those actions happen in.",
-    "Only edit a reference recipe when the user's diet, allergen, health condition, calorie target, cuisine choice, available quantity, or missing-ingredient limit requires it.",
-    "When you adapt for health or diet, keep the plate recognizable: adjust fat, sodium, sugar, dairy, gluten, cooking method, or portion size without deleting the core sauce, marinade, breading, simmer, stuffing, or garnish that makes the dish what it is.",
-    "If a reference uses a longer method such as marinating, baking, roasting, stewing, braising, frying, breading, or grilling, keep that method and realistic timing unless a health rule requires a lighter method.",
-    "Ingredient integrity check: every ingredient in ingredients or missing_ingredients must appear in at least one step, and every named sauce, breading, stuffing, marinade, garnish, vegetable, protein, or starch promised in the title must appear in ingredients and steps.",
-    "Nutrition integrity check: calories, protein, carbs, fat, fiber, sugar, and sodium must be internally plausible for the listed ingredients, serving size, and cooking method.",
-    `Return exactly ${recipeCount} recipes; prefer different references or visibly different dish families across the cards.`,
-    `Reference recipes: ${referenceText}`
-  ]);
-}
-
-function buildRecipeSourcingDecisionGuidance(references: RecipeReferencePromptRecipe[] | undefined) {
-  const hasLocalReferences = Boolean(references?.some((reference) => reference.title && reference.ingredients.length));
-
-  if (hasLocalReferences) {
-    return [
-      "Backend decision tree status: local NutriMoment recipe database matches were found.",
-      "Stop at the local database. Do not search externally. Do not invent external sources.",
-      "Your job is to act as a recipe editor and culinary expert over the provided local recipes only.",
-      "Keep the same dish identity for every local_database recipe. Adapt only for allergies, excluded ingredients, medical conditions, calories, macro targets, cultural preferences, and realistic cooking safety.",
-      "Never replace local recipe steps with generic pan instructions. Keep the source prep form, method, timing, and workflow unless a user restriction forces a targeted change.",
-      "Set recipe_source_type to local_database unless the backend explicitly marks a recipe as external_source."
-    ].join(" ");
-  }
-
-  return PromptBuilder.compose([
-    "Backend decision tree status: no suitable local NutriMoment recipe reference was provided.",
-    "FORCE GOOGLE SEARCH MODE: use Google Search grounding to find classic, trusted, highly rated culinary recipes that feature the user's primary ingredients and requested cuisine or best-fitting cuisine.",
-    "Do not invent a generic recipe in this mode. Select the strongest authentic source recipe, preserve its dish identity, then adapt it only for allergies, excluded ingredients, medical conditions, calories, macro targets, and cultural preferences.",
-    "External-source steps must read like the selected real recipe, including prep cuts, marinade or breading stages, heat method, order of additions, timing, doneness cues, and serving assembly.",
-    "Prefer reputable culinary sources with complete ingredient lists, realistic method steps, temperatures, cooking times, and serving structure. Avoid low-detail snippets, spam pages, and generic AI-style recipe pages.",
-    "Set recipe_source_type to external_source for every recipe created from grounded web search and include the exact source_url returned by grounding.",
-    "If Google Search grounding cannot produce a usable source for a card, omit that card and choose another sourced recipe rather than filling the list with an unsourced generic recipe.",
-    "Never fabricate a source URL."
-  ]);
-}
-
-function buildExcludedIngredientsGuidance(excludedIngredients: string[] | undefined) {
-  const cleaned = (excludedIngredients ?? []).map((ingredient) => ingredient.trim()).filter(Boolean);
-  if (!cleaned.length) return "";
-
-  return PromptBuilder.compose([
-    `Excluded ingredients: ${cleaned.join(", ")}.`,
-    "Do not include excluded ingredients in ingredients, missing_ingredients, steps, titles, sauces, garnishes, nutrition assumptions, or localized variants.",
-    "If a selected reference uses an excluded ingredient, replace it with a compatible substitute only when the dish remains realistic; otherwise choose a different provided reference."
-  ]);
-}
-
-function buildOrganMeatGuidance(
-  ingredients: RecipePromptIngredient[],
-  recipeCount: number,
-  preferredCuisine: string
-) {
-  const source = ingredients.map((ingredient) => ingredient.name).join(" ").toLowerCase();
-  if (!/\b(liver|kebda|kibda|ciger|cigeri)\b|كبدة|كبده/iu.test(source)) {
-    return "";
-  }
-
-  const cuisineLabel = preferredCuisine && preferredCuisine !== "Any" ? preferredCuisine : "the best-fitting cuisine";
-  return [
-    "Liver-specific generation mode is active because the pantry includes liver/kebda.",
-    "Reference cue for Kebda Eskandarani: Egyptian Alexandrian kebda is pan-fried sliced liver, commonly seasoned with cumin, garlic, onion, bell pepper, and lemon, and often served as street food in bread or with rice.",
-    "Reference cue for Moroccan kebda: liver is cut into strips, marinated with olive oil, garlic, coriander or cilantro, and a Moroccan liver spice mix, then browned in a pan and served with Moroccan bread and lemon wedges.",
-    "Reference cue for Moroccan Kebda Mchermla stew: liver cubes can be cooked with onion, parsley, coriander, olive oil, turmeric, paprika, chili, and tomato passata into a red oven/stew dish, served with bread, rice, or salad only when those items are listed or missing ingredients.",
-    "Reference cue for North African kebda chermoula: lamb liver can be browned first, then simmered in a spiced red sauce with garlic, caraway, paprika, cayenne, tomato paste, parsley, and bread for dipping.",
-    "Reference cue for Egyptian kebda sandwiches: chopped small liver pieces are marinated with vinegar, cumin, coriander, mint, chili, cinnamon, garlic, then sauteed with peppers, onions, chilies, and herbs before being stuffed into bread with tahini sauce only when bread and tahini are listed or missing ingredients.",
-    "Reference cue for Kebda Bel Rada: deep-fried sliced liver coated with wheat bran, served as crisp brown slices with parsley; do not render it as balls, nuggets, pate, or generic fried chicken.",
-    `Generate exactly ${recipeCount} recipe cards, no more and no fewer. Every returned card must be a liver-centered organ-meat recipe unless a diet or allergy makes that unsafe.`,
-    `Choose real liver dishes from ${cuisineLabel} or closely related real-world liver traditions; do not convert liver into ordinary beef or mixed meat.`,
-    "Use distinct liver forms across the list when possible: Alexandrian kebda strips, Moroccan kebda with coriander and lemon, Moroccan Kebda Mchermla tomato stew, North African kebda chermoula, kebda with onion and bell pepper, kebda sandwiches, Kebda Bel Rada bran-fried liver slices, chopped fried liver, crispy fried liver strips, liver rice plate, liver with lemon and garlic, liver saute, liver skewers, Turkish ciger tava, or liver stew only when the cuisine and pantry support them.",
-    "For every liver recipe, dish_intent.dish_name must be unique and specific; do not repeat plain dish names such as liver, pan-fried liver, liver stir, or garlic liver for multiple cards.",
-    "For every liver recipe, dish_intent.dish_name and image_search_index must include a liver identity term such as liver, kebda, kibda, ciger, or cigeri plus the distinct form, for example alexandrian liver strips or kebda sandwich.",
-    "For liver visual_keywords, describe thin sliced strips or 2-inch-ish sliced pieces, chopped pieces, minced fried liver, glossy dark brown organ meat, onions, garlic, bell peppers, chili, lemon, parsley, or fried edges only when those ingredients are listed or placed in missing_ingredients.",
-    "Do not describe liver as cubes, whole slabs, steak, pate, paste, balls, patties, or generic brown protein. Prefer strips, chopped pieces, minced fried liver, or crispy thin slices.",
-    "For liver exclude_keywords, include beef steak, beef cubes, beef strips, ground beef, kofta, kebab, meatballs, burger, chicken, fish, egg, pate, bread balls, and generic meat.",
-    "Do not output vague names like beef skillet, meat plate, protein bowl, or grilled meat when liver is the pantry protein."
-  ].join(" ");
-}
-
 function buildVegetarianVarietyGuidance(diets: string[], recipeCount: number): string {
   const isVegetarian = diets.includes("vegetarian");
   const isVegan = diets.includes("vegan");
@@ -1212,58 +913,6 @@ function buildAllowedProteinRotationGuidance(
   ].filter(Boolean).join(" ");
 }
 
-function buildDietVarietyGuidance(diets: string[], conditions: string[], recipeCount: number) {
-  const selected = [...diets, ...conditions].map((value) => value.trim()).filter(Boolean);
-
-  if (selected.length) {
-    return [
-      `Diet and health variety mode is active for: ${selected.join(", ")}.`,
-      "Do not ignore these preferences when creating variety, but do not make the output feel punitive, scary, or like a medical warning. Every recipe must be compatible with the nutrition target or clearly adapted through cooking method, portion, ingredient form, or seasoning.",
-      "Use dish_intent.diet_type and preference_hits to explain the adaptation, for example low carb, high protein, heart healthy, diabetes friendly, gluten free, dairy free, or low sodium.",
-      "Do not repeat the same base dish just because the diet labels differ; each card still needs a distinct cuisine, cooking form, starch/sauce structure, or serving format.",
-      "When a familiar dish normally conflicts with the selected diet, keep the real dish identity only if a believable adaptation is listed in missing_ingredients or preparation: lean or trimmed meat instead of fatty cuts, baked/grilled instead of fried, low-sodium seasoning instead of salty sauces, lettuce or cauliflower instead of bread/rice/pasta for low carb, gluten-free pasta/bread for gluten free, olive oil instead of dairy for dairy free, or herbs/citrus instead of salt for low sodium."
-    ].join(" ");
-  }
-
-  if (recipeCount >= 8) {
-    return "Because the user requested many cards, include natural nutrition variety across the list when truthful: some high-protein plates, some lower-carb plates, some lighter vegetable-heavy plates, and some comfort-food plates. Do not turn these into fake medical claims, and do not repeat the same dish with only a different diet label.";
-  }
-
-  return "";
-}
-
-function buildGroundMeatDistinctCardGuidance(
-  ingredients: RecipePromptIngredient[],
-  recipeCount: number,
-  preferredCuisine: string
-) {
-  const pantry = buildNormalizedPantrySet(ingredients);
-  if (!hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "lamb mince", "mince"])) {
-    return "";
-  }
-
-  const rawSource = ingredients.map((ingredient) => ingredient.name).join(" ");
-  const hasArabicGroundMeat = isArabicGroundMeatPantryIngredient(rawSource.toLowerCase());
-  const cuisineKey = normalizeCuisinePromptKey(preferredCuisine);
-  const anyCuisine = cuisineKey === "any";
-  const minimumDistinctForms = Math.min(recipeCount, recipeCount >= 8 ? 7 : 4);
-  const cuisineScope = hasArabicGroundMeat
-    ? "Because the user entered the ground-meat ingredient in Arabic, treat Egyptian/Arab home cooking as the first cultural context even if cuisine is Any. Put Egyptian and Middle Eastern ground-meat forms ahead of generic American skillets."
-    : anyCuisine
-    ? "Use Any cuisine freedom to spread the list across Egyptian, Turkish, Middle Eastern, American, Italian, Indian, or Asian forms when the missing-ingredient budget allows it."
-    : `Keep most cards rooted in ${preferredCuisine}, but still vary the named forms inside that cuisine and use closely related regional forms when needed.`;
-
-  return [
-    "Ground-meat distinct-card mode is active. The ingredient means minced or ground meat, not sliced beef, steak, cubes, or whole meat.",
-    `Across the recipe set, produce at least ${minimumDistinctForms} visibly different ground-meat dish forms when generating this many cards.`,
-    cuisineScope,
-    "Good distinct forms include: Egyptian kofta mashwia skewers, Moroccan beef kofta, Lebanese beef kofta, beef kofta with saffron rice, beef kofta in tomato sauce, Pakistani beef kofta curry, Dawood Basha meatballs in tomato sauce, macarona bechamel with minced meat, lasagna alla bolognese, Egyptian rice kofta in tomato sauce, taagen kofta with potatoes or tomato sauce, hawawshi stuffed bread, Turkish kofte, Turkish Adana kebab, Adana durum or Beyti wrap, Iskender kebab, doner kebab, cag kebap, Turkish kiymali pide, Turkish lahmacun, Turkish karniyarik stuffed eggplant, Turkish spiral borek, kiymali tepsi boregi, Turkish musakka, Turkish ground beef stew, Indian keema, Middle Eastern kofta bowl, ground beef tacos, ground beef burritos, orange beef lettuce wraps, ground beef zucchini boats, stuffed bell peppers with ground beef, cheesy ground beef cauliflower casserole, keto ground beef Worcestershire skillet, meatballs, or stuffed peppers.",
-    "For Egyptian or Arabic ground-meat inputs, do not make the set mostly grilled garlic/lemon plates or plain pasta. Lemon and garlic are seasoning details, not dish identities. At least the top cards should include named Egyptian forms such as kofta mashwia, Dawood Basha, macarona bechamel, taagen kofta, rice kofta, or hawawshi when diet rules allow the missing support ingredients.",
-    "Do not return several loose ground-meat skillets, several kofta-only cards, or several pasta cards unless the user explicitly asked for that narrow family.",
-    "For each ground-meat recipe, dish_intent.visual_keywords must name the visible form such as stuffed flatbread, Adana flat skewers, durum wrap, sliced doner over bread, tomato-sauce meatballs, baked bechamel pasta square, kofta tray, boat-shaped pide, thin lahmacun, split stuffed eggplant, tray-cut borek, spiral pastry, chunky stew, or red-sauce pasta."
-  ].join(" ");
-}
-
 function buildChickenDistinctCardGuidance(
   ingredients: RecipePromptIngredient[],
   recipeCount: number,
@@ -1308,15 +957,15 @@ function buildSeafoodDistinctCardGuidance(
   const hasShrimp =
     hasAny(pantry, ["shrimp", "prawn"]) ||
     /\b(shrimp|prawn|prawns)\b/i.test(source) ||
-    /Ø¬Ù…Ø¨Ø±ÙŠ|Ø¬Ù…Ø¨Ø±Ù‰|Ø±ÙˆØ¨ÙŠØ§Ù†|Ù‚Ø±ÙŠØ¯Ø³/u.test(source);
+    /\u062c\u0645\u0628\u0631[\u0649\u064a]|\u0631\u0648\u0628\u064a\u0627\u0646|\u0642\u0631\u064a\u062f\u0633/u.test(source);
   const hasSeafood =
     hasAny(pantry, ["seafood"]) ||
     /\b(seafood|sea food|mixed seafood)\b/i.test(source) ||
-    /Ø³ÙŠ\s*ÙÙˆØ¯|Ù…Ø£ÙƒÙˆÙ„Ø§Øª\s*Ø¨Ø­Ø±ÙŠØ©/u.test(source);
+    /\u0633\u064a\s*\u0641\u0648\u062f|\u0645\u0623\u0643\u0648\u0644\u0627\u062a\s*\u0628\u062d\u0631\u064a\u0629/u.test(source);
   const hasFish =
     hasAny(pantry, ["fish", "tilapia", "sea bass", "snapper", "cod"]) ||
     /\b(fish|tilapia|sea bass|snapper|cod|white fish)\b/i.test(source) ||
-    /Ø³Ù…Ùƒ|Ø³Ù…ÙƒØ©|Ø¨Ù„Ø·ÙŠ|Ø¨ÙˆØ±ÙŠ|Ù‚Ø§Ø±ÙˆØµ|Ø¯Ù†ÙŠØ³/u.test(source);
+    /\u0633\u0645\u0643|\u0633\u0645\u0643\u0629|\u0628\u0644\u0637\u064a|\u0628\u0648\u0631\u064a|\u0642\u0627\u0631\u0648\u0635|\u062f\u0646\u064a\u0633/u.test(source);
 
   if (!hasShrimp && !hasSeafood && !hasFish) return "";
 
@@ -1466,7 +1115,7 @@ function buildStuffedDishGuidance(
   const cuisineKey = normalizeCuisinePromptKey(preferredCuisine);
   const explicitStuffedSignal =
     /\b(stuffed|mahshi|dolma|dolmades|sarma)\b/i.test(source) ||
-    /Ù…Ø­Ø´ÙŠ/u.test(source);
+    /\u0645\u062d\u0634\u064a/u.test(source);
   const hasStuffableVegetable =
     hasAny(pantry, [
       "zucchini",
@@ -1662,166 +1311,12 @@ function buildCuisineDepthExplorationGuidance(
   ].join(" ");
 }
 
-function buildIngredientCombinationGuidance(
-  ingredients: RecipePromptIngredient[],
-  recipeCount: number,
-  preferredCuisine: string
-) {
-  const pantry = buildNormalizedPantrySet(ingredients);
-  const meaningfulIngredients = ingredients
-    .map((ingredient) => normalizePantryIngredient(ingredient.name))
-    .filter((ingredient) => ingredient && !isMinorPantryIngredientForPrompt(ingredient));
-  const uniqueMeaningfulIngredients = Array.from(new Set(meaningfulIngredients));
-  const pantryList = uniqueMeaningfulIngredients.join(", ");
-  const anyCuisine = normalizeCuisinePromptKey(preferredCuisine) === "any";
-  const relationshipGuidance = buildIngredientRelationshipGuidance(
-    uniqueMeaningfulIngredients,
-    recipeCount,
-    anyCuisine
-  );
-
-  if (uniqueMeaningfulIngredients.length <= 1) {
-    const minimumForms = Math.min(recipeCount, recipeCount >= 8 ? 6 : recipeCount >= 5 ? 4 : Math.max(1, recipeCount));
-    return [
-      "Single-ingredient creativity mode: because the pantry is sparse, variety must come from real dish forms and cuisines, not from repeating grilled, garlic, lemon, or pasta defaults.",
-      "Sparse pantry expansion rule: users may list only the main thing because they are in a hurry. Treat the listed ingredient as the required anchor, then actively propose complete real recipes that need reasonable support ingredients. Put those support items in missing_ingredients instead of limiting the set to recipes possible from the listed item alone.",
-      anyCuisine
-        ? `For Any cuisine with one main ingredient, deliberately branch across cuisines and at least ${minimumForms} visible forms when plausible: stuffed, stewed, BBQ or smoked, grilled, breaded or crusted, saucy or glazed, creamy or cheesy, baked, fried or baked-crisp, soup, rice dish, bread-based dish, skillet, and casserole.`
-        : `For ${preferredCuisine} with one main ingredient, explore the traditional dish universe deeply instead of repeating one cooking method.`,
-      "Research the ingredient-specific recipe universe before writing JSON. Internally rank real dish families by how naturally the anchor ingredient fits, likely missing support items, diet/health compatibility, and visual distinctness.",
-      "For any anchor ingredient, generate a broad candidate set from that ingredient's real recipe universe first, then choose the best dish families for the user's cuisine, diet, health profile, and requested card count. The same expansion logic must work for proteins, seafood, eggs, dairy, legumes, grains, vegetables, fruit, bread, sauces, and mixed scans.",
-      "Do not make the whole set one family with different adjectives. Each card needs a different dish identity, cooking method or texture, sauce/starch/base, and plating format whenever possible.",
-      "If the title promises a technique, sauce, marinade, or established dish identity such as breaded, BBQ, ginger, spinach, creamy, cheesy, fried, crispy, stew, smoked, shawarma, tandoori, curry, fajita, parmesan, teriyaki, or sweet and sour, include the required support ingredients or technique in missing_ingredients and write the actual prep/cooking step.",
-      "Dish-promise integrity applies to every anchor ingredient type, not only chicken or meat: seafood, fish, shrimp, eggs, dairy/paneer, legumes, grains, vegetables, fruit, bread, and mixed scans must all get the real marinade, sauce, coating, filling, spice base, or cooking method their title promises.",
-      "Support ingredients should be listed in missing_ingredients when they are needed for a real dish identity, but missing_ingredients must not replace the scanned anchor protein or hero ingredient."
-    ].join(" ");
-  }
-
-  const minimumCombinedCards = Math.min(recipeCount, recipeCount >= 8 ? 6 : Math.max(2, uniqueMeaningfulIngredients.length));
-
-  return [
-    `Ingredient-combination mode is active. Meaningful pantry ingredients include: ${pantryList}.`,
-    `At least ${minimumCombinedCards} recipes must combine two or more meaningful pantry ingredients in the same dish when diet/allergy rules allow it.`,
-    "Do not split every ingredient into separate simple recipes. First look for dish families that naturally combine the pantry as pairs or trios, then list missing support items for the cuisine identity.",
-    "Use different combination patterns across the list: protein plus starch, protein plus vegetable, legume plus grain, egg plus vegetables, seafood plus rice, meat plus bread, pasta plus sauce, stew, soup, stuffed item, casserole, skillet, and salad when appropriate.",
-    relationshipGuidance,
-    pantry.has("pasta") || pantry.has("spaghetti") || pantry.has("penne") || pantry.has("macaroni")
-      ? "Pasta is not allowed to swallow the whole set. Use pasta for only the cards where it is the best real dish form; use other pantry ingredients in rice, stew, baked, stuffed, soup, or bread-based forms too."
-      : "",
-    "Avoid defaulting to garlic/lemon as the main idea. Garlic, lemon, herbs, and basic spices should support a named dish, not become the recipe identity."
-  ].filter(Boolean).join(" ");
-}
-
 function isMinorPantryIngredientForPrompt(ingredient: string) {
   if (ingredient === "bell pepper") return false;
 
   return /\b(salt|pepper|black pepper|water|oil|olive oil|butter|garlic|lemon|lime|vinegar|herb|herbs|parsley|cilantro|coriander|dill|mint|basil|oregano|cumin|paprika|chili|chilli|spice|spices|seasoning)\b/i.test(
     ingredient
   );
-}
-
-function buildRecipeRunVariationGuidance(variationSeed?: string) {
-  if (!variationSeed) return "";
-
-  return [
-    `Run variation seed: ${variationSeed}.`,
-    "Same-ingredients rotation rule: if the user repeats the same ingredients, do not return the same card set by default.",
-    "Stay anchored to the same pantry, diet, health, calorie, allergy, cuisine, and authenticity rules, but select a different high-quality slice of the researched recipe universe for this run.",
-    "Use the variation seed to rotate cuisine families, dish families, methods, starch/sauce structures, missing support ingredients, and serving formats. Do not merely reorder the same recipes or rename the same dish.",
-    "Keep every card truthful and searchable; variation must come from valid alternate recipes, not random or weaker matches."
-  ].join(" ");
-}
-
-function buildRecentRecipeAvoidanceGuidance(recentRecipeAvoidance?: string) {
-  if (!recentRecipeAvoidance) return "";
-
-  return [
-    "Recent-history rotation rule: the user recently received these related recipe families/cards.",
-    recentRecipeAvoidance,
-    "Do not repeat those same named plates, dish_intent.dish_name values, family structures, or image_search_index identities unless diet, allergy, cuisine, or pantry constraints leave no good alternative.",
-    "Choose a different high-quality slice of the ingredient's real recipe universe for this run, while keeping all health adaptations truthful."
-  ].join(" ");
-}
-
-function buildIngredientRelationshipGuidance(
-  meaningfulIngredients: string[],
-  recipeCount: number,
-  anyCuisine: boolean
-) {
-  const proteinIngredients = meaningfulIngredients.filter((ingredient) => isPromptProteinIngredient(ingredient));
-  const hasProtein = proteinIngredients.length > 0;
-  const hasVegetable = meaningfulIngredients.some((ingredient) => isPromptVegetableIngredient(ingredient));
-  const hasBread = meaningfulIngredients.some((ingredient) => isPromptBreadIngredient(ingredient));
-  const hasGrain = meaningfulIngredients.some((ingredient) => isPromptGrainIngredient(ingredient));
-  const hasDairy = meaningfulIngredients.some((ingredient) => isPromptDairyIngredient(ingredient));
-  const targetCombinedCards = Math.min(recipeCount, recipeCount >= 8 ? 6 : recipeCount >= 5 ? 4 : 3);
-
-  if (proteinIngredients.length >= 3 && (hasVegetable || hasDairy || hasBread || hasGrain)) {
-    const candidateTarget = Math.max(recipeCount * 2, proteinIngredients.length * 4);
-    return [
-      "Multi-protein menu planner is active: do not combine unrelated proteins into one confused recipe and do not let one protein dominate the whole set.",
-      `Spread the final cards across at least ${Math.min(recipeCount, proteinIngredients.length)} different provided proteins when diet/allergy rules allow it, pairing each protein with the support ingredients that make culinary sense.`,
-      `Before writing JSON, internally research and rank at least ${candidateTarget} real dish-family candidates across the provided proteins. For each protein, ask which cuisines, cuts/forms, sauces, starches, vegetables, dairy, and cooking methods are authentic for that ingredient, then choose the highest-scoring pantry fit.`,
-      "Examples are illustrative patterns, not a whitelist and not defaults to copy. The model must infer the best real recipes for the exact scanned ingredients: poultry may fit tomato-cheese cutlets, stews, curries, skewers, fried forms, or wraps; fish and seafood may fit grills, bakes, soups, curries, stir-fries, pasta, or rice dishes; steak or intact meat may fit grilled plates, pepper/onion stir-fries, stews, sliced sandwiches, or braises; ground/minced meat may fit kofta, meatballs, keema, stuffed breads, sauces, or skillet fillings.",
-      anyCuisine
-        ? "For Any cuisine, distribute those researched pairings across authentic cuisines and forms instead of repeating one generic grilled-protein template."
-        : "For the selected cuisine, map each protein to that cuisine's real dish forms before using generic grilled plates.",
-      "Use vegetables, dairy, bread, and grains as role-based supports after researching the dish family: tomato can be raw garnish, cooked sauce, stew base, salsa, or tray bake; pepper/onion can be grilled vegetables, aromatic base, stir-fry body, fajita base, stuffing, or sauce; dairy can be cheese, yogurt marinade, cream sauce, labneh, or omitted when the researched dish would not naturally use it.",
-      "Reject low-research pairings even if they are technically possible. A card must feel like a real recipe someone could search for by name, with image_search_index and dish_intent.dish_name matching that researched recipe identity."
-    ].join(" ");
-  }
-
-  if (hasProtein && hasVegetable && hasBread) {
-    return [
-      "Ingredient relationship planner: protein + vegetable + bread is a strong dish-family signal, not three separate recipe ideas.",
-      `At least ${targetCombinedCards} cards should turn that relationship into real combined dishes when health and diet rules allow it: wraps, sandwiches, stuffed breads, skewers/kebabs served with bread, fajitas/tacos, shawarma-style plates, saucy stir-fries folded into bread, and cuisine-specific street-food forms.`,
-      anyCuisine
-        ? "For Any cuisine, branch across cuisines instead of repeating one protein plate: examples include kebab wraps, fajitas, shawarma, sweet-and-sour or pepper stir-fry, stuffed flatbread, pita sandwiches, tacos, and grilled plates with bread."
-        : "For the selected cuisine, find that cuisine's real protein-vegetable-bread forms before falling back to generic grilled plates.",
-      "A plain protein breast/fillet/steak card may appear at most once; the other cards must use the vegetable and bread as visible anchors."
-    ].join(" ");
-  }
-
-  if (hasProtein && hasVegetable && hasGrain) {
-    return [
-      "Ingredient relationship planner: protein + vegetable + grain should become complete plate families, not separate protein-only cards.",
-      `At least ${targetCombinedCards} cards should combine them as rice bowls, pilafs, biryani/kabsa-style plates, fried rice, stews over grains, curries, casseroles, skillet meals, stuffed vegetables, or cuisine-specific grain plates.`,
-      "Use the vegetable as part of the sauce, filling, garnish, or cooking base, and include that use in the recipe steps."
-    ].join(" ");
-  }
-
-  if (hasProtein && hasVegetable) {
-    return [
-      "Ingredient relationship planner: protein + vegetable should produce mixed dish families such as skewers, stir-fries, stews, baked trays, stuffed items, curries, salads, soups, and saucy plates.",
-      `At least ${Math.min(recipeCount, recipeCount >= 8 ? 5 : 3)} cards should visibly use both ingredients in the same recipe.`
-    ].join(" ");
-  }
-
-  if (hasDairy && hasVegetable) {
-    return "Ingredient relationship planner: dairy + vegetables can become gratins, creamy soups, stuffed vegetables, baked casseroles, dips, savory pies, salads, and sauces; do not return only raw vegetable sides.";
-  }
-
-  return "";
-}
-
-function isPromptProteinIngredient(ingredient: string) {
-  return /\b(chicken|poultry|turkey|beef|lamb|meat|steak|liver|fish|seafood|shrimp|prawn|salmon|tilapia|tuna|cod|egg|tofu|tempeh|beans?|lentils?|chickpeas?)\b/i.test(ingredient);
-}
-
-function isPromptVegetableIngredient(ingredient: string) {
-  return /\b(bell pep+er|pep+er|capsicum|onion|tomato|potato|carrot|zucchini|eggplant|spinach|broccoli|cauliflower|cabbage|mushroom|corn|peas|okra|cucumber|lettuce|greens?)\b/i.test(ingredient);
-}
-
-function isPromptBreadIngredient(ingredient: string) {
-  return /\b(bread|flatbread|pita|tortilla|wrap|lavash|naan|bun|roll|toast|baladi)\b/i.test(ingredient);
-}
-
-function isPromptGrainIngredient(ingredient: string) {
-  return /\b(rice|grain|bulgur|quinoa|couscous|barley|oats|noodles?|pasta|spaghetti|penne|macaroni)\b/i.test(ingredient);
-}
-
-function isPromptDairyIngredient(ingredient: string) {
-  return /\b(cheese|milk|yogurt|cream|labneh|feta|mozzarella|cheddar|ricotta|butter)\b/i.test(ingredient);
 }
 
 function splitPantryByDietCompatibility(
@@ -2652,104 +2147,6 @@ function buildIngredientDrivenCuisineGuidance(
   return hints.join(" ");
 }
 
-function buildSparseIngredientGuidance(
-  ingredients: Array<{ name: string; quantity?: string }>,
-  preferredCuisine: string,
-  recipeCount = 5
-) {
-  const normalizedCuisine = normalizeCuisinePromptKey(preferredCuisine);
-  const pantry = buildNormalizedPantrySet(ingredients);
-  const requestedCount = Math.min(10, Math.max(1, recipeCount || 5));
-  const minimumForms = Math.min(requestedCount, requestedCount >= 8 ? 6 : requestedCount >= 5 ? 4 : requestedCount);
-  const cuisineLabel = normalizedCuisine === "any" ? "Any cuisine" : preferredCuisine;
-  const egyptianMeatBreadRiceGuidance =
-    normalizedCuisine === "egyptian" &&
-    hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "lamb mince", "mince", "beef"]) &&
-    hasAny(pantry, ["bread", "baladi bread", "pita", "flatbread"]) &&
-    hasAny(pantry, ["rice"])
-      ? "Egyptian pantry trio logic: ground meat plus bread plus rice should produce a varied set, not repeats. Prefer Hawawshi first, then distinct options such as Egyptian Fattah with meat, Koftet Roz, Kofta Kebab, Taagen Kofta, or Mahshi-style stuffed vegetables with rice and meat. Do not choose Ful Medames, bean stew, or Koshary unless fava beans, lentils, pasta, or chickpeas are actually provided or clearly listed as missing for a later stretch recipe."
-      : "";
-
-  if (ingredients.length > 2) return egyptianMeatBreadRiceGuidance;
-
-  const pantryAnchors = getCuisinePantryAnchors(preferredCuisine);
-  const ingredientList = ingredients.map((item) => item.name).filter(Boolean).join(", ") || "the provided ingredients";
-  const baseGuidance = [
-    `Sparse pantry guidance: the user only provided ${ingredients.length} ingredient${ingredients.length === 1 ? "" : "s"} (${ingredientList}).`,
-    "Start from the strongest authentic dish family that naturally centers those ingredients, then list missing support items in missing_ingredients instead of forcing a generic recipe.",
-    "If a cuisine reference dish clearly centers the sparse ingredient, use that dish family even when most aromatics, bread, rice, sauces, or garnishes are missing.",
-    "When only one or two ingredients are available, it is acceptable for missing_ingredients to carry the aromatics, sauce components, starches, bread, herbs, or garnish that make the dish authentic.",
-    `Sparse/empty pantry productivity rule: treat ${cuisineLabel}, diets, allergens, health conditions, and calorie target as creative design constraints, not as permission to repeat plain safe plates. Produce a useful menu spread that a user would actually want to choose from.`,
-    `For this sparse request, the final ${requestedCount} cards should cover at least ${minimumForms} visibly different forms when diet and health rules allow it: saucy or glazed, grilled or BBQ or smoked, breaded or crusted, stew or curry or tagine, cheesy or creamy or safe dairy-free creamy, fried or crispy or baked-crisp, baked or roasted tray, sandwich or wrap, soup or broth, and rice or pasta or noodle integration.`,
-    normalizedCuisine === "any"
-      ? "For Any cuisine in sparse mode, actively rotate real cuisines and dish families. Do not let one cuisine, one method, or one base such as rice/pasta/grilled protein dominate the whole set."
-      : `For ${preferredCuisine} in sparse mode, first exhaust real ${preferredCuisine} dish families and regional forms before using adjacent cuisines. The cards should feel like a varied ${preferredCuisine} menu, not generic recipes wearing a cuisine label.`,
-    "Health adaptation rule: cholesterol, diabetes, hypertension, weight, kidney, heart, and similar conditions should reshape preparation, fat, sodium, carb load, portion, and cooking method; they should not erase normal food variety. Use baked-crisp instead of deep-fried, low-sodium sauces, leaner cuts, measured oil, lower-fat or dairy-free creamy elements, whole-grain or portion-controlled starches, and extra vegetables when appropriate.",
-    "Dish-promise integrity rule: if the name says breaded, BBQ, grilled, smoked, stew, curry, tandoori, fajita, parmesan, teriyaki, sweet and sour, creamy, cheesy, ginger, spinach, lemon, tahini, shawarma, stuffed, crispy, or fried, that exact element must appear in ingredients or missing_ingredients and must have a clear step explaining how it is made.",
-    "Apply dish-promise integrity across all ingredient categories, not only chicken or meat: seafood, fish, shrimp, eggs, dairy/paneer, legumes, grains, vegetables, fruit, bread, and mixed scans need the marinade, sauce, spice base, coating, filling, or cooking form promised by the dish name.",
-    "Sparse cooking logic rule: never use one generic script for every ingredient. Match timing and technique to the ingredient form: shrimp is quick, intact beef/steak needs longer than shrimp, and beef/lamb stew needs searing plus a long simmer. If a sparse pantry produces kofta/kafta/kofte from steak or intact meat, steps must explain mincing/grinding, seasoning, shaping, and grilling or pan-grilling.",
-    "Do not pretend the user already owns support ingredients. Keep ingredients strictly limited to the provided pantry items, but still choose the most recognizable real dish family those items suggest.",
-    buildIngredientPrepFormGuidance(ingredients, 10, preferredCuisine),
-    "For image_search_indices in sparse-pantries, keep the first phrase exact if a real iconic dish family fits, then add one or two broader ingredient-led food-photo phrases so image lookup can still succeed."
-  ];
-
-  if (pantryAnchors.length) {
-    baseGuidance.push(
-      `Sparse pantry anchors for ${preferredCuisine}: ${pantryAnchors.join(", ")}. When one of these staples appears, strongly prefer authentic dishes built around it.`
-    );
-  }
-
-  if (normalizedCuisine === "egyptian") {
-    if (hasAny(pantry, ["ground meat", "minced meat", "beef mince", "lamb mince", "mince"])) {
-      baseGuidance.push(
-        "Sparse Egyptian logic: ground meat alone can still justify named Egyptian families if missing support items are listed. Prefer a real spread such as kofta mashwia, Dawood Basha tomato meatballs, macarona bechamel, taagen kofta with potatoes or tomato sauce, Egyptian rice kofta, and hawawshi before generic grilled garlic/lemon meat or plain pasta."
-      );
-    }
-
-    if (
-      hasAny(pantry, ["ground meat", "ground beef", "minced meat", "beef mince", "lamb mince", "mince", "beef"]) &&
-      hasAny(pantry, ["bread", "baladi bread", "pita", "flatbread"]) &&
-      hasAny(pantry, ["rice"])
-    ) {
-      baseGuidance.push(egyptianMeatBreadRiceGuidance);
-    }
-
-    if (hasAny(pantry, ["egg", "eggs"])) {
-      baseGuidance.push(
-        "Sparse Egyptian logic: eggs alone or eggs with tomato/pepper can still justify shakshuka or eggah-style families if the missing vegetables, herbs, or bread are listed explicitly."
-      );
-    }
-
-    if (hasAny(pantry, ["fava bean", "broad bean", "ful"])) {
-      baseGuidance.push(
-        "Sparse Egyptian logic: fava beans alone can still justify ful medames or taameya-style dishes if the missing aromatics and herbs are listed explicitly."
-      );
-    }
-  }
-
-  if (normalizedCuisine === "italian") {
-    if (hasAny(pantry, ["pizza dough", "pizza base", "dough", "flour", "flatbread", "pita", "tortilla", "bread"])) {
-      baseGuidance.push(
-        "Sparse Italian logic: dough, flour, flatbread, pita, tortilla, or bread can still justify pizza margherita, pizza marinara, focaccia, calzone, or bruschetta when tomato, mozzarella, basil, yeast, or toppings are listed explicitly as missing ingredients."
-      );
-    }
-
-    if (hasAny(pantry, ["pasta", "spaghetti", "penne", "macaroni"])) {
-      baseGuidance.push(
-        "Sparse Italian logic: pasta alone should branch into named Italian pasta families such as pasta al pomodoro, arrabbiata, aglio e olio, cacio e pepe, puttanesca, baked pasta, pasta alla norma, or carbonara when the missing essentials fit the budget. Do not repeat generic pasta cards."
-      );
-    }
-
-    if (hasAny(pantry, ["rice", "arborio rice", "risotto rice"])) {
-      baseGuidance.push(
-        "Sparse Italian logic: rice can justify risotto only when broth-based creamy risotto technique is used and missing parmesan, stock, mushroom, seafood, or saffron is listed explicitly."
-      );
-    }
-  }
-
-  return baseGuidance.join(" ");
-}
-
 function buildNormalizedPantrySet(ingredients: Array<{ name: string; quantity?: string }>) {
   return new Set(
     ingredients
@@ -2909,6 +2306,14 @@ export class PromptBuilder {
 
   static recipeEditorSystemPrompt(recipeLanguage: string) {
     return buildRecipeEditorSystemPrompt(recipeLanguage);
+  }
+
+  static recipeDiscoverySystemPrompt(recipeLanguage: string) {
+    return buildRecipeDiscoverySystemPrompt(recipeLanguage);
+  }
+
+  static recipeDiscoveryResponseSchema(recipeCount: number) {
+    return buildRecipeDiscoveryResponseSchema(recipeCount);
   }
 
   static recipeEditorResponseSchema() {

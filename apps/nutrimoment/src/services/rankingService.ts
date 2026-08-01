@@ -26,16 +26,26 @@ export function rankRecipes({
 }: RankRecipesInput): RankedRecipeResult[] {
   const ingredientNormalizer = new IngredientNormalizer();
   const available = buildWeightedAvailableIngredientSet(normalizedIngredients, ingredientNormalizer);
+  const ingredientMatchWeightCache = new Map<string, number>();
+  const resolveIngredientMatchWeight = (ingredient: string) => {
+    const cacheKey = normalizeIngredientText(ingredient);
+    if (!cacheKey) return 0;
+    const cached = ingredientMatchWeightCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+    const weight = getAvailableIngredientMatchWeight(cacheKey, available, ingredientNormalizer);
+    ingredientMatchWeightCache.set(cacheKey, weight);
+    return weight;
+  };
 
   return recipes
     .map((recipe) => {
       const requiredMatches = recipe.requiredCanonicals.map((item) => ({
         item,
-        weight: getAvailableIngredientMatchWeight(item, available, ingredientNormalizer)
+        weight: resolveIngredientMatchWeight(item)
       }));
       const optionalMatches = recipe.optionalCanonicals.map((item) => ({
         item,
-        weight: getAvailableIngredientMatchWeight(item, available, ingredientNormalizer)
+        weight: resolveIngredientMatchWeight(item)
       }));
       const matchedRequired = requiredMatches.filter((match) => match.weight > 0).map((match) => match.item);
       const missingRequired = requiredMatches.filter((match) => match.weight <= 0).map((match) => match.item);
@@ -44,7 +54,6 @@ export function rankRecipes({
       const requiredMatchWeight = requiredMatches.reduce((total, match) => total + match.weight, 0) / 100;
       const optionalMatchWeight = optionalMatches.reduce((total, match) => total + match.weight, 0) / 100;
       const allergenViolation = (preferences.allergens ?? []).some((allergen) => recipe.allergenTags.includes(allergen));
-      const dietViolation = preferences.requiredDietTags.some((dietTag) => !recipe.dietTags.includes(dietTag));
       const dietMatch = preferences.requiredDietTags.length
         ? Number(preferences.requiredDietTags.every((dietTag) => recipe.dietTags.includes(dietTag)))
         : 0;
@@ -63,6 +72,7 @@ export function rankRecipes({
       });
       const popularityBoost = normalizeBoost(recipe.popularityScore);
       const qualityBoost = normalizeBoost(recipe.qualityScore);
+      const sourceAuthorityBoost = scoreSourceAuthority(recipe);
       const nutritionGoalScore = scoreNutritionGoals(recipe, preferences);
       const healthFit = scoreHealthMetadata(recipe, preferences);
       const aliasOverlapScore = scoreAliasOverlap(recipe, normalizedIngredients);
@@ -93,7 +103,8 @@ export function rankRecipes({
         knowledgePathScore +
         nutritionGoalScore +
         popularityBoost +
-        qualityBoost -
+        qualityBoost +
+        sourceAuthorityBoost -
         (allergenViolation ? 100 : 0);
 
       return {
@@ -105,7 +116,9 @@ export function rankRecipes({
         missingRequired,
         missingOptional,
         preferenceHits,
-        hardRejected: allergenViolation || dietViolation,
+        // Diet is a preference signal in retrieval. Allergen conflicts remain
+        // the only hard safety exclusion at this stage.
+        hardRejected: allergenViolation,
         servedFrom: "shared_pool" as const
       };
     })
@@ -205,6 +218,12 @@ function scoreAliasOverlap(recipe: RecipeCatalogDoc, normalizedIngredients: stri
   }
 
   return Math.min(overlap, 3);
+}
+
+function scoreSourceAuthority(recipe: RecipeCatalogDoc) {
+  if (recipe.id.startsWith("trusted-source-")) return 6;
+  if (recipe.source?.provider === "cuisine-catalog-v2") return 3;
+  return recipe.source?.url ? 1 : 0;
 }
 
 /**

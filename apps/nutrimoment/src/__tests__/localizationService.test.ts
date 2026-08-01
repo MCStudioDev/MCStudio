@@ -94,4 +94,14 @@ describe("LocalizationService", () => {
     expect(normalized.steps[0]).toContain("\u0627\u0634\u0648");
     expect(validateArabicRecipeLocalization(normalized).valid).toBe(true);
   });
+
+  it("keeps localized dish titles stable across repeated pipeline passes", () => {
+    const once = localizationService.normalizeDishTitle("Baladi Hawawshi", "en");
+    const twice = localizationService.normalizeDishTitle(once, "en");
+    const threeTimes = localizationService.normalizeDishTitle(twice, "en");
+
+    expect(once).toBe("Baladi Egyptian Hawawshi");
+    expect(twice).toBe(once);
+    expect(threeTimes).toBe(once);
+  });
 });

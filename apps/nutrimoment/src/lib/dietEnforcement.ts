@@ -283,19 +283,7 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
       "milk solids",
       "ice cream",
       "kashk",
-      "smen",
-      "egg",
-      "eggs",
-      "egg white",
-      "egg yolk",
-      "omelette",
-      "omelet",
-      "frittata",
-      "shakshuka",
-      "eggah",
-      "meringue",
-      "mayonnaise",
-      "mayo"
+      "smen"
     ],
     arabic: [
       "بيض",
@@ -790,7 +778,7 @@ const ARABIC_DIET_FORBIDDEN_ALIASES: Partial<Record<string, string[]>> = {
     "جيلاتين"
   ],
   vegetarian: [...ARABIC_MEAT_POULTRY_TERMS, ...ARABIC_SEAFOOD_TERMS, "جيلاتين"],
-  dairyFree: ARABIC_DAIRY_EGG_TERMS,
+  dairyFree: ARABIC_DAIRY_EGG_TERMS.filter((term) => !/بيض|أوم|اوم|فريتاتا|شكشوكة|عجة|مايونيز/.test(term)),
   pescatarian: [...ARABIC_MEAT_POULTRY_TERMS, "جيلاتين"],
   glutenFree: [
     "قمح",
@@ -882,6 +870,7 @@ function resolveDietForbiddenPatterns(diet: string): ForbiddenPatternSet | null 
 export interface DietEnforcementContext {
   diets: string[];
   allergens: string[];
+  preferredProteinIngredients?: string[];
 }
 
 function resolveAllergenForbiddenPatterns(allergen: string): ForbiddenPatternSet | null {
@@ -930,9 +919,20 @@ function removeKetoLowCarbSubstitutes(value: string) {
 
 function removePlantBasedDairyAlternatives(value: string) {
   return value
+    .replace(/\b(?:vegan|dairy free|dairy-free|plant based|plant-based)\s+(?:[a-z]+\s+){0,4}(?:milk|cream|butter|ghee|yogurt|yoghurt|labneh|cheese|feta|halloumi|ricotta|mozzarella|parmesan|cheddar|paneer)\b/g, "safe named dish")
     .replace(/\b(almond|oat|soy|coconut|cashew|hemp|pea|rice|hazelnut|macadamia)\s+milk\b/g, " ")
     .replace(/\b(coconut|cashew|oat|soy|almond)\s+cream\b/g, " ")
-    .replace(/\b(vegan|plant based|plant-based|dairy free|dairy-free)\s+(cheese|yogurt|yoghurt|cream|butter)\b/g, " ")
+    .replace(/\b(vegan|plant based|plant-based|dairy free|dairy-free)\s+(?:unsweetened\s+)?(cheese|yogurt|yoghurt|cream|butter)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function removePlantBasedDairyAlternativesArabic(value: string) {
+  return value
+    .replace(/(?:\u062d\u0644\u064a\u0628|\u0645\u0634\u0631\u0648\u0628)\s+(?:\u0627\u0644\u0644\u0648\u0632|\u0627\u0644\u0635\u0648\u064a\u0627|\u062c\u0648\u0632\s+\u0627\u0644\u0647\u0646\u062f|\u0627\u0644\u0643\u0627\u062c\u0648)(?:\s+\u063a\u064a\u0631\s+\u0645\u062d\u0644\u0649)?/gu, " ")
+    .replace(/\u0643\u0631\u064a\u0645\u0629\s+(?:\u062c\u0648\u0632\s+\u0647\u0646\u062f|\u062c\u0648\u0632\s+\u0627\u0644\u0647\u0646\u062f|\u0643\u0627\u062c\u0648)(?:\s+\u063a\u064a\u0631\s+\u0645\u062d\u0644\u0627\u0629)?/gu, " ")
+    .replace(/\u0632\u0628\u0627\u062f\u064a\s+\u0646\u0628\u0627\u062a\u064a(?:\s+\u063a\u064a\u0631\s+\u0645\u062d\u0644\u0649)?/gu, " ")
+    .replace(/\u0628\u062f\u064a\u0644\s+\u062c\u0628\u0646\s+\u0646\u0628\u0627\u062a\u064a/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -1046,6 +1046,208 @@ interface RecipeLike {
   dish_intent?: { dish_name?: string; visual_keywords?: string[] };
 }
 
+export function adaptRecipeForDietRestrictions<T extends RecipeLike>(
+  recipe: T,
+  ctx: DietEnforcementContext
+): T {
+  let adaptedRecipe = recipe;
+  if (ctx.diets.some((diet) => diet === "glutenFree" || diet === "gluten")) {
+    adaptedRecipe = adaptRecipeText(recipe, makeGlutenSourcesExplicitlySafe);
+  }
+  if (ctx.diets.includes("pescatarian")) {
+    const replacement = choosePescatarianProteinReplacement(adaptedRecipe, ctx.preferredProteinIngredients ?? []);
+    adaptedRecipe = adaptRecipeText(
+      adaptedRecipe,
+      (value) => makePescatarianSourcesExplicitlySafe(value, replacement)
+    );
+  }
+  if (ctx.diets.includes("dairyFree") || ctx.diets.includes("vegan")) {
+    adaptedRecipe = adaptRecipeText(
+      adaptedRecipe,
+      makeDairySourcesExplicitlySafe,
+      (value) => makeDairyRecipeTitleExplicitlySafe(value, ctx.diets.includes("vegan"))
+    );
+  }
+  if (ctx.diets.includes("vegan")) {
+    const replacement = chooseVeganProteinReplacement(ctx.preferredProteinIngredients ?? []);
+    adaptedRecipe = adaptRecipeText(adaptedRecipe, (value) => makeAnimalSourcesExplicitlyVegan(value, replacement));
+  }
+  if (ctx.diets.includes("keto")) {
+    adaptedRecipe = adaptRecipeText(adaptedRecipe, makeKetoCarriersExplicitlySafe);
+  }
+  return adaptedRecipe;
+}
+
+function adaptRecipeText<T extends RecipeLike>(
+  recipe: T,
+  transform: (value: string) => string,
+  titleTransform: (value: string) => string = transform
+): T {
+  const adaptList = (values?: Array<string | { canonical?: string; name?: string }>) =>
+    values?.map((value) => {
+      if (typeof value === "string") return transform(value);
+      return {
+        ...value,
+        ...(value.name ? { name: transform(value.name) } : {}),
+        ...(value.canonical ? { canonical: transform(value.canonical) } : {})
+      };
+    });
+  const adaptIntent = (intent?: RecipeLike["dish_intent"]) => intent
+    ? {
+        ...intent,
+        ...(intent.dish_name ? { dish_name: transform(intent.dish_name) } : {}),
+        ...(intent.visual_keywords
+          ? { visual_keywords: intent.visual_keywords.map(transform) }
+          : {})
+      }
+    : intent;
+
+  return {
+    ...recipe,
+    ...(recipe.title ? { title: titleTransform(recipe.title) } : {}),
+    ...(recipe.name ? { name: titleTransform(recipe.name) } : {}),
+    ...(recipe.ingredients ? { ingredients: adaptList(recipe.ingredients) } : {}),
+    ...(recipe.missing_ingredients ? { missing_ingredients: adaptList(recipe.missing_ingredients) } : {}),
+    ...(recipe.steps ? { steps: recipe.steps.map(transform) } : {}),
+    ...(recipe.dish_intent ? { dish_intent: adaptIntent(recipe.dish_intent) } : {}),
+    ...(recipe.dishIntent ? { dishIntent: adaptIntent(recipe.dishIntent) } : {})
+  } as T;
+}
+
+function choosePescatarianProteinReplacement(recipe: RecipeLike, preferredIngredients: string[]) {
+  const haystack = [
+    ...preferredIngredients,
+    ...collectInspectionStrings(recipe)
+  ].join(" ").toLowerCase();
+  if (/\b(shrimp|prawn|scampi)\b|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646/u.test(haystack)) {
+    return { ar: "\u062c\u0645\u0628\u0631\u064a", en: "shrimp" };
+  }
+  if (/\b(salmon)\b|\u0633\u0644\u0645\u0648\u0646/u.test(haystack)) {
+    return { ar: "\u0633\u0644\u0645\u0648\u0646", en: "salmon" };
+  }
+  return { ar: "\u0633\u0645\u0643 \u0623\u0628\u064a\u0636", en: "firm white fish" };
+}
+
+function makePescatarianSourcesExplicitlySafe(
+  value: string,
+  replacement: { ar: string; en: string }
+) {
+  const usesArabic = /[\u0600-\u06FF]/u.test(value);
+  const protein = usesArabic ? replacement.ar : replacement.en;
+  const vegetableStock = usesArabic ? "\u0645\u0631\u0642 \u062e\u0636\u0631\u0648\u0627\u062a \u0642\u0644\u064a\u0644 \u0627\u0644\u0635\u0648\u062f\u064a\u0648\u0645" : "low-sodium vegetable stock";
+  const savoryAlternative = usesArabic ? "\u0641\u0637\u0631 \u0645\u062f\u062e\u0646" : "smoked mushrooms";
+
+  return value
+    .replace(/\b(?:beef|chicken|pork|lamb|mutton|turkey|duck|meat)\s+(?:broth|bouillon|stock)\b/gi, vegetableStock)
+    .replace(/\b(?:bacon|ham|prosciutto|pepperoni|salami|sausage|chorizo)\b/gi, savoryAlternative)
+    .replace(/\b(?:beef|veal|chicken|pork|lamb|mutton|turkey|duck|goose|rabbit|meat)\b/gi, protein)
+    .replace(/\u0644\u062d\u0645\s+(?:\u0627\u0644)?\u062e\u0646\u0632\u064a\u0631/gu, protein)
+    .replace(/\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e|\u0644\u062d\u0645|\u0628\u0642\u0631\u064a|\u0636\u0627\u0646\u064a|\u062e\u0631\u0648\u0641|\u062f\u064a\u0643\s+\u0631\u0648\u0645\u064a/gu, protein);
+}
+
+function makeDairySourcesExplicitlySafe(value: string): string {
+  const protectedTerms: string[] = [];
+  const protectedValue = value.replace(
+    /\b(?:(?:unsweetened\s+)?(?:almond|soy|coconut|cashew|hemp|pea|rice|hazelnut|macadamia)\s+(?:milk|cream)|(?:vegan|plant[- ]based|dairy[- ]free)\s+(?:unsweetened\s+)?(?:cheese|yogurt|yoghurt|cream|butter))\b/gi,
+    (match) => {
+      protectedTerms.push(match);
+      return `dairyalternativetoken${protectedTerms.length - 1}`;
+    }
+  );
+
+  const adapted = protectedValue
+    .replace(/\b(?:evaporated|condensed)\s+milk\b/gi, "dairynewmilktoken")
+    .replace(/\b(?:heavy|whipping|sour)\s+cream\b/gi, "dairynewcreamtoken")
+    .replace(/\b(?:buttermilk|milk\s+powder|milk\s+solids)\b/gi, "dairynewmilktoken")
+    .replace(/\b(?:yogurt|yoghurt|labneh|kashk)\b/gi, "dairynewyogurttoken")
+    .replace(/\b(?:feta|halloumi|ricotta|mozzarella|parmesan|cheddar|paneer|cheese)\b/gi, "dairynewcheesetoken")
+    .replace(/\b(?:butter|ghee|smen)\b/gi, "olive oil")
+    .replace(/\bmilk\b/gi, "dairynewmilktoken")
+    .replace(/\bcream\b/gi, "dairynewcreamtoken")
+    .replace(/\u062d\u0644\u064a\u0628|\u0644\u0628\u0646/gu, "\u062d\u0644\u064a\u0628 \u0644\u0648\u0632 \u063a\u064a\u0631 \u0645\u062d\u0644\u0649")
+    .replace(/\u0643\u0631\u064a\u0645\u0629|\u0642\u0634\u0637\u0629/gu, "\u0643\u0631\u064a\u0645\u0629 \u062c\u0648\u0632 \u0647\u0646\u062f \u063a\u064a\u0631 \u0645\u062d\u0644\u0627\u0629")
+    .replace(/\u0632\u0628\u0627\u062f\u064a|\u0644\u0628\u0646\u0629/gu, "\u0632\u0628\u0627\u062f\u064a \u0646\u0628\u0627\u062a\u064a \u063a\u064a\u0631 \u0645\u062d\u0644\u0649")
+    .replace(/\u062c\u0628\u0646\u0629|\u062c\u0628\u0646|\u0641\u064a\u062a\u0627|\u062d\u0644\u0648\u0645|\u0645\u0648\u0632\u0627\u0631\u064a\u0644\u0627|\u0628\u0627\u0631\u0645\u064a\u0632\u0627\u0646|\u0634\u064a\u062f\u0631/gu, "\u0628\u062f\u064a\u0644 \u062c\u0628\u0646 \u0646\u0628\u0627\u062a\u064a")
+    .replace(/\u0632\u0628\u062f\u0629|\u0633\u0645\u0646\u0629/gu, "\u0632\u064a\u062a \u0632\u064a\u062a\u0648\u0646");
+
+  return adapted
+    .replace(/dairynewmilktoken/g, "unsweetened almond milk")
+    .replace(/dairynewcreamtoken/g, "unsweetened coconut cream")
+    .replace(/dairynewyogurttoken/g, "dairy-free unsweetened yogurt")
+    .replace(/dairynewcheesetoken/g, "dairy-free cheese")
+    .replace(/dairyalternativetoken(\d+)/g, (_, index: string) => protectedTerms[Number(index)] ?? "");
+}
+
+function makeDairyRecipeTitleExplicitlySafe(value: string, vegan: boolean) {
+  const containsDairyIdentity = /\b(?:milk|cream|butter|ghee|yogurt|yoghurt|labneh|cheese|feta|halloumi|ricotta|mozzarella|parmesan|cheddar|paneer)\b/i.test(value);
+  if (!containsDairyIdentity || /\b(?:vegan|dairy[- ]free|plant[- ]based)\b/i.test(value)) return value;
+  return `${vegan ? "Vegan" : "Dairy-Free"} ${value}`;
+}
+
+function chooseVeganProteinReplacement(preferredIngredients: string[]) {
+  const source = preferredIngredients.join(" ").toLowerCase();
+  if (/\bchickpeas?\b|\u062d\u0645\u0635/u.test(source)) return "chickpeas";
+  if (/\blentils?\b|\u0639\u062f\u0633/u.test(source)) return "lentils";
+  if (/\btofu\b/u.test(source)) return "firm tofu";
+  return "chickpeas";
+}
+
+function makeAnimalSourcesExplicitlyVegan(value: string, protein: string): string {
+  return value
+    .replace(/\b(?:fish|oyster)\s+sauce\b/gi, "soy sauce")
+    .replace(/\b(?:beef|chicken|pork|lamb|mutton|turkey|duck|fish)\s+(?:broth|bouillon|stock)\b/gi, "low-sodium vegetable stock")
+    .replace(/\b(?:bacon|ham|prosciutto|pepperoni|salami|sausage|chorizo)\b/gi, "smoked mushrooms")
+    .replace(/\b(?:beef|veal|chicken|pork|lamb|mutton|turkey|duck|goose|rabbit|fish|salmon|tuna|shrimp|prawn|crab|lobster|seafood|meat)\b/gi, protein)
+    .replace(/\b(?:egg|eggs)\b/gi, "ground flaxseed slurry")
+    .replace(/\b(?:honey)\b/gi, "maple syrup")
+    .replace(/\b(?:gelatin)\b/gi, "agar agar")
+    .replace(/\b(?:lard|tallow)\b/gi, "olive oil")
+    .replace(/\u062f\u062c\u0627\u062c|\u0641\u0631\u0627\u062e|\u0644\u062d\u0645|\u0633\u0645\u0643|\u062c\u0645\u0628\u0631\u064a|\u0631\u0648\u0628\u064a\u0627\u0646/gu, "\u062d\u0645\u0635")
+    .replace(/\u0628\u064a\u0636(?:\u0629|\u0627\u062a)?/gu, "\u062e\u0644\u064a\u0637 \u0628\u0630\u0648\u0631 \u0643\u062a\u0627\u0646 \u0645\u0637\u062d\u0648\u0646\u0629")
+    .replace(/\u0639\u0633\u0644/gu, "\u0634\u0631\u0627\u0628 \u0642\u064a\u0642\u0628")
+    .replace(/\u062c\u064a\u0644\u0627\u062a\u064a\u0646/gu, "\u0623\u062c\u0627\u0631 \u0623\u062c\u0627\u0631");
+}
+
+function makeKetoCarriersExplicitlySafe(value: string): string {
+  const protectedTerms: string[] = [];
+  const protectedValue = value.replace(
+    /\b(?:(?:cauliflower|broccoli|cabbage)\s+rice|(?:zucchini|shirataki|konjac|kohlrabi|cucumber)\s+noodles?|(?:lettuce|collard|cabbage)\s+wraps?|low[- ]carb\s+flatbread)\b/gi,
+    (match) => {
+      protectedTerms.push(match);
+      return `ketosubstitutetoken${protectedTerms.length - 1}`;
+    }
+  );
+
+  const adapted = protectedValue
+    .replace(/\b(?:rice\s+noodles?|spaghetti|macaroni|pasta|noodles?)\b/gi, "zucchini noodles")
+    .replace(/\b(?:sweet\s+potato(?:es)?|potato(?:es)?)\b/gi, "cauliflower florets")
+    .replace(/\b(?:wheat\s+flour|all[- ]purpose\s+flour|bread\s+flour|flour|wheat)\b/gi, "finely ground almonds")
+    .replace(/\b(?:breadcrumbs?|bread|toast|pita|tortillas?|wraps?)\b/gi, "low-carb flatbread")
+    .replace(/\b(?:brown\s+rice|white\s+rice|rice|oatmeal|oats?|barley|bulgur|couscous|quinoa)\b/gi, "cauliflower rice")
+    .replace(/\b(?:beans?|lentils?|chickpeas?)\b/gi, "diced zucchini")
+    .replace(/\b(?:corn)\b/gi, "diced bell pepper")
+    .replace(/\b(?:honey|sugar|dates?)\b/gi, "monk fruit sweetener")
+    .replace(/\b(?:apples?|bananas?)\b/gi, "berries");
+
+  return adapted.replace(/ketosubstitutetoken(\d+)/g, (_, index: string) => protectedTerms[Number(index)] ?? "");
+}
+
+function makeGlutenSourcesExplicitlySafe(value: string): string {
+  const protectedTerms: string[] = [];
+  const protectedValue = value.replace(
+    /\b(?:certified\s+)?gluten[- ]free\s+(?:wheat|flours?|breads?|breadcrumbs?|pastas?|spaghetti|macaroni|lasagn[ae]|noodles?|ravioli|crusts?|tortillas?|crackers?|couscous|bulgur|semolina)\b/gi,
+    (match) => {
+      protectedTerms.push(match);
+      return `gfsubstitutetoken${protectedTerms.length - 1}`;
+    }
+  );
+  const adapted = protectedValue.replace(
+    /\b(wheat|flours?|breads?|breadcrumbs?|pastas?|spaghetti|macaroni|lasagn[ae]|noodles?|ravioli|crusts?|tortillas?|crackers?|couscous|bulgur|semolina)\b/gi,
+    (match) => `gluten-free ${match.toLowerCase()}`
+  );
+  return adapted.replace(/gfsubstitutetoken(\d+)/g, (_, index: string) => protectedTerms[Number(index)] ?? "");
+}
+
 function collectIngredientStrings(values?: Array<string | { canonical?: string; name?: string }>): string[] {
   if (!Array.isArray(values)) return [];
   return values
@@ -1096,12 +1298,21 @@ export function findRecipeDietViolation(
       diet === "keto" || diet === "paleo"
         ? removeKetoLowCarbSubstitutes(englishHaystack)
         : englishHaystack;
+    if (diet === "glutenFree" || diet === "gluten") {
+      dietEnglishHaystack = removeGlutenFreeSubstitutes(dietEnglishHaystack);
+    }
+    if (diet === "vegan" || diet === "vegetarian" || diet === "pescatarian") {
+      dietEnglishHaystack = removePlantBasedProteinFalsePositives(dietEnglishHaystack);
+    }
     if (diet === "vegan" || diet === "dairyFree") {
       dietEnglishHaystack = removePlantBasedDairyAlternatives(dietEnglishHaystack);
     }
+    const dietArabicHaystack = diet === "vegan" || diet === "dairyFree"
+      ? removePlantBasedDairyAlternativesArabic(arabicHaystack)
+      : arabicHaystack;
     const englishHit = matchesEnglishPattern(dietEnglishHaystack, patterns.english);
     if (englishHit) return { kind: "diet", diet, match: englishHit };
-    const arabicHit = matchesArabicPattern(arabicHaystack, patterns.arabic);
+    const arabicHit = matchesArabicPattern(dietArabicHaystack, patterns.arabic);
     if (arabicHit) return { kind: "diet", diet, match: arabicHit };
   }
 
@@ -1111,13 +1322,32 @@ export function findRecipeDietViolation(
     const allergenEnglishHaystack = /^(dairy|milk)$/i.test(allergen)
       ? removePlantBasedDairyAlternatives(englishHaystack)
       : englishHaystack;
+    const allergenArabicHaystack = /^(dairy|milk)$/i.test(allergen)
+      ? removePlantBasedDairyAlternativesArabic(arabicHaystack)
+      : arabicHaystack;
     const englishHit = matchesEnglishPattern(allergenEnglishHaystack, patterns.english);
     if (englishHit) return { kind: "allergen", allergen, match: englishHit };
-    const arabicHit = matchesArabicPattern(arabicHaystack, patterns.arabic);
+    const arabicHit = matchesArabicPattern(allergenArabicHaystack, patterns.arabic);
     if (arabicHit) return { kind: "allergen", allergen, match: arabicHit };
   }
 
   return null;
+}
+
+function removePlantBasedProteinFalsePositives(value: string): string {
+  return value
+    .replace(/\bkidney\s+beans?\b/g, "beans")
+    .replace(/\boyster\s+mushrooms?\b/g, "mushrooms");
+}
+
+function removeGlutenFreeSubstitutes(value: string): string {
+  return value
+    .replace(
+      /\b(?:certified\s+)?gluten[- ]free\s+(?:wheat|flours?|breads?|breadcrumbs?|pastas?|spaghetti|macaroni|lasagn[ae]|noodles?|ravioli|crusts?|tortillas?|crackers?|couscous|bulgur|semolina)\b/g,
+      "safe substitute"
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function findIngredientDietViolation(

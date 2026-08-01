@@ -28,6 +28,7 @@ export interface AiTextGenerationOptions {
   systemInstruction?: string;
   responseMimeType?: string;
   responseJsonSchema?: Record<string, unknown>;
+  requestTimeoutMs?: number;
 }
 
 const rawUseMock = process.env.USE_MOCK_API === "true";
@@ -41,9 +42,9 @@ export const HAS_GEMINI_API_KEY = apiKey.length > 0;
 
 export function getClient(): GoogleGenAI | null {
   if (!apiKey) return null;
-  // The Gemini SDK prefers GOOGLE_API_KEY when both variables exist in the process.
-  // Keep it aligned so a stale machine-level key cannot override this app's key.
-  process.env.GOOGLE_API_KEY = apiKey;
+  // The GenAI SDK also inspects this legacy environment variable and warns
+  // when it competes with the explicitly supplied Gemini key.
+  delete process.env.GOOGLE_API_KEY;
   return new GoogleGenAI({ apiKey });
 }
 
@@ -134,11 +135,11 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createGeminiRequestAbortController() {
+function createGeminiRequestAbortController(timeoutMs = requestTimeoutMs) {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => {
-    controller.abort(new Error(`Gemini request timed out after ${requestTimeoutMs}ms`));
-  }, requestTimeoutMs);
+    controller.abort(new Error(`Gemini request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
 
   return { controller, timeout };
 }
@@ -165,7 +166,8 @@ export async function callOpenAIText(
     for (let modelAttempt = 1; modelAttempt <= transientRetryAttempts; modelAttempt += 1) {
       attempt += 1;
       try {
-        const { controller, timeout } = createGeminiRequestAbortController();
+        const effectiveRequestTimeoutMs = Math.max(5_000, options?.requestTimeoutMs ?? requestTimeoutMs);
+        const { controller, timeout } = createGeminiRequestAbortController(effectiveRequestTimeoutMs);
         logger.debug("Gemini text generation attempt started", {
           requestId: trace?.requestId,
           feature: trace?.feature,
@@ -175,6 +177,8 @@ export async function callOpenAIText(
           attempt,
           attempts: totalAttempts
         });
+        const supportsResponseMimeType = !options?.groundWithGoogleSearch;
+        const supportsResponseJsonSchema = !options?.groundWithGoogleSearch;
         let response;
         try {
           response = await client.models.generateContent({
@@ -183,13 +187,17 @@ export async function callOpenAIText(
             config: {
               abortSignal: controller.signal,
               ...(options?.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
-              ...(options?.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
-              ...(options?.responseJsonSchema ? { responseJsonSchema: options.responseJsonSchema } : {}),
+              ...(supportsResponseMimeType && options?.responseMimeType
+                ? { responseMimeType: options.responseMimeType }
+                : {}),
+              ...(supportsResponseJsonSchema && options?.responseJsonSchema
+                ? { responseJsonSchema: options.responseJsonSchema }
+                : {}),
               ...(options?.groundWithGoogleSearch ? { tools: [{ googleSearch: {} }] } : {}),
               ...(typeof options?.temperature === "number" ? { temperature: options.temperature } : {}),
               ...(typeof options?.topP === "number" ? { topP: options.topP } : {}),
               httpOptions: {
-                timeout: requestTimeoutMs
+                timeout: effectiveRequestTimeoutMs
               }
             }
           });

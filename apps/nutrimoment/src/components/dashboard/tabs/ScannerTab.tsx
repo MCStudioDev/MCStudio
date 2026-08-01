@@ -817,6 +817,7 @@ export function ScannerTab() {
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           ingredients: ingredientNames.length ? ingredientNames : undefined,
+          debug: typeof window !== "undefined" && window.localStorage.getItem("nutrimoment:recipe-debug") === "true",
           historyEntryId: pendingEntryId ?? undefined,
           referenceImage: canUseReferenceImage ? lastScanImage ?? undefined : undefined,
           recipeCount: settings.recipeCount,
@@ -832,6 +833,10 @@ export function ScannerTab() {
 
       const data = (await response.json()) as {
         result?: string;
+        recipes?: Recipe[];
+        requestId?: string;
+        request_trace?: unknown;
+        search_candidates_found?: number;
         error?: string;
         message?: string;
         servedFrom?: "shared_pool" | "fallback_ai" | "mock" | "recipe_reference" | "local_recipe_sources";
@@ -842,14 +847,33 @@ export function ScannerTab() {
         throw new Error(data.error ?? "Failed to generate recipes");
       }
 
-      const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "[]", []);
+      const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "", data.recipes ?? []);
       if (requestVersion !== recipeRequestVersionRef.current) {
         return;
       }
 
-      setRecipeGenerationStatus(
-        resolveRecipeGenerationStatus(data.generationStatus, data.servedFrom, nextRecipes.length, settings.recipeCount)
+      const resolvedStatus = resolveRecipeGenerationStatus(
+        data.generationStatus,
+        data.servedFrom,
+        nextRecipes.length,
+        settings.recipeCount
       );
+      const nextStatus =
+        resolvedStatus === RecipeGenerationStatus.NO_RESULTS && (data.search_candidates_found ?? 0) > 0
+          ? RecipeGenerationStatus.PARTIAL_RESULTS
+          : resolvedStatus;
+      console.info("[NutriMoment recipe generation]", {
+        requestId: data.requestId,
+        apiTrace: data.request_trace,
+        frontendRecipesReceived: nextRecipes.length,
+        generationStatus: nextStatus,
+        uiDecision: nextRecipes.length
+          ? "render_recipe_cards"
+          : nextStatus === RecipeGenerationStatus.NO_RESULTS && (data.search_candidates_found ?? 0) === 0
+            ? "show_no_matching_recipes_from_backend"
+            : "show_empty_ready_state_without_no_results_status"
+      });
+      setRecipeGenerationStatus(nextStatus);
       setRecipes(nextRecipes);
       if (!nextRecipes.length) {
         setHistoryEntryId(null);
@@ -1282,6 +1306,8 @@ export function ScannerTab() {
                   previewItems={buildRecipePreviewItems(recipe)}
                   imageUrl={hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess) ? recipe.image_url : undefined}
                   imageSource={recipe.image_source}
+                  recipeSource={recipe.recipe_source_type}
+                  recipeSourceUrl={recipe.source_url}
                   imageAttributionName={recipe.image_attribution_name}
                   imageAttributionUrl={recipe.image_attribution_url}
                   imageLoading={recipe.image_loading}

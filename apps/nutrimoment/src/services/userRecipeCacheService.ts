@@ -33,8 +33,8 @@ const USER_CACHE_COLLECTION = "offlineRecipeCache";
 const SHARED_CACHE_COLLECTION = "sharedOfflineRecipeCache";
 const MAX_USER_CACHE_DOCS = 120;
 const MAX_SHARED_CACHE_DOCS = 250;
-const MAX_SHARED_CACHE_INGREDIENT_DOCS = 160;
-const MAX_SHARED_CACHE_INGREDIENT_QUERIES = 6;
+const MAX_SHARED_CACHE_INGREDIENT_DOCS = 40;
+const MAX_SHARED_CACHE_INGREDIENT_QUERIES = 3;
 const CACHE_READ_TIMEOUT_MS = 6000;
 const SHARED_CACHE_STALE_TTL_MS = 30 * 60 * 1000;
 const FULL_SHARED_CACHE_STALE_TTL_MS = 60 * 60 * 1000;
@@ -198,8 +198,6 @@ export async function listSharedCachedRecipesForIngredients(ingredients: string[
     logger.info("Shared recipe pool reads are disabled by environment flag");
     return [];
   }
-
-  primeFullSharedRecipeCache();
 
   const canonicalIngredients = Array.from(
     new Set(ingredients.map((ingredient) => ingredient.trim().toLowerCase()).filter(Boolean))

@@ -66,8 +66,16 @@ export const FOOD_DICTIONARY: FoodDictionary = {
     { en: "whisk", ar: "\u0627\u062e\u0641\u0642", aliases: ["whisked"] }
   ],
   dishNames: [
-    { en: "Chicken Cacciatore", ar: "\u062f\u062c\u0627\u062c \u0643\u0627\u062a\u0634\u0627\u062a\u0648\u0631\u064a \u0628\u0635\u0648\u0635 \u0627\u0644\u0637\u0645\u0627\u0637\u0645" },
-    { en: "Chicken Parmesan", ar: "\u062f\u062c\u0627\u062c \u0628\u0635\u0644\u0635\u0629 \u0627\u0644\u0637\u0645\u0627\u0637\u0645 \u0648\u0627\u0644\u0628\u0627\u0631\u0645\u064a\u0632\u0627\u0646" },
+    {
+      en: "Chicken Cacciatore",
+      ar: "\u062f\u062c\u0627\u062c \u0643\u0627\u062a\u0634\u0627\u062a\u0648\u0631\u064a \u0628\u0635\u0648\u0635 \u0627\u0644\u0637\u0645\u0627\u0637\u0645",
+      aliases: ["Pollo Cacciatore", "Pollo alla Cacciatora", "Chicken Cacciatora"]
+    },
+    {
+      en: "Chicken Parmesan",
+      ar: "\u062f\u062c\u0627\u062c \u0628\u0635\u0644\u0635\u0629 \u0627\u0644\u0637\u0645\u0627\u0637\u0645 \u0648\u0627\u0644\u0628\u0627\u0631\u0645\u064a\u0632\u0627\u0646",
+      aliases: ["Chicken Parmigiana", "Chicken Parmigiano", "Pollo alla Parmigiana"]
+    },
     { en: "Chicken Shawarma", ar: "\u0634\u0627\u0648\u0631\u0645\u0627 \u062f\u062c\u0627\u062c" },
     { en: "Egyptian Hawawshi", ar: "\u062d\u0648\u0627\u0648\u0634\u064a \u0645\u0635\u0631\u064a", aliases: ["Hawawshi"] },
     { en: "Kofta", ar: "\u0643\u0641\u062a\u0629", aliases: ["Kofte", "Kafta"] },
@@ -78,6 +86,32 @@ export const FOOD_DICTIONARY: FoodDictionary = {
     { en: "Teriyaki Chicken", ar: "\u062f\u062c\u0627\u062c \u062a\u0631\u064a\u0627\u0643\u064a" }
   ],
   ingredients: [
+    {
+      id: "lamb",
+      canonicalEnglishName: "lamb",
+      canonicalArabicName: "\u0644\u062d\u0645 \u0636\u0623\u0646",
+      category: "protein",
+      aliases: [
+        "lamb",
+        "lamb meat",
+        "ground lamb",
+        "minced lamb",
+        "lamb mince",
+        "mutton",
+        "ground mutton",
+        "\u0644\u062d\u0645 \u0636\u0623\u0646",
+        "\u0644\u062d\u0645 \u063a\u0646\u0645",
+        "\u0644\u062d\u0645 \u0636\u0627\u0646\u064a",
+        "\u0644\u062d\u0645 \u0636\u0623\u0646 \u0645\u0641\u0631\u0648\u0645"
+      ],
+      synonyms: [],
+      pluralForms: [],
+      ocrMistakes: [],
+      spellingMistakes: ["lam", "ground lam"],
+      cookingVerbs: ["brown", "grill", "roast", "braise", "stew"],
+      dishNames: ["kafta", "kofta", "kebab", "kabsa", "makloubeh", "mansaf"],
+      units: ["kg", "g", "lb"]
+    },
     {
       id: "ground_beef",
       canonicalEnglishName: "ground beef",
@@ -252,6 +286,28 @@ export const FOOD_DICTIONARY: FoodDictionary = {
       units: ["whole", "cup"]
     },
     {
+      id: "black_pepper",
+      canonicalEnglishName: "black pepper",
+      canonicalArabicName: "\u0641\u0644\u0641\u0644 \u0623\u0633\u0648\u062f",
+      category: "spice",
+      aliases: [
+        "black pepper",
+        "ground black pepper",
+        "freshly ground black pepper",
+        "peppercorn",
+        "black peppercorn",
+        "\u0641\u0644\u0641\u0644 \u0623\u0633\u0648\u062f",
+        "\u0641\u0644\u0641\u0644 \u0627\u0633\u0648\u062f"
+      ],
+      synonyms: [],
+      pluralForms: ["peppercorns", "black peppercorns"],
+      ocrMistakes: [],
+      spellingMistakes: ["black peper"],
+      cookingVerbs: ["season", "grind"],
+      dishNames: [],
+      units: ["tsp", "tbsp", "pinch"]
+    },
+    {
       id: "bell_pepper",
       canonicalEnglishName: "bell pepper",
       canonicalArabicName: "\u0641\u0644\u0641\u0644 \u0631\u0648\u0645\u064a",
@@ -284,13 +340,55 @@ export const FOOD_DICTIONARY: FoodDictionary = {
       canonicalEnglishName: "milk",
       canonicalArabicName: "\u0644\u0628\u0646",
       category: "dairy",
-      aliases: ["milk", "whole milk", "skim milk", "low fat milk", "coconut milk", "oat milk", "almond milk", "\u0644\u0628\u0646", "\u062d\u0644\u064a\u0628", "\u0644\u0628\u0646 \u062d\u0644\u064a\u0628"],
+      aliases: ["milk", "whole milk", "skim milk", "low fat milk", "\u0644\u0628\u0646", "\u062d\u0644\u064a\u0628", "\u0644\u0628\u0646 \u062d\u0644\u064a\u0628"],
       synonyms: [],
       pluralForms: [],
       ocrMistakes: [],
       spellingMistakes: ["mlik"],
       cookingVerbs: ["simmer", "whisk", "bake"],
       dishNames: ["bechamel", "alfredo", "oatmeal"],
+      units: ["cup", "ml"]
+    },
+    {
+      id: "coconut_milk",
+      canonicalEnglishName: "coconut milk",
+      canonicalArabicName: "\u062d\u0644\u064a\u0628 \u062c\u0648\u0632 \u0627\u0644\u0647\u0646\u062f",
+      category: "plant_dairy",
+      aliases: ["coconut beverage", "coconut drink", "milk coconut", "\u062d\u0644\u064a\u0628 \u062c\u0648\u0632\u0627\u0644\u0647\u0646\u062f"],
+      synonyms: [],
+      pluralForms: [],
+      ocrMistakes: [],
+      spellingMistakes: [],
+      cookingVerbs: ["simmer", "whisk"],
+      dishNames: ["curry", "soup"],
+      units: ["cup", "can", "ml"]
+    },
+    {
+      id: "oat_milk",
+      canonicalEnglishName: "oat milk",
+      canonicalArabicName: "\u062d\u0644\u064a\u0628 \u0627\u0644\u0634\u0648\u0641\u0627\u0646",
+      category: "plant_dairy",
+      aliases: ["oat beverage"],
+      synonyms: [],
+      pluralForms: [],
+      ocrMistakes: [],
+      spellingMistakes: [],
+      cookingVerbs: ["simmer", "whisk"],
+      dishNames: ["oatmeal"],
+      units: ["cup", "ml"]
+    },
+    {
+      id: "almond_milk",
+      canonicalEnglishName: "almond milk",
+      canonicalArabicName: "\u062d\u0644\u064a\u0628 \u0627\u0644\u0644\u0648\u0632",
+      category: "plant_dairy",
+      aliases: ["almond beverage"],
+      synonyms: [],
+      pluralForms: [],
+      ocrMistakes: [],
+      spellingMistakes: [],
+      cookingVerbs: ["simmer", "whisk"],
+      dishNames: ["smoothie"],
       units: ["cup", "ml"]
     },
     {

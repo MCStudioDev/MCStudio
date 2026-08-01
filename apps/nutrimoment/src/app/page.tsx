@@ -398,7 +398,7 @@ export default function Landing() {
 
                 <div className={cn("flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.2em]", isMintTheme ? "text-[#5b7b73]" : "text-emerald-50/50")}>
                   <span>{copy.footer.poweredBy}</span>
-                  <span aria-hidden="true">Â·</span>
+                  <span aria-hidden="true">&middot;</span>
                   <Link href="/legal/disclaimer" className={cn("transition-ui", isMintTheme ? "hover:text-[#173a31]" : "hover:text-emerald-50")}>
                     {copy.footer.aiDisclaimer}
                   </Link>

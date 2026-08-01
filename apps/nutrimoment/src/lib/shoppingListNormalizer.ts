@@ -134,53 +134,10 @@ const READABLE_ARABIC_UNIT_ALIASES: Record<string, string> = {
   "\u0648\u062d\u062f\u0627\u062a \u0645\u062a\u0646\u0648\u0639\u0629": "whole"
 };
 
-const ARABIC_UNIT_ALIASES: Record<string, string> = {
-  ...READABLE_ARABIC_UNIT_ALIASES,
-  "Ø­Ø¨Ø©": "whole",
-  "Ø­Ø¨Ø§Øª": "whole",
-  "Ù‚Ø·Ø¹Ø©": "whole",
-  "Ù‚Ø·Ø¹": "whole",
-  "Ø¹Ù†ØµØ±": "whole",
-  "Ø¹Ù†Ø§ØµØ±": "whole",
-  "ÙƒÙˆØ¨": "cup",
-  "Ø§ÙƒÙˆØ§Ø¨": "cup",
-  "Ø£ÙƒÙˆØ§Ø¨": "cup",
-  "Ø¹Ù„Ø¨Ø©": "can",
-  "Ø¹Ù„Ø¨": "can",
-  "Ø¹Ø¨ÙˆØ©": "package",
-  "Ø¹Ø¨ÙˆØ§Øª": "package",
-  "ÙƒÙŠØ³": "bag",
-  "Ø£ÙƒÙŠØ§Ø³": "bag",
-  "Ø§ÙƒÙŠØ§Ø³": "bag",
-  "ÙØµ": "clove",
-  "ÙØµÙˆØµ": "clove",
-  "Ø´Ø±ÙŠØ­Ø©": "slice",
-  "Ø´Ø±Ø§Ø¦Ø­": "slice",
-  "Ù…Ù„Ø¹Ù‚Ø©": "tbsp",
-  "Ù…Ù„Ø¹Ù‚Ø© ÙƒØ¨ÙŠØ±Ø©": "tbsp",
-  "Ù…Ù„Ø§Ø¹Ù‚": "tbsp",
-  "Ù…Ù„Ø¹Ù‚Ø© ØµØºÙŠØ±Ø©": "tsp",
-  "Ø±Ø·Ù„": "lb",
-  "Ø£ÙˆÙ‚ÙŠØ©": "oz",
-  "Ø§ÙˆÙ‚ÙŠØ©": "oz",
-  "Ø¨Ø§Ù‚Ø©": "bunch",
-  "Ø­Ø²Ù…Ø©": "bunch",
-  "ÙÙŠÙ„ÙŠÙ‡": "fillet",
-  "Ø¬Ø±Ø§Ù…": "g",
-  "ØºØ±Ø§Ù…": "g",
-  "Ø¬Ù…": "g",
-  "ÙƒØ¬": "kg",
-  "ÙƒØ¬Ù…": "kg",
-  "ÙƒÙŠÙ„Ùˆ": "kg",
-  "Ù…ÙŠÙƒØ³ÙŠØ¯ ÙˆÙ†ÙŠØªØ³": "whole",
-  "ÙˆØ­Ø¯Ø§Øª Ù…ØªÙ†ÙˆØ¹Ø©": "whole"
-};
+const ARABIC_UNIT_ALIASES: Record<string, string> = READABLE_ARABIC_UNIT_ALIASES;
 
 const ENGLISH_DESCRIPTOR_PATTERN =
   /\b(chopped|diced|minced|sliced|fresh|dried|ground|grated|crushed|optional|canned|cooked|raw|large|small|medium|for garnish|to taste|peeled|seeded|boneless|skinless)\b/gi;
-const ARABIC_DESCRIPTOR_PATTERN =
-  /\b(Ù…ÙØ±ÙˆÙ…(?:Ø©)?|Ù…Ù‚Ø·Ø¹(?:Ø©)?|Ø´Ø±Ø§Ø¦Ø­|Ø·Ø§Ø²Ø¬(?:Ø©)?|Ù…Ø¬ÙÙ(?:Ø©)?|Ù…Ø·Ø­ÙˆÙ†(?:Ø©)?|Ù…Ø¨Ø´ÙˆØ±(?:Ø©)?|Ù…Ù‡Ø±ÙˆØ³(?:Ø©)?|Ø§Ø®ØªÙŠØ§Ø±ÙŠ(?:Ø©)?|Ù„Ù„ØªØ²ÙŠÙŠÙ†|Ø­Ø³Ø¨ Ø§Ù„Ø±ØºØ¨Ø©|ÙƒØ¨ÙŠØ±(?:Ø©)?|ØµØºÙŠØ±(?:Ø©)?|Ù…ØªÙˆØ³Ø·(?:Ø©)?|Ù…Ø¹Ù„Ø¨(?:Ø©)?|Ù…Ø³Ù„ÙˆÙ‚(?:Ø©)?|Ù…Ù‚Ø´Ø±(?:Ø©)?)\b/gu;
-
 const ARABIC_DESCRIPTOR_PATTERN_UNICODE =
   /(\u0645\u0641\u0631\u0648\u0645(?:\u0629)?|\u0645\u0642\u0637\u0639(?:\u0629)?|\u0645\u0643\u0639\u0628\u0627\u062a|\u0634\u0631\u0627\u0626\u062d|\u0637\u0627\u0632\u062c(?:\u0629)?|\u0645\u062c\u0641\u0641(?:\u0629)?|\u0645\u0637\u062d\u0648\u0646(?:\u0629)?|\u0645\u0628\u0634\u0648\u0631(?:\u0629)?|\u0645\u0647\u0631\u0648\u0633(?:\u0629)?|\u0627\u062e\u062a\u064a\u0627\u0631\u064a(?:\u0629)?|\u0644\u0644\u062a\u0632\u064a\u064a\u0646|\u062d\u0633\u0628 \u0627\u0644\u0631\u063a\u0628\u0629|\u062d\u0633\u0628 \u0627\u0644\u062d\u0627\u062c\u0629|\u0643\u0628\u064a\u0631(?:\u0629)?|\u0635\u063a\u064a\u0631(?:\u0629)?|\u0645\u062a\u0648\u0633\u0637(?:\u0629)?|\u0645\u0639\u0644\u0628(?:\u0629)?|\u0645\u0633\u0644\u0648\u0642(?:\u0629)?|\u0645\u0642\u0634\u0631(?:\u0629)?)/gu;
 const TO_TASTE_UNIT = "to_taste";
@@ -371,7 +328,7 @@ function buildPantryStock(items: ShoppingListPantryItem[]) {
 }
 
 function parseShoppingEntry(entry: string): { label: string; quantity: number; unit: string } | null {
-  const normalized = normalizeNumerals(entry).replace(/[â€“â€”]/g, "-").trim();
+  const normalized = normalizeNumerals(entry).replace(/[\u2013\u2014]/g, "-").trim();
   if (!normalized) return null;
 
   const [namePart, ...detailParts] = normalized.split(/\s+-\s+/);
@@ -422,13 +379,15 @@ function parseShoppingEntry(entry: string): { label: string; quantity: number; u
 }
 
 function canonicalizeShoppingIngredient(value: string) {
+  if (/^(?:ground|chopped|minced)\s+meat$/i.test(value.trim())) return "meat";
+  if (/^(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629)?\s+\u0645\u0641\u0631\u0648\u0645(?:\u0629)?$/u.test(value.trim())) return "meat";
   const withoutParentheses = value.replace(/\([^)]*\)|\[[^\]]*\]/g, " ");
   const descriptorStripped = withoutParentheses
     .replace(ENGLISH_DESCRIPTOR_PATTERN, " ")
-    .replace(ARABIC_DESCRIPTOR_PATTERN, " ")
     .replace(ARABIC_DESCRIPTOR_PATTERN_UNICODE, " ")
     .replace(/\s+/g, " ")
     .trim();
+  if (/^(?:ground|chopped|minced) meat$/i.test(descriptorStripped)) return "meat";
   const translated = translateIngredientToEnglish(descriptorStripped).trim();
   return normalizePantryIngredientName(translated || descriptorStripped);
 }
@@ -509,6 +468,8 @@ function formatShoppingAmount(item: ShoppingAmount, displayLanguage: ShoppingLan
 }
 
 function localizeIngredientLabel(canonical: string, displayLanguage: ShoppingLanguage) {
+  if (displayLanguage === "en" && canonical === "meat") return "meat";
+  if (displayLanguage === "ar" && canonical === "meat") return "\u0644\u062d\u0645";
   const label = displayLanguage === "ar" ? translateIngredientToArabic(canonical) : translateIngredientToEnglish(canonical);
   return cleanShoppingDisplayLabel(label);
 }
@@ -516,7 +477,6 @@ function localizeIngredientLabel(canonical: string, displayLanguage: ShoppingLan
 function cleanShoppingDisplayLabel(label: string) {
   return label
     .replace(ENGLISH_DESCRIPTOR_PATTERN, " ")
-    .replace(ARABIC_DESCRIPTOR_PATTERN, " ")
     .replace(ARABIC_DESCRIPTOR_PATTERN_UNICODE, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -546,7 +506,7 @@ function localizeUnit(unit: string, displayLanguage: ShoppingLanguage) {
 }
 
 function normalizeNumerals(value: string) {
-  return value.replace(/[Ù -Ù©Û°-Û¹]/g, (digit) => {
+  return value.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (digit) => {
     const code = digit.charCodeAt(0);
     return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
   });

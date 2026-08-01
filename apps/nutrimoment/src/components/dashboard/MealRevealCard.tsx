@@ -63,6 +63,8 @@ interface MealRevealCardProps {
   imageCuisine?: string;
   imagePhotoIdentity?: PhotoIdentity;
   imagePromptIngredients?: string[];
+  recipeSource?: "external_source" | "generated" | "local_database";
+  recipeSourceUrl?: string;
   onImageResolved?: (payload: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
@@ -94,6 +96,8 @@ export function MealRevealCard({
   imageCuisine,
   imagePhotoIdentity,
   imagePromptIngredients,
+  recipeSource,
+  recipeSourceUrl,
   onImageResolved,
   eyebrow,
   visualMatchLabel,
@@ -210,6 +214,13 @@ export function MealRevealCard({
       : undefined;
   const effectiveProvidedImage = internetProvidedImage;
   const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
+  const resolvedImageSource = effectiveProvidedImage
+    ? imageSource
+    : lookedUpImage
+      ? lookupState.imageSource
+      : cachedImage
+        ? cachedImageEntry?.imageSource
+        : undefined;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const effectiveImageLoading =
     !resolvedImage && Boolean(lookupLoading || lookupRetrying || (imageLoading && !lookupFailed && !cachedFailure));
@@ -591,6 +602,7 @@ export function MealRevealCard({
                 onImageLoadError={handleImageLoadError}
                 onOpenRecipe={openRecipeDetails}
                 onRetryImageLookup={handleRetryImageLookup}
+                provenance={{ imageSource: resolvedImageSource, recipeSource, recipeSourceUrl }}
               />
             </div>
 
@@ -681,7 +693,8 @@ function RecipeFrontFace({
   placeholderStyle,
   onImageLoadError,
   onOpenRecipe,
-  onRetryImageLookup
+  onRetryImageLookup,
+  provenance
 }: {
   eyebrow?: string;
   visualMatchLabel?: string;
@@ -696,8 +709,13 @@ function RecipeFrontFace({
   onImageLoadError: (failedUrl: string) => void;
   onOpenRecipe: () => void;
   onRetryImageLookup: () => void;
+  provenance: {
+    imageSource?: RecipeImageSource;
+    recipeSource?: "external_source" | "generated" | "local_database";
+    recipeSourceUrl?: string;
+  };
 }) {
-  const { t } = useApp();
+  const { t, rtl } = useApp();
   const noImageState = !resolvedImage;
   const loadingTitle = hasGeneratedImageAccess ? t("generatingRecipeImage") : t("findingPhoto");
   const loadingHint = hasGeneratedImageAccess ? t("recipeImageLoadingHint") : t("hideWeakMatches");
@@ -723,6 +741,7 @@ function RecipeFrontFace({
 
       <div className="absolute inset-0 bg-gradient-to-t from-[#040c0a] via-[#040c0a]/36 to-transparent" />
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 to-transparent" />
+      <RecipeProvenanceBadge {...provenance} rtl={rtl} />
 
       {noImageState ? (
         <div className="absolute inset-0 z-10 flex flex-col justify-between gap-3 px-4 pb-3 pt-12 sm:px-5 sm:pb-4 sm:pt-14">
@@ -855,6 +874,97 @@ function RecipeFrontFace({
       ) : null}
     </div>
   );
+}
+
+function RecipeProvenanceBadge({
+  imageSource,
+  recipeSource,
+  recipeSourceUrl,
+  rtl
+}: {
+  imageSource?: RecipeImageSource;
+  recipeSource?: "external_source" | "generated" | "local_database";
+  recipeSourceUrl?: string;
+  rtl: boolean;
+}) {
+  let recipeLabel = recipeSource === "local_database"
+    ? (rtl ? "الوصفة: المكتبة" : "Recipe: Library")
+    : recipeSource === "external_source"
+      ? (rtl ? "الوصفة: مصدر موثوق" : "Recipe: Trusted source")
+      : recipeSource === "generated"
+        ? (rtl ? "الوصفة: Gemini" : "Recipe: Gemini")
+        : (rtl ? "الوصفة: غير محدد" : "Recipe: Unknown");
+  if (rtl) {
+    recipeLabel = recipeSource === "local_database"
+      ? "الوصفة: المكتبة"
+      : recipeSource === "external_source"
+        ? "الوصفة: مصدر موثوق"
+        : recipeSource === "generated"
+          ? "الوصفة: Gemini"
+          : "الوصفة: غير محدد";
+  }
+
+  const imageLabels: Record<RecipeImageSource, string> = {
+    api: rtl ? "الصورة: مزود الصور" : "Photo: Image service",
+    cache: rtl ? "الصورة: الذاكرة المشتركة" : "Photo: Shared cache",
+    pexels: "Photo: Pexels",
+    replicate: "Photo: Replicate",
+    search: rtl ? "الصورة: بحث الصور" : "Photo: Image search",
+    shared_pool: rtl ? "الصورة: الذاكرة المشتركة" : "Photo: Shared pool",
+    unsplash: "Photo: Unsplash",
+    wikimedia: "Photo: Wikimedia"
+  };
+  const imageLabel = imageSource ? imageLabels[imageSource] : (rtl ? "الصورة: قيد المطابقة" : "Photo: Matching");
+  const hasExternalRecipeSource = recipeSource === "external_source" && Boolean(recipeSourceUrl);
+  const displayImageLabel = rtl && imageSource
+    ? {
+        api: "الصورة: مزود الصور",
+        cache: "الصورة: الذاكرة المشتركة",
+        pexels: "الصورة: Pexels",
+        replicate: "الصورة: Replicate",
+        search: "الصورة: بحث الصور",
+        shared_pool: "الصورة: التجمع المشترك",
+        unsplash: "الصورة: Unsplash",
+        wikimedia: "الصورة: Wikimedia"
+      }[imageSource]
+    : rtl
+      ? "الصورة: قيد المطابقة"
+      : imageSource === "api"
+        ? "Photo: Replicate"
+        : imageLabel;
+
+  return (
+    <div className="absolute left-4 top-4 z-20 max-w-[11rem] rounded-md border border-white/15 bg-[#061b17]/85 px-2.5 py-2 text-[9px] font-semibold leading-tight text-white/88 shadow-lg backdrop-blur-md">
+      <p className="truncate">{rtl ? getArabicRecipeSourceLabel(recipeSource) : recipeLabel}</p>
+      <p className="mt-1 truncate text-cyan-100/90">{rtl ? getArabicImageSourceLabel(imageSource) : displayImageLabel}</p>
+      {hasExternalRecipeSource ? <span className="sr-only">{recipeSourceUrl}</span> : null}
+    </div>
+  );
+}
+
+function getArabicRecipeSourceLabel(recipeSource?: "external_source" | "generated" | "local_database") {
+  const prefix = "\u0627\u0644\u0648\u0635\u0641\u0629: ";
+
+  if (recipeSource === "local_database") return `${prefix}\u0627\u0644\u0645\u0643\u062a\u0628\u0629`;
+  if (recipeSource === "external_source") return `${prefix}\u0645\u0635\u062f\u0631 \u0645\u0648\u062b\u0648\u0642`;
+  if (recipeSource === "generated") return `${prefix}Gemini`;
+  return `${prefix}\u063a\u064a\u0631 \u0645\u062d\u062f\u062f`;
+}
+
+function getArabicImageSourceLabel(imageSource?: RecipeImageSource) {
+  const prefix = "\u0627\u0644\u0635\u0648\u0631\u0629: ";
+  const labels: Record<RecipeImageSource, string> = {
+    api: "Replicate",
+    cache: "\u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0645\u0634\u062a\u0631\u0643\u0629",
+    pexels: "Pexels",
+    replicate: "Replicate",
+    search: "\u0628\u062d\u062b \u0627\u0644\u0635\u0648\u0631",
+    shared_pool: "\u0627\u0644\u062a\u062c\u0645\u0639 \u0627\u0644\u0645\u0634\u062a\u0631\u0643",
+    unsplash: "Unsplash",
+    wikimedia: "Wikimedia"
+  };
+
+  return imageSource ? `${prefix}${labels[imageSource]}` : `${prefix}\u0642\u064a\u062f \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629`;
 }
 
 function RecipeBackFace({

@@ -149,6 +149,32 @@ describe("Arabic meal localization", () => {
     ]);
   });
 
+  it("localizes named Italian chicken dishes by meaning", () => {
+    const baseRecipe = {
+      cuisine: "Italian",
+      ingredients: ["chicken breast"],
+      missing_ingredients: [],
+      steps: ["Cook the chicken according to the source recipe."],
+      calories: 400,
+      protein: "40g",
+      carbs: "12g",
+      fat: "18g",
+      cook_time: "35 mins",
+      difficulty: "Medium"
+    };
+
+    const piccata = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Chicken Piccata" });
+    const marsala = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Herbed Chicken Marsala" });
+    const pizzaiola = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Chicken Pizzaiola" });
+    const bakedItalian = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Baked Italian Chicken" });
+
+    expect(piccata.name).toBe("\u062f\u062c\u0627\u062c \u0628\u0635\u0644\u0635\u0629 \u0627\u0644\u0644\u064a\u0645\u0648\u0646 \u0648\u0627\u0644\u0643\u0628\u0631 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect(marsala.name).toBe("\u062f\u062c\u0627\u062c \u0628\u0627\u0644\u0641\u0637\u0631 \u0648\u0627\u0644\u0623\u0639\u0634\u0627\u0628 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect(pizzaiola.name).toBe("\u062f\u062c\u0627\u062c \u0628\u0635\u0648\u0635 \u0627\u0644\u0637\u0645\u0627\u0637\u0645 \u0648\u0627\u0644\u0645\u0648\u0632\u0627\u0631\u064a\u0644\u0627 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect(bakedItalian.name).toBe("\u062f\u062c\u0627\u062c \u0645\u062e\u0628\u0648\u0632 \u0628\u0627\u0644\u0623\u0639\u0634\u0627\u0628 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect([piccata.name, marsala.name, pizzaiola.name, bakedItalian.name].join(" ")).not.toMatch(/[A-Za-z]/);
+  });
+
   it("carries photo_identity through Arabic localization without mutation", () => {
     const identity = {
       dish_slug: "lemon-herb-seafood-soup",
@@ -300,5 +326,25 @@ describe("Arabic meal localization", () => {
     ].join(" ");
 
     expect(userFacingText).not.toMatch(/[A-Za-z]/);
+  });
+
+  it("normalizes sourced Italian dish terms without Latin leakage", () => {
+    const localized = ensureArabicRecipeLanguage({
+      name: "\u062f\u062c\u0627\u062c \u0643\u0627\u0634\u064a\u0627\u062a\u0648\u0631\u064a",
+      cuisine: "Italian",
+      ingredients: ["chicken", "pastina"],
+      missing_ingredients: [],
+      steps: ["\u0623\u0636\u0641 pastina \u0625\u0644\u0649 \u0627\u0644\u0634\u0648\u0631\u0628\u0629 \u0642\u0628\u0644 \u0627\u0644\u062a\u0642\u062f\u064a\u0645."],
+      calories: 420,
+      protein: "34g",
+      carbs: "38g",
+      fat: "12g",
+      cook_time: "35 mins",
+      difficulty: "Medium"
+    });
+
+    expect(localized.name).toContain("\u0643\u0627\u062a\u0634\u0627\u062a\u0648\u0631\u064a");
+    expect(localized.steps.join(" ")).toContain("\u0645\u0643\u0631\u0648\u0646\u0629 \u0635\u063a\u064a\u0631\u0629");
+    expect(localized.steps.join(" ")).not.toMatch(/[A-Za-z]/);
   });
 });

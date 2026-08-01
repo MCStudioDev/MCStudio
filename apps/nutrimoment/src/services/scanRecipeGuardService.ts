@@ -4,8 +4,6 @@ import {
   isArabicRecipeLanguage,
   translateIngredientToEnglish
 } from "@/lib/arabicRecipeLocalization";
-import { findRecipeDietViolation } from "@/lib/dietEnforcement";
-import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import type { Recipe } from "@/lib/types";
 
 export interface ScanRecipeGuardContext {
@@ -27,14 +25,8 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
 
   const wantsArabic = isArabicRecipeLanguage(context.recipeLanguage);
   const signals = buildIngredientSignals(context);
-  const dietContext = {
-    diets: context.diets ?? [],
-    allergens: context.allergens ?? []
-  };
   const repaired = recipes
-    .map((recipe) => repairIngredientOwnership(recipe, signals, wantsArabic))
-    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext))
-    .filter((recipe) => !findRecipeHealthViolation(recipe, context.conditions ?? []));
+    .map((recipe) => repairIngredientOwnership(recipe, signals, wantsArabic));
 
   const prefersSpecificCuisine = Boolean(context.preferredCuisine && context.preferredCuisine !== "Any");
   const cuisineMatchedRecipes = prefersSpecificCuisine
@@ -50,33 +42,6 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
   // This guard is allowed to reorder or reject existing recipes, never to
   // invent extra cards. Source retrieval must supply every visible recipe.
   return merged.slice(0, context.recipeCount);
-}
-
-// These legacy builders remain available only while old catalog repair data is
-// migrated. The scan guard no longer invokes them to create visible recipes.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function dietAllowsSeafoodFallback(dietContext: { diets: string[]; allergens: string[] }) {
-  const selectedDiets = new Set(dietContext.diets.map((diet) => diet.trim().toLowerCase()));
-  if (!selectedDiets.has("pescatarian")) return false;
-
-  return !findRecipeDietViolation({
-    name: "Seafood fallback probe",
-    cuisine: "Seafood",
-    ingredients: ["shrimp", "fish"],
-    missing_ingredients: [],
-    steps: ["Probe only."]
-  }, dietContext);
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function filterRecipesByGuardRules(
-  recipes: Recipe[],
-  context: ScanRecipeGuardContext,
-  dietContext: { diets: string[]; allergens: string[] }
-) {
-  return recipes
-    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext))
-    .filter((recipe) => !findRecipeHealthViolation(recipe, context.conditions ?? []));
 }
 
 interface IngredientSignal {

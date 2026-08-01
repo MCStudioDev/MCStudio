@@ -24,7 +24,7 @@ import { buildNormalizedShoppingList } from "@/lib/shoppingListNormalizer";
 import { isLikelyBackgroundFetchInterruption } from "@/lib/backgroundRecipeJobs";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import type { TranslationKey } from "@/lib/translations";
-import type { MealPlanMeal } from "@/lib/types";
+import type { MealPlanMeal, RecipeImageSource } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
 const PREMIUM_REPLICATE_LOOKUP_DELAY_MS = 1200;
@@ -43,7 +43,7 @@ type MealPhotoLookupResponse = {
   error?: string;
   imageAttributionName?: string;
   imageAttributionUrl?: string;
-  imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+  imageSource?: RecipeImageSource;
   imageUrl?: string;
   ok?: boolean;
   retryAfterSeconds?: number;
@@ -57,7 +57,7 @@ type MealPhotoRestoreResponse = {
     dayIndex: number;
     imageAttributionName?: string;
     imageAttributionUrl?: string;
-    imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+    imageSource?: RecipeImageSource;
     imageUrl: string;
     mealType: MealSlotType;
   }>;
@@ -438,7 +438,7 @@ export function MealPlanTab() {
       data: {
         imageAttributionName?: string;
         imageAttributionUrl?: string;
-        imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+        imageSource?: RecipeImageSource;
         imageUrl: string;
       }
     ) => {
@@ -944,7 +944,7 @@ function MealPlanRevealCard({
   onImageResolved?: (payload: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
-    imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+    imageSource?: RecipeImageSource;
     imageUrl: string;
   }) => void | Promise<void>;
 }) {
@@ -1125,7 +1125,7 @@ function applyMealImageToMealPlan(
   data: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
-    imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+    imageSource?: RecipeImageSource;
     imageUrl: string;
   }
 ) {

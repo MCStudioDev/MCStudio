@@ -11,6 +11,7 @@ import type { RecipeReferenceDoc, RecipeReferencePromptRecipe } from "@/lib/reci
 import type { Recipe } from "@/lib/types";
 import { withTimeout } from "@/lib/utils";
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
+import { isDiscoverableRecipeReferenceDoc } from "@/data/offline/firestoreRecipeReferenceCatalog";
 
 const RECIPE_REFERENCE_COLLECTION = process.env.RECIPE_REFERENCE_COLLECTION || "recipeReferenceRecipes";
 const RECIPE_REFERENCE_READ_TIMEOUT_MS = 4500;
@@ -646,18 +647,6 @@ function buildReferencePlatedVisualDescription(reference: RecipeReferencePromptR
   ].join(" ");
 }
 
-function isUsableRecipeReference(recipe: RecipeReferenceDoc) {
-  return Boolean(
-    recipe &&
-      typeof recipe.title === "string" &&
-      recipe.title.trim().length >= 3 &&
-      Array.isArray(recipe.ingredients) &&
-      recipe.ingredients.length >= 2 &&
-      Array.isArray(recipe.directions) &&
-      recipe.directions.length >= 1
-  );
-}
-
 function isUsableRecipeReferenceCandidate(recipe: RecipeReferenceDoc) {
   return Boolean(
     recipe &&
@@ -714,7 +703,7 @@ async function hydrateRecipeReferenceCandidates(
     if (!snapshot.exists) return;
     const data = snapshot.data() as RecipeReferenceDoc;
     const recipe = { ...data, id: data.id || snapshot.id };
-    if (isUsableRecipeReference(recipe)) recipesById.set(snapshot.id, recipe);
+    if (isDiscoverableRecipeReferenceDoc(recipe)) recipesById.set(snapshot.id, recipe);
   });
 
   return candidateIds

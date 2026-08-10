@@ -23,7 +23,9 @@ export interface AiCallTraceOptions {
 
 export interface AiTextGenerationOptions {
   groundWithGoogleSearch?: boolean;
+  maxOutputTokens?: number;
   temperature?: number;
+  thinkingBudget?: number;
   topP?: number;
   systemInstruction?: string;
   responseMimeType?: string;
@@ -194,7 +196,11 @@ export async function callOpenAIText(
                 ? { responseJsonSchema: options.responseJsonSchema }
                 : {}),
               ...(options?.groundWithGoogleSearch ? { tools: [{ googleSearch: {} }] } : {}),
+              ...(typeof options?.maxOutputTokens === "number" ? { maxOutputTokens: options.maxOutputTokens } : {}),
               ...(typeof options?.temperature === "number" ? { temperature: options.temperature } : {}),
+              ...(typeof options?.thinkingBudget === "number"
+                ? { thinkingConfig: { thinkingBudget: options.thinkingBudget } }
+                : {}),
               ...(typeof options?.topP === "number" ? { topP: options.topP } : {}),
               httpOptions: {
                 timeout: effectiveRequestTimeoutMs
@@ -206,7 +212,24 @@ export async function callOpenAIText(
         }
 
         const text = response.text?.trim() ?? "";
-        if (!text) throw new Error(`Empty response from Gemini model ${model}`);
+        if (!text) {
+          const candidate = response.candidates?.[0];
+          const usage = response.usageMetadata;
+          const partKinds = candidate?.content?.parts
+            ?.map((part) => Object.keys(part).sort().join("+"))
+            .filter(Boolean)
+            .join(",") || "none";
+          throw new Error([
+            `Empty response from Gemini model ${model}`,
+            `finishReason=${candidate?.finishReason ?? "none"}`,
+            `finishMessage=${candidate?.finishMessage ?? "none"}`,
+            `partKinds=${partKinds}`,
+            `promptTokens=${usage?.promptTokenCount ?? 0}`,
+            `toolTokens=${usage?.toolUsePromptTokenCount ?? 0}`,
+            `thoughtTokens=${usage?.thoughtsTokenCount ?? 0}`,
+            `outputTokens=${usage?.candidatesTokenCount ?? 0}`
+          ].join("; "));
+        }
         logger.info("Gemini text generation attempt succeeded", {
           requestId: trace?.requestId,
           feature: trace?.feature,

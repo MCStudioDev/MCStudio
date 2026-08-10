@@ -92,6 +92,7 @@ export interface Recipe {
   dish_intent?: RecipeDishIntent;
   image_search_index?: string;
   image_search_indices?: string[];
+  ingredient_ownership?: RecipeIngredientOwnership[];
   ingredients: string[];
   missing_ingredients: string[];
   steps: string[];
@@ -123,6 +124,12 @@ export interface Recipe {
   visual_match_label?: string;
   photo_identity?: PhotoIdentity;
   localized?: Partial<Record<"English" | "Arabic", LocalizedRecipeVariant>>;
+}
+
+export interface RecipeIngredientOwnership {
+  canonicalName: string;
+  displayText: string;
+  availability: "owned" | "missing";
 }
 
 export interface MealPlanMeal {

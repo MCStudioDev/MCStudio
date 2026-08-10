@@ -5,6 +5,12 @@ import type { RecipeReferenceDoc } from "@/lib/recipeReferenceTypes";
 import { normalizeRecipeReferenceIngredient } from "@/lib/recipeReferenceNormalization";
 import { withTimeout } from "@/lib/utils";
 import type { IngredientNormalizationResult } from "@/services/ingredientNormalizationService";
+import {
+  classifyRecipeContentQuality,
+  partitionRecipeCatalogByQuality,
+  RECIPE_CONTENT_VERSION,
+  type RecipeContentQualityResult
+} from "@/services/recipeContentQualityService";
 
 const RECIPE_REFERENCE_COLLECTION = process.env.RECIPE_REFERENCE_COLLECTION || "recipeReferenceRecipes";
 const RECIPE_REFERENCE_DATASET_TIMEOUT_MS = 5000;
@@ -51,10 +57,13 @@ export async function listFirestoreReferenceCatalogRecipes(
       });
     }
 
-    const recipes = Array.from(recipesById.values()).map(mapReferenceDocToCatalogDoc);
+    const mappedRecipes = Array.from(recipesById.values()).map(mapReferenceDocToCatalogDoc);
+    const qualityPartition = partitionRecipeCatalogByQuality(mappedRecipes);
+    const recipes = qualityPartition.discoverable;
     logger.info("Firestore recipe reference dataset loaded for search", {
       queryTermCount: queryTerms.length,
-      recipeCount: recipes.length
+      recipeCount: recipes.length,
+      quarantinedRecipeCount: qualityPartition.quarantined.length
     });
     return recipes;
   } catch (error) {
@@ -76,7 +85,7 @@ function buildReferenceDatasetQueryTerms(normalized: IngredientNormalizationResu
   ].map(normalizeRecipeReferenceIngredient).filter(Boolean))).slice(0, MAX_QUERY_TERMS);
 }
 
-function mapReferenceDocToCatalogDoc(recipe: RecipeReferenceDoc): RecipeCatalogDoc {
+export function mapReferenceDocToCatalogDoc(recipe: RecipeReferenceDoc): RecipeCatalogDoc {
   const ingredientCanonicals = normalizeCanonicals(recipe.ingredientCanonicals?.length ? recipe.ingredientCanonicals : recipe.ingredients);
   const requiredCanonicals = normalizeCanonicals(recipe.mainIngredients?.length ? recipe.mainIngredients : ingredientCanonicals.slice(0, 3));
   const optionalCanonicals = ingredientCanonicals.filter((ingredient) => !requiredCanonicals.includes(ingredient));
@@ -125,6 +134,9 @@ function mapReferenceDocToCatalogDoc(recipe: RecipeReferenceDoc): RecipeCatalogD
     searchTokens: recipe.searchTokens ?? [],
     popularityScore: 72,
     qualityScore: Math.max(60, Math.min(100, recipe.qualityScore ?? 75)),
+    qualityStatus: recipe.qualityStatus,
+    qualityReasons: recipe.qualityReasons,
+    contentVersion: recipe.contentVersion,
     isActive: true,
     createdAt: recipe.createdAt ?? Date.now(),
     updatedAt: recipe.updatedAt ?? Date.now(),
@@ -140,6 +152,37 @@ function mapReferenceDocToCatalogDoc(recipe: RecipeReferenceDoc): RecipeCatalogD
       cuisineTokens: [recipe.cuisine].filter(isNonEmptyString)
     }
   };
+}
+
+export function isDiscoverableRecipeReferenceDoc(recipe: RecipeReferenceDoc) {
+  return classifyRecipeReferenceDocQuality(recipe).eligibleForDiscovery;
+}
+
+export function classifyRecipeReferenceDocQuality(recipe: RecipeReferenceDoc): RecipeContentQualityResult {
+  const mappedQuality = classifyRecipeContentQuality(mapReferenceDocToCatalogDoc(recipe));
+  const reasons = [...mappedQuality.reasons];
+
+  if (recipe.publishStatus === "needs_review") reasons.push("reference_needs_review");
+
+  const quantifiedCount = recipe.ingredients.filter(hasExplicitSourceQuantity).length;
+  if (recipe.ingredients.length && quantifiedCount < Math.ceil(recipe.ingredients.length * 0.6)) {
+    reasons.push("source_ingredient_quantities_missing");
+  }
+
+  if (!reasons.length) return mappedQuality;
+
+  const uniqueReasons = Array.from(new Set(reasons));
+  return {
+    contentVersion: RECIPE_CONTENT_VERSION,
+    eligibleForDiscovery: false,
+    reasons: uniqueReasons,
+    score: Math.max(0, mappedQuality.score - uniqueReasons.length * 15),
+    status: mappedQuality.status === "blocked" ? "blocked" : "probation"
+  };
+}
+
+function hasExplicitSourceQuantity(value: string) {
+  return /(?:\d|\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|half|quarter|pinch|dash)\b|\b(?:as needed|as required|to taste)\b)/i.test(value);
 }
 
 function normalizeCanonicals(values: string[]) {

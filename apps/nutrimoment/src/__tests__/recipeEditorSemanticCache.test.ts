@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildRecipeEditorCacheKey, getOrCreateRecipeEditorCache } from "../services/recipeEditorSemanticCache";
+import {
+  buildRecipeEditorCacheKey,
+  getOrCreateRecipeEditorCache,
+  getRecipeEditorCache,
+  setRecipeEditorCache
+} from "../services/recipeEditorSemanticCache";
 import type { Recipe } from "../lib/types";
 
 const sourceRecipe = {
@@ -55,6 +60,24 @@ describe("recipe editor semantic cache key", () => {
     }));
   });
 
+  it("reuses a complete edit across pantry ownership changes", () => {
+    const base = {
+      sourceRecipe,
+      recipeLanguage: "English",
+      preferredCuisine: "Italian",
+      availableIngredients: [{ name: "chicken" }],
+      diets: [],
+      conditions: [],
+      allergens: [],
+      excludedIngredients: []
+    };
+
+    expect(buildRecipeEditorCacheKey(base)).toBe(buildRecipeEditorCacheKey({
+      ...base,
+      availableIngredients: [{ name: "tomatoes" }, { name: "chicken", quantity: "500 g" }]
+    }));
+  });
+
   it("reuses the completed edit without invoking Gemini's generator again", async () => {
     const input = {
       sourceRecipe: { ...sourceRecipe, id: "semantic-cache-memory-test" },
@@ -88,5 +111,35 @@ describe("recipe editor semantic cache key", () => {
     expect(second.origin).toBe("memory");
     expect(second.recipe).toEqual(recipe);
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports explicit batch cache reads and writes", async () => {
+    const input = {
+      sourceRecipe: { ...sourceRecipe, id: "semantic-cache-batch-test" },
+      recipeLanguage: "English",
+      preferredCuisine: "Any",
+      availableIngredients: [],
+      diets: [],
+      conditions: [],
+      allergens: [],
+      excludedIngredients: []
+    };
+    const recipe: Recipe = {
+      name: "Chicken Cacciatore",
+      cuisine: "Italian",
+      ingredients: ["500 g chicken", "2 cups tomatoes"],
+      missing_ingredients: [],
+      steps: ["Brown the chicken.", "Simmer with tomatoes."],
+      calories: 520,
+      protein: "40g",
+      carbs: "28g",
+      fat: "20g",
+      cook_time: "30 minutes",
+      difficulty: "Easy"
+    };
+
+    expect(await getRecipeEditorCache(input)).toBeNull();
+    await setRecipeEditorCache(input, recipe);
+    expect((await getRecipeEditorCache(input))?.recipe).toEqual(recipe);
   });
 });

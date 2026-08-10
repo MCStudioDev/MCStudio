@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { RecipeQualityGate } from "../services/recipeQualityGate";
+import {
+  getRecipeIngredientValidationIdentity,
+  RecipeQualityGate
+} from "../services/recipeQualityGate";
 import { hasAuthenticRecipeInstructions } from "../services/recipePipeline/recipeValidator";
 import type { Recipe } from "../lib/types";
 
@@ -23,8 +26,28 @@ const validRecipe: Recipe = {
 };
 
 describe("recipe quality gate", () => {
+  it("exposes the same parsed ingredient identity used by validation", () => {
+    expect(getRecipeIngredientValidationIdentity("1 medium onion, chopped")).toBe("onion chopped");
+    expect(getRecipeIngredientValidationIdentity("2 cloves garlic, minced")).toBe("garlic minced");
+  });
+
   it("accepts a complete source-backed recipe", () => {
     expect(new RecipeQualityGate().validate(validRecipe, "English")).toEqual({ valid: true, reasons: [] });
+  });
+
+  it("does not parse an ingredient name or preparation word as a unit", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      ingredients: ["1 medium onion, chopped", "2 cloves garlic, minced", "500 g chicken breast"],
+      steps: [
+        "Chop the onion and mince the garlic.",
+        "Cook the chicken with the onion and garlic for 25 minutes."
+      ]
+    }, "English");
+
+    expect(result.reasons).not.toContain("duplicate_ingredients");
+    expect(result.reasons).not.toContain("ingredient_not_used:chopped");
+    expect(result.reasons).not.toContain("ingredient_not_used:minced");
   });
 
   it("rejects unused ingredients, duplicate steps, and Arabic English leakage", () => {
@@ -85,6 +108,24 @@ describe("recipe quality gate", () => {
       ...validRecipe,
       name: "Turkish Tavuk Sote"
     }, "English").reasons).not.toContain("ingredient_only_title");
+  });
+
+  it("accepts authentic canonical dish names that do not appear in the recipe body", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      name: "Karniyarik",
+      cuisine: "Turkish",
+      ingredients: ["3 medium eggplant", "340 g ground beef", "1 medium onion"],
+      steps: [
+        "Soften the eggplant and fill it with the seasoned ground beef and onion.",
+        "Leave the covered baking dish at 180 C for 45 minutes until tender."
+      ],
+      cook_time: "60 minutes"
+    }, "English");
+
+    expect(result.reasons).not.toContain("malformed_recipe_title");
+    expect(result.reasons).not.toContain("ingredient_only_title");
+    expect(result.valid).toBe(true);
   });
 
   it("rejects protein ingredients without quantities", () => {
@@ -168,6 +209,52 @@ describe("recipe quality gate", () => {
     }, "English");
 
     expect(result.reasons).toContain("invalid_recipe_instructions");
+  });
+
+  it("rejects generic generated steps even when they contain cooking verbs", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      steps: [
+        "Prepare the main ingredients.",
+        "Heat a pan and add the chicken.",
+        "Cook until done.",
+        "Serve warm."
+      ]
+    }, "English");
+
+    expect(result.reasons).toContain("invalid_recipe_instructions");
+  });
+
+  it("accepts specific instructions without requiring recognized cooking action words", () => {
+    expect(hasAuthenticRecipeInstructions([
+      "Position the seasoned chicken over the sliced tomatoes in a covered casserole.",
+      "After 25 minutes at 190 C, check that the center reaches 74 C before resting it."
+    ])).toBe(true);
+  });
+
+  it.each([
+    "1 hour",
+    "1 hour 30 minutes",
+    "1.5 hours",
+    "45-60 minutes",
+    "1 ساعة و30 دقيقة",
+    "٩٠ دقيقة"
+  ])("accepts realistic cooking time %s", (cookTime) => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      cook_time: cookTime
+    }, "English");
+
+    expect(result.reasons).not.toContain("unrealistic_cooking_time");
+  });
+
+  it.each(["4 minutes", "7 hours", "15 minutes"])("rejects unrealistic cooking time %s", (cookTime) => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      cook_time: cookTime
+    }, "English");
+
+    expect(result.reasons).toContain("unrealistic_cooking_time");
   });
 
   it("rejects imported website descriptions even when localized repair steps exist elsewhere", () => {

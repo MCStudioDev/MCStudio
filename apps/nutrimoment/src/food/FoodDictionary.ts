@@ -286,6 +286,34 @@ export const FOOD_DICTIONARY: FoodDictionary = {
       units: ["whole", "cup"]
     },
     {
+      id: "garlic",
+      canonicalEnglishName: "garlic",
+      canonicalArabicName: "\u062b\u0648\u0645",
+      category: "aromatic",
+      aliases: ["garlic", "garlic clove", "garlic cloves", "minced garlic", "fresh garlic", "\u062b\u0648\u0645", "\u0641\u0635 \u062b\u0648\u0645", "\u0641\u0635\u0648\u0635 \u062b\u0648\u0645"],
+      synonyms: [],
+      pluralForms: ["garlic cloves"],
+      ocrMistakes: [],
+      spellingMistakes: ["garilic", "galic"],
+      cookingVerbs: ["mince", "crush", "saute", "roast"],
+      dishNames: ["garlic sauce", "garlic chicken"],
+      units: ["clove", "cloves", "tsp", "tbsp"]
+    },
+    {
+      id: "ginger",
+      canonicalEnglishName: "ginger",
+      canonicalArabicName: "\u0632\u0646\u062c\u0628\u064a\u0644",
+      category: "aromatic",
+      aliases: ["ginger", "fresh ginger", "ground ginger", "ginger root", "minced ginger", "\u0632\u0646\u062c\u0628\u064a\u0644", "\u062c\u0646\u0632\u0628\u064a\u0644"],
+      synonyms: [],
+      pluralForms: [],
+      ocrMistakes: [],
+      spellingMistakes: ["ginger root", "gingar"],
+      cookingVerbs: ["grate", "mince", "saute", "simmer"],
+      dishNames: ["ginger chicken", "ginger sauce"],
+      units: ["piece", "tsp", "tbsp", "g"]
+    },
+    {
       id: "black_pepper",
       canonicalEnglishName: "black pepper",
       canonicalArabicName: "\u0641\u0644\u0641\u0644 \u0623\u0633\u0648\u062f",

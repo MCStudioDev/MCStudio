@@ -62,7 +62,6 @@ export class RecipeAcceptanceEngine {
 function scoreTitleQuality(recipe: Recipe, qualityReasons: string[]) {
   if (qualityReasons.includes("malformed_recipe_title")) return 0;
   if (qualityReasons.includes("ingredient_only_title")) return 0;
-  if (qualityReasons.includes("title_does_not_describe_recipe")) return 6;
   const wordCount = recipe.name.trim().split(/\s+/).filter(Boolean).length;
   return wordCount >= 2 ? 15 : 8;
 }

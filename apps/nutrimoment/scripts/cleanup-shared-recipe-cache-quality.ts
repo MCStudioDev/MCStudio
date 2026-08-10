@@ -4,6 +4,7 @@ import { FieldPath } from "firebase-admin/firestore";
 import { normalizeCachedRecipeCatalogDoc } from "../src/data/offline/recipeMetadata";
 import type { RecipeCatalogDoc } from "../src/lib/domain";
 import { getAdminDb, hasFirebaseAdminConfig } from "../src/lib/firebaseAdmin";
+import { auditSharedRecipePoolDocument } from "../src/services/sharedRecipePoolQualityService";
 
 loadEnv({ path: path.join(process.cwd(), ".env.local") });
 
@@ -20,8 +21,7 @@ const PAGE_SIZE = readNumberArg("--page-size") ?? DEFAULT_PAGE_SIZE;
 
 type CleanupDecision =
   | { action: "keep"; reason: string; normalized: RecipeCatalogDoc }
-  | { action: "update"; reason: string; normalized: RecipeCatalogDoc }
-  | { action: "delete"; reason: string; normalized: RecipeCatalogDoc };
+  | { action: "update"; reason: string; normalized: RecipeCatalogDoc };
 
 async function main() {
   if (!hasFirebaseAdminConfig()) {
@@ -39,7 +39,7 @@ async function main() {
   let scanned = 0;
   let kept = 0;
   let updated = 0;
-  let deleted = 0;
+  let quarantined = 0;
   const samples: string[] = [];
 
   process.stdout.write(
@@ -59,23 +59,16 @@ async function main() {
       const decision = decideCleanup(current);
       const label = formatSample(docSnap.id, current, decision.reason);
 
-      if (decision.action === "delete") {
-        deleted += 1;
-        if (samples.length < SAMPLE_LIMIT) samples.push(`DELETE ${label}`);
-        if (!DRY_RUN) {
-          await deleteDocWithRetry(docSnap.ref, `${COLLECTION_NAME}/${docSnap.id}`);
-          await sleep(WRITE_PACING_DELAY_MS);
-        }
-        continue;
-      }
-
       if (decision.action === "update") {
         updated += 1;
+        if (decision.normalized.qualityStatus === "blocked" || decision.normalized.qualityStatus === "probation") {
+          quarantined += 1;
+        }
         if (samples.length < SAMPLE_LIMIT) samples.push(`UPDATE ${label}`);
         if (!DRY_RUN) {
           await setDocWithRetry(
             docSnap.ref,
-            stripUndefinedDeep({ ...decision.normalized, updatedAt: Date.now() }),
+            stripUndefinedDeep(decision.normalized),
             `${COLLECTION_NAME}/${docSnap.id}`
           );
           await sleep(WRITE_PACING_DELAY_MS);
@@ -86,12 +79,12 @@ async function main() {
       kept += 1;
     }
 
-    process.stdout.write(`Scanned ${scanned}, deleted ${deleted}, updated ${updated}, kept ${kept}\n`);
+    process.stdout.write(`Scanned ${scanned}, quarantined ${quarantined}, updated ${updated}, kept ${kept}\n`);
     cursor = snapshot.docs[snapshot.docs.length - 1];
   }
 
   process.stdout.write(
-    `Done. scanned=${scanned}, deleted=${deleted}, updated=${updated}, kept=${kept}\n`
+    `Done. scanned=${scanned}, quarantined=${quarantined}, updated=${updated}, kept=${kept}, deleted=0\n`
   );
   if (samples.length) {
     process.stdout.write(`Samples:\n${samples.map((sample) => `- ${sample}`).join("\n")}\n`);
@@ -102,32 +95,27 @@ async function main() {
 }
 
 function decideCleanup(current: RecipeCatalogDoc): CleanupDecision {
-  const normalized = stripUndefinedDeep(normalizeCachedRecipeCatalogDoc(repairWeakSharedRecipeIdentity(current)));
-  const quality = inspectRecipeQuality(normalized);
+  const audit = auditSharedRecipePoolDocument(current);
+  const audited = stripUndefinedDeep(audit.document);
+  const reason = [audited.qualityStatus, ...(audited.qualityReasons ?? [])].filter(Boolean).join(":");
 
-  if (!quality.usable) {
-    return {
-      action: "delete",
-      reason: quality.reason,
-      normalized
-    };
-  }
-
-  if (!isSameRecipeDoc(current, normalized)) {
+  if (audit.action === "update" || !isSameRecipeDoc(current, audited)) {
     return {
       action: "update",
-      reason: "normalized recoverable shared recipe",
-      normalized
+      reason: reason || "versioned quality metadata",
+      normalized: audited
     };
   }
 
   return {
     action: "keep",
     reason: "already usable",
-    normalized
+    normalized: audited
   };
 }
 
+// Retained for reading legacy cleanup reports; the v2 migration does not call semantic repair.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function repairWeakSharedRecipeIdentity(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
   const normalized = stripUndefinedDeep(normalizeCachedRecipeCatalogDoc(recipe));
   const englishName = normalized.localized?.English?.name ?? normalized.title ?? "";
@@ -169,6 +157,7 @@ function repairWeakSharedRecipeIdentity(recipe: RecipeCatalogDoc): RecipeCatalog
   return stripUndefinedDeep(normalizeCachedRecipeCatalogDoc(repaired));
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function inspectRecipeQuality(recipe: RecipeCatalogDoc) {
   const englishName = recipe.localized?.English?.name ?? recipe.title ?? "";
   const arabicName = recipe.localized?.Arabic?.name ?? "";
@@ -314,22 +303,6 @@ async function setDocWithRetry(
   for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt += 1) {
     try {
       await ref.set(data);
-      return;
-    } catch (error) {
-      if (!isRetryableWriteError(error) || attempt === MAX_WRITE_ATTEMPTS) throw error;
-      const delayMs = BASE_RETRY_DELAY_MS * attempt;
-      process.stdout.write(
-        `${label} hit a transient Firestore quota limit. Retrying in ${Math.round(delayMs / 1000)}s (attempt ${attempt + 1}/${MAX_WRITE_ATTEMPTS}).\n`
-      );
-      await sleep(delayMs);
-    }
-  }
-}
-
-async function deleteDocWithRetry(ref: FirebaseFirestore.DocumentReference, label: string) {
-  for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt += 1) {
-    try {
-      await ref.delete();
       return;
     } catch (error) {
       if (!isRetryableWriteError(error) || attempt === MAX_WRITE_ATTEMPTS) throw error;

@@ -45,6 +45,10 @@ import {
 import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
 import {
+  isApproximateRecipePhotoCacheCompatible,
+  isGeneratedRecipePhotoCachePayloadConsistent
+} from "@/services/recipePhotoCacheCompatibility";
+import {
   buildRecipePhotoReuseKeyCandidates,
   buildRecipePhotoReuseKeyFromIdentity,
   buildRecipePhotoReuseKeyFromQuery
@@ -836,6 +840,7 @@ function canUseGeneratedRecipePhotoCacheForRequest(
   if (isChickenRecipePhotoRequest(queryCandidates) && !isChickenRecipePhotoCacheEntry(entry)) return false;
   if (isShrimpRecipePhotoRequest(queryCandidates) && !isShrimpRecipePhotoCacheEntry(entry)) return false;
   if (entry.source !== "generated") return true;
+  if (!isGeneratedRecipePhotoCachePayloadConsistent(entry)) return false;
   if (!isDurableRecipeImageUrl(entry.imageUrl)) return false;
 
   const cachedQuery = normalizeGeneratedCacheQuery(entry.query || getGeneratedRecipePhotoUrlSignature(entry.imageUrl) || entry.signature);
@@ -876,6 +881,7 @@ function canUseApproximateSharedRecipePhotoForRequest(entry: SharedRecipePhotoEn
   if (!isRecipePhotoCacheEntryCompatibleWithRequestMainIngredient(entry, queryCandidates)) return false;
   if (isChickenRecipePhotoRequest(queryCandidates) && !isChickenRecipePhotoCacheEntry(entry)) return false;
   if (isShrimpRecipePhotoRequest(queryCandidates) && !isShrimpRecipePhotoCacheEntry(entry)) return false;
+  if (!isApproximateRecipePhotoCacheCompatible(entry, queryCandidates)) return false;
   if (entry.source !== "generated") return true;
   if (!isDurableRecipeImageUrl(entry.imageUrl)) return false;
 

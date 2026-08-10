@@ -35,6 +35,10 @@ export interface RecipeReferenceDoc {
   };
   searchTokens: string[];
   qualityScore: number;
+  contentQualityScore?: number;
+  qualityStatus?: import("@/lib/domain").RecipeQualityStatus;
+  qualityReasons?: string[];
+  contentVersion?: string;
   createdAt: number;
   updatedAt: number;
 }

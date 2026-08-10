@@ -46,6 +46,7 @@ interface MealRevealStat {
 interface MealRevealCardProps {
   disableAutoImageLookup?: boolean;
   deferImageLookup?: boolean;
+  trustProvidedImage?: boolean;
   imageLookupVersion?: number;
   name: string;
   imageUrl?: string;
@@ -84,6 +85,7 @@ interface MealRevealCardProps {
 export function MealRevealCard({
   disableAutoImageLookup = false,
   deferImageLookup = false,
+  trustProvidedImage = false,
   imageLookupVersion = 0,
   name,
   imageSource,
@@ -208,7 +210,8 @@ export function MealRevealCard({
       imagePhotoIdentity,
       imageQuery: queryCandidates,
       imageSource,
-      name
+      name,
+      trustProvidedImage
     })
       ? imageUrl
       : undefined;
@@ -1143,14 +1146,18 @@ function shouldTrustProvidedRecipeImage({
   imagePhotoIdentity,
   imageQuery,
   imageSource,
-  name
+  name,
+  trustProvidedImage
 }: {
   imageUrl: string;
   imagePhotoIdentity?: PhotoIdentity;
   imageQuery: string[];
   imageSource?: RecipeImageSource;
   name: string;
+  trustProvidedImage: boolean;
 }) {
+  if (trustProvidedImage) return true;
+
   if (imageSource === "api") {
     return doesGeneratedImageSlugMatchCard({
       imageUrl,

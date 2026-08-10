@@ -79,7 +79,11 @@ describe("recipe pipeline reporting", () => {
     recordRecipeGenerationTrace(report, { type: "response", recipes: [first] });
     expect(report.generationTrace.recipes).toEqual(expect.arrayContaining([
       expect.objectContaining({ recipeId: "one", returnedStatus: "returned" }),
-      expect.objectContaining({ recipeId: "two", rejectionReason: "superseded_by_higher_ranked_result" })
+      expect.objectContaining({
+        recipeId: "two",
+        rejectionReason: "safety_allergen:milk",
+        terminalStatus: "not_selected"
+      })
     ]));
   });
 });

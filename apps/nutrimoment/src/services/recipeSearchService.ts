@@ -48,6 +48,9 @@ import {
   createRecipeIngredientCompatibilityEvaluator,
   specializeCatalogRecipeForRequestedProteins
 } from "@/services/recipePrimaryIngredientCompatibility";
+import {
+  partitionRecipeCatalogByQuality
+} from "@/services/recipeContentQualityService";
 
 const recipeDiversityEngine = new RecipeDiversityEngine();
 const ingredientGraph = new IngredientGraph();
@@ -55,6 +58,7 @@ let staticLocalRecipeSources: {
   cuisineCatalogRecipes: RecipeCatalogDoc[];
   realSourceArtifactRecipes: RecipeCatalogDoc[];
   seededRecipes: RecipeCatalogDoc[];
+  quarantinedRecipes: ReturnType<typeof partitionRecipeCatalogByQuality>["quarantined"];
 } | null = null;
 
 export interface CatalogRecipeSearchInput {
@@ -105,7 +109,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   const normalizationCompletedAt = Date.now();
 
   const limit = input.maxResults ?? 3;
-  const { seededRecipes, cuisineCatalogRecipes, realSourceArtifactRecipes } = getStaticLocalRecipeSources();
+  const { seededRecipes, cuisineCatalogRecipes, realSourceArtifactRecipes, quarantinedRecipes } = getStaticLocalRecipeSources();
   const localSourceCount = seededRecipes.length + cuisineCatalogRecipes.length + realSourceArtifactRecipes.length;
   const warmSharedRecipeCache = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
   const readRemoteRecipeCaches = shouldReadRemoteRecipeCaches({
@@ -133,14 +137,16 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
         ? ingredientSharedCachedRecipes
         : [];
 
-  const primaryRecipePool = dedupeCatalogRecipes([
+  const recipePoolQuality = partitionRecipeCatalogByQuality(dedupeCatalogRecipes([
     ...userCachedRecipes,
     ...sharedCachedRecipes,
     ...firestoreReferenceRecipes,
     ...realSourceArtifactRecipes,
     ...seededRecipes,
     ...cuisineCatalogRecipes
-  ]);
+  ]));
+  const allQuarantinedRecipes = [...quarantinedRecipes, ...recipePoolQuality.quarantined];
+  const primaryRecipePool = recipePoolQuality.discoverable;
   const cuisineFocusedRecipePool = selectRecipeSearchCuisinePool(
     primaryRecipePool,
     preferences.preferredCuisine
@@ -239,6 +245,8 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
       weight: alias.weight
     })),
     candidateRecipeCount: rankedRecipePool.length,
+    quarantinedRecipeCount: allQuarantinedRecipes.length,
+    quarantinedRecipeStatuses: summarizeQuarantinedRecipeStatuses(allQuarantinedRecipes),
     firestoreReferenceRecipeCount: firestoreReferenceRecipes.length,
     matchingRecipeCount: ingredientMatchedRanked.length,
     primaryCompatibleRecipeCount: primaryCompatibleRanked.length,
@@ -285,12 +293,31 @@ export function selectRecipeSearchCuisinePool(
 
 function getStaticLocalRecipeSources() {
   if (staticLocalRecipeSources) return staticLocalRecipeSources;
+  const seededPartition = partitionRecipeCatalogByQuality(
+    OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe))
+  );
+  const cuisineCatalogPartition = partitionRecipeCatalogByQuality(getCuisineCatalogV2RecipeDocs());
+  const realSourcePartition = partitionRecipeCatalogByQuality(getRealSourceArtifactRecipes());
   staticLocalRecipeSources = {
-    seededRecipes: OFFLINE_RECIPES.map((recipe) => normalizeCachedRecipeCatalogDoc(recipe)),
-    cuisineCatalogRecipes: getCuisineCatalogV2RecipeDocs(),
-    realSourceArtifactRecipes: getRealSourceArtifactRecipes()
+    seededRecipes: seededPartition.discoverable,
+    cuisineCatalogRecipes: cuisineCatalogPartition.discoverable,
+    realSourceArtifactRecipes: realSourcePartition.discoverable,
+    quarantinedRecipes: [
+      ...seededPartition.quarantined,
+      ...cuisineCatalogPartition.quarantined,
+      ...realSourcePartition.quarantined
+    ]
   };
   return staticLocalRecipeSources;
+}
+
+function summarizeQuarantinedRecipeStatuses(
+  quarantined: ReturnType<typeof partitionRecipeCatalogByQuality>["quarantined"]
+) {
+  return quarantined.reduce<Record<string, number>>((summary, entry) => {
+    summary[entry.quality.status] = (summary[entry.quality.status] ?? 0) + 1;
+    return summary;
+  }, {});
 }
 
 function selectCompatibleRankedCandidates(input: {

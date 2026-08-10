@@ -179,6 +179,11 @@ describe("diet enforcement", () => {
       ingredients: ["polenta", "tomato"],
       steps: ["Serve instead of gluten-free ravioli."]
     }, ctx)).toBeNull();
+    expect(findRecipeDietViolation({
+      name: "Lisa's gluten-free ravioli Marinara",
+      ingredients: ["50 gluten -free ravioli squares", "tomato"],
+      steps: ["Serve over cooked gluten-free ravioli."]
+    }, ctx)).toBeNull();
     expect(findRecipeDietViolation({ name: "Eggplant Parmesan", ingredients: ["breadcrumbs", "eggplant"] }, ctx)).toEqual({
       kind: "diet",
       diet: "glutenFree",

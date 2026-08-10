@@ -28,6 +28,7 @@
     "cleanup:synthetic-recipes": "tsx scripts/cleanup-synthetic-recipes.ts",
     "import:real-recipes": "tsx scripts/import-real-recipes.ts",
     "import:recipenlg-reference": "tsx scripts/import-recipenlg-reference.ts",
+    "audit:recipe-reference-quality": "tsx scripts/audit-recipe-reference-quality.ts",
     "set:user-access": "tsx scripts/set-user-access.ts",
     "inspect:user-recipes": "tsx scripts/inspect-user-recipes.ts"
   },

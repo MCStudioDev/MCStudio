@@ -563,6 +563,7 @@ export function ScannerTab() {
     );
     if (completedEntry) {
       notifiedHistoryEntriesRef.current.add(completedEntry.id);
+      forgetPendingRecipeHistoryId(completedEntry.id);
       setHistoryEntryId(completedEntry.id);
       setRecipes(completedEntry.recipes);
       setRecipeLoading(false);
@@ -578,6 +579,7 @@ export function ScannerTab() {
     );
     if (failedEntry) {
       notifiedHistoryEntriesRef.current.add(failedEntry.id);
+      forgetPendingRecipeHistoryId(failedEntry.id);
       setRecipeLoading(false);
       setError(failedEntry.generationMessage ?? t("backgroundRecipesFailed"));
     }
@@ -795,6 +797,7 @@ export function ScannerTab() {
 
     const requestVersion = recipeRequestVersionRef.current + 1;
     recipeRequestVersionRef.current = requestVersion;
+    readPendingRecipeHistoryIds().forEach(forgetPendingRecipeHistoryId);
     setRecipeLoading(true);
     setRecipeGenerationStatus(null);
     let pendingEntryId: string | null = null;
@@ -1297,6 +1300,7 @@ export function ScannerTab() {
                   key={`${recipe.id ?? recipe.name}-${index}`}
                   disableAutoImageLookup={hasGeneratedImageAccess}
                   deferImageLookup={index >= 2}
+                  trustProvidedImage
                   imageLookupVersion={imageRepairVersion}
                   eyebrow={getRecipeEyebrow(recipe, t)}
                   name={buildRecipeDisplayName(recipe, settings.uiLanguage)}

@@ -6,7 +6,7 @@ import { getAdminDb } from "@/lib/firebaseAdmin";
 import { logger } from "@/lib/logger";
 
 const CACHE_COLLECTION = "recipeEditorSemanticCache";
-const CACHE_VERSION = "recipe-editor-v3";
+const CACHE_VERSION = "recipe-editor-v11-validation-identity-v1";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 type CacheOrigin = "firestore" | "memory" | "inflight" | "generated";
@@ -49,9 +49,6 @@ export function buildRecipeEditorCacheKey(input: RecipeEditorCacheInput) {
     sourceFingerprint,
     language: normalizeValue(input.recipeLanguage),
     preferredCuisine: normalizeValue(input.preferredCuisine),
-    availableIngredients: input.availableIngredients
-      .map((ingredient) => ({ name: normalizeValue(ingredient.name), quantity: normalizeValue(ingredient.quantity ?? "") }))
-      .sort((left, right) => `${left.name}:${left.quantity}`.localeCompare(`${right.name}:${right.quantity}`)),
     diets: normalizeList(input.diets),
     conditions: normalizeList(input.conditions),
     allergens: normalizeList(input.allergens),
@@ -66,6 +63,30 @@ export async function getOrCreateRecipeEditorCache(
   generate: () => Promise<Recipe>,
   isUsable?: (recipe: Recipe) => boolean
 ): Promise<RecipeEditorCacheResult> {
+  const cached = await getRecipeEditorCache(input, isUsable);
+  if (cached) return cached;
+
+  const cacheKey = buildRecipeEditorCacheKey(input);
+  const existing = inFlight.get(cacheKey);
+  if (existing) {
+    return { cacheKey, origin: "inflight", recipe: await existing };
+  }
+
+  const pending = generate()
+    .then(async (recipe) => {
+      await setRecipeEditorCache(input, recipe);
+      return recipe;
+    })
+    .finally(() => inFlight.delete(cacheKey));
+  inFlight.set(cacheKey, pending);
+
+  return { cacheKey, origin: "generated", recipe: await pending };
+}
+
+export async function getRecipeEditorCache(
+  input: RecipeEditorCacheInput,
+  isUsable?: (recipe: Recipe) => boolean
+): Promise<RecipeEditorCacheResult | null> {
   const cacheKey = buildRecipeEditorCacheKey(input);
   const memoryRecipe = readMemory(cacheKey);
   if (memoryRecipe && (!isUsable || isUsable(memoryRecipe))) {
@@ -84,16 +105,14 @@ export async function getOrCreateRecipeEditorCache(
     return { cacheKey, origin: "inflight", recipe: await existing };
   }
 
-  const pending = generate()
-    .then(async (recipe) => {
-      writeMemory(cacheKey, recipe);
-      await writeFirestore(cacheKey, recipe);
-      return recipe;
-    })
-    .finally(() => inFlight.delete(cacheKey));
-  inFlight.set(cacheKey, pending);
+  return null;
+}
 
-  return { cacheKey, origin: "generated", recipe: await pending };
+export async function setRecipeEditorCache(input: RecipeEditorCacheInput, recipe: Recipe) {
+  const cacheKey = buildRecipeEditorCacheKey(input);
+  writeMemory(cacheKey, recipe);
+  await writeFirestore(cacheKey, recipe);
+  return { cacheKey, origin: "generated" as const, recipe };
 }
 
 function normalizeValue(value: string) {

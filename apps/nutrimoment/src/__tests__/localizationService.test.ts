@@ -104,4 +104,10 @@ describe("LocalizationService", () => {
     expect(twice).toBe(once);
     expect(threeTimes).toBe(once);
   });
+
+  it("preserves the requested physical beef form in English", () => {
+    expect(localizationService.normalizeDishTitle("Steak Diane", "en")).toBe("Steak Diane");
+    expect(localizationService.normalizeIngredient("1 lb sirloin steak", "en")).toBe("1 lb sirloin steak");
+    expect(localizationService.normalizeIngredient("1 lb ground beef", "en")).toBe("1 lb ground beef");
+  });
 });

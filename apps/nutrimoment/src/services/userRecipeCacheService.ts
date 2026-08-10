@@ -1,4 +1,3 @@
-import { FieldValue } from "firebase-admin/firestore";
 import type { Difficulty, MealType, RecipeCatalogDoc } from "@/lib/domain";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import {
@@ -6,10 +5,7 @@ import {
   localizeMealForEnglish,
   translateIngredientToEnglish
 } from "@/lib/arabicRecipeLocalization";
-import {
-  filterRecipesByDiet,
-  type DietEnforcementContext
-} from "@/lib/dietEnforcement";
+import type { DietEnforcementContext } from "@/lib/dietEnforcement";
 import {
   buildRecipeHealthMetadata,
   normalizeCachedRecipeCatalogDoc,
@@ -26,6 +22,11 @@ import type { MealPlanMeal, Recipe } from "@/lib/types";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { logger } from "@/lib/logger";
 import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import {
+  auditSharedRecipePoolDocument,
+  isSharedRecipeDiscoverable,
+  type SharedRecipeQualityEnforcementMode
+} from "@/services/sharedRecipePoolQualityService";
 
 type CacheRecipeLanguage = "English" | "Arabic";
 
@@ -42,6 +43,7 @@ const FULL_SHARED_CACHE_MAX_STALE_TTL_MS = 6 * 60 * 60 * 1000;
 const FULL_SHARED_CACHE_RETRY_COOLDOWN_MS = 60 * 1000;
 const USER_RECIPE_CACHE_DISABLED = process.env.DISABLE_USER_RECIPE_CACHE === "true";
 const SHARED_RECIPE_POOL_DISABLED = process.env.DISABLE_SHARED_RECIPE_POOL === "true";
+const SHARED_RECIPE_QUALITY_MODE = readSharedRecipeQualityMode(process.env.SHARED_RECIPE_QUALITY_ENFORCEMENT);
 
 let sharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
 let sharedRecipeCacheUpdatedAt = 0;
@@ -275,28 +277,7 @@ export async function persistGeneratedRecipeCache(input: {
   const cacheDocs = await buildCacheDocs(input, { preserveImages: false });
   if (!cacheDocs.length) return;
 
-  let sharedCacheDocs = cacheDocs;
-  let sharedDietTagsById = new Map(cacheDocs.map((recipe) => [recipe.id, recipe.dietTags]));
-  // Filter cache docs against diet/allergen rules before writing to shared pool.
-  // Keep the user's private cache intact; the guard is specifically to avoid
-  // contaminating the global shared pool for later users with different diets.
-  if (input.dietContext && !SHARED_RECIPE_POOL_DISABLED) {
-    const filtered = filterRecipesByDiet(cacheDocs, input.dietContext);
-    if (filtered.rejected.length > 0) {
-      logger.info("Shared-pool cache write: dropped diet-violating recipes", {
-        totalCount: cacheDocs.length,
-        droppedCount: filtered.rejected.length,
-        retainedCount: filtered.allowed.length,
-        diets: input.dietContext.diets,
-        allergens: input.dietContext.allergens
-      });
-    }
-    sharedCacheDocs = filtered.allowed.map((recipe) => ({
-      ...recipe,
-      dietTags: mergeCacheTags(recipe.dietTags, input.dietContext?.diets)
-    }));
-    sharedDietTagsById = new Map(sharedCacheDocs.map((recipe) => [recipe.id, recipe.dietTags]));
-  }
+  const sharedCacheDocs = cacheDocs;
 
   if (!cacheDocs.length && !sharedCacheDocs.length) return;
   const sharedCacheDocIds = new Set(sharedCacheDocs.map((recipe) => recipe.id));
@@ -316,11 +297,7 @@ export async function persistGeneratedRecipeCache(input: {
         batch.set(userCacheCollection.doc(recipe.id), stripUndefinedDeep(recipe));
       }
       if (!SHARED_RECIPE_POOL_DISABLED && sharedCacheDocIds.has(recipe.id)) {
-        const recipeForSharedPool = {
-          ...recipe,
-          dietTags: sharedDietTagsById.get(recipe.id) ?? recipe.dietTags
-        };
-        const sharedRecipe = toSharedCacheDoc(recipeForSharedPool);
+        const sharedRecipe = auditSharedRecipePoolDocument(toSharedCacheDoc(recipe)).document;
         batch.set(
           db.collection(SHARED_CACHE_COLLECTION).doc(sharedRecipe.id),
           buildSharedCacheWriteDoc(sharedRecipe),
@@ -350,8 +327,14 @@ export async function persistSharedRecipeCache(input: {
     cacheDocs,
     50,
     async (batch, recipe) => {
-      const sharedRecipe = toSharedCacheDoc(recipe, input.sourceProvider);
-      batch.set(db.collection(SHARED_CACHE_COLLECTION).doc(sharedRecipe.id), stripUndefinedDeep(sharedRecipe), { merge: true });
+      const sharedRecipe = auditSharedRecipePoolDocument(
+        toSharedCacheDoc(recipe, input.sourceProvider)
+      ).document;
+      batch.set(
+        db.collection(SHARED_CACHE_COLLECTION).doc(sharedRecipe.id),
+        buildSharedCacheWriteDoc(sharedRecipe),
+        { merge: true }
+      );
     }
   );
 }
@@ -788,18 +771,8 @@ function buildSharedCacheWriteDoc(recipe: RecipeCatalogDoc) {
   const writeDoc = { ...stripUndefinedDeep(recipe) } as Record<string, unknown>;
   const dietTags = mergeCacheTags(recipe.dietTags);
   const allergenTags = mergeCacheTags(recipe.allergenTags);
-
-  if (dietTags.length) {
-    writeDoc.dietTags = FieldValue.arrayUnion(...dietTags);
-  } else {
-    delete writeDoc.dietTags;
-  }
-
-  if (allergenTags.length) {
-    writeDoc.allergenTags = FieldValue.arrayUnion(...allergenTags);
-  } else {
-    delete writeDoc.allergenTags;
-  }
+  writeDoc.dietTags = dietTags;
+  writeDoc.allergenTags = allergenTags;
 
   return writeDoc;
 }
@@ -883,7 +856,13 @@ function isUsableSharedCachedRecipe(recipe: RecipeCatalogDoc) {
     return false;
   }
 
-  return !isWeakSharedCacheTitle(englishName) || Boolean(pickSpecificCacheIdentityFromDoc(recipe));
+  const hasUsableIdentity = !isWeakSharedCacheTitle(englishName) || Boolean(pickSpecificCacheIdentityFromDoc(recipe));
+  return hasUsableIdentity && isSharedRecipeDiscoverable(recipe, SHARED_RECIPE_QUALITY_MODE);
+}
+
+function readSharedRecipeQualityMode(value: string | undefined): SharedRecipeQualityEnforcementMode {
+  if (value === "gate" || value === "strict") return value;
+  return "observe";
 }
 
 function pickSpecificCacheIdentity(

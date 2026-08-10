@@ -941,9 +941,8 @@ function getIngredientKind(canonical: string): IngredientSignal["kind"] {
 }
 
 function normalizeIngredientSignal(value: string): string {
-  const translated = translateIngredientToEnglish(value);
   const normalizedArabic = normalizeArabicIngredient(value);
-  const source = normalizedArabic || translated || value;
+  const source = normalizedArabic || (/[؀-ۿ]/u.test(value) ? translateIngredientToEnglish(value) : value);
 
   return normalizeText(source)
     .replace(/\b prawns\b/g, " shrimp")

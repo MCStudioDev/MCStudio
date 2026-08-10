@@ -137,6 +137,8 @@ export interface RecipeCanonicalStagingDoc {
   updatedAt: number;
 }
 
+export type RecipeQualityStatus = "blocked" | "dish_intent" | "golden" | "probation" | "verified";
+
 export interface RecipeCatalogDoc {
   id: string;
   title: string;
@@ -186,6 +188,11 @@ export interface RecipeCatalogDoc {
   searchTokens: string[];
   popularityScore: number;
   qualityScore: number;
+  qualityStatus?: RecipeQualityStatus;
+  qualityReasons?: string[];
+  contentVersion?: string;
+  validatedAt?: number;
+  validatorHash?: string;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;

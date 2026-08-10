@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeCatalogDoc } from "../lib/domain";
+import type { Recipe } from "../lib/types";
 import {
   createRecipeIngredientCompatibilityEvaluator,
   evaluateRecipeIngredientEvidence,
   evaluateRecipePrimaryIngredientCompatibility,
   filterPrimaryIngredientCompatibleRecipes,
+  hasExclusiveRequestedProteinForm,
   specializeCatalogRecipeForRequestedProteins
 } from "../services/recipePrimaryIngredientCompatibility";
 
@@ -111,6 +113,104 @@ describe("recipe primary ingredient compatibility", () => {
     });
   });
 
+  it("allows egg as a supporting binder in a vegetable-centered recipe", () => {
+    const fritters = recipe({
+      id: "zucchini-fritters",
+      title: "Zucchini Fritters",
+      requiredCanonicals: ["zucchini", "egg", "flour"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(fritters, ["zucchini"])).toMatchObject({
+      compatible: true,
+      reason: "compatible",
+      recipeProteinFamilies: ["egg"]
+    });
+  });
+
+  it("still rejects an egg-centered dish when egg was not requested", () => {
+    const omelette = recipe({
+      id: "vegetable-omelette",
+      title: "Vegetable Omelette",
+      requiredCanonicals: ["egg", "zucchini", "tomato"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(omelette, ["zucchini", "tomato"]))
+      .toMatchObject({ compatible: false, reason: "unrequested_primary_protein" });
+  });
+
+  it("treats animal-specific liver labels as liver rather than a second meat protein", () => {
+    const chickenLivers: Recipe = {
+      name: "Pan-Seared Liver",
+      dish_identity: "Pan-Seared Chicken Livers",
+      cuisine: "Global",
+      ingredients: ["1 lb chicken livers"],
+      missing_ingredients: ["1 onion", "2 tbsp butter"],
+      steps: ["Cook until done."],
+      calories: 320,
+      protein: "25g",
+      carbs: "8g",
+      fat: "20g",
+      cook_time: "20 minutes",
+      difficulty: "Easy",
+      dish_intent: {
+        dish_name: "Butter Chicken",
+        cuisine: "Indian",
+        visual_keywords: ["butter chicken"],
+        exclude_keywords: []
+      },
+      photo_identity: {
+        dish_slug: "pan-seared-chicken-livers",
+        english_name: "Pan-Seared Chicken Pate",
+        protein: "chicken"
+      }
+    };
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(chickenLivers, ["liver", "onion"]))
+      .toMatchObject({
+        compatible: true,
+        reason: "compatible",
+        requestedProteinFamilies: ["liver"],
+        recipeProteinFamilies: ["liver"]
+      });
+  });
+
+  it("normalizes possessive species labels on liver without allowing separate meat", () => {
+    const lambLiver = recipe({
+      id: "pan-fried-lambs-liver",
+      title: "Pan-Fried Lamb's Liver",
+      requiredCanonicals: ["lamb's liver", "onion"]
+    });
+    const liverWithLamb = recipe({
+      id: "liver-with-lamb-chops",
+      title: "Liver with Lamb Chops",
+      requiredCanonicals: ["liver", "lamb chops", "onion"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(lambLiver, ["liver"]))
+      .toMatchObject({ compatible: true, recipeProteinFamilies: ["liver"] });
+    expect(evaluateRecipePrimaryIngredientCompatibility(liverWithLamb, ["liver"]))
+      .toMatchObject({
+        compatible: false,
+        incompatibleProteinFamilies: ["lamb"],
+        reason: "unrequested_primary_protein"
+      });
+  });
+
+  it("allows plural liver names and supporting cooking fat", () => {
+    const friedLivers = recipe({
+      id: "fried-livers",
+      title: "Fried Livers",
+      requiredCanonicals: ["livers", "chicken fat", "egg", "onion"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(friedLivers, ["liver", "onion"]))
+      .toMatchObject({
+        compatible: true,
+        incompatibleProteinFamilies: [],
+        recipeProteinFamilies: ["egg", "liver"]
+      });
+  });
+
   it("accepts an authentic optional shrimp variant without selecting its chicken alternative", () => {
     const friedRice = recipe({
       id: "khao-pad",
@@ -152,6 +252,11 @@ describe("recipe primary ingredient compatibility", () => {
     });
 
     expect(evaluateRecipePrimaryIngredientCompatibility(papayaSalad, ["white fish", "lime"])).toMatchObject({
+      compatible: true,
+      reason: "compatible",
+      recipeProteinFamilies: []
+    });
+    expect(evaluateRecipePrimaryIngredientCompatibility(papayaSalad, ["white fish"])).toMatchObject({
       compatible: false,
       reason: "requested_primary_protein_missing",
       recipeProteinFamilies: []
@@ -170,7 +275,7 @@ describe("recipe primary ingredient compatibility", () => {
       .toMatchObject({ compatible: false, reason: "unrequested_primary_protein" });
   });
 
-  it("keeps recipes centered on the requested protein and removes protein-free or conflicting fillers", () => {
+  it("allows requested non-protein anchors while removing conflicting animal proteins", () => {
     const candidates = [
       recipe({ id: "shakshuka", title: "Shakshuka", requiredCanonicals: ["egg", "tomato"] }),
       recipe({ id: "cucumber-salad", title: "Cucumber Salad", requiredCanonicals: ["cucumber", "lemon"] }),
@@ -180,7 +285,10 @@ describe("recipe primary ingredient compatibility", () => {
       recipe({ id: "beef", title: "Beef Curry", requiredCanonicals: ["beef", "tomato"] })
     ];
 
-    expect(filterPrimaryIngredientCompatibleRecipes(candidates, pantry).map((item) => item.id)).toEqual(["shakshuka"]);
+    expect(filterPrimaryIngredientCompatibleRecipes(candidates, pantry).map((item) => item.id)).toEqual([
+      "shakshuka",
+      "cucumber-salad"
+    ]);
   });
 
   it("rejects a sauce-only recipe when the user requested chicken", () => {
@@ -190,7 +298,7 @@ describe("recipe primary ingredient compatibility", () => {
       requiredCanonicals: ["tomato", "garlic", "olive oil"]
     });
 
-    expect(evaluateRecipePrimaryIngredientCompatibility(tomatoSauce, ["فراخ", "طماطم", "ثوم"])).toMatchObject({
+    expect(evaluateRecipePrimaryIngredientCompatibility(tomatoSauce, ["chicken"])).toMatchObject({
       compatible: false,
       reason: "requested_primary_protein_missing",
       requestedProteinFamilies: ["chicken"],
@@ -198,14 +306,118 @@ describe("recipe primary ingredient compatibility", () => {
     });
   });
 
-  it("treats ground beef as part of the beef family", () => {
+  it("does not substitute ground beef recipes for a requested steak cut", () => {
     const meatballs = recipe({
       id: "meatballs",
       title: "Beef Meatballs",
       requiredCanonicals: ["ground beef", "tomato"]
     });
 
-    expect(evaluateRecipePrimaryIngredientCompatibility(meatballs, ["steak", "tomato"]).compatible).toBe(true);
+    expect(evaluateRecipePrimaryIngredientCompatibility(meatballs, ["steak", "tomato"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("does not require fish on rice and onion cards in a mixed-anchor request", () => {
+    const ricePilaf = recipe({
+      id: "rice-pilaf",
+      title: "Rice Pilaf",
+      requiredCanonicals: ["rice", "onion"]
+    });
+    const arrozConPollo = recipe({
+      id: "arroz-con-pollo",
+      title: "Arroz con Pollo",
+      requiredCanonicals: ["rice", "onion", "chicken"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(ricePilaf, ["fish", "rice", "onion"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(arrozConPollo, ["fish", "rice", "onion"]))
+      .toMatchObject({ compatible: false, reason: "unrequested_primary_protein" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(ricePilaf, ["fish"]))
+      .toMatchObject({ compatible: false, reason: "requested_primary_protein_missing" });
+  });
+
+  it("recognizes common named fish species as fish", () => {
+    const halibut = recipe({
+      id: "pan-seared-halibut",
+      title: "Pan-Seared Halibut",
+      requiredCanonicals: ["halibut", "onion"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(halibut, ["fish", "onion"]))
+      .toMatchObject({ compatible: true, recipeProteinFamilies: ["fish"] });
+  });
+
+  it("does not substitute a generic beef stew for a requested steak cut", () => {
+    const beefStew = recipe({
+      id: "beef-stew",
+      title: "Classic Beef Stew",
+      requiredCanonicals: ["beef", "potato", "carrot"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(beefStew, ["steak"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("scopes a requested steak form to beef cards in a mixed-protein pantry", () => {
+    const chicken = recipe({
+      id: "roast-chicken",
+      title: "Roast Chicken",
+      requiredCanonicals: ["chicken", "onion"]
+    });
+    const fish = recipe({
+      id: "baked-fish",
+      title: "Baked Fish",
+      requiredCanonicals: ["fish", "onion"]
+    });
+    const beefStew = recipe({
+      id: "mixed-pantry-beef-stew",
+      title: "Beef Stew",
+      requiredCanonicals: ["beef", "onion"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(chicken, ["steak", "chicken", "fish", "onion"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(fish, ["steak", "chicken", "fish", "onion"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(beefStew, ["steak", "chicken", "fish", "onion"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+    expect(hasExclusiveRequestedProteinForm(["steak", "onion"], "beef")).toBe(true);
+    expect(hasExclusiveRequestedProteinForm(["steak", "chicken", "onion"], "beef")).toBe(false);
+    expect(hasExclusiveRequestedProteinForm(["beef", "onion"], "beef")).toBe(false);
+  });
+
+  it("does not substitute an intact steak recipe for requested ground beef", () => {
+    const ribeye = recipe({
+      id: "grilled-ribeye",
+      title: "Grilled Ribeye Steak",
+      requiredCanonicals: ["ribeye steak", "black pepper"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(ribeye, ["ground beef", "black pepper"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("does not mistake minced garlic in a steak recipe for ground beef", () => {
+    const koreanSteak = recipe({
+      id: "korean-steak",
+      title: "Korean Marinated Steak",
+      requiredCanonicals: ["sirloin steak", "minced garlic", "soy sauce"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(koreanSteak, ["steak"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+  });
+
+  it("recognizes London Broil as an intact steak preparation", () => {
+    const londonBroil = recipe({
+      id: "london-broil",
+      title: "London Broil",
+      requiredCanonicals: ["beef", "olive oil", "garlic"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(londonBroil, ["steak"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
   });
 
   it("treats a source recipe's generic meat slot as evidence for requested ground beef", () => {

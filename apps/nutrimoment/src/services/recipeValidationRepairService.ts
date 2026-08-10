@@ -17,6 +17,7 @@ export interface RecipeValidationTraceEntry {
 }
 
 export interface RecipePipelineCandidate {
+  cuisine: string;
   id: string;
   name: string;
 }
@@ -56,6 +57,7 @@ export interface RecipeGenerationTrace {
 }
 
 export interface RecipeLifecycleTrace {
+  lastStage: string | null;
   geminiStatus: "cached" | "failed" | "not_attempted" | "skipped" | "succeeded";
   imageStatus: "pending_client_hydration" | "ready" | "skipped";
   recipeId: string;
@@ -65,6 +67,7 @@ export interface RecipeLifecycleTrace {
   searchScore: number | null;
   selected: boolean;
   title: string;
+  terminalStatus: "active" | "accepted" | "not_selected" | "rejected" | "returned";
   validationStatus: "accepted" | "failed" | "not_attempted" | "skipped";
 }
 
@@ -135,8 +138,7 @@ const REPAIRABLE_QUALITY_REASONS = new Set([
   "duplicate_ingredients",
   "duplicate_instructions",
   "ingredient_only_title",
-  "missing_required_fields",
-  "title_does_not_describe_recipe"
+  "missing_required_fields"
 ]);
 
 const BLOCKING_QUALITY_REASONS = new Set([
@@ -194,6 +196,7 @@ export function recordRecipeLifecycle(
   const base: RecipeLifecycleTrace = existing ?? {
     geminiStatus: "not_attempted",
     imageStatus: "pending_client_hydration",
+    lastStage: null,
     recipeId: input.recipeId,
     rejectionReason: null,
     repairStatus: "not_needed",
@@ -201,6 +204,7 @@ export function recordRecipeLifecycle(
     searchScore: null,
     selected: false,
     title: input.title,
+    terminalStatus: "active",
     validationStatus: "not_attempted"
   };
   const next = { ...base, ...input, title: input.title || base.title };
@@ -255,6 +259,7 @@ export function recordRecipeGenerationTrace(
         recipeId: readRecipeId(recipe),
         title: recipe.name,
         returnedStatus: "returned",
+        terminalStatus: "returned",
         imageStatus: recipe.image_url ? "ready" : "pending_client_hydration"
       });
     });
@@ -263,7 +268,9 @@ export function recordRecipeGenerationTrace(
       .filter((recipe) => recipe.selected && !returnedIds.has(recipe.recipeId) && !recipe.rejectionReason)
       .forEach((recipe) => {
         recipe.rejectionReason = "superseded_by_higher_ranked_result";
+        recipe.terminalStatus = "not_selected";
       });
+    finalizeRecipeCandidateTrace(report, input.recipes);
   }
 }
 
@@ -299,7 +306,29 @@ export function recordRecipePipelineStage(
     stage: input.stage
   });
 
-  if (!report.firstStageBelowRequested && input.exited.length < report.requestedCount) {
+  input.exited.forEach((recipe) => {
+    recordRecipeLifecycle(report, {
+      lastStage: input.stage,
+      recipeId: readRecipeId(recipe),
+      terminalStatus: "active",
+      title: recipe.name
+    });
+  });
+  removed.forEach((recipe) => {
+    recordRecipeLifecycle(report, {
+      lastStage: input.stage,
+      recipeId: recipe.id,
+      rejectionReason: recipe.reason,
+      terminalStatus: "not_selected",
+      title: recipe.name
+    });
+  });
+
+  if (
+    !report.firstStageBelowRequested &&
+    input.entered.length > input.exited.length &&
+    input.exited.length < report.requestedCount
+  ) {
     report.firstStageBelowRequested = input.stage;
   }
 }
@@ -346,9 +375,49 @@ export function recordRecipeValidationTrace(
   if (entry.finalDecision === "rejected") report.summary.rejected += 1;
   if (entry.finalDecision === "repaired") report.summary.repaired += 1;
   if (entry.finalDecision === "soft_selected") report.summary.softSelected += 1;
+
+  if (entry.finalDecision === "accepted") {
+    recordRecipeLifecycle(report, {
+      recipeId: readRecipeId(entry.recipe),
+      terminalStatus: "accepted",
+      title: entry.recipe.name,
+      validationStatus: "accepted"
+    });
+  }
+  if (entry.finalDecision === "rejected") {
+    recordRecipeLifecycle(report, {
+      recipeId: readRecipeId(entry.recipe),
+      rejectionReason: entry.reason,
+      terminalStatus: "rejected",
+      title: entry.recipe.name,
+      validationStatus: "failed"
+    });
+  }
+}
+
+export function finalizeRecipeCandidateTrace(report: RecipeValidationReport, returnedRecipes: Recipe[]) {
+  const returnedIds = new Set(returnedRecipes.map(readRecipeId));
+  returnedRecipes.forEach((recipe) => {
+    recordRecipeLifecycle(report, {
+      lastStage: "response",
+      recipeId: readRecipeId(recipe),
+      returnedStatus: "returned",
+      terminalStatus: "returned",
+      title: recipe.name
+    });
+  });
+  report.generationTrace.recipes.forEach((recipe) => {
+    if (returnedIds.has(recipe.recipeId)) return;
+    if (recipe.terminalStatus === "active" || recipe.terminalStatus === "accepted") {
+      recipe.terminalStatus = "not_selected";
+      recipe.rejectionReason ??= "not_selected_for_response";
+    }
+    recipe.lastStage ??= "response";
+  });
 }
 
 export async function persistRecipeValidationReport(report: RecipeValidationReport) {
+  finalizeRecipeCandidateTrace(report, []);
   const reportDirectory = join(tmpdir(), "nutrimoment-recipe-validation", report.requestId);
   const reportPath = join(reportDirectory, "validation_report.json");
   await mkdir(reportDirectory, { recursive: true });
@@ -361,6 +430,7 @@ export async function persistRecipePipelineReport(
   report: RecipeValidationReport,
   startedAtMs: number
 ) {
+  finalizeRecipeCandidateTrace(report, []);
   const reportDirectory = join(tmpdir(), "nutrimoment-recipe-validation", report.requestId);
   const reportPath = join(reportDirectory, "pipeline_report.json");
   const pipelineReport: RecipePipelineReport = {
@@ -385,6 +455,7 @@ export async function persistRecipePipelineReport(
 
 function toPipelineCandidate(recipe: Recipe): RecipePipelineCandidate {
   return {
+    cuisine: recipe.cuisine || "Unknown",
     id: readRecipeId(recipe),
     name: recipe.name
   };
@@ -422,10 +493,12 @@ export function repairRecipeForValidation(recipe: Recipe, context: RecipeRepairC
     actions.push("estimated_missing_steps");
   }
 
-  const usageRepairedSteps = ensureIngredientsAppearInSteps(repaired, wantsArabic);
-  if (usageRepairedSteps.length !== repaired.steps.length) {
-    repaired = { ...repaired, steps: usageRepairedSteps };
-    actions.push("added_missing_ingredient_usage_step");
+  if (context.allowSyntheticFallbacks !== false) {
+    const usageRepairedSteps = ensureIngredientsAppearInSteps(repaired, wantsArabic);
+    if (usageRepairedSteps.length !== repaired.steps.length) {
+      repaired = { ...repaired, steps: usageRepairedSteps };
+      actions.push("added_missing_ingredient_usage_step");
+    }
   }
 
   if (!repaired.cook_time?.trim()) {

@@ -1235,7 +1235,7 @@ function makeKetoCarriersExplicitlySafe(value: string): string {
 function makeGlutenSourcesExplicitlySafe(value: string): string {
   const protectedTerms: string[] = [];
   const protectedValue = value.replace(
-    /\b(?:certified\s+)?gluten[- ]free\s+(?:wheat|flours?|breads?|breadcrumbs?|pastas?|spaghetti|macaroni|lasagn[ae]|noodles?|ravioli|crusts?|tortillas?|crackers?|couscous|bulgur|semolina)\b/gi,
+    /\b(?:certified\s+)?gluten(?:\s*-\s*|\s+)free\s+(?:wheat|flours?|breads?|breadcrumbs?|pastas?|spaghetti|macaroni|lasagn[ae]|noodles?|ravioli|crusts?|tortillas?|crackers?|couscous|bulgur|semolina)\b/gi,
     (match) => {
       protectedTerms.push(match);
       return `gfsubstitutetoken${protectedTerms.length - 1}`;
@@ -1343,7 +1343,7 @@ function removePlantBasedProteinFalsePositives(value: string): string {
 function removeGlutenFreeSubstitutes(value: string): string {
   return value
     .replace(
-      /\b(?:certified\s+)?gluten[- ]free\s+(?:wheat|flours?|breads?|breadcrumbs?|pastas?|spaghetti|macaroni|lasagn[ae]|noodles?|ravioli|crusts?|tortillas?|crackers?|couscous|bulgur|semolina)\b/g,
+      /\b(?:certified\s+)?gluten(?:\s*-\s*|\s+)free\s+(?:wheat|flours?|breads?|breadcrumbs?|pastas?|spaghetti|macaroni|lasagn[ae]|noodles?|ravioli|crusts?|tortillas?|crackers?|couscous|bulgur|semolina)\b/g,
       "safe substitute"
     )
     .replace(/\s+/g, " ")

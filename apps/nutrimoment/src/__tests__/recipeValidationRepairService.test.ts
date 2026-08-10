@@ -7,6 +7,7 @@ import {
   createRecipeValidationReport,
   qualityReasonsAreRepairable,
   persistRecipePipelineReport,
+  recordRecipePipelineStage,
   recordRecipeValidationTrace,
   updateRecipeValidationFunnel,
   repairRecipeForValidation
@@ -55,6 +56,34 @@ describe("recipe validation repair service", () => {
       "missing_required_fields",
       "protein_missing_quantity:chicken breast"
     ]));
+  });
+
+  it("does not append synthetic ingredient-usage steps when source facts must be preserved", () => {
+    const sourceRecipe: Recipe = {
+      ...brokenSourceRecipe,
+      name: "Chicken Cacciatore",
+      ingredients: ["1 lb chicken breast", "2 cups tomatoes", "1 tbsp olive oil"],
+      steps: [
+        "Brown the chicken in olive oil for 6 minutes.",
+        "Add the tomatoes and simmer for 25 minutes until the chicken reaches 74 C."
+      ],
+      calories: 480,
+      protein: "42g",
+      carbs: "18g",
+      fat: "20g",
+      cook_time: "35 minutes",
+      difficulty: "Medium"
+    };
+
+    const repair = repairRecipeForValidation(sourceRecipe, {
+      recipeLanguage: "English",
+      scoringIngredients: ["chicken"],
+      allowSyntheticFallbacks: false
+    });
+
+    expect(repair.recipe.steps).toEqual(sourceRecipe.steps);
+    expect(repair.actions).not.toContain("added_missing_ingredient_usage_step");
+    expect(repair.recipe.steps.join(" ")).not.toMatch(/during cooking and adjust the seasoning/i);
   });
 
   it("marks residual quantity/title issues as repairable instead of hard blockers", () => {
@@ -116,6 +145,41 @@ describe("recipe validation repair service", () => {
       returned: 0,
       failure_reason: "Quality gate rejected remaining recipes."
     });
+  });
+
+  it("only identifies a first-below-requested stage when a stage actually removes candidates", () => {
+    const report = createRecipeValidationReport({
+      inputIngredients: ["Chicken"],
+      requestedCount: 10,
+      requestId: "request-stage-drop"
+    });
+    const candidates = Array.from({ length: 8 }, (_, index) => ({
+      ...brokenSourceRecipe,
+      id: `source-${index + 1}`,
+      name: `Chicken recipe ${index + 1}`
+    }));
+
+    recordRecipePipelineStage(report, {
+      entered: [],
+      exited: candidates,
+      stage: "recipe_search:exact_ingredient"
+    });
+    recordRecipePipelineStage(report, {
+      entered: candidates,
+      exited: candidates,
+      stage: "cuisine_priority"
+    });
+
+    expect(report.firstStageBelowRequested).toBeNull();
+
+    recordRecipePipelineStage(report, {
+      entered: candidates,
+      exited: candidates.slice(0, 3),
+      stage: "quality_gate",
+      reason: "invalid_recipe"
+    });
+
+    expect(report.firstStageBelowRequested).toBe("quality_gate");
   });
 
   it("writes a pipeline debug report with the request outcome", async () => {

@@ -64,10 +64,16 @@ const PROTEIN_TERMS: Array<{ family: string; terms: string[] }> = [
 ];
 
 PROTEIN_TERMS.push({ family: "shrimp", terms: ["scampi"] });
+PROTEIN_TERMS.push({
+  family: "fish",
+  terms: ["halibut", "haddock", "mahi mahi", "snapper", "swordfish", "trout"]
+});
 
 export interface RecipePrimaryIngredientCompatibility {
   compatible: boolean;
-  reason: "compatible" | "requested_primary_protein_missing" | "unrequested_primary_protein";
+  incompatibleProteinFamilies: string[];
+  incompatibleProteinEvidence: string[];
+  reason: "compatible" | "requested_primary_protein_missing" | "requested_protein_form_mismatch" | "unrequested_primary_protein";
   requestedProteinFamilies: string[];
   recipeProteinFamilies: string[];
 }
@@ -87,6 +93,9 @@ export function createRecipeIngredientCompatibilityEvaluator(availableIngredient
       .map((ingredient) => proteinFamilyForId(ingredient.id))
       .filter((family): family is string => Boolean(family))
   )).sort();
+  const requiresProteinOnEveryRecipe = requestedProteinFamilies.length > 0 &&
+    meaningfulRequestedIngredients.every((ingredient) => Boolean(proteinFamilyForId(ingredient.id)));
+  const requestedProteinFormConstraints = detectRequestedProteinFormConstraints(availableIngredients);
 
   return {
     evaluateEvidence(recipe: RecipeCatalogDoc | Recipe): RecipeIngredientEvidence {
@@ -100,26 +109,111 @@ export function createRecipeIngredientCompatibilityEvaluator(availableIngredient
         ...proteinProfile.mandatoryFamilies,
         ...selectedOptionalFamilies
       ])).sort();
-      const incompatibleFamilies = proteinProfile.mandatoryFamilies
-        .filter((family) =>
-          !requestedProteinFamilies.includes(family) &&
-          !(family === "egg" && requestedProteinFamilies.length > 0)
-        );
-      const requestedProteinMissing = requestedProteinFamilies.length > 0 &&
+      const incompatibleFamilies = proteinProfile.dominantFamilies
+        .filter((family) => !requestedProteinFamilies.includes(family));
+      const incompatibleProteinEvidence = proteinProfile.dominantEvidence
+        .filter((entry) => incompatibleFamilies.includes(entry.family))
+        .map((entry) => entry.value)
+        .filter((value, index, values) => values.indexOf(value) === index);
+      const requestedProteinMissing = requiresProteinOnEveryRecipe &&
         !recipeProteinFamilies.some((family) => requestedProteinFamilies.includes(family));
-      const compatible = incompatibleFamilies.length === 0 && !requestedProteinMissing;
+      const recipeFamilies = new Set([
+        ...recipeProteinFamilies,
+        ...proteinProfile.dominantFamilies
+      ]);
+      const requestedProteinFormMismatch = requestedProteinFormConstraints.some((constraint) =>
+        recipeFamilies.has(constraint.family) &&
+        constraint.detectRecipeForm(recipe) !== constraint.form
+      );
+      const compatible = incompatibleFamilies.length === 0 && !requestedProteinMissing && !requestedProteinFormMismatch;
       return {
         compatible,
+        incompatibleProteinFamilies: incompatibleFamilies,
+        incompatibleProteinEvidence,
         reason: incompatibleFamilies.length
           ? "unrequested_primary_protein"
           : requestedProteinMissing
             ? "requested_primary_protein_missing"
+            : requestedProteinFormMismatch
+              ? "requested_protein_form_mismatch"
             : "compatible",
         requestedProteinFamilies,
         recipeProteinFamilies
       };
     }
   };
+}
+
+interface ProteinFormConstraint {
+  detectRecipeForm: (recipe: RecipeCatalogDoc | Recipe) => string | null;
+  family: string;
+  form: string;
+}
+
+interface ProteinFormRule {
+  detectRecipeForm: (recipe: RecipeCatalogDoc | Recipe) => string | null;
+  detectRequestedForm: (ingredients: string[]) => string | null;
+  family: string;
+}
+
+const PROTEIN_FORM_RULES: ProteinFormRule[] = [
+  {
+    detectRecipeForm: detectRecipeBeefForm,
+    detectRequestedForm: detectRequestedBeefForm,
+    family: "beef"
+  }
+];
+
+function detectRequestedProteinFormConstraints(ingredients: string[]): ProteinFormConstraint[] {
+  return PROTEIN_FORM_RULES.flatMap((rule) => {
+    const form = rule.detectRequestedForm(ingredients);
+    return form ? [{ detectRecipeForm: rule.detectRecipeForm, family: rule.family, form }] : [];
+  });
+}
+
+export function hasExclusiveRequestedProteinForm(ingredients: string[], family: string) {
+  const requestedFamilies = detectRequestedProteinFamilies(ingredients);
+  return requestedFamilies.length === 1 &&
+    requestedFamilies[0] === family &&
+    detectRequestedProteinFormConstraints(ingredients).some((constraint) => constraint.family === family);
+}
+
+type BeefForm = "ground" | "steak";
+
+function detectRequestedBeefForm(ingredients: string[]): BeefForm | null {
+  const source = ingredients.map(normalizeIngredientText).join(" ");
+  if (/\b(?:ground|minced|mince|hamburger)\s+(?:beef|meat)\b|\bbeef\s+mince\b/.test(source)) return "ground";
+  if (/\b(?:steak|sirloin|ribeye|rib eye|strip steak|tenderloin|filet mignon|flank steak|skirt steak)\b/.test(source)) return "steak";
+  return null;
+}
+
+function detectRecipeBeefForm(recipe: RecipeCatalogDoc | Recipe): BeefForm | null {
+  const identityValues = "requiredCanonicals" in recipe
+    ? [
+        recipe.title,
+        recipe.description,
+        recipe.dishIntent?.dish_name ?? ""
+      ]
+    : [
+        recipe.name,
+        recipe.dish_identity ?? "",
+        recipe.dish_intent?.dish_name ?? ""
+      ];
+  const ingredientValues = "requiredCanonicals" in recipe
+    ? [
+        ...recipe.requiredCanonicals,
+        ...recipe.ingredients.flatMap((ingredient) => [ingredient.canonical, ingredient.name])
+      ]
+    : [...recipe.ingredients, ...recipe.missing_ingredients];
+  const identity = identityValues.map(normalizeIngredientText).join(" ");
+  const ingredients = ingredientValues.map(normalizeIngredientText).join(" ");
+  const groundBeefIngredient = /\b(?:ground|minced|mince|hamburger)\s+(?:beef|meat)\b|\bbeef\s+(?:mince|minced|ground)\b/;
+  if (/\b(?:meatballs?|meatloaf|kofta|kofte|beef burger|hamburger)\b/.test(identity) || groundBeefIngredient.test(ingredients)) {
+    return "ground";
+  }
+  const steakForm = /\b(?:steak|sirloin|ribeye|rib eye|strip steak|tenderloin|filet mignon|flank steak|skirt steak|carne asada|churrasco|bistecca|london broil|tagliata)\b/;
+  if (steakForm.test(identity) || steakForm.test(ingredients)) return "steak";
+  return null;
 }
 
 /**
@@ -233,14 +327,13 @@ export function filterPrimaryIngredientCompatibleRecipes<T extends RecipeCatalog
 }
 
 function detectRecipeProteinProfile(recipe: RecipeCatalogDoc | Recipe) {
-  const identityValues = "requiredCanonicals" in recipe
-    ? [recipe.title, recipe.dishIntent?.dish_name ?? ""]
+  const canonicalIdentityValues = "requiredCanonicals" in recipe
+    ? [recipe.title]
     : [
         recipe.name,
-        recipe.dish_identity ?? "",
-        recipe.dish_intent?.dish_name ?? "",
-        recipe.photo_identity?.protein ?? ""
+        recipe.dish_identity ?? ""
       ];
+  const identityValues = canonicalIdentityValues;
   const identityFamilies = detectProteinFamilies(identityValues);
   const requiredValues = "requiredCanonicals" in recipe
     ? recipe.requiredCanonicals
@@ -249,9 +342,23 @@ function detectRecipeProteinProfile(recipe: RecipeCatalogDoc | Recipe) {
   const optionalFamilies = "requiredCanonicals" in recipe
     ? detectProteinFamilies(recipe.optionalCanonicals)
     : [];
+  const nonEggIdentityFamilies = identityFamilies.filter((family) => family !== "egg");
+  const eggIsDishIdentity = identityFamilies.includes("egg") && nonEggIdentityFamilies.length === 0;
+  const dominantFamilies = Array.from(new Set([
+    ...nonEggIdentityFamilies,
+    ...requiredFamilies.filter((family) => family !== "egg"),
+    ...(eggIsDishIdentity ? ["egg"] : [])
+  ])).sort();
+  const dominantEvidence = [...identityValues, ...requiredValues]
+    .flatMap((value) => detectProteinFamilies([value])
+      .filter((family) => dominantFamilies.includes(family))
+      .map((family) => ({ family, value })))
+    .filter((entry) => entry.value.trim());
 
   return {
     mandatoryFamilies: Array.from(new Set([...identityFamilies, ...requiredFamilies])).sort(),
+    dominantEvidence,
+    dominantFamilies,
     optionalFamilies
   };
 }
@@ -285,8 +392,11 @@ function detectRequestedProteinFamilies(ingredients: string[]) {
 
 function removeNonPrimaryProteinTerms(value: string) {
   return value
+    .replace(/\b(?:beef|calf|calves|chicken|duck|goose|lamb|pork|turkey|veal)(?:\s+s)?\s+livers?\b/g, " liver ")
+    .replace(/\blivers\b/g, " liver ")
     .replace(/\b(?:fish|oyster) sauce\b/g, " ")
     .replace(/\b(?:beef|chicken|fish) (?:broth|bouillon|stock)\b/g, " ")
+    .replace(/\b(?:beef|chicken|duck|goose|pork) (?:drippings|fat|tallow)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

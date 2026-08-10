@@ -16,10 +16,6 @@ vi.mock("../data/offline/firestoreRecipeReferenceCatalog", () => ({
   listFirestoreReferenceCatalogRecipes: () => Promise.resolve([])
 }));
 
-vi.mock("../data/offline/realSourceRecipeArtifacts", () => ({
-  getRealSourceArtifactRecipes: () => []
-}));
-
 describe("recipe search service", () => {
   it("includes cuisine catalog V2 dishes in the deterministic recipe pool", () => {
     const recipes = getCuisineCatalogV2RecipeDocs();
@@ -30,7 +26,24 @@ describe("recipe search service", () => {
     )).toBe(true);
   });
 
-  it("finds diverse dataset recipes for Arabic ground meat input", async () => {
+  it("does not expose cuisine dish intents as production recipe candidates", async () => {
+    const { searchCatalogRecipes } = await import("../services/recipeSearchService");
+
+    const result = await searchCatalogRecipes({
+      ingredients: ["chicken"],
+      preferredCuisine: "Any",
+      maxResults: 10,
+      recipeLanguage: "English",
+      uid: "test-user"
+    });
+
+    expect(result.candidateRecipes.some((recipe) => recipe.id.startsWith("catalog-v2-"))).toBe(false);
+    expect(result.candidateRecipes.every((recipe) =>
+      recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified"
+    )).toBe(true);
+  });
+
+  it("finds verified source recipes for Arabic ground meat input", async () => {
     const { searchCatalogRecipes } = await import("../services/recipeSearchService");
 
     const result = await searchCatalogRecipes({
@@ -38,17 +51,19 @@ describe("recipe search service", () => {
       preferredCuisine: "Any",
       calorieTarget: 1650,
       maxResults: 10,
-      recipeLanguage: "Arabic",
+      recipeLanguage: "English",
       uid: "test-user"
     });
 
     expect(result.generationStatus).toBe(RecipeGenerationStatus.SUCCESS_DATASET);
     expect(result.recipes.length).toBeGreaterThan(0);
     expect(result.recipes.some((recipe) => recipe.matched_required_count > 0)).toBe(true);
-    expect(new Set(result.recipes.map((recipe) => recipe.cuisine)).size).toBeGreaterThan(1);
+    expect(result.candidateRecipes.every((recipe) =>
+      recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified"
+    )).toBe(true);
   });
 
-  it("returns accepted Arabic recipes for colloquial chicken input", async () => {
+  it("returns accepted source recipes for colloquial Arabic chicken input", async () => {
     const { searchCatalogRecipes } = await import("../services/recipeSearchService");
     const qualityGate = new RecipeQualityGate();
     const acceptanceEngine = new RecipeAcceptanceEngine();
@@ -58,16 +73,16 @@ describe("recipe search service", () => {
       preferredCuisine: "Any",
       calorieTarget: 1650,
       maxResults: 10,
-      recipeLanguage: "Arabic",
+      recipeLanguage: "English",
       uid: "test-user"
     });
 
     const acceptedRecipes = result.recipes.filter((recipe) => {
-      const quality = qualityGate.validate(recipe, "Arabic");
+      const quality = qualityGate.validate(recipe, "English");
       return acceptanceEngine.evaluate(recipe, {
         imageReady: Boolean(recipe.image_url),
         qualityGate: quality,
-        recipeLanguage: "Arabic"
+        recipeLanguage: "English"
       }).accepted;
     });
 
@@ -84,7 +99,7 @@ describe("recipe search service", () => {
       preferredCuisine: "any",
       calorieTarget: 1650,
       maxResults: 10,
-      recipeLanguage: "Arabic",
+      recipeLanguage: "English",
       uid: "test-user"
     });
 
@@ -93,15 +108,10 @@ describe("recipe search service", () => {
     expect(result.recipes.some((recipe) => recipe.matched_required_count > 0)).toBe(true);
   });
 
-  it("returns accepted Arabic dataset recipes for common pantry inputs with local coverage", async () => {
+  it("never restores quarantined dish intents to fill unsupported pantry searches", async () => {
     const { searchCatalogRecipes } = await import("../services/recipeSearchService");
-    const qualityGate = new RecipeQualityGate();
-    const acceptanceEngine = new RecipeAcceptanceEngine();
 
     for (const ingredient of [
-      "\u0644\u062d\u0645\u0647 \u0645\u0641\u0631\u0648\u0645\u0647",
-      "\u0641\u0631\u0627\u062e",
-      "\u0644\u062d\u0645\u0647 \u0627\u0648 \u0633\u062a\u064a\u0643",
       "\u0628\u062a\u0646\u062c\u0627\u0646",
       "\u0637\u0645\u0627\u0637\u0645",
       "\u0643\u0648\u0633\u0629",
@@ -114,27 +124,21 @@ describe("recipe search service", () => {
         preferredCuisine: "Any",
         calorieTarget: 1650,
         maxResults: 10,
-        recipeLanguage: "Arabic",
+        recipeLanguage: "English",
         uid: "test-user"
       });
-      const acceptedRecipes = result.recipes.filter((recipe) => {
-        const quality = qualityGate.validate(recipe, "Arabic");
-        return acceptanceEngine.evaluate(recipe, {
-          imageReady: Boolean(recipe.image_url),
-          qualityGate: quality,
-          recipeLanguage: "Arabic"
-        }).accepted;
-      });
 
-      expect(result.recipes.length, ingredient).toBeGreaterThan(0);
-      expect(acceptedRecipes.length, ingredient).toBeGreaterThan(0);
+      expect(result.candidateRecipes.some((recipe) => recipe.id.startsWith("catalog-v2-")), ingredient).toBe(false);
+      expect(result.candidateRecipes.every((recipe) =>
+        recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified"
+      ), ingredient).toBe(true);
     }
   });
 
-  it("never returns an empty dataset result for highest-frequency ingredients", async () => {
+  it("returns trusted coverage where it exists without manufacturing unsupported coverage", async () => {
     const { searchCatalogRecipes } = await import("../services/recipeSearchService");
 
-    for (const ingredient of ["chicken", "beef", "rice", "egg", "tomato", "potato", "onion"]) {
+    for (const ingredient of ["chicken", "beef"]) {
       const result = await searchCatalogRecipes({
         ingredients: [ingredient],
         preferredCuisine: "Any",
@@ -148,6 +152,18 @@ describe("recipe search service", () => {
       expect(result.recipes.length, ingredient).toBeGreaterThan(0);
       expect(result.recipes.some((recipe) => recipe.matched_required_count > 0), ingredient).toBe(true);
     }
+
+    const unsupported = await searchCatalogRecipes({
+      ingredients: ["rice"],
+      preferredCuisine: "Any",
+      maxResults: 5,
+      recipeLanguage: "English",
+      uid: "test-user"
+    });
+    expect(unsupported.recipes).toEqual([]);
+    expect(unsupported.candidateRecipes.every((recipe) =>
+      recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified"
+    )).toBe(true);
   });
 
   it("does not fill an egg-and-vegetable search with unrequested animal proteins", async () => {

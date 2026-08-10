@@ -14,6 +14,7 @@ import {
   classifyRecipeReferenceTaxonomy
 } from "../src/lib/recipeReferenceTaxonomy";
 import type { RecipeReferenceDoc } from "../src/lib/recipeReferenceTypes";
+import { classifyRecipeReferenceDocQuality } from "../src/data/offline/firestoreRecipeReferenceCatalog";
 
 loadEnv({ path: path.join(process.cwd(), ".env.local") });
 
@@ -147,7 +148,7 @@ function buildRecipeReferenceDoc(row: RecipeNlgRow): RecipeReferenceDoc | null {
   const lookup = buildRecipeReferenceLookupBuckets({ cuisine, mainIngredients });
   const taxonomyLookupBuckets = buildRecipeReferenceTaxonomyBuckets(taxonomy, mainIngredients);
 
-  return {
+  const doc: RecipeReferenceDoc = {
     id,
     title,
     cuisine,
@@ -186,6 +187,15 @@ function buildRecipeReferenceDoc(row: RecipeNlgRow): RecipeReferenceDoc | null {
     qualityScore: scoreRecipeQuality({ title, ingredients, directions, ingredientCanonicals, mainIngredients }),
     createdAt: timestamp,
     updatedAt: timestamp
+  };
+  const contentQuality = classifyRecipeReferenceDocQuality(doc);
+
+  return {
+    ...doc,
+    contentVersion: contentQuality.contentVersion,
+    contentQualityScore: contentQuality.score,
+    qualityStatus: contentQuality.status,
+    qualityReasons: contentQuality.reasons
   };
 }
 

@@ -6,6 +6,7 @@ import {
 } from "@/food/IngredientNormalizer";
 import type { Recipe } from "@/lib/types";
 import { RecipeValidator } from "@/services/recipePipeline/recipeValidator";
+import { validateRecipeIdentityContent } from "@/services/recipeIdentityContractService";
 
 export interface RecipeQualityGateResult {
   reasons: string[];
@@ -20,15 +21,15 @@ export class IngredientValidator {
     const missingIngredients = readRecipeIngredients(recipe.missing_ingredients)
       .filter((ingredient) => ingredient.label);
     const ingredients = [...availableIngredients, ...missingIngredients];
-    const normalizedIngredients = ingredients.map((ingredient) => normalizeIngredient(ingredient.label)).filter(Boolean);
+    const normalizedIngredients = ingredients.map((ingredient) => normalizeRecipeIngredientIdentity(ingredient.label)).filter(Boolean);
     if (!ingredients.length) reasons.push("missing_ingredients");
     if (new Set(normalizedIngredients).size !== normalizedIngredients.length) reasons.push("duplicate_ingredients");
     for (const ingredient of ingredients) {
       if (!hasIngredientQuantity(ingredient) || !hasIngredientUnit(ingredient)) {
-        reasons.push(`ingredient_missing_quantity_or_unit:${normalizeIngredient(ingredient.label)}`);
+        reasons.push(`ingredient_missing_quantity_or_unit:${normalizeRecipeIngredientIdentity(ingredient.label)}`);
       }
       if (isProteinIngredient(ingredient.label) && !hasIngredientQuantity(ingredient)) {
-        reasons.push(`protein_missing_quantity:${normalizeIngredient(ingredient.label)}`);
+        reasons.push(`protein_missing_quantity:${normalizeRecipeIngredientIdentity(ingredient.label)}`);
       }
     }
 
@@ -40,7 +41,7 @@ export class IngredientValidator {
     for (const ingredient of stepRequiredIngredients) {
       const signals = ingredientMatchSignals(ingredient.label);
       if (signals.length && !steps.some((step) => signals.some((signal) => step.includes(signal)))) {
-        reasons.push(`ingredient_not_used:${normalizeIngredient(ingredient.label)}`);
+        reasons.push(`ingredient_not_used:${normalizeRecipeIngredientIdentity(ingredient.label)}`);
       }
     }
     return reasons;
@@ -94,6 +95,7 @@ export class RecipeQualityGate {
     const reasons = [
       ...validateRecipeShape(recipe),
       ...validateTitle(recipe),
+      ...validateRecipeIdentityContent(recipe),
       ...this.recipeValidator.validate(recipe).reasons,
       ...this.ingredientValidator.validate(recipe),
       ...this.languageValidator.validate(recipe, recipeLanguage),
@@ -116,15 +118,7 @@ function validateRecipeShape(recipe: Recipe) {
 function validateTitle(recipe: Recipe) {
   if (isMalformedRecipeTitle(recipe.name)) return ["malformed_recipe_title"];
   if (isIngredientOnlyRecipeTitle(recipe)) return ["ingredient_only_title"];
-
-  const titleTokens = ingredientTokens(recipe.name);
-  if (!titleTokens.length) return ["title_does_not_describe_recipe"];
-  const recipeText = normalizeText([
-    ...readRecipeIngredients(recipe.ingredients).map((ingredient) => ingredient.label),
-    ...readRecipeIngredients(recipe.missing_ingredients).map((ingredient) => ingredient.label),
-    ...recipe.steps
-  ].join(" "));
-  return titleTokens.some((token) => recipeText.includes(token)) ? [] : ["title_does_not_describe_recipe"];
+  return [];
 }
 
 export function isMalformedRecipeTitle(value: string) {
@@ -163,7 +157,7 @@ function buildIngredientIdentity(value: string) {
   const profile = getIngredientProfileForExactTerm(value);
   if (profile) return profile.id;
 
-  const normalized = normalizeIngredient(value);
+  const normalized = normalizeRecipeIngredientIdentity(value);
   if (!normalized) return "";
 
   return normalizeIngredientText(normalized).replace(/\s+/g, "_");
@@ -216,7 +210,9 @@ function readRecipeIngredient(value: unknown): RecipeIngredientInput | null {
 
 function parseIngredientQuantityPrefix(value: string): RecipeIngredientInput {
   const trimmed = value.trim();
-  const match = trimmed.match(/^(\d+(?:\.\d+)?|\d+\s*\/\s*\d+|half|one|two|three|four|five|six|seven|eight|nine|ten)\s+([a-zA-Z\u0600-\u06FF]+)?\s*(.+)$/u);
+  const match = trimmed.match(
+    /^(\d+(?:\.\d+)?|(?:\d+\s+)?\d+\s*\/\s*\d+|half|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|teaspoons|oz|ounce|ounces|lb|lbs|pound|pounds|kg|kilogram|kilograms|g|gram|grams|ml|milliliter|milliliters|l|liter|liters|can|cans|clove|cloves|piece|pieces|portion|portions|serving|servings|package|packages|pkg|box|boxes|bunch|bunches|slice|slices|breast|breasts|whole|large|small|medium|\u0643\u0648\u0628|\u0623\u0643\u0648\u0627\u0628|\u0645\u0644\u0639\u0642\u0629|\u0645\u0644\u0627\u0639\u0642|\u063a\u0631\u0627\u0645|\u0643\u064a\u0644\u0648\u063a\u0631\u0627\u0645|\u062d\u0628\u0629|\u062d\u0628\u0627\u062a|\u0641\u0635|\u0641\u0635\u0648\u0635|\u0635\u062f\u0631|\u0635\u062f\u0648\u0631|\u0639\u0628\u0648\u0629)\s+)?(.+)$/iu
+  );
   if (!match) return { label: trimmed };
 
   return {
@@ -245,7 +241,7 @@ function hasIngredientUnit(ingredient: RecipeIngredientInput) {
   return typeof ingredient.unit === "string" && ingredient.unit.trim().length > 0;
 }
 
-function normalizeIngredient(value: string) {
+export function normalizeRecipeIngredientIdentity(value: string) {
   return normalizeText(value)
     .replace(/\b\d+(?:\.\d+)?\b/g, "")
     .replace(/\b(?:cup|cups|tbsp|tsp|oz|ounce|ounces|lb|kg|g|gram|grams|can|cans|piece|pieces|portion|portions|serving|servings|whole|large|small|medium)\b/g, "")
@@ -253,8 +249,13 @@ function normalizeIngredient(value: string) {
     .trim();
 }
 
+export function getRecipeIngredientValidationIdentity(value: unknown) {
+  const ingredient = readRecipeIngredient(value);
+  return ingredient ? normalizeRecipeIngredientIdentity(ingredient.label) : "";
+}
+
 function ingredientTokens(value: string) {
-  return normalizeIngredient(value)
+  return normalizeRecipeIngredientIdentity(value)
     .split(" ")
     .filter((token) => token.length >= 3)
     .filter((token) => !new Set(["with", "and", "from", "fresh", "dried", "optional", "taste", "حسب", "الرغبة", "طازج"]).has(token));

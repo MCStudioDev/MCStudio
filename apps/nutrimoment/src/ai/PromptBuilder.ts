@@ -14,6 +14,7 @@ import {
 } from "@/lib/dietEnforcement";
 import type { RecipeReferencePromptRecipe } from "@/lib/recipeReferenceTypes";
 import type { MealPlanData } from "@/lib/types";
+import type { RecipeInputCoveragePrompt } from "@/services/recipeInputCoverageService";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -25,6 +26,7 @@ export interface RecipePromptOptions {
   preferredCuisine: string;
   calorieTarget: number;
   maxMissingIngredients: number;
+  ingredientCoverage?: RecipeInputCoveragePrompt;
   primaryIngredient?: string;
   recipeCount: number;
   diets: string[];
@@ -35,6 +37,10 @@ export interface RecipePromptOptions {
   discoveryFocus?: string;
   variationSeed?: string;
   recipeReferences?: RecipeReferencePromptRecipe[];
+}
+
+export interface RecipeEditorBatchPromptOptions extends Omit<RecipePromptOptions, "recipeReferences"> {
+  recipeReferences: RecipeReferencePromptRecipe[];
 }
 
 export interface MealPlanPromptOptions {
@@ -55,23 +61,80 @@ const RECIPE_EDITOR_SYSTEM_PROMPT = [
   "Make only targeted changes required by the supplied dietary restrictions, allergens, excluded ingredients, or health conditions.",
   "When a substitution is required, replace every occurrence consistently in the title, ingredient lists, and cooking steps.",
   "Remove source-site introductions, personal stories, promotional copy, and serving commentary that is not a cooking instruction.",
+  "Return at least two unique, specific cooking steps and never return placeholder instructions such as prepare the ingredients, cook until done, or serve warm.",
+  "Every ingredient string must begin with a positive quantity and a clear unit, followed by exactly one ingredient name.",
+  "Use ingredients only for source-recipe ingredients the user already has, and use missing_ingredients for every remaining source-recipe ingredient.",
+  "Do not duplicate normalized ingredient names across ingredients and missing_ingredients.",
+  "Do not add an available pantry ingredient unless it is part of the source recipe.",
+  "Keep preparation modifiers such as sliced, thinly sliced, minced, chopped, or diced attached to their ingredient; never return a preparation modifier as a standalone ingredient.",
+  "Mention every ingredient listed in the returned ingredients array and every missing protein ingredient explicitly in at least one cooking step.",
+  "Return cook_time as total whole minutes in the exact format '<number> minutes'; convert hours to minutes and do not return hours, ranges, or approximate prose.",
   "Do not invent a recipe, ingredients, cooking steps, cuisine, nutrition, shopping list, source, image metadata, or URLs.",
   "Return valid JSON only."
+].join(" ");
+
+const RECIPE_EDITOR_BATCH_SYSTEM_PROMPT = [
+  "You are NutriMoment's batch Recipe Editor.",
+  "Edit every validated source recipe independently and return exactly one result for every source_recipe_id supplied.",
+  "Copy each source_recipe_id exactly; never omit, duplicate, invent, merge, or reorder recipe identities.",
+  "Preserve each dish identity, ingredient relationships, preparation forms, cooking method, order, timing, and food-safety cues.",
+  "Make only targeted changes required by the supplied dietary restrictions, allergens, excluded ingredients, health conditions, or output language.",
+  "Never move ingredients, steps, names, or cuisine details between source recipes.",
+  "Return the complete adjusted recipe ingredient list in ingredients and always return missing_ingredients as an empty array; pantry ownership is computed deterministically after editing.",
+  "Every ingredient string must begin with a positive quantity and a clear unit, followed by exactly one ingredient name.",
+  "Do not duplicate normalized ingredient names, and keep preparation modifiers attached to their ingredient.",
+  "Mention every returned ingredient explicitly in at least one cooking step.",
+  "Return at least two unique, specific cooking steps and never return placeholder or serving-only instructions.",
+  "Return cook_time as total whole minutes in the exact format '<number> minutes'.",
+  "Do not invent recipes, sources, image metadata, URLs, promotional prose, or unrelated pantry ingredients.",
+  "Return valid JSON only as an array."
 ].join(" ");
 
 const RECIPE_DISCOVERY_SYSTEM_PROMPT = [
   "You are NutriMoment's grounded Recipe Researcher.",
   "Use the enabled Google Search grounding tool to find established, authentic recipes from reputable culinary sources.",
+  "Use each discovered source as factual evidence, then independently summarize and paraphrase the recipe in concise original wording.",
+  "Never copy source introductions, ingredient-list wording, instructions, descriptions, or other sentences verbatim.",
   "Return recipe facts supported by the discovered source; do not invent a dish, cuisine, ingredients, method, timing, temperature, nutrition, or URL.",
   "Choose distinct canonical dishes that match the requested ingredients and cuisine.",
   "Every recipe must feature the supplied primaryIngredient as a central ingredient; never substitute another protein or return a side dish that omits it.",
   "Every title must be an established dish name from its source, never a generic ingredient list or a health-condition label.",
-  "Copy the source page's exact established dish title into dish_identity; dish_identity is evidence and must never contain a health label or a newly invented title.",
+  "Set dish_identity to the recognized canonical dish identity supported by the source; it must never contain a health label or a newly invented title.",
   "Apply only supplied dietary, allergen, and exclusion constraints without changing each dish's identity; medical adaptation is handled after discovery.",
   "Return valid JSON only as an array of recipe objects.",
   "Each recipe must contain name, dish_identity, cuisine, ingredients, missing_ingredients, steps, calories, protein, carbs, fat, sodium, cook_time, difficulty, source_url, recipe_source_type, and preference_hits.",
-  "Keep those JSON property names exactly in English even when their values are Arabic; ingredients and steps must be non-empty arrays copied from the source recipe.",
+  "Keep those JSON property names exactly in English even when their values are Arabic.",
+  "Return the complete recipe ingredient list using original phrasing; every ingredient line must begin with a positive quantity and a clear unit.",
+  "Return at least two specific, ordered cooking steps in original phrasing, preserving the source method, temperatures, timing, and food-safety cues without reproducing its sentences.",
+  "Return cook_time as total whole minutes in the exact format '<number> minutes'; convert hours and ranges to one realistic total.",
   "Set recipe_source_type to external_source and source_url to the exact culinary page used."
+].join(" ");
+
+const RECIPE_BATCH_GENERATION_SYSTEM_PROMPT = [
+  "You are NutriMoment's recipe generator.",
+  "Return exactly the recipeCount requested in the response schema; never return fewer recipes.",
+  "When ingredientCoverage is supplied, return a recipeGroups object keyed by anchor id and fill every anchor array to that anchor's targetCards count. Do not move a recipe into a different anchor group merely to satisfy the JSON shape.",
+  "Follow ingredientCoverage as the highest-priority relevance contract when it is supplied.",
+  "Every recipe must centrally feature at least one ingredientCoverage anchor, each anchor must appear in at least its targetCards count across the complete batch, and recipes that naturally combine multiple anchors are preferred.",
+  "Before filling anchor-specific variety, identify established canonical dishes that naturally combine the greatest number of requested anchors. Treat ingredientCoverage.combinationPriority.targetMultiAnchorCards as the target for credible multi-anchor dishes, rank those dishes first, and never force unrelated ingredients together or invent a dish to meet the target.",
+  "Do not paste every requested anchor into every recipe. Include an anchor only when it is a real ingredient in that established dish and the cooking steps explicitly prepare or cook it.",
+  "Never pad an ingredient list to improve coverage. A valid lower-overlap recipe is better than a falsely combined recipe.",
+  "When dishDiscoveryHints are supplied, treat them as high-priority established dish matches for the pantry and include them when they satisfy the restrictions and ingredient-coverage contract.",
+  "ingredientCoverage.recipeSlots is mandatory: output recipe 1 must centrally feature slot 1's requiredAnchorId and variationKey, recipe 2 must feature slot 2's requiredAnchorId and variationKey, and so on. An anchor in broth, stock, sauce, garnish, or an incidental trace does not satisfy its slot.",
+  "Slots for the same anchor must have different canonical dish identities and principal cooking forms; use variationKey to prevent near-duplicate titles and methods while keeping every dish established and realistic.",
+  "When preferredCuisine is Any, distribute every anchor group across the world and use at least four distinct cuisine labels across the complete batch; do not default vegetable groups to only Italian and Mediterranean dishes.",
+  "Before returning JSON, audit every output position against recipeSlots and replace any nonmatching recipe while keeping the exact requested array length.",
+  "Choose distinct, established, recognizable dish identities and preserve every anchor's physical form; use primaryIngredient only when the request has one anchor.",
+  "Do not introduce an animal protein that is absent from ingredientCoverage as a dominant ingredient or as a substitute for a requested anchor.",
+  "A species label inside an organ ingredient, such as chicken liver or beef liver, does not permit adding that species' muscle meat or another animal ingredient; never add bacon, ham, sausage, or another unrequested protein to complete a slot.",
+  "Meeting coverage never permits generic titles such as Roasted Vegetables, Vegetable Stew, Pan-Seared Vegetables, Pasta Bake, or Protein Bowl; choose established named dish families.",
+  "Do not invent fake dish names, regional labels, health-condition titles, sources, or URLs.",
+  "Every ingredient line must begin with a positive quantity and a clear unit followed by one ingredient name.",
+  "Return the complete ingredient list and at least two specific, ordered cooking steps for every recipe.",
+  "Mention every listed ingredient in the cooking steps and include realistic temperatures, timing, and food-safety cues where relevant.",
+  "Estimate calories, protein, carbs, fat, and sodium realistically from the stated quantities for one serving.",
+  "Return cook_time as total whole minutes in the exact format '<number> minutes'.",
+  "Set recipe_source_type to generated. Return valid JSON only with no markdown."
 ].join(" ");
 
 const ARABIC_RECIPE_EDITOR_RULES = [
@@ -100,10 +163,19 @@ const RECIPE_EDITOR_RESPONSE_SCHEMA = {
     properties: {
       name: { type: "string" },
       cuisine: { type: "string" },
-      ingredients: { type: "array", items: { type: "string" } },
-      missing_ingredients: { type: "array", items: { type: "string" } },
-      steps: { type: "array", items: { type: "string" } },
-      cook_time: { type: "string" },
+      ingredients: {
+        type: "array",
+        minItems: 1,
+        description: "Source-recipe ingredients present in availableIngredients. Never include pantry items that are absent from the source recipe.",
+        items: { type: "string", description: "Positive quantity, unit, and one ingredient name with any preparation modifier attached." }
+      },
+      missing_ingredients: {
+        type: "array",
+        description: "Required source-recipe ingredients not present in availableIngredients. Never repeat an ingredient from ingredients.",
+        items: { type: "string" }
+      },
+      steps: { type: "array", minItems: 2, items: { type: "string" } },
+      cook_time: { type: "string", description: "Total whole minutes formatted exactly as '<number> minutes'." },
       difficulty: { type: "string" },
       preference_hits: { type: "array", items: { type: "string" } }
     }
@@ -115,6 +187,56 @@ export function buildRecipeEditorSystemPrompt(recipeLanguage: string) {
     RECIPE_EDITOR_SYSTEM_PROMPT,
     recipeLanguage.toLowerCase() === "arabic" ? ARABIC_RECIPE_EDITOR_RULES : "Write every user-facing value in English only."
   ].join(" ");
+}
+
+export function buildRecipeEditorBatchSystemPrompt(recipeLanguage: string) {
+  return [
+    RECIPE_EDITOR_BATCH_SYSTEM_PROMPT,
+    recipeLanguage.toLowerCase() === "arabic" ? ARABIC_RECIPE_EDITOR_RULES : "Write every user-facing value in English only."
+  ].join(" ");
+}
+
+export function buildRecipeEditorBatchResponseSchema(recipeCount: number) {
+  const boundedCount = Math.max(1, Math.min(12, Math.floor(recipeCount || 1)));
+  return {
+    type: "array",
+    minItems: boundedCount,
+    maxItems: boundedCount,
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "source_recipe_id",
+        "name",
+        "cuisine",
+        "ingredients",
+        "missing_ingredients",
+        "steps",
+        "cook_time",
+        "difficulty",
+        "preference_hits"
+      ],
+      properties: {
+        source_recipe_id: { type: "string" },
+        name: { type: "string" },
+        cuisine: { type: "string" },
+        ingredients: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", description: "A complete quantified recipe ingredient line." }
+        },
+        missing_ingredients: {
+          type: "array",
+          maxItems: 0,
+          items: { type: "string" }
+        },
+        steps: { type: "array", minItems: 2, items: { type: "string" } },
+        cook_time: { type: "string", description: "Total whole minutes formatted exactly as '<number> minutes'." },
+        difficulty: { type: "string" },
+        preference_hits: { type: "array", items: { type: "string" } }
+      }
+    }
+  } as const;
 }
 
 export function buildRecipeDiscoverySystemPrompt(recipeLanguage: string) {
@@ -172,6 +294,49 @@ export function buildRecipeDiscoveryResponseSchema(recipeCount: number) {
   } as const;
 }
 
+export function buildRecipeGenerationResponseSchema(
+  recipeCount: number,
+  ingredientCoverage?: RecipeInputCoveragePrompt
+) {
+  const boundedCount = Math.max(1, Math.min(10, Math.floor(recipeCount || 1)));
+  const discoverySchema = buildRecipeDiscoveryResponseSchema(boundedCount);
+  const generatedRecipeArraySchema = {
+    type: discoverySchema.type,
+    items: {
+      ...discoverySchema.items,
+      required: discoverySchema.items.required.filter((field) => field !== "source_url"),
+      properties: {
+        ...discoverySchema.items.properties,
+        recipe_source_type: { type: "string", enum: ["generated"] }
+      }
+    }
+  } as const;
+  if (!ingredientCoverage?.anchors.length) return generatedRecipeArraySchema;
+
+  const recipeGroups = Object.fromEntries(
+    ingredientCoverage.anchors.map((anchor) => [
+      anchor.id,
+      {
+        type: "array",
+        items: generatedRecipeArraySchema.items
+      }
+    ])
+  );
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["recipeGroups"],
+    properties: {
+      recipeGroups: {
+        type: "object",
+        additionalProperties: false,
+        required: ingredientCoverage.anchors.map((anchor) => anchor.id),
+        properties: recipeGroups
+      }
+    }
+  } as const;
+}
+
 function buildCompactSourceRecipe(reference?: RecipeReferencePromptRecipe) {
   if (!reference) return null;
 
@@ -222,11 +387,15 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     excludedIngredients: (options.excludedIngredients ?? []).filter(Boolean)
   };
   const requiredChanges = sourceRecipe ? buildCompactRestrictionActions(options) : [];
+  const dishDiscoveryHints = sourceRecipe
+    ? ""
+    : buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
 
   return JSON.stringify({
     task: sourceRecipe ? "edit_validated_recipe" : "discover_grounded_recipes",
     language: options.recipeLanguage.toLowerCase() === "arabic" ? "ar" : "en",
     preferredCuisine: options.preferredCuisine,
+    ...(options.ingredientCoverage ? { ingredientCoverage: options.ingredientCoverage } : {}),
     ...(options.primaryIngredient ? { primaryIngredient: options.primaryIngredient } : {}),
     ...(sourceRecipe
       ? {}
@@ -234,7 +403,8 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
           recipeCount: options.recipeCount,
           ...(options.discoveryFocus ? { discoveryFocus: options.discoveryFocus } : {}),
           ...(options.variationSeed ? { variationSeed: options.variationSeed } : {}),
-          ...(options.recentRecipeAvoidance ? { avoidRecipeNames: options.recentRecipeAvoidance } : {})
+          ...(options.recentRecipeAvoidance ? { avoidRecipeNames: options.recentRecipeAvoidance } : {}),
+          ...(dishDiscoveryHints ? { dishDiscoveryHints } : {})
         }),
     availableIngredients: ingredients.map((ingredient) => ({
       name: ingredient.name,
@@ -243,6 +413,35 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     restrictions,
     ...(requiredChanges.length ? { requiredChanges } : {}),
     sourceRecipe
+  });
+}
+
+export function buildRecipeEditorBatchPrompt(options: RecipeEditorBatchPromptOptions) {
+  const sourceRecipes = options.recipeReferences.slice(0, 12).map((reference) => ({
+    source_recipe_id: reference.id,
+    sourceRecipe: buildCompactSourceRecipe(reference)
+  }));
+  const restrictions = {
+    diets: options.diets.filter(Boolean),
+    healthConditions: options.conditions.filter(Boolean),
+    allergens: (options.allergens ?? []).filter(Boolean),
+    excludedIngredients: (options.excludedIngredients ?? []).filter(Boolean)
+  };
+  const requiredChanges = buildCompactRestrictionActions(options);
+
+  return JSON.stringify({
+    task: "edit_validated_recipe_batch",
+    language: options.recipeLanguage.toLowerCase() === "arabic" ? "ar" : "en",
+    preferredCuisine: options.preferredCuisine,
+    restrictions,
+    ...(requiredChanges.length ? { requiredChanges } : {}),
+    outputContract: {
+      exactRecipeCount: sourceRecipes.length,
+      ingredientsContainsCompleteRecipe: true,
+      missingIngredientsMustBeEmpty: true,
+      preserveSourceRecipeIds: true
+    },
+    sourceRecipes
   });
 }
 
@@ -1943,7 +2142,7 @@ function buildIngredientDrivenCuisineGuidance(
   const cuisineKey = normalizeCuisinePromptKey(preferredCuisine);
   const hints: string[] = [];
 
-  if (cuisineKey === "egyptian") {
+  if (cuisineKey === "egyptian" || cuisineKey === "any") {
     if (hasAny(pantry, ["pasta", "spaghetti", "shell pasta", "macaroni", "penne", "fettuccine"])) {
       hints.push("Egyptian sparse pantry reasoning: pasta shapes alone can still justify macarona bechamel, baked macarona trays, or other Egyptian pasta dishes if the missing_ingredients list clearly supplies mince, onion, tomato sauce, milk, flour, butter, or bechamel components.");
     }
@@ -2062,7 +2261,7 @@ function buildIngredientDrivenCuisineGuidance(
     }
   }
 
-  if (cuisineKey === "mediterranean") {
+  if (cuisineKey === "mediterranean" || cuisineKey === "any") {
     if (hasAny(pantry, ["fish", "sea bass", "cod", "snapper"]) && hasAny(pantry, ["lemon", "olive oil", "oregano", "parsley"])) {
       hints.push("Mediterranean ingredient reasoning: fish plus lemon, olive oil, and herbs should favor baked or grilled Mediterranean fish.");
     }
@@ -2081,7 +2280,7 @@ function buildIngredientDrivenCuisineGuidance(
     }
   }
 
-  if (cuisineKey === "indian") {
+  if (cuisineKey === "indian" || cuisineKey === "any") {
     if (hasAny(pantry, ["lentil", "red lentil", "yellow lentil", "masoor dal", "moong dal"])) {
       hints.push("Indian ingredient reasoning: lentils should favor dal families before generic lentil soup when the cuisine is Indian.");
     }
@@ -2093,7 +2292,7 @@ function buildIngredientDrivenCuisineGuidance(
     }
   }
 
-  if (cuisineKey === "turkish") {
+  if (cuisineKey === "turkish" || cuisineKey === "any") {
     if (hasAny(pantry, ["ground meat", "minced meat", "ground beef", "beef mince", "lamb mince", "chopped meat"])) {
       hints.push("Turkish ingredient reasoning: ground or chopped meat should strongly favor kofte or kebab families before generic meatballs.");
 
@@ -2123,7 +2322,7 @@ function buildIngredientDrivenCuisineGuidance(
     }
   }
 
-  if (cuisineKey === "thai") {
+  if (cuisineKey === "thai" || cuisineKey === "any") {
     if (hasAny(pantry, ["rice noodle", "noodle"]) && hasAny(pantry, ["egg", "shrimp", "chicken", "bean sprout"])) {
       hints.push("Thai ingredient reasoning: rice noodles plus protein and egg should favor Thai noodle families rather than generic stir-fry noodles.");
     }
@@ -2135,7 +2334,7 @@ function buildIngredientDrivenCuisineGuidance(
     }
   }
 
-  if (cuisineKey === "asian") {
+  if (cuisineKey === "asian" || cuisineKey === "any") {
     if (hasAny(pantry, ["shrimp", "prawn"]) && hasAny(pantry, ["garlic", "soy sauce", "honey"])) {
       hints.push("Asian ingredient reasoning: shrimp plus garlic, soy sauce, and honey should favor garlic honey shrimp rather than a generic seafood bowl.");
     }
@@ -2308,8 +2507,31 @@ export class PromptBuilder {
     return buildRecipeEditorSystemPrompt(recipeLanguage);
   }
 
+  static recipeEditorBatchPrompt(options: RecipeEditorBatchPromptOptions) {
+    return buildRecipeEditorBatchPrompt(options);
+  }
+
+  static recipeEditorBatchSystemPrompt(recipeLanguage: string) {
+    return buildRecipeEditorBatchSystemPrompt(recipeLanguage);
+  }
+
+  static recipeEditorBatchResponseSchema(recipeCount: number) {
+    return buildRecipeEditorBatchResponseSchema(recipeCount);
+  }
+
   static recipeDiscoverySystemPrompt(recipeLanguage: string) {
     return buildRecipeDiscoverySystemPrompt(recipeLanguage);
+  }
+
+  static recipeBatchGenerationSystemPrompt(recipeLanguage: string) {
+    return [
+      RECIPE_BATCH_GENERATION_SYSTEM_PROMPT,
+      recipeLanguage.toLowerCase() === "arabic" ? ARABIC_RECIPE_EDITOR_RULES : "Write every user-facing value in English only."
+    ].join(" ");
+  }
+
+  static recipeGenerationResponseSchema(recipeCount: number, ingredientCoverage?: RecipeInputCoveragePrompt) {
+    return buildRecipeGenerationResponseSchema(recipeCount, ingredientCoverage);
   }
 
   static recipeDiscoveryResponseSchema(recipeCount: number) {

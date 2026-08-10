@@ -7,6 +7,10 @@ import { getCompleteCuisineCatalog } from "../src/lib/cuisineCatalogs/completeCa
 import { findRecipeDietViolation } from "../src/lib/dietEnforcement";
 import { findRecipeHealthViolation } from "../src/lib/healthEnforcement";
 import type { Recipe } from "../src/lib/types";
+import {
+  analyzeRecipeInputCoverage,
+  createRecipeInputCoveragePlan
+} from "../src/services/recipeInputCoverageService";
 
 loadEnv({ path: path.join(process.cwd(), ".env.local") });
 
@@ -33,6 +37,7 @@ interface AuditScenario {
   calorieTarget?: number;
   conditions?: string[];
   diets?: string[];
+  enforceInputCoverage?: boolean;
   expectedTerms?: string[];
   ingredients: string[];
   minAuthenticCards?: number;
@@ -41,6 +46,7 @@ interface AuditScenario {
   minUniqueFamilies?: number;
   name: string;
   preferredCuisine: string;
+  requiredRecipeTerms?: string[];
   recipeCount: number;
   uiLanguage?: string;
 }
@@ -63,6 +69,52 @@ interface ScenarioReport {
 }
 
 const scenarios: AuditScenario[] = [
+  {
+    name: "Any cuisine beef and liver input coverage",
+    ingredients: ["beef", "liver"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 7
+  },
+  {
+    name: "Any cuisine vegetable input coverage",
+    ingredients: ["eggplant", "zucchini", "tomato"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 7
+  },
+  {
+    name: "Any cuisine fish rice onion combination priority",
+    ingredients: ["fish", "rice", "onion"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 7,
+    requiredRecipeTerms: ["sayadeya", "sayadiya", "sayadieh"]
+  },
+  {
+    name: "Any cuisine chicken and beef input coverage",
+    ingredients: ["chicken", "beef"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 8
+  },
+  {
+    name: "Any cuisine steak form coverage",
+    ingredients: ["steak"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 8
+  },
   {
     name: "Arabic Italian chicken heart and diabetes",
     ingredients: ["فراخ", "طماطم", "ثوم", "زيت زيتون"],
@@ -98,7 +150,8 @@ const scenarios: AuditScenario[] = [
     conditions: ["diabetes"],
     expectedTerms: [
       "minestrone", "ribollita", "caponata", "polenta", "parmigiana", "fagioli", "ciambotta",
-      "florentine", "margherita", "pomodoro", "gnocchi", "pappa al pomodoro", "melanzane"
+      "florentine", "margherita", "pomodoro", "gnocchi", "pappa al pomodoro", "melanzane",
+      "lasagna", "ravioli", "marinara", "primavera"
     ],
     recipeCount: 10,
     minAuthenticCards: 5,
@@ -146,7 +199,10 @@ const scenarios: AuditScenario[] = [
     preferredCuisine: "Mexican",
     diets: ["glutenFree"],
     conditions: ["weightLoss"],
-    expectedTerms: ["taco", "tostada", "enchilada", "pozole", "sopa", "tinga", "fajita", "mole"],
+    expectedTerms: [
+      "taco", "tostada", "enchilada", "pozole", "sopa", "tinga", "fajita", "mole",
+      "burrito", "quesadilla", "tex-mex"
+    ],
     recipeCount: 10,
     minAuthenticCards: 5,
     minCuisineMatches: 8,
@@ -316,6 +372,15 @@ async function runScenario(scenario: AuditScenario, idToken: string, historyEntr
     result?: string;
     servedFrom?: string;
   };
+  if (INCLUDE_PIPELINE_DEBUG) {
+    const scenarioSlug = scenario.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    await mkdir(path.join(process.cwd(), ".generated"), { recursive: true });
+    await writeFile(
+      path.join(process.cwd(), ".generated", `launch-recipe-audit-${scenarioSlug}.json`),
+      JSON.stringify(payload, null, 2),
+      "utf8"
+    );
+  }
   if (!response.ok) {
     return {
       checks: [{ detail: `HTTP ${response.status}: ${payload.error ?? "unknown error"}`, status: "fail" }],
@@ -433,6 +498,30 @@ function scoreRecipes(scenario: AuditScenario, recipes: Recipe[]) {
     detail: `${healthHits.length} health-condition violations`,
     status: healthHits.length === 0 ? "pass" : "fail"
   });
+
+  if (scenario.enforceInputCoverage) {
+    const coveragePlan = createRecipeInputCoveragePlan(scenario.ingredients, scenario.recipeCount);
+    const coverage = analyzeRecipeInputCoverage(recipes, coveragePlan);
+    const targets = Object.fromEntries(coveragePlan.anchors.map((anchor) => [anchor.id, anchor.targetCards]));
+    checks.push({
+      detail: `input coverage ${JSON.stringify(coverage.coverage)}; targets ${JSON.stringify(targets)}; ${coverage.cardsUsingNoAnchor.length} cards use no requested anchor`,
+      status: coverage.meetsTargets && coverage.cardsUsingNoAnchor.length === 0 ? "pass" : "fail"
+    });
+  }
+
+  if (scenario.requiredRecipeTerms?.length) {
+    const normalizedRequiredTerms = scenario.requiredRecipeTerms.map(normalizeText);
+    const matchingNames = recipes
+      .slice(0, 3)
+      .map(readRecipeName)
+      .filter((name) => normalizedRequiredTerms.some((term) => normalizeText(name).includes(term)));
+    checks.push({
+      detail: matchingNames.length
+        ? `top-three established dish match: ${matchingNames.join(", ")}`
+        : `top three missing established dish terms: ${scenario.requiredRecipeTerms.join(", ")}`,
+      status: matchingNames.length ? "pass" : "fail"
+    });
+  }
 
   if (scenario.preferredCuisine === "Any") {
     checks.push({

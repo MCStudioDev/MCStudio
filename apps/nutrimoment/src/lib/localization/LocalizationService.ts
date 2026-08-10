@@ -52,6 +52,13 @@ interface TermEntry {
   aliases: string[];
 }
 
+interface CulinaryReplacement {
+  source: string;
+  replacement: string;
+}
+
+const MAX_NORMALIZED_TEXT_CACHE_ENTRIES = 5000;
+
 const TRANSLITERATION_ALLOWED_DISH_IDS = new Set([
   "adana-kebab",
   "biryani",
@@ -69,6 +76,8 @@ export class LocalizationService {
   private readonly termEntries: TermEntry[];
   private readonly englishLookup = new Map<string, TermEntry>();
   private readonly arabicLookup = new Map<string, TermEntry>();
+  private readonly replacementPlanCache = new Map<string, CulinaryReplacement[]>();
+  private readonly normalizedTextCache = new Map<string, string>();
 
   constructor() {
     this.termEntries = [
@@ -153,10 +162,38 @@ export class LocalizationService {
     language: LocalizationLanguage,
     kinds: LocalizationDictionaryKind[] = ["dish", "ingredient", "verb", "unit", "equipment", "cuisine"]
   ) {
+    const kindKey = [...kinds].sort().join(",");
+    const normalizedCacheKey = `${language}|${kindKey}|${value}`;
+    const cached = this.normalizedTextCache.get(normalizedCacheKey);
+    if (cached !== undefined) return cached;
+
     const exactTerm = this.findExactTerm(value, kinds);
     if (exactTerm) {
-      return language === "ar" ? exactTerm.arabic : exactTerm.english;
+      const exactResult = language === "ar" ? exactTerm.arabic : exactTerm.english;
+      this.rememberNormalizedText(normalizedCacheKey, exactResult);
+      return exactResult;
     }
+
+    const replacements = this.getReplacementPlan(language, kinds, kindKey);
+
+    let normalized = value.trim();
+    for (const entry of replacements) {
+      normalized = replaceKnownTerm(normalized, entry.source, entry.replacement);
+    }
+
+    const result = normalizeSpacing(normalized, language);
+    this.rememberNormalizedText(normalizedCacheKey, result);
+    return result;
+  }
+
+  private getReplacementPlan(
+    language: LocalizationLanguage,
+    kinds: LocalizationDictionaryKind[],
+    kindKey: string
+  ) {
+    const cacheKey = `${language}|${kindKey}`;
+    const cached = this.replacementPlanCache.get(cacheKey);
+    if (cached) return cached;
 
     const target = language === "ar" ? "arabic" : "english";
     const replacements = this.termEntries
@@ -168,13 +205,15 @@ export class LocalizationService {
       .filter((entry) => entry.source.trim() && entry.source !== entry.replacement)
       .filter((entry) => !isSelfExpandingArabicReplacement(entry.source, entry.replacement, language))
       .sort((left, right) => right.source.length - left.source.length);
+    this.replacementPlanCache.set(cacheKey, replacements);
+    return replacements;
+  }
 
-    let normalized = value.trim();
-    for (const entry of replacements) {
-      normalized = replaceKnownTerm(normalized, entry.source, entry.replacement);
-    }
-
-    return normalizeSpacing(normalized, language);
+  private rememberNormalizedText(cacheKey: string, value: string) {
+    this.normalizedTextCache.set(cacheKey, value);
+    if (this.normalizedTextCache.size <= MAX_NORMALIZED_TEXT_CACHE_ENTRIES) return;
+    const oldestKey = this.normalizedTextCache.keys().next().value;
+    if (oldestKey) this.normalizedTextCache.delete(oldestKey);
   }
 
   normalizeRecipe(recipe: Recipe, language: LocalizationLanguage): Recipe {
@@ -382,6 +421,12 @@ function replaceKnownTerm(value: string, source: string, replacement: string) {
   if (!source || source === replacement) return value;
   const sourceKey = normalizeDictionaryLookupKey(source);
   const replacementKey = normalizeDictionaryLookupKey(replacement);
+  if (
+    replacementKey === "beef" &&
+    /^(?:steak|beef steak|sirloin|ribeye|rib eye|tenderloin|filet mignon|flank steak|skirt steak|ground beef|beef strips|beef cubes|beef chunks|stew beef)$/i.test(sourceKey)
+  ) {
+    return value;
+  }
   if (
     sourceKey &&
     replacementKey &&

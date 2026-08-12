@@ -1,6 +1,12 @@
 import { findIngredientAliases } from "@/repositories/aliasRepo";
 import { OFFLINE_INGREDIENT_ALIASES } from "@/data/offline/aliases";
 import { OFFLINE_INGREDIENTS } from "@/data/offline/ingredients";
+import {
+  IngredientNormalizer,
+  getIngredientProfileForTerm,
+  normalizeIngredientText,
+  type WeightedIngredientAlias
+} from "@/food/IngredientNormalizer";
 import { translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 import type { IngredientAliasDoc } from "@/lib/domain";
 
@@ -9,33 +15,61 @@ export interface IngredientNormalizationResult {
   normalized: string[];
   resolved: Array<{
     raw: string;
+    id?: string;
     normalized: string;
     category?: string;
   }>;
   unmapped: string[];
   categories: Record<string, string>;
+  ingredientIds: string[];
+  canonicalEnglishNames: string[];
+  expandedAliases: WeightedIngredientAlias[];
+  searchTerms: string[];
 }
 
-export async function normalizeIngredients(rawIngredients: string[]): Promise<IngredientNormalizationResult> {
+export async function normalizeIngredients(
+  rawIngredients: string[],
+  options: { allowRemoteAliases?: boolean } = {}
+): Promise<IngredientNormalizationResult> {
+  const ingredientNormalizer = new IngredientNormalizer();
   const cleaned = rawIngredients
     .flatMap(expandRawIngredientInput)
-    .map(normalizeFreeText)
+    .map(normalizeIngredientText)
     .filter(Boolean);
 
-  const aliases = await findIngredientAliases(cleaned);
+  const aliases = shouldQueryRemoteIngredientAliases({
+    allowRemoteAliases: options.allowRemoteAliases === true,
+    cleanedTermCount: cleaned.length
+  })
+    ? await findIngredientAliases(cleaned)
+    : [];
   const aliasByKey = buildAliasLookup([...OFFLINE_INGREDIENT_ALIASES, ...aliases]);
 
   const normalized: string[] = [];
-  const resolved: Array<{ raw: string; normalized: string; category?: string }> = [];
+  const resolved: Array<{ raw: string; id?: string; normalized: string; category?: string }> = [];
   const unmapped: string[] = [];
   const categories: Record<string, string> = {};
 
   for (const raw of cleaned) {
+    const profile = getIngredientProfileForTerm(raw);
+    if (profile) {
+      normalized.push(profile.canonicalEnglishName);
+      resolved.push({
+        raw,
+        id: profile.id,
+        normalized: profile.canonicalEnglishName,
+        category: profile.category
+      });
+      if (profile.category) categories[profile.canonicalEnglishName] = profile.category;
+      continue;
+    }
+
     const alias = aliasByKey.get(raw);
     if (alias) {
       normalized.push(alias.canonical);
       resolved.push({
         raw,
+        id: ingredientNormalizer.normalizeOne(alias.canonical)?.id,
         normalized: alias.canonical,
         category: alias.category
       });
@@ -50,6 +84,7 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
       normalized.push(translatedAlias.canonical);
       resolved.push({
         raw,
+        id: ingredientNormalizer.normalizeOne(translatedAlias.canonical)?.id,
         normalized: translatedAlias.canonical,
         category: translatedAlias.category
       });
@@ -62,6 +97,7 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
       normalized.push(heuristicAlias.canonical);
       resolved.push({
         raw,
+        id: ingredientNormalizer.normalizeOne(heuristicAlias.canonical)?.id,
         normalized: heuristicAlias.canonical,
         category: heuristicAlias.category
       });
@@ -75,6 +111,7 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
         normalized.push(match.canonical);
         resolved.push({
           raw,
+          id: ingredientNormalizer.normalizeOne(match.canonical)?.id,
           normalized: match.canonical,
           category: match.category
         });
@@ -88,6 +125,7 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
       normalized.push(fuzzyMatch.canonical);
       resolved.push({
         raw,
+        id: ingredientNormalizer.normalizeOne(fuzzyMatch.canonical)?.id,
         normalized: fuzzyMatch.canonical,
         category: fuzzyMatch.category
       });
@@ -95,21 +133,39 @@ export async function normalizeIngredients(rawIngredients: string[]): Promise<In
       continue;
     }
 
-    normalized.push(heuristic);
+    const fallback = ingredientNormalizer.normalizeOne(heuristic);
+    normalized.push(fallback?.canonicalEnglishName ?? heuristic);
     resolved.push({
       raw,
-      normalized: heuristic
+      id: fallback?.id,
+      normalized: fallback?.canonicalEnglishName ?? heuristic
     });
     unmapped.push(raw);
   }
+
+  const searchPlan = ingredientNormalizer.buildSearchPlan([
+    ...cleaned,
+    ...normalized
+  ]);
 
   return {
     raw: cleaned,
     normalized: Array.from(new Set(normalized)),
     resolved,
     unmapped: Array.from(new Set(unmapped)),
-    categories
+    categories,
+    ingredientIds: searchPlan.ingredientIds,
+    canonicalEnglishNames: searchPlan.canonicalEnglishNames,
+    expandedAliases: searchPlan.aliases,
+    searchTerms: searchPlan.searchTerms
   };
+}
+
+export function shouldQueryRemoteIngredientAliases(input: {
+  allowRemoteAliases: boolean;
+  cleanedTermCount: number;
+}) {
+  return input.allowRemoteAliases && input.cleanedTermCount > 0;
 }
 
 function buildAliasLookup(aliases: IngredientAliasDoc[]) {
@@ -136,14 +192,7 @@ function applyHeuristics(value: string): string {
 }
 
 function normalizeFreeText(value: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[_-]/g, " ")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return isArabicGroundMeat(normalized) ? "ground meat" : normalized;
+  return normalizeIngredientText(value);
 }
 
 function isArabicGroundMeat(value: string) {
@@ -151,7 +200,13 @@ function isArabicGroundMeat(value: string) {
 }
 
 function expandRawIngredientInput(value: string) {
-  return value
+  const normalizedSeparators = value
+    .replace(/\u060C/g, ",")
+    .replace(/\s+\u0627\u0648\s+/giu, ",")
+    .replace(/\s+\u0623\u0648\s+/giu, ",")
+    .replace(/\s+\u0648\s+/giu, ",");
+
+  return normalizedSeparators
     .split(/\s*(?:,|;|\/|\||\+|&|\band\b|\bor\b|\bwith\b|،|\s+او\s+|\s+أو\s+)\s*/giu)
     .map((part) => part.trim())
     .filter(Boolean);

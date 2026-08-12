@@ -7,6 +7,10 @@ import { getCompleteCuisineCatalog } from "../src/lib/cuisineCatalogs/completeCa
 import { findRecipeDietViolation } from "../src/lib/dietEnforcement";
 import { findRecipeHealthViolation } from "../src/lib/healthEnforcement";
 import type { Recipe } from "../src/lib/types";
+import {
+  analyzeRecipeInputCoverage,
+  createRecipeInputCoveragePlan
+} from "../src/services/recipeInputCoverageService";
 
 loadEnv({ path: path.join(process.cwd(), ".env.local") });
 
@@ -19,6 +23,9 @@ const ACCESS_MODE = process.argv.includes("--free") || process.env.LAUNCH_AUDIT_
 const QA_EMAIL = `nutrimoment-launch-audit-${ACCESS_MODE}-${Date.now()}@example.test`;
 const REQUEST_DELAY_MS = Number(process.env.LAUNCH_AUDIT_DELAY_MS ?? 750);
 const REQUEST_TIMEOUT_MS = Number(process.env.LAUNCH_AUDIT_TIMEOUT_MS ?? 90_000);
+const REPEAT_COUNT = Math.max(1, Math.min(10, Number(process.env.LAUNCH_AUDIT_REPEAT ?? 1)));
+const RECIPE_COUNT_OVERRIDE = Number(process.env.LAUNCH_AUDIT_RECIPE_COUNT ?? 0);
+const INCLUDE_PIPELINE_DEBUG = process.env.LAUNCH_AUDIT_DEBUG === "true";
 const SCENARIO_LIMIT = process.argv.includes("--all")
   ? Number.POSITIVE_INFINITY
   : Number(process.env.LAUNCH_AUDIT_LIMIT ?? 4);
@@ -30,6 +37,7 @@ interface AuditScenario {
   calorieTarget?: number;
   conditions?: string[];
   diets?: string[];
+  enforceInputCoverage?: boolean;
   expectedTerms?: string[];
   ingredients: string[];
   minAuthenticCards?: number;
@@ -38,6 +46,7 @@ interface AuditScenario {
   minUniqueFamilies?: number;
   name: string;
   preferredCuisine: string;
+  requiredRecipeTerms?: string[];
   recipeCount: number;
   uiLanguage?: string;
 }
@@ -47,13 +56,81 @@ interface ScenarioReport {
   cuisineCounts: Record<string, number>;
   genericRiskNames: string[];
   names: string[];
+  elapsedMs?: number;
   recipeCount: number;
   scenario: string;
   servedFrom?: string;
   status: AuditStatus;
+  pipelineDebug?: {
+    firstStageBelowRequested?: string;
+    generationTrace?: Record<string, unknown>;
+    stages?: unknown[];
+  };
 }
 
 const scenarios: AuditScenario[] = [
+  {
+    name: "Any cuisine beef and liver input coverage",
+    ingredients: ["beef", "liver"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 7
+  },
+  {
+    name: "Any cuisine vegetable input coverage",
+    ingredients: ["eggplant", "zucchini", "tomato"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 7
+  },
+  {
+    name: "Any cuisine fish rice onion combination priority",
+    ingredients: ["fish", "rice", "onion"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 7,
+    requiredRecipeTerms: ["sayadeya", "sayadiya", "sayadieh"]
+  },
+  {
+    name: "Any cuisine chicken and beef input coverage",
+    ingredients: ["chicken", "beef"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 8
+  },
+  {
+    name: "Any cuisine steak form coverage",
+    ingredients: ["steak"],
+    preferredCuisine: "Any",
+    recipeCount: 10,
+    enforceInputCoverage: true,
+    minDistinctCuisines: 4,
+    minUniqueFamilies: 8
+  },
+  {
+    name: "Arabic Italian chicken heart and diabetes",
+    ingredients: ["فراخ", "طماطم", "ثوم", "زيت زيتون"],
+    preferredCuisine: "Italian",
+    conditions: ["highBloodPressure", "cholesterol", "diabetes"],
+    expectedTerms: [
+      "alfredo", "cacciatore", "parmigiana", "parmesan", "spaghetti", "lasagna", "minestrone", "neapolitan", "pesto", "risotto", "piccata",
+      "ألفريدو", "كاتشاتوري", "بارميزان", "سباغيتي", "لازانيا", "بيستو", "ريزوتو", "بيكاتا",
+      "مينستروني", "نابوليتان", "الليمون والكبر", "الطماطم والموزاريلا", "الفطر والأعشاب"
+    ],
+    recipeCount: 10,
+    minAuthenticCards: 5,
+    minCuisineMatches: 8,
+    minUniqueFamilies: 7,
+    uiLanguage: "ar"
+  },
   {
     name: "Egyptian heart-aware meat chicken bread",
     ingredients: ["ground beef", "chicken breast", "baladi bread", "onion", "tomato"],
@@ -71,7 +148,11 @@ const scenarios: AuditScenario[] = [
     preferredCuisine: "Italian",
     diets: ["vegetarian", "glutenFree"],
     conditions: ["diabetes"],
-    expectedTerms: ["minestrone", "ribollita", "caponata", "polenta", "parmigiana", "fagioli", "ciambotta"],
+    expectedTerms: [
+      "minestrone", "ribollita", "caponata", "polenta", "parmigiana", "fagioli", "ciambotta",
+      "florentine", "margherita", "pomodoro", "gnocchi", "pappa al pomodoro", "melanzane",
+      "lasagna", "ravioli", "marinara", "primavera"
+    ],
     recipeCount: 10,
     minAuthenticCards: 5,
     minCuisineMatches: 8,
@@ -118,7 +199,10 @@ const scenarios: AuditScenario[] = [
     preferredCuisine: "Mexican",
     diets: ["glutenFree"],
     conditions: ["weightLoss"],
-    expectedTerms: ["taco", "tostada", "enchilada", "pozole", "sopa", "tinga", "fajita", "mole"],
+    expectedTerms: [
+      "taco", "tostada", "enchilada", "pozole", "sopa", "tinga", "fajita", "mole",
+      "burrito", "quesadilla", "tex-mex"
+    ],
     recipeCount: 10,
     minAuthenticCards: 5,
     minCuisineMatches: 8,
@@ -138,7 +222,7 @@ const scenarios: AuditScenario[] = [
     ingredients: ["lamb", "rice", "yogurt", "cucumber", "chickpeas", "bread"],
     preferredCuisine: "Middle Eastern",
     conditions: ["lowBloodPressure", "weightGain"],
-    expectedTerms: ["mansaf", "maqluba", "fatteh", "kibbeh", "mujadara", "kabsa", "shawarma", "kofta"],
+    expectedTerms: ["mansaf", "maqluba", "maklouba", "makloubeh", "fatteh", "kibbeh", "mujadara", "kabsa", "shawarma", "kofta", "kafta"],
     recipeCount: 10,
     minAuthenticCards: 5,
     minCuisineMatches: 8,
@@ -178,12 +262,32 @@ async function main() {
     const idToken = await createIdToken(uid);
     const reports: ScenarioReport[] = [];
 
-    const selectedScenarios = scenarios.slice(0, Number.isFinite(SCENARIO_LIMIT) ? SCENARIO_LIMIT : scenarios.length);
+    const requestedScenario = process.env.LAUNCH_AUDIT_SCENARIO?.trim().toLowerCase();
+    const matchingScenarios = requestedScenario
+      ? scenarios.filter((scenario) => scenario.name.toLowerCase().includes(requestedScenario))
+      : scenarios;
+    const selectedScenarios = matchingScenarios.slice(0, Number.isFinite(SCENARIO_LIMIT) ? SCENARIO_LIMIT : matchingScenarios.length);
     process.stdout.write(`Launch recipe audit selected ${selectedScenarios.length}/${scenarios.length} scenarios.\n`);
 
-    for (const scenario of selectedScenarios) {
-      reports.push(await runScenario(scenario, idToken));
-      await sleep(REQUEST_DELAY_MS);
+    for (const configuredScenario of selectedScenarios) {
+      const scenario = RECIPE_COUNT_OVERRIDE > 0
+        ? { ...configuredScenario, recipeCount: Math.max(1, Math.min(10, RECIPE_COUNT_OVERRIDE)) }
+        : configuredScenario;
+      const repeatedReports: ScenarioReport[] = [];
+      for (let run = 1; run <= REPEAT_COUNT; run += 1) {
+        const historyEntryId = `launch-audit-${Date.now()}-${run}`;
+        await db.doc(`users/${uid}/history/${historyEntryId}`).set({
+          createdAt: new Date(),
+          generationStatus: "pending",
+          ingredients: scenario.ingredients
+        });
+        const report = await runScenario(scenario, idToken, historyEntryId);
+        if (REPEAT_COUNT > 1) report.scenario = `${scenario.name} (run ${run}/${REPEAT_COUNT})`;
+        reports.push(report);
+        repeatedReports.push(report);
+        await sleep(REQUEST_DELAY_MS);
+      }
+      if (REPEAT_COUNT > 1) reports.push(buildRotationReport(scenario, repeatedReports));
     }
 
     await writeReport(reports);
@@ -219,8 +323,9 @@ async function createIdToken(uid: string) {
   return payload.idToken;
 }
 
-async function runScenario(scenario: AuditScenario, idToken: string): Promise<ScenarioReport> {
+async function runScenario(scenario: AuditScenario, idToken: string, historyEntryId?: string): Promise<ScenarioReport> {
   process.stdout.write(`Running scenario: ${scenario.name}\n`);
+  const startedAt = Date.now();
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}/api/generate-recipes`, {
@@ -233,7 +338,9 @@ async function runScenario(scenario: AuditScenario, idToken: string): Promise<Sc
         allergens: scenario.allergens ?? [],
         calorieTarget: scenario.calorieTarget ?? 2000,
         conditions: scenario.conditions ?? [],
+        debug: INCLUDE_PIPELINE_DEBUG,
         diets: scenario.diets ?? [],
+        historyEntryId,
         ingredients: scenario.ingredients,
         maxMissingIngredients: 5,
         preferredCuisine: scenario.preferredCuisine,
@@ -249,11 +356,31 @@ async function runScenario(scenario: AuditScenario, idToken: string): Promise<Sc
       genericRiskNames: [],
       names: [],
       recipeCount: 0,
+      elapsedMs: Date.now() - startedAt,
       scenario: scenario.name,
       status: "fail"
     };
   }
-  const payload = (await response.json()) as { error?: string; recipes?: Recipe[]; result?: string; servedFrom?: string };
+  const payload = (await response.json()) as {
+    error?: string;
+    pipeline_report?: {
+      firstStageBelowRequested?: string;
+      generationTrace?: Record<string, unknown>;
+      stages?: unknown[];
+    };
+    recipes?: Recipe[];
+    result?: string;
+    servedFrom?: string;
+  };
+  if (INCLUDE_PIPELINE_DEBUG) {
+    const scenarioSlug = scenario.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    await mkdir(path.join(process.cwd(), ".generated"), { recursive: true });
+    await writeFile(
+      path.join(process.cwd(), ".generated", `launch-recipe-audit-${scenarioSlug}.json`),
+      JSON.stringify(payload, null, 2),
+      "utf8"
+    );
+  }
   if (!response.ok) {
     return {
       checks: [{ detail: `HTTP ${response.status}: ${payload.error ?? "unknown error"}`, status: "fail" }],
@@ -261,6 +388,7 @@ async function runScenario(scenario: AuditScenario, idToken: string): Promise<Sc
       genericRiskNames: [],
       names: [],
       recipeCount: 0,
+      elapsedMs: Date.now() - startedAt,
       scenario: scenario.name,
       servedFrom: payload.servedFrom,
       status: "fail"
@@ -280,10 +408,43 @@ async function runScenario(scenario: AuditScenario, idToken: string): Promise<Sc
     cuisineCounts: countCuisines(recipes),
     genericRiskNames: recipes.filter((recipe) => isGenericRiskRecipe(recipe, scenario.preferredCuisine)).map(readRecipeName),
     names: recipes.map(readRecipeName),
+    elapsedMs: Date.now() - startedAt,
     recipeCount: recipes.length,
+    pipelineDebug: payload.pipeline_report,
     scenario: scenario.name,
     servedFrom: payload.servedFrom,
     status
+  };
+}
+
+function buildRotationReport(scenario: AuditScenario, reports: ScenarioReport[]): ScenarioReport {
+  const names = reports.flatMap((report) => report.names);
+  const normalizedNames = names.map(normalizeText).filter(Boolean);
+  const uniqueCount = new Set(normalizedNames).size;
+  const requestedCards = scenario.recipeCount * reports.length;
+  const repeatedCount = normalizedNames.length - uniqueCount;
+
+  return {
+    checks: [
+      {
+        detail: `${uniqueCount}/${requestedCards} cards are unique across ${reports.length} scans (${repeatedCount} repeats)`,
+        status: uniqueCount === requestedCards ? "pass" : "fail"
+      },
+      {
+        detail: `${reports.filter((report) => report.recipeCount === scenario.recipeCount).length}/${reports.length} scans returned the requested card count`,
+        status: reports.every((report) => report.recipeCount === scenario.recipeCount) ? "pass" : "fail"
+      }
+    ],
+    cuisineCounts: {},
+    genericRiskNames: [],
+    names,
+    elapsedMs: reports.reduce((total, report) => total + (report.elapsedMs ?? 0), 0),
+    recipeCount: names.length,
+    scenario: `${scenario.name} rotation (${reports.length} scans)`,
+    servedFrom: "rotation_audit",
+    status: uniqueCount === requestedCards && reports.every((report) => report.recipeCount === scenario.recipeCount)
+      ? "pass"
+      : "fail"
   };
 }
 
@@ -338,6 +499,30 @@ function scoreRecipes(scenario: AuditScenario, recipes: Recipe[]) {
     status: healthHits.length === 0 ? "pass" : "fail"
   });
 
+  if (scenario.enforceInputCoverage) {
+    const coveragePlan = createRecipeInputCoveragePlan(scenario.ingredients, scenario.recipeCount);
+    const coverage = analyzeRecipeInputCoverage(recipes, coveragePlan);
+    const targets = Object.fromEntries(coveragePlan.anchors.map((anchor) => [anchor.id, anchor.targetCards]));
+    checks.push({
+      detail: `input coverage ${JSON.stringify(coverage.coverage)}; targets ${JSON.stringify(targets)}; ${coverage.cardsUsingNoAnchor.length} cards use no requested anchor`,
+      status: coverage.meetsTargets && coverage.cardsUsingNoAnchor.length === 0 ? "pass" : "fail"
+    });
+  }
+
+  if (scenario.requiredRecipeTerms?.length) {
+    const normalizedRequiredTerms = scenario.requiredRecipeTerms.map(normalizeText);
+    const matchingNames = recipes
+      .slice(0, 3)
+      .map(readRecipeName)
+      .filter((name) => normalizedRequiredTerms.some((term) => normalizeText(name).includes(term)));
+    checks.push({
+      detail: matchingNames.length
+        ? `top-three established dish match: ${matchingNames.join(", ")}`
+        : `top three missing established dish terms: ${scenario.requiredRecipeTerms.join(", ")}`,
+      status: matchingNames.length ? "pass" : "fail"
+    });
+  }
+
   if (scenario.preferredCuisine === "Any") {
     checks.push({
       detail: `${distinctCuisines} distinct cuisines for Any-cuisine rotation`,
@@ -359,10 +544,53 @@ function scoreRecipes(scenario: AuditScenario, recipes: Recipe[]) {
     status: genericRisks.length <= 2 ? "pass" : "warn"
   });
 
+  const genericHealthSteps = recipes.flatMap((recipe) => recipe.steps ?? [])
+    .filter((step) => /^health adaptation:/i.test(step.trim()));
+  checks.push({
+    detail: `${genericHealthSteps.length} generic health boilerplate steps`,
+    status: genericHealthSteps.length === 0 ? "pass" : "fail"
+  });
+
+  if (scenario.uiLanguage === "ar") {
+    const languageLeaks = recipes.flatMap(readArabicLanguageLeaks);
+    const leakingCards = new Set(languageLeaks.map((leak) => leak.recipeName));
+    checks.push({
+      detail: `${leakingCards.size} Arabic cards contain Latin text`,
+      status: languageLeaks.length === 0 ? "pass" : "fail"
+    });
+    if (languageLeaks.length) {
+      checks.push({
+        detail: `Arabic leakage: ${languageLeaks.map((leak) => `${leak.recipeName} [${leak.field}] ${leak.value}`).join("; ")}`,
+        status: "fail"
+      });
+    }
+  }
+
   if (dietHits.length) checks.push({ detail: `diet hits: ${dietHits.map((hit) => `${hit.name} -> ${hit.reason?.match}`).join("; ")}`, status: "fail" });
   if (healthHits.length) checks.push({ detail: `health hits: ${healthHits.map((hit) => `${hit.name} -> ${hit.reason?.match}`).join("; ")}`, status: "fail" });
 
   return checks;
+}
+
+function readArabicLanguageLeaks(recipe: Recipe) {
+  const recipeName = readRecipeName(recipe);
+  const fields: Array<{ field: string; value: unknown }> = [
+    { field: "name", value: recipe.name },
+    { field: "cuisine", value: recipe.cuisine },
+    { field: "cook_time", value: recipe.cook_time },
+    { field: "difficulty", value: recipe.difficulty },
+    ...(recipe.ingredients ?? []).map((value, index) => ({ field: `ingredients[${index}]`, value })),
+    ...(recipe.missing_ingredients ?? []).map((value, index) => ({ field: `missing_ingredients[${index}]`, value })),
+    ...(recipe.steps ?? []).map((value, index) => ({ field: `steps[${index}]`, value }))
+  ];
+
+  return fields
+    .filter((entry): entry is { field: string; value: string } => typeof entry.value === "string" && /[A-Za-z]/.test(entry.value))
+    .map((entry) => ({
+      field: entry.field,
+      recipeName,
+      value: entry.value.replace(/\s+/g, " ").trim().slice(0, 180)
+    }));
 }
 
 function hasAuthenticCuisineSignal(recipe: Recipe, scenario: AuditScenario) {
@@ -387,6 +615,8 @@ function isGenericRiskRecipe(recipe: Recipe, preferredCuisine: string) {
     return false;
   }
   const name = normalizeText(readRecipeName(recipe));
+  if (/^(?:اخبز|اطبخ|اشو|اقلي)\b/u.test(name)) return true;
+  if (/^(?:إيطالي|مصري|تركي|هندي)\s+(?:دجاج|فراخ|لحم|سمك)$/u.test(name)) return true;
   return /\b(bowl|plate|skillet|tray|salad|soup|stew|wrap)\b/.test(name) &&
     !/\b(shakshuka|ful|hawawshi|kofta|koshary|mujadara|mansaf|maqluba|dal|chana|palak|saag|gobi|pad thai|tom yum|tom kha|curry|kofte|kebab|menemen|taco|tostada|enchilada|pozole|fatteh|shawarma)\b/.test(name);
 }
@@ -414,7 +644,7 @@ function countCuisines(recipes: Recipe[]) {
 }
 
 function readRecipeName(recipe: Recipe) {
-  return recipe.localized?.English?.name ?? recipe.name ?? "Unnamed recipe";
+  return recipe.name ?? recipe.localized?.English?.name ?? "Unnamed recipe";
 }
 
 function readVisibleDishFamily(recipe: Recipe) {
@@ -474,6 +704,7 @@ function renderMarkdownReport(input: {
       "",
       `Served from: ${report.servedFrom ?? "unknown"}`,
       `Recipe count: ${report.recipeCount}`,
+      `Elapsed: ${report.elapsedMs ?? "unknown"} ms`,
       `Cuisines: ${JSON.stringify(report.cuisineCounts)}`,
       "",
       "Checks:",

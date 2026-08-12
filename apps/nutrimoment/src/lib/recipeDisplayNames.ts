@@ -2,10 +2,14 @@ import { ensureArabicRecipeLanguage, isArabicRecipeLanguage } from "@/lib/arabic
 import type { Recipe } from "@/lib/types";
 
 export function buildRecipeDisplayName(recipe: Recipe, uiLanguage?: string) {
-  const currentName = recipe.name.trim();
+  const currentName = normalizeRecipeTitleEncoding(recipe.name).trim();
   const wantsArabic = isArabicRecipeLanguage(uiLanguage) || containsArabicText(currentName);
-  if (!wantsArabic || !isWeakArabicDisplayName(currentName)) {
+  if (!wantsArabic) {
     return currentName || recipe.localized?.English?.name || "Recipe";
+  }
+
+  if (containsArabicText(currentName) && !containsLatinText(currentName) && !isWeakArabicDisplayName(currentName)) {
+    return currentName;
   }
 
   const candidates = [
@@ -27,7 +31,18 @@ export function buildRecipeDisplayName(recipe: Recipe, uiLanguage?: string) {
   }
 
   const fallback = ensureArabicRecipeLanguage(recipe).name.trim();
-  return fallback && !isWeakArabicDisplayName(fallback) ? fallback : currentName || "وصفة";
+  return fallback && !isWeakArabicDisplayName(fallback) ? fallback : "وصفة";
+}
+
+export function normalizeRecipeTitleEncoding(value: string) {
+  return value
+    .replace(/bÃ©chamel/gi, "bechamel")
+    .replace(/cafÃ©/gi, "cafe")
+    .replace(/jalapeÃ±o/gi, "jalapeno")
+    .replace(/piÃ±a/gi, "pina")
+    .replace(/crÃ¨me/gi, "creme")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildArabicDisplayCandidate(recipe: Recipe, candidate?: string) {
@@ -47,9 +62,11 @@ function isWeakArabicDisplayName(value: string) {
   const normalized = value.trim();
   return (
     !normalized ||
-    /^مع\s+\S+/u.test(normalized) ||
-    /^(طبق|وعاء|وجبة)\s+(عشاء|غداء|فطور|خفيفة)\b/u.test(normalized) ||
-    /\b(عشاء|غداء|فطور)\s+(جمبري|دجاج|لحم|سمك|أرز|طماطم|ثوم|ليمون)\b/u.test(normalized)
+    /^[\d¼½¾]/u.test(normalized) ||
+    /^(?:و|مع)\s+\S+/u.test(normalized) ||
+    /^(?:طبق|وعاء|وجبة)\s+(?:عشاء|غداء|فطور|خفيفة)\b/u.test(normalized) ||
+    /\b(?:عشاء|غداء|فطور)\s+(?:جمبري|دجاج|لحم|سمك|أرز|طماطم|ثوم|ليمون)\b/u.test(normalized) ||
+    /^(?:وصفة|طبق)\s+(?:مقترحة|مناسبة)$/u.test(normalized)
   );
 }
 

@@ -28,11 +28,11 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Public Deployment
+## Architecture and Deployment
 
-Use the deployment guide for Firebase, Vercel, environment variables, Firestore rules, and the current 5-credit Google account beta flow:
+The canonical architecture, pipeline, tier workflow, deployment requirements, verification commands, audit baseline, and maturity plan are maintained in:
 
-- `docs/PUBLIC_DEPLOYMENT_GUIDE.md`
+- `docs/NUTRIMOMENT_ARCHITECTURE.md`
 
 Before sharing the app publicly, run:
 
@@ -90,12 +90,7 @@ Without those values, the seed script safely falls back to manifest generation o
 
 ## Key Files
 
-- Product overview: `docs/PRODUCT.md`
-- Requirements (current baseline): `docs/SRS.md`
-- Offline engine spec: `docs/OFFLINE-ENGINE-SPEC.md`
-- Production readiness & weak points: `docs/PRODUCTION_READINESS.md`
-- Deployment guide: `docs/PUBLIC_DEPLOYMENT_GUIDE.md`
-- Env checklist: `docs/DEPLOYMENT_ENV_CHECKLIST.md`
+- Architecture, pipeline, operations, and maturity: `docs/NUTRIMOMENT_ARCHITECTURE.md`
 - Client Firebase config: `src/config/firebase.ts`
 - Firebase Admin helper: `src/lib/firebaseAdmin.ts`
 - Offline data seed source: `src/data/offline`

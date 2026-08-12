@@ -1,11 +1,180 @@
 import { describe, expect, it } from "vitest";
 import {
+  ensureArabicRecipeLanguage,
+  localizeRecipeForArabic,
   localizeMealForArabic,
-  localizeMealPlanForArabic
+  localizeMealPlanForArabic,
+  translateIngredientToArabic
 } from "../lib/arabicRecipeLocalization";
 import type { MealPlanData } from "../lib/types";
 
 describe("Arabic meal localization", () => {
+  it("uses the shared food dictionary for cuisine, ingredient aliases, and units", () => {
+    const localizedMeal = localizeMealForArabic({
+      name: "Greek Lemon Chicken",
+      cuisine: "Greek",
+      calories: 520,
+      protein: "38g",
+      carbs: "42g",
+      fat: "18g",
+      ingredients: ["ground round", "rice"],
+      steps: ["Brown the ground round."]
+    });
+    const localizedPlan = localizeMealPlanForArabic({
+      plan: [],
+      shoppingList: ["rice - 2 cups"],
+      recommendedRecipes: []
+    } as unknown as MealPlanData);
+
+    expect(localizedMeal.cuisine).toBe("\u064a\u0648\u0646\u0627\u0646\u064a");
+    expect(translateIngredientToArabic("ground round")).toBe("\u0644\u062d\u0645 \u0628\u0642\u0631\u064a \u0645\u0641\u0631\u0648\u0645");
+    expect(localizedPlan.shoppingList[0]).toContain("\u0643\u0648\u0628");
+  });
+
+  it("localizes English culinary titles by meaning instead of transliteration", () => {
+    const localized = localizeRecipeForArabic({
+      name: "Creamy Tuscan Chicken",
+      cuisine: "Italian",
+      ingredients: ["chicken", "heavy cream"],
+      missing_ingredients: ["parmesan"],
+      steps: ["Simmer chicken with heavy cream."],
+      calories: 520,
+      protein: "42g",
+      carbs: "12g",
+      fat: "28g",
+      cook_time: "30 mins",
+      difficulty: "Medium"
+    });
+
+    expect(localized.name).toBe("\u062f\u062c\u0627\u062c \u062a\u0648\u0633\u0643\u0627\u0646\u064a \u0628\u0635\u0648\u0635 \u0643\u0631\u064a\u0645\u064a");
+    expect(localized.name).not.toMatch(/[A-Za-z]/);
+    expect(translateIngredientToArabic("heavy cream")).toBe("\u0643\u0631\u064a\u0645\u0629 \u0637\u0628\u062e");
+    expect(translateIngredientToArabic("cooking cream")).toBe("\u0643\u0631\u064a\u0645\u0629 \u0637\u0628\u062e");
+  });
+
+  it("uses cookbook-quality Arabic names for Thai and dumpling dishes", () => {
+    const thai = ensureArabicRecipeLanguage({
+      name: "Gai Pad Krapow",
+      cuisine: "Thai",
+      ingredients: ["chicken", "thai basil"],
+      missing_ingredients: ["fish sauce"],
+      steps: ["Stir-fry the chicken with garlic and Thai basil."],
+      calories: 480,
+      protein: "34g",
+      carbs: "42g",
+      fat: "16g",
+      cook_time: "25 mins",
+      difficulty: "Easy"
+    });
+    const dumplings = ensureArabicRecipeLanguage({
+      name: "Chicken and Dumplings",
+      cuisine: "American",
+      ingredients: ["chicken"],
+      missing_ingredients: ["flour", "milk"],
+      steps: ["Simmer chicken in the sauce, then cook the dumplings."],
+      calories: 560,
+      protein: "38g",
+      carbs: "50g",
+      fat: "20g",
+      cook_time: "45 mins",
+      difficulty: "Medium"
+    });
+
+    expect(thai.name).toBe("دجاج بالريحان التايلندي");
+    expect(dumplings.name).toBe("دجاج بصوص كريمي مع زلابية آسيوية");
+  });
+
+  it("uses the curated dictionary for source-recipe titles and ingredients", () => {
+    const stroganoff = ensureArabicRecipeLanguage({
+      name: "Chicken Stroganoff",
+      cuisine: "Global",
+      ingredients: ["chicken breast", "mushrooms", "cornstarch", "chicken broth"],
+      missing_ingredients: ["egg noodles"],
+      steps: ["Cut the chicken into thin strips."],
+      calories: 520,
+      protein: "34g",
+      carbs: "42g",
+      fat: "18g",
+      cook_time: "30 mins",
+      difficulty: "Medium"
+    });
+
+    expect(stroganoff.name).toBe("دجاج بصوص كريمي بالفطر");
+    expect(stroganoff.ingredients).toEqual(["صدر دجاج", "فطر", "نشا الذرة", "مرق دجاج"]);
+    expect(stroganoff.missing_ingredients).toEqual(["مكرونة بالبيض"]);
+  });
+
+  it("localizes the barbecue-wing and stuffing-bake source terms", () => {
+    const wings = ensureArabicRecipeLanguage({
+      name: "Quick Barbecue Wings",
+      cuisine: "American",
+      ingredients: ["chicken wings", "flour", "barbecue sauce"],
+      missing_ingredients: ["microwave"],
+      steps: ["Coat the wings with flour and fry until cooked through."],
+      calories: 667,
+      protein: "34g",
+      carbs: "66g",
+      fat: "12g",
+      cook_time: "10 mins",
+      difficulty: "Easy"
+    });
+
+    expect(wings.name).toBe("أجنحة دجاج بصلصة الباربيكيو");
+    expect(wings.ingredients).toEqual(["أجنحة دجاج", "دقيق", "صلصة باربيكيو"]);
+    expect(wings.missing_ingredients).toEqual(["ميكروويف"]);
+  });
+
+  it("localizes creamy mushroom chicken without losing its dish identity", () => {
+    const creamyChicken = ensureArabicRecipeLanguage({
+      name: "Creamy Chicken and Mushrooms",
+      cuisine: "Global",
+      ingredients: ["margarine", "skinless boneless chicken breast halves", "mushrooms", "cream of mushroom soup", "dry sherry"],
+      missing_ingredients: [],
+      steps: ["Cook the chicken until browned on both sides."],
+      calories: 510,
+      protein: "42g",
+      carbs: "18g",
+      fat: "28g",
+      cook_time: "25 mins",
+      difficulty: "Medium"
+    });
+
+    expect(creamyChicken.name).toBe("دجاج بالفطر والصلصة الكريمية");
+    expect(creamyChicken.ingredients).toEqual([
+      "سمن نباتي",
+      "أنصاف صدور دجاج منزوعة الجلد والعظم",
+      "فطر",
+      "حساء كريمة الفطر",
+      "نبيذ شيري جاف"
+    ]);
+  });
+
+  it("localizes named Italian chicken dishes by meaning", () => {
+    const baseRecipe = {
+      cuisine: "Italian",
+      ingredients: ["chicken breast"],
+      missing_ingredients: [],
+      steps: ["Cook the chicken according to the source recipe."],
+      calories: 400,
+      protein: "40g",
+      carbs: "12g",
+      fat: "18g",
+      cook_time: "35 mins",
+      difficulty: "Medium"
+    };
+
+    const piccata = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Chicken Piccata" });
+    const marsala = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Herbed Chicken Marsala" });
+    const pizzaiola = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Chicken Pizzaiola" });
+    const bakedItalian = ensureArabicRecipeLanguage({ ...baseRecipe, name: "Baked Italian Chicken" });
+
+    expect(piccata.name).toBe("\u062f\u062c\u0627\u062c \u0628\u0635\u0644\u0635\u0629 \u0627\u0644\u0644\u064a\u0645\u0648\u0646 \u0648\u0627\u0644\u0643\u0628\u0631 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect(marsala.name).toBe("\u062f\u062c\u0627\u062c \u0628\u0627\u0644\u0641\u0637\u0631 \u0648\u0627\u0644\u0623\u0639\u0634\u0627\u0628 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect(pizzaiola.name).toBe("\u062f\u062c\u0627\u062c \u0628\u0635\u0648\u0635 \u0627\u0644\u0637\u0645\u0627\u0637\u0645 \u0648\u0627\u0644\u0645\u0648\u0632\u0627\u0631\u064a\u0644\u0627 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect(bakedItalian.name).toBe("\u062f\u062c\u0627\u062c \u0645\u062e\u0628\u0648\u0632 \u0628\u0627\u0644\u0623\u0639\u0634\u0627\u0628 \u0639\u0644\u0649 \u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u0625\u064a\u0637\u0627\u0644\u064a\u0629");
+    expect([piccata.name, marsala.name, pizzaiola.name, bakedItalian.name].join(" ")).not.toMatch(/[A-Za-z]/);
+  });
+
   it("carries photo_identity through Arabic localization without mutation", () => {
     const identity = {
       dish_slug: "lemon-herb-seafood-soup",
@@ -66,6 +235,39 @@ describe("Arabic meal localization", () => {
     expect(localized.steps?.join(" ")).not.toMatch(/[A-Za-z]/);
   });
 
+  it("does not replace short sourced recipe instructions with generic Arabic filler steps", () => {
+    const localized = ensureArabicRecipeLanguage({
+      name: "Chicken Tandoori",
+      cuisine: "Indian",
+      ingredients: ["chicken"],
+      missing_ingredients: ["yogurt", "lemon", "ginger-garlic paste"],
+      steps: [
+        "Cut deep slashes into the chicken pieces.",
+        "Mix yogurt, lemon juice, ginger-garlic paste, oil, and tandoori spices.",
+        "Coat the chicken and marinate for at least 2 hours.",
+        "Roast on a rack at 200 C until charred and cooked through."
+      ],
+      calories: 520,
+      protein: "42g",
+      carbs: "12g",
+      fat: "24g",
+      cook_time: "45 mins",
+      difficulty: "Medium",
+      recipe_source_type: "local_database"
+    });
+
+    const userFacingSteps = localized.steps.join(" ");
+    expect(localized.steps).toHaveLength(4);
+    expect(userFacingSteps).not.toContain("\u0633\u062e\u0651\u0646 \u0627\u0644\u0645\u0642\u0644\u0627\u0629");
+    expect(userFacingSteps).not.toContain("\u0645\u0644\u0639\u0642\u062a\u064a\u0646 \u0643\u0628\u064a\u0631\u062a\u064a\u0646 \u0645\u0646 \u0627\u0644\u0645\u0627\u0621");
+    expect(localized.steps).toEqual([
+      "Cut deep slashes into the chicken pieces.",
+      "Mix yogurt, lemon juice, ginger-garlic paste, oil, and tandoori spices.",
+      "Coat the chicken and marinate for at least 2 hours.",
+      "Roast on a rack at 200 C until charred and cooked through."
+    ]);
+  });
+
   it("keeps all localized weekly plan user-facing fields free of Latin letters", () => {
     const plan: MealPlanData = {
       plan: [
@@ -124,5 +326,25 @@ describe("Arabic meal localization", () => {
     ].join(" ");
 
     expect(userFacingText).not.toMatch(/[A-Za-z]/);
+  });
+
+  it("normalizes sourced Italian dish terms without Latin leakage", () => {
+    const localized = ensureArabicRecipeLanguage({
+      name: "\u062f\u062c\u0627\u062c \u0643\u0627\u0634\u064a\u0627\u062a\u0648\u0631\u064a",
+      cuisine: "Italian",
+      ingredients: ["chicken", "pastina"],
+      missing_ingredients: [],
+      steps: ["\u0623\u0636\u0641 pastina \u0625\u0644\u0649 \u0627\u0644\u0634\u0648\u0631\u0628\u0629 \u0642\u0628\u0644 \u0627\u0644\u062a\u0642\u062f\u064a\u0645."],
+      calories: 420,
+      protein: "34g",
+      carbs: "38g",
+      fat: "12g",
+      cook_time: "35 mins",
+      difficulty: "Medium"
+    });
+
+    expect(localized.name).toContain("\u0643\u0627\u062a\u0634\u0627\u062a\u0648\u0631\u064a");
+    expect(localized.steps.join(" ")).toContain("\u0645\u0643\u0631\u0648\u0646\u0629 \u0635\u063a\u064a\u0631\u0629");
+    expect(localized.steps.join(" ")).not.toMatch(/[A-Za-z]/);
   });
 });

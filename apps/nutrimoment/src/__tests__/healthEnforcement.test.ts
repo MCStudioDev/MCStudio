@@ -1,7 +1,103 @@
 import { describe, expect, it } from "vitest";
-import { findRecipeHealthViolation } from "../lib/healthEnforcement";
+import { adaptRecipeForHealthConditions, findRecipeHealthViolation } from "../lib/healthEnforcement";
 
 describe("health enforcement", () => {
+  it("adapts a real recipe for health conditions without changing dish identity", () => {
+    const recipe = adaptRecipeForHealthConditions(
+      {
+        name: "Chicken Parmesan",
+        cuisine: "Italian",
+        ingredients: ["chicken", "butter", "mozzarella", "parmesan", "salt"],
+        missing_ingredients: [],
+        steps: ["Breaded chicken is fried in butter, topped with mozzarella and parmesan, and seasoned with salt."],
+        calories: 760,
+        protein: "42g",
+        carbs: "44g",
+        fat: "36g",
+        fiber: "3g",
+        sugar: "8g",
+        sodium: "980mg",
+        cook_time: "35 mins",
+        difficulty: "Medium"
+      },
+      ["cholesterol", "highBloodPressure", "weightLoss"]
+    );
+
+    expect(recipe.name).toBe("Chicken Parmesan");
+    expect(recipe.ingredients.join(" ")).toMatch(/part-skim mozzarella/i);
+    expect(recipe.ingredients.join(" ")).toMatch(/small amount of parmesan/i);
+    expect(recipe.ingredients.join(" ")).toMatch(/salt-free seasoning/i);
+    expect(recipe.steps.join(" ")).toMatch(/oven-crusted|lightly pan-seared/i);
+    expect(recipe.steps.join(" ")).not.toMatch(/Health adaptation/i);
+    expect(recipe.fat).toBe("24g");
+    expect(recipe.sodium).toBe("620mg");
+    expect(recipe.calories).toBe(620);
+    expect(findRecipeHealthViolation(recipe, ["cholesterol", "highBloodPressure", "weightLoss"])).toBeNull();
+  });
+
+  it("is idempotent when the same health policy is applied at multiple pipeline stages", () => {
+    const source = {
+      name: "Chicken with broth",
+      cuisine: "Global",
+      ingredients: ["chicken", "broth", "salt", "parmesan"],
+      missing_ingredients: [],
+      steps: ["Simmer the chicken in broth and season with salt and parmesan."],
+      calories: 520,
+      protein: "42g",
+      carbs: "20g",
+      fat: "18g",
+      fiber: "4g",
+      sugar: "5g",
+      sodium: "820mg",
+      cook_time: "30 minutes",
+      difficulty: "Easy"
+    };
+
+    const once = adaptRecipeForHealthConditions(source, ["cholesterol", "highBloodPressure"]);
+    const twice = adaptRecipeForHealthConditions(once, ["cholesterol", "highBloodPressure"]);
+
+    expect(twice).toEqual(once);
+    expect(twice.ingredients.join(" ")).not.toMatch(/low-sodium low-sodium|seasoning-free seasoning/i);
+  });
+
+  it("aligns cooking and photo method metadata with the health-adapted preparation", () => {
+    const recipe = adaptRecipeForHealthConditions({
+      name: "Fried Chicken Cacciatore",
+      cuisine: "Italian",
+      ingredients: ["chicken", "tomato", "olive oil"],
+      missing_ingredients: [],
+      steps: ["Fry the chicken, then simmer it in tomato sauce."],
+      calories: 540,
+      protein: "40g",
+      carbs: "24g",
+      fat: "20g",
+      fiber: "5g",
+      sugar: "6g",
+      sodium: "520mg",
+      cook_time: "35 minutes",
+      difficulty: "Medium",
+      dish_intent: {
+        dish_name: "Fried Chicken Cacciatore",
+        cuisine: "Italian",
+        cooking_method: "fried",
+        visual_keywords: ["fried chicken cacciatore"],
+        exclude_keywords: []
+      },
+      photo_identity: {
+        dish_slug: "fried-chicken-cacciatore",
+        english_name: "Fried Chicken Cacciatore",
+        cuisine_key: "italian",
+        method: "fried"
+      },
+      image_search_index: "fried chicken cacciatore plate"
+    }, ["cholesterol"]);
+
+    expect(recipe.name).toBe("Fried Chicken Cacciatore");
+    expect(recipe.dish_intent?.cooking_method).toBe("lightly pan-seared");
+    expect(recipe.photo_identity?.method).toBe("lightly pan-seared");
+    expect(findRecipeHealthViolation(recipe, ["cholesterol"])).toBeNull();
+  });
+
   it("blocks rich saturated-fat meals for cholesterol profiles", () => {
     expect(
       findRecipeHealthViolation(
@@ -80,6 +176,22 @@ describe("health enforcement", () => {
         ["cholesterol", "highBloodPressure"]
       )
     ).toEqual({ condition: "cholesterol", match: "butter" });
+
+    expect(
+      findRecipeHealthViolation(
+        {
+          name: "Chicken Alfredo",
+          ingredients: ["chicken", "low-fat yogurt", "small amount of parmesan"],
+          steps: ["Simmer the light sauce gently and coat the chicken."],
+          calories: 520,
+          fat: "20g",
+          fiber: "4g",
+          sodium: "560mg",
+          protein: "40g"
+        },
+        ["cholesterol", "highBloodPressure"]
+      )
+    ).toBeNull();
   });
 
   it("allows controlled pan-fried liver when cholesterol numbers are heart-smart", () => {
@@ -121,6 +233,30 @@ describe("health enforcement", () => {
         ["highBloodPressure"]
       )
     ).toEqual({ condition: "highBloodPressure", match: "pepperoni" });
+  });
+
+  it("keeps a sausage dish only after lean, reduced-sodium adaptation", () => {
+    const adapted = adaptRecipeForHealthConditions({
+      name: "Sujuk",
+      cuisine: "Egyptian",
+      ingredients: ["sausage", "tomato", "pepper"],
+      missing_ingredients: [],
+      steps: ["Brown the sausage, then simmer it with tomato and pepper."],
+      calories: 620,
+      protein: "32g",
+      carbs: "24g",
+      fat: "34g",
+      fiber: "4g",
+      sugar: "6g",
+      sodium: "920mg",
+      cook_time: "30 minutes",
+      difficulty: "Easy"
+    }, ["cholesterol", "highBloodPressure"]);
+
+    expect(adapted.ingredients.join(" ")).toContain("lean homemade reduced-sodium sausage");
+    expect(adapted.fat).toBe("24g");
+    expect(adapted.sodium).toBe("620mg");
+    expect(findRecipeHealthViolation(adapted, ["cholesterol", "highBloodPressure"])).toBeNull();
   });
 
   it("blocks heavy fried or creamy meals for weight-loss profiles", () => {

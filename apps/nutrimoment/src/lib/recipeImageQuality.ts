@@ -15,7 +15,7 @@ export function isKnownWeakRecipeProviderImageUrl(imageUrl?: string | null) {
 }
 
 export function isUsableRecipeImageForAccess(imageUrl: string | undefined, hasGeneratedImageAccess: boolean): imageUrl is string {
+  void hasGeneratedImageAccess;
   if (!isDurableRecipeImageUrl(imageUrl)) return false;
-  if (hasGeneratedImageAccess) return isReplicateGeneratedRecipeImageUrl(imageUrl);
   return !isKnownWeakRecipeProviderImageUrl(imageUrl);
 }

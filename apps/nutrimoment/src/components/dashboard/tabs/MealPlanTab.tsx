@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
@@ -24,7 +24,7 @@ import { buildNormalizedShoppingList } from "@/lib/shoppingListNormalizer";
 import { isLikelyBackgroundFetchInterruption } from "@/lib/backgroundRecipeJobs";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import type { TranslationKey } from "@/lib/translations";
-import type { MealPlanMeal } from "@/lib/types";
+import type { MealPlanMeal, RecipeImageSource } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
 const PREMIUM_REPLICATE_LOOKUP_DELAY_MS = 1200;
@@ -43,7 +43,7 @@ type MealPhotoLookupResponse = {
   error?: string;
   imageAttributionName?: string;
   imageAttributionUrl?: string;
-  imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+  imageSource?: RecipeImageSource;
   imageUrl?: string;
   ok?: boolean;
   retryAfterSeconds?: number;
@@ -57,7 +57,7 @@ type MealPhotoRestoreResponse = {
     dayIndex: number;
     imageAttributionName?: string;
     imageAttributionUrl?: string;
-    imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+    imageSource?: RecipeImageSource;
     imageUrl: string;
     mealType: MealSlotType;
   }>;
@@ -87,6 +87,7 @@ export function MealPlanTab() {
   const { t, settings, health, setError } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
+  const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
   const { items } = usePantry();
   const {
     items: historyItems,
@@ -109,7 +110,7 @@ export function MealPlanTab() {
   const updateMealImageRef = useRef(updateMealImage);
   const updateEntryStatusRef = useRef(updateEntryStatus);
   const updateHistoryRecipeImageRef = useRef(updateHistoryRecipeImage);
-  const canGenerateMealPlan = access.tier === "premium" || access.weeklyPlanRemaining > 0;
+  const canGenerateMealPlan = isPremiumFeatureUnlocked;
 
   useEffect(() => {
     if (mealPlanError) {
@@ -119,7 +120,7 @@ export function MealPlanTab() {
 
   const generateMealPlan = async () => {
     if (!canGenerateMealPlan) {
-      setError("Your 3 free weekly meal plans are used. Upgrade to premium for more weekly planning.");
+      setError(t("freeMealPlanNotice"));
       return;
     }
 
@@ -437,7 +438,7 @@ export function MealPlanTab() {
       data: {
         imageAttributionName?: string;
         imageAttributionUrl?: string;
-        imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+        imageSource?: RecipeImageSource;
         imageUrl: string;
       }
     ) => {
@@ -596,6 +597,45 @@ export function MealPlanTab() {
     return () => globalThis.clearInterval(interval);
   }, [hasGeneratedImageAccess, missingPremiumMealImages, resolveMealPlanImages, savedPlanLoading]);
 
+  if (!isPremiumFeatureUnlocked) {
+    return (
+      <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
+        <SectionHero
+          title={t("mealPlanTitle")}
+          description={t("mealPlanDesc")}
+          eyebrow={t("weeklyNutritionRhythm")}
+          chips={[t("balancedChip"), t("pantryAwareChip"), t("visualChip")]}
+          icon={<CalendarDays className="h-6 w-6" />}
+          stats={[
+            { label: t("planStatus"), value: t("premiumRequired") },
+            { label: t("shoppingStat"), value: t("premiumRequired") },
+            { label: t("accessStat"), value: t("premiumRequired") }
+          ]}
+          aside={
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("planningLane")}</p>
+              <p className="text-sm leading-relaxed text-emerald-50/72">{t("mealPlanAside")}</p>
+            </div>
+          }
+        />
+        <motion.div variants={itemVariants}>
+          <Card className="rounded-[1.6rem] border-amber-200/18 bg-amber-400/10 p-5 sm:rounded-[2rem] sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="max-w-2xl space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">{t("premiumRequired")}</p>
+                <h2 className="font-display text-2xl font-bold text-white">{t("mealPlanTitle")}</h2>
+                <p className="text-sm leading-relaxed text-amber-50/86">{t("freeMealPlanNotice")}</p>
+              </div>
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-amber-100/20 bg-amber-200/12 text-amber-100">
+                <Lock className="h-5 w-5" aria-hidden="true" />
+              </div>
+            </div>
+          </Card>
+        </motion.div>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
       <SectionHero
@@ -611,7 +651,7 @@ export function MealPlanTab() {
             label: t("accessStat"),
             value: access.tier === "premium"
               ? t("premiumStatus")
-              : `${access.weeklyPlanRemaining}/${access.weeklyPlanLimit}`
+              : t("premiumRequired")
           }
         ]}
         aside={
@@ -689,10 +729,9 @@ export function MealPlanTab() {
 
           <div className="space-y-3">
             {access.tier !== "premium" ? (
-              <div className="rounded-[1.35rem] border border-amber-200/16 bg-amber-400/10 px-4 py-3 text-sm text-amber-50/88">
-                {t("freeMealPlanNotice")
-                  .replace("{remaining}", String(access.weeklyPlanRemaining))
-                  .replace("{limit}", String(access.weeklyPlanLimit))}
+              <div className="flex gap-3 rounded-[1.35rem] border border-amber-200/16 bg-amber-400/10 px-4 py-3 text-sm text-amber-50/88">
+                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-100" aria-hidden="true" />
+                <span>{t("freeMealPlanNotice")}</span>
               </div>
             ) : (
               <div className="rounded-[1.35rem] border border-emerald-200/16 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50/88">
@@ -700,7 +739,7 @@ export function MealPlanTab() {
               </div>
             )}
             <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan}>
-              {!canGenerateMealPlan ? t("freePlansUsed") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+              {!canGenerateMealPlan ? t("premiumRequired") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
             </Button>
           </div>
         </Card>
@@ -905,7 +944,7 @@ function MealPlanRevealCard({
   onImageResolved?: (payload: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
-    imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+    imageSource?: RecipeImageSource;
     imageUrl: string;
   }) => void | Promise<void>;
 }) {
@@ -1086,7 +1125,7 @@ function applyMealImageToMealPlan(
   data: {
     imageAttributionName?: string;
     imageAttributionUrl?: string;
-    imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+    imageSource?: RecipeImageSource;
     imageUrl: string;
   }
 ) {

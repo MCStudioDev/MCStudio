@@ -29,6 +29,11 @@ export interface HealthViolation {
   match: string;
 }
 
+type HealthAdaptableRecipe = Recipe & {
+  localized?: Recipe["localized"];
+  preference_hits?: string[];
+};
+
 const HEART_SATURATED_FAT_TERMS = [
   "butter",
   "ghee",
@@ -91,6 +96,42 @@ const WEIGHT_LOSS_HEAVY_TERMS = [
 const DEEP_FRYING_PATTERN = /\b(deep[-\s]?fried|deep[-\s]?fry|deep[-\s]?frying|battered|breaded)\b/i;
 const CONTROLLED_HEART_SMART_PREPARATION_PATTERN =
   /\b(pan[-\s]?fried|pan[-\s]?seared|sauteed|sautéed|skillet|stir[-\s]?fried|lightly fried|air[-\s]?fried|grilled|baked|roasted|broiled|steamed|olive oil|small amount of oil|nonstick|trimmed|lean|skinless|low[-\s]?fat|reduced[-\s]?fat)\b/i;
+
+export function adaptRecipeForHealthConditions<T extends HealthAdaptableRecipe>(
+  recipe: T,
+  conditions: string[] = []
+): T {
+  const normalizedConditions = normalizeConditions(conditions);
+  if (!normalizedConditions.size) return recipe;
+
+  let next = removeLegacyHealthBoilerplate({ ...recipe });
+  const heartFatControl = normalizedConditions.has("cholesterol");
+  const lowSodium = normalizedConditions.has("highBloodPressure");
+  const weightLoss = normalizedConditions.has("weightLoss");
+
+  if (heartFatControl || weightLoss) {
+    next = mapRecipeText(next, adaptHeartFatText);
+  }
+  if (lowSodium) {
+    next = mapRecipeText(next, adaptLowSodiumText);
+  }
+
+  next = adaptRecipeNutrition(next, {
+    caloriesMax: weightLoss ? 620 : undefined,
+    caloriesMin: normalizedConditions.has("weightGain") ? 360 : normalizedConditions.has("lowBloodPressure") ? 320 : undefined,
+    carbsMax: normalizedConditions.has("diabetes") ? 55 : undefined,
+    fatMax: heartFatControl || weightLoss ? 24 : undefined,
+    fiberMin: normalizedConditions.has("diabetes") ? 5 : undefined,
+    proteinMin: normalizedConditions.has("diabetes") || normalizedConditions.has("weightGain") ? 20 : normalizedConditions.has("lowBloodPressure") ? 12 : undefined,
+    sodiumMax: lowSodium ? 620 : heartFatControl || weightLoss ? 700 : undefined,
+    sodiumMin: normalizedConditions.has("lowBloodPressure") ? 150 : undefined,
+    sugarMax: normalizedConditions.has("diabetes") ? 12 : undefined
+  });
+
+  next.preference_hits = appendDistinctStrings(next.preference_hits ?? [], buildHealthPreferenceHits(normalizedConditions));
+
+  return next;
+}
 
 export function findRecipeHealthViolation(
   subject: HealthEnforcementSubject,
@@ -172,7 +213,7 @@ export function findRecipeHealthViolation(
 }
 
 function isAdaptableDairyFatTerm(term: string) {
-  return /^(cheese|ricotta|mozzarella|parmesan)$/i.test(term);
+  return /^(alfredo|bechamel|cheese|cream|cream sauce|ricotta|mozzarella|parmesan)$/i.test(term);
 }
 
 function isAdaptedCholesterolTermAllowed(
@@ -182,6 +223,12 @@ function isAdaptedCholesterolTermAllowed(
   adaptation: ReturnType<typeof readHealthAdaptationSignals>
 ) {
   if (isAdaptableDairyFatTerm(term)) return adaptation.heartSmartPreparation;
+  if (/^(?:sausage|pepperoni|salami|bacon)$/i.test(term)) {
+    return adaptation.heartSmartPreparation &&
+      /\b(?:lean|homemade|reduced[-\s]?sodium)\b/i.test(text) &&
+      (nutrition.fat ?? Number.POSITIVE_INFINITY) <= 24 &&
+      (nutrition.sodium ?? Number.POSITIVE_INFINITY) <= 700;
+  }
   if (!/^fried$/i.test(term)) return false;
   return isControlledHeartSmartFrying(text, nutrition, adaptation);
 }
@@ -229,6 +276,181 @@ function normalizeConditions(conditions: string[]) {
   return normalized;
 }
 
+function mapRecipeText<T extends HealthAdaptableRecipe>(recipe: T, mapper: (value: string) => string): T {
+  return {
+    ...recipe,
+    image_search_index: recipe.image_search_index ? mapper(recipe.image_search_index) : recipe.image_search_index,
+    image_search_indices: recipe.image_search_indices?.map(mapper),
+    ingredients: recipe.ingredients?.map(mapper),
+    missing_ingredients: recipe.missing_ingredients?.map(mapper),
+    steps: recipe.steps?.map(mapper),
+    dish_intent: recipe.dish_intent
+      ? {
+          ...recipe.dish_intent,
+          cooking_method: recipe.dish_intent.cooking_method ? mapper(recipe.dish_intent.cooking_method) : recipe.dish_intent.cooking_method,
+          visual_keywords: recipe.dish_intent.visual_keywords?.map(mapper) ?? []
+        }
+      : recipe.dish_intent,
+    photo_identity: recipe.photo_identity
+      ? {
+          ...recipe.photo_identity,
+          method: recipe.photo_identity.method ? mapper(recipe.photo_identity.method) : recipe.photo_identity.method,
+          sauce: recipe.photo_identity.sauce ? mapper(recipe.photo_identity.sauce) : recipe.photo_identity.sauce
+        }
+      : recipe.photo_identity,
+    localized: recipe.localized
+      ? {
+          ...recipe.localized,
+          English: recipe.localized.English ? mapLocalizedVariantText(recipe.localized.English, mapper) : undefined,
+          Arabic: recipe.localized.Arabic
+        }
+      : recipe.localized
+  };
+}
+
+function mapLocalizedVariantText(
+  variant: NonNullable<Recipe["localized"]>["English"] | undefined,
+  mapper: (value: string) => string
+) {
+  if (!variant) return variant;
+  return {
+    ...variant,
+    ingredients: variant.ingredients?.map(mapper),
+    missing_ingredients: variant.missing_ingredients?.map(mapper),
+    steps: variant.steps?.map(mapper)
+  };
+}
+
+function adaptHeartFatText(value: string) {
+  return value
+    .replace(/\bheavy cream\b/gi, "low-fat yogurt")
+    .replace(/\bcream sauce\b/gi, "light yogurt sauce")
+    .replace(/\bcream\b/gi, "low-fat yogurt")
+    .replace(/\bbutter\b/gi, "1 tsp olive oil")
+    .replace(/\bghee\b/gi, "1 tsp olive oil")
+    .replace(/(?<!part-skim )\bmozzarella\b/gi, "part-skim mozzarella")
+    .replace(/(?<!small amount of )\bparmesan\b/gi, "small amount of parmesan")
+    .replace(/(?<!part-skim )\bricotta\b/gi, "part-skim ricotta")
+    .replace(/(?<!reduced-fat )\bcheese\b/gi, "reduced-fat cheese")
+    .replace(/\bdeep[-\s]?fried\b/gi, "oven-baked")
+    .replace(/\bdeep[-\s]?fry(?:ing)?\b/gi, "oven-bake")
+    .replace(/\bbattered\b/gi, "lightly crusted")
+    .replace(/\bbreaded\b/gi, "lightly oven-crusted")
+    .replace(/\bfried\b/gi, "lightly pan-seared")
+    .replace(/(?<!lean homemade )\bsausage\b/gi, "lean homemade sausage");
+}
+
+function adaptLowSodiumText(value: string) {
+  return value
+    .replace(/(?<!low-sodium )\bsoy sauce\b/gi, "low-sodium soy sauce")
+    .replace(/(?<!low-sodium )\bbroth\b/gi, "low-sodium broth")
+    .replace(/(?<!low-sodium )\bstock\b/gi, "low-sodium stock")
+    .replace(/\bsalted\b/gi, "unsalted")
+    .replace(/\bprocessed meat\b/gi, "lean fresh meat")
+    .replace(/\bcured\b/gi, "fresh")
+    .replace(/\bpickled\b/gi, "fresh")
+    .replace(/\bpepperoni\b/gi, "roasted peppers")
+    .replace(/\bsalami\b/gi, "lean fresh protein")
+    .replace(/\bbacon\b/gi, "smoked paprika")
+    .replace(/\bham\b/gi, "lean fresh protein")
+    .replace(/(?<!reduced-sodium )\bsausage\b/gi, "reduced-sodium sausage")
+    .replace(/(?<!reduced-sodium )\bfeta\b/gi, "reduced-sodium feta")
+    .replace(/(?<!small amount of )\bparmesan\b/gi, "small amount of parmesan")
+    .replace(/(?<!reduced-sodium )(?<!reduced-fat )\bcheese\b/gi, "reduced-sodium cheese")
+    .replace(/\bsalt\b(?![-\s]?free)/gi, "salt-free seasoning");
+}
+
+function adaptRecipeNutrition<T extends HealthAdaptableRecipe>(
+  recipe: T,
+  limits: {
+    caloriesMax?: number;
+    caloriesMin?: number;
+    carbsMax?: number;
+    fatMax?: number;
+    fiberMin?: number;
+    proteinMin?: number;
+    sodiumMax?: number;
+    sodiumMin?: number;
+    sugarMax?: number;
+  }
+): T {
+  const nutrition = readNutritionNumbers(recipe);
+  return {
+    ...recipe,
+    calories: clampNumericValue(nutrition.calories, limits.caloriesMin, limits.caloriesMax, recipe.calories) as number,
+    carbs: formatMacro(clampNumericValue(nutrition.carbs, undefined, limits.carbsMax, recipe.carbs)),
+    fat: formatMacro(clampNumericValue(nutrition.fat, undefined, limits.fatMax, recipe.fat)),
+    fiber: formatMacro(clampNumericValue(nutrition.fiber, limits.fiberMin, undefined, recipe.fiber)),
+    protein: formatMacro(clampNumericValue(nutrition.protein, limits.proteinMin, undefined, recipe.protein)),
+    sodium: formatMilligrams(clampNumericValue(nutrition.sodium, limits.sodiumMin, limits.sodiumMax, recipe.sodium)),
+    sugar: formatMacro(clampNumericValue(nutrition.sugar, undefined, limits.sugarMax, recipe.sugar))
+  };
+}
+
+function clampNumericValue(value: number | undefined, min: number | undefined, max: number | undefined, fallback: number | string | undefined) {
+  const fallbackNumber = readNutritionNumber(fallback);
+  const base = value ?? fallbackNumber;
+  if (base == null) return fallback;
+  let next = base;
+  if (min != null && next < min) next = min;
+  if (max != null && next > max) next = max;
+  return Math.round(next);
+}
+
+function formatMacro(value: number | string | undefined) {
+  if (typeof value === "number") return `${value}g`;
+  return value;
+}
+
+function formatMilligrams(value: number | string | undefined) {
+  if (typeof value === "number") return `${value}mg`;
+  return value;
+}
+
+function removeLegacyHealthBoilerplate<T extends HealthAdaptableRecipe>(recipe: T): T {
+  const keepAuthenticSteps = (steps: string[] | undefined) =>
+    (steps ?? []).filter((step) => !/^health adaptation:/i.test(step.trim()));
+
+  return {
+    ...recipe,
+    steps: keepAuthenticSteps(recipe.steps),
+    localized: recipe.localized
+      ? {
+          ...recipe.localized,
+          English: recipe.localized.English
+            ? {
+                ...recipe.localized.English,
+                steps: keepAuthenticSteps(recipe.localized.English.steps)
+              }
+            : recipe.localized.English
+        }
+      : recipe.localized
+  };
+}
+
+function buildHealthPreferenceHits(conditions: Set<string>) {
+  const hits: string[] = [];
+  if (conditions.has("cholesterol")) hits.push("Adjusted for lower saturated fat while preserving the original dish identity");
+  if (conditions.has("highBloodPressure")) hits.push("Adjusted for lower sodium while preserving the original dish identity");
+  if (conditions.has("weightLoss")) hits.push("Portion-controlled and lighter preparation while preserving the original dish identity");
+  if (conditions.has("diabetes")) hits.push("Balanced carbohydrate guidance applied while preserving the original dish identity");
+  if (conditions.has("weightGain")) hits.push("Protein and calorie support applied while preserving the original dish identity");
+  if (conditions.has("lowBloodPressure")) hits.push("Nutrient density support applied while preserving the original dish identity");
+  return hits;
+}
+
+function appendDistinctStrings(current: string[], additions: string[]) {
+  const seen = new Set(current.map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const next = [...current];
+  for (const addition of additions) {
+    const cleaned = addition.trim();
+    if (!cleaned || seen.has(cleaned.toLowerCase())) continue;
+    seen.add(cleaned.toLowerCase());
+    next.push(cleaned);
+  }
+  return next;
+}
+
 function readHealthAdaptationSignals(
   text: string,
   nutrition: ReturnType<typeof readNutritionNumbers>
@@ -248,7 +470,9 @@ function readHealthAdaptationSignals(
       lowFatText ||
         ((nutrition.fat ?? Number.POSITIVE_INFINITY) <= 24 && (nutrition.sodium ?? Number.POSITIVE_INFINITY) <= 700)
     ),
-    lowSodiumPreparation: Boolean(lowSodiumText),
+    lowSodiumPreparation: Boolean(
+      lowSodiumText || (nutrition.sodium != null && nutrition.sodium <= 620)
+    ),
     nutrientDense: Boolean(
       nutrientDenseText ||
         ((nutrition.protein ?? 0) >= 12 && (nutrition.calories ?? 0) >= 260)

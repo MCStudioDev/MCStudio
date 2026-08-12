@@ -7,5 +7,8 @@ export async function generateFallbackRecipes(
   options?: AiTextGenerationOptions
 ) {
   ensureAiAvailable();
-  return callOpenAIText(prompt, "gemini-2.5-flash-lite", trace, options);
+  const model = options?.groundWithGoogleSearch
+    ? process.env.GEMINI_GROUNDED_MODEL ?? "gemini-2.5-flash-lite"
+    : "gemini-2.5-flash-lite";
+  return callOpenAIText(prompt, model, trace, options);
 }

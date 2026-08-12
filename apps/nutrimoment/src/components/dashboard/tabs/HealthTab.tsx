@@ -21,26 +21,17 @@ const DIETS = [
   { id: "dairyFree", key: "dairyFree", desc: "dairyFreeDesc" }
 ] as const;
 
-const CONDITIONS = [
-  { id: "diabetes", key: "diabetes", desc: "diabetesDesc" },
-  { id: "highBloodPressure", key: "highBloodPressure", desc: "highBloodPressureDesc" },
-  { id: "lowBloodPressure", key: "lowBloodPressure", desc: "lowBloodPressureDesc" },
-  { id: "weightGain", key: "weightGain", desc: "weightGainDesc" },
-  { id: "weightLoss", key: "weightLoss", desc: "weightLossDesc" },
-  { id: "cholesterol", key: "cholesterol", desc: "cholesterolDesc" }
-] as const;
-
 export function HealthTab() {
   const { t, health, saveHealth, rtl } = useApp();
   const [allergenInput, setAllergenInput] = useState("");
   const bmiValue = computeBmi(health.weightKg ?? null, health.heightCm ?? null);
 
-  const toggleValue = async (group: "diets" | "conditions", value: string) => {
-    const current = health[group];
+  const toggleDiet = async (value: string) => {
+    const current = health.diets;
     const next = current.includes(value)
       ? current.filter((item) => item !== value)
       : [...current, value];
-    await saveHealth({ [group]: next });
+    await saveHealth({ diets: next });
   };
 
   const addAllergen = async () => {
@@ -109,7 +100,7 @@ export function HealthTab() {
                 title={t(diet.key)}
                 description={t(diet.desc)}
                 rtl={rtl}
-                onClick={() => void toggleValue("diets", diet.id)}
+                onClick={() => void toggleDiet(diet.id)}
               />
             ))}
           </div>
@@ -119,19 +110,7 @@ export function HealthTab() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("healthConditions")}</p>
             <h3 className="mt-2 text-xl font-display font-bold text-white sm:text-2xl">{t("healthConditionsTitle")}</h3>
-          </div>
-
-          <div className="grid gap-3">
-            {CONDITIONS.map((condition) => (
-              <SelectableRow
-                key={condition.id}
-                active={health.conditions.includes(condition.id)}
-                title={t(condition.key)}
-                description={t(condition.desc)}
-                rtl={rtl}
-                onClick={() => void toggleValue("conditions", condition.id)}
-              />
-            ))}
+            <p className="mt-2 text-sm font-semibold text-cyan-100/72">{t("comingSoon")}</p>
           </div>
 
           <div className="theme-callout-warn rounded-[1.35rem] border border-amber-200/16 bg-amber-400/10 px-4 py-4 text-sm font-medium leading-relaxed text-amber-50/92 sm:rounded-[1.5rem] sm:px-5">

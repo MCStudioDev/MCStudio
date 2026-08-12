@@ -1,7 +1,7 @@
 export type Tab = "scanner" | "pantry" | "mealplan" | "health" | "history" | "settings";
 
 export type Language = "en" | "ar";
-export type RecipeImageSource = "api" | "cache" | "search" | "unsplash" | "wikimedia";
+export type RecipeImageSource = "api" | "cache" | "pexels" | "replicate" | "search" | "shared_pool" | "unsplash" | "wikimedia";
 export type DashboardTheme = "auroraDark" | "mintWhite";
 export type RecipeMealType = "breakfast" | "lunch" | "dinner" | "snack";
 
@@ -73,17 +73,26 @@ export interface LocalizedRecipeVariant {
   image_attribution_name?: string;
   image_attribution_url?: string;
   preference_hits?: string[];
+  plated_visual_description?: string;
+  recipe_source_type?: "local_database" | "external_source" | "generated";
+  source_url?: string;
 }
 
 export interface Recipe {
   id?: string;
   name: string;
   cuisine: string;
+  plated_visual_description?: string;
   recipe_origin?: "exact_scan_match" | "similar_ingredients";
+  recipe_source_type?: "local_database" | "external_source" | "generated";
+  dish_identity?: string;
+  source_recipe_id?: string;
   scan_match_explanation?: string;
+  source_url?: string;
   dish_intent?: RecipeDishIntent;
   image_search_index?: string;
   image_search_indices?: string[];
+  ingredient_ownership?: RecipeIngredientOwnership[];
   ingredients: string[];
   missing_ingredients: string[];
   steps: string[];
@@ -102,6 +111,12 @@ export interface Recipe {
   image_attribution_url?: string;
   image_loading?: boolean;
   image_error?: boolean;
+  image_placeholder?: {
+    label: string;
+    tone: string;
+  };
+  acceptance_score?: number;
+  acceptance_reasons?: string[];
   match_quality?: "great" | "good" | "possible" | "stretch";
   matched_required_count?: number;
   matched_optional_count?: number;
@@ -109,6 +124,12 @@ export interface Recipe {
   visual_match_label?: string;
   photo_identity?: PhotoIdentity;
   localized?: Partial<Record<"English" | "Arabic", LocalizedRecipeVariant>>;
+}
+
+export interface RecipeIngredientOwnership {
+  canonicalName: string;
+  displayText: string;
+  availability: "owned" | "missing";
 }
 
 export interface MealPlanMeal {

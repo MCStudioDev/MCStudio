@@ -1,5 +1,5 @@
 import type { PantryItem } from "@/lib/types";
-import { buildIngredientNameArrayVisionPrompt, buildPantryInventoryVisionPrompt } from "@/lib/aiPrompts";
+import { PromptBuilder } from "@/ai/PromptBuilder";
 import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
 import { isArabicRecipeLanguage, translateIngredientToArabic, translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 
@@ -31,7 +31,7 @@ export async function extractIngredientsFromImage({
 
   ensureAiAvailable();
 
-  const text = await callOpenAIVision(buildIngredientNameArrayVisionPrompt(language, isPantry), image);
+  const text = await callOpenAIVision(PromptBuilder.ingredientNameArrayVision(language, isPantry), image);
   const json = extractJson(text);
   const parsed = JSON.parse(json) as string[] | { ingredients?: string[]; items?: Array<{ name?: string }> };
   const rawItems = Array.isArray(parsed)
@@ -58,7 +58,7 @@ export async function extractPantryItemsFromImage({
 
   ensureAiAvailable();
 
-  const text = await callOpenAIVision(buildPantryInventoryVisionPrompt(language), image);
+  const text = await callOpenAIVision(PromptBuilder.pantryInventoryVision(language), image);
   const json = extractJson(text);
   const parsed = JSON.parse(json) as { items?: Array<{ name?: string; quantity?: string }> };
 

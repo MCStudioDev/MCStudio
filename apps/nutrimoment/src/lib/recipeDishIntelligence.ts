@@ -1489,6 +1489,11 @@ export function buildDishCandidatePromptSummary(candidates: DishCandidate[]) {
 }
 
 export function enrichRecipeWithDishIntent(recipe: Recipe, context: DishCandidateContext = {}): Recipe {
+  // Source recipes already carry an authored dish identity. Dish blueprints are
+  // useful for newly generated cards, but must never relabel a real recipe
+  // simply because its pantry ingredients overlap a different regional dish.
+  const preservesSourceIdentity =
+    recipe.recipe_source_type === "local_database" || recipe.recipe_source_type === "external_source";
   const availableIngredients = normalizeIngredientList([
     ...recipe.ingredients,
     ...recipe.missing_ingredients,
@@ -1500,12 +1505,14 @@ export function enrichRecipeWithDishIntent(recipe: Recipe, context: DishCandidat
   });
   const inferredMealType = inferMealType(recipe);
   const inferredCookingMethod = inferCookingMethod(recipe);
-  const trustedCandidate = candidates.find((candidate) => Boolean(shouldTrustCandidate(recipe, candidate, inferredMealType)));
+  const trustedCandidate = preservesSourceIdentity
+    ? undefined
+    : candidates.find((candidate) => Boolean(shouldTrustCandidate(recipe, candidate, inferredMealType)));
   const mealType = trustedCandidate?.mealType ?? inferredMealType;
   const cookingMethod = trustedCandidate?.cookingMethod ?? inferredCookingMethod;
   const dishIntent: RecipeDishIntent = {
-    dish_name: trustedCandidate?.dishName ?? recipe.name,
-    cuisine: trustedCandidate?.cuisine ?? normalizeCuisineLabel(recipe.cuisine),
+    dish_name: preservesSourceIdentity ? recipe.name : trustedCandidate?.dishName ?? recipe.name,
+    cuisine: preservesSourceIdentity ? recipe.cuisine : trustedCandidate?.cuisine ?? normalizeCuisineLabel(recipe.cuisine),
     meal_type: mealType,
     diet_type: inferDietType(recipe, context.diets ?? []),
     cooking_method: cookingMethod,
@@ -1526,7 +1533,7 @@ export function enrichRecipeWithDishIntent(recipe: Recipe, context: DishCandidat
 
   return {
     ...recipe,
-    cuisine: dishIntent.cuisine || recipe.cuisine,
+    cuisine: preservesSourceIdentity ? recipe.cuisine : dishIntent.cuisine || recipe.cuisine,
     dish_intent: dishIntent,
     image_search_index: photoQueries[0] ?? recipe.image_search_index,
     image_search_indices: photoQueries.length ? photoQueries : recipe.image_search_indices,

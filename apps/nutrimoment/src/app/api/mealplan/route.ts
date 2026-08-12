@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
-import { buildMealPlanPrompt, buildMealPlanRepairPrompt } from "@/lib/aiPrompts";
+import { PromptBuilder } from "@/ai/PromptBuilder";
 import { USE_MOCK, callOpenAIText, ensureAiAvailable, extractJson, getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/openai";
 import { normalizeMealPlanData, sanitizeMealPlanForFirestore } from "@/lib/mealPlan";
 import {
@@ -104,6 +104,15 @@ export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "weekly_plan");
     const access = accessCheck.access;
+    if (!access.isPremium && !access.isAdmin) {
+      return Response.json(
+        {
+          error: "Weekly meal plans are a premium feature.",
+          access: accessPayload(access)
+        },
+        { status: 403 }
+      );
+    }
     const rl = applyRateLimit({
       uid: access.uid,
       feature: "meal_plan",
@@ -264,7 +273,7 @@ export async function POST(request: Request) {
 
       try {
         const repairText = await callOpenAIText(
-          buildMealPlanRepairPrompt({
+          PromptBuilder.mealPlanRepair({
             pantry: dietCompatiblePantry,
             pantryItems: pantryStock,
             diets: parsed.data.diets ?? [],
@@ -365,7 +374,7 @@ export async function POST(request: Request) {
     try {
       ensureAiAvailable();
       const text = await callOpenAIText(
-        buildMealPlanPrompt({
+        PromptBuilder.mealPlan({
           pantry: dietCompatiblePantry,
           pantryItems: pantryStock,
           diets: parsed.data.diets ?? [],

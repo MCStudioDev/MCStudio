@@ -4,8 +4,6 @@ import {
   isArabicRecipeLanguage,
   translateIngredientToEnglish
 } from "@/lib/arabicRecipeLocalization";
-import { findRecipeDietViolation } from "@/lib/dietEnforcement";
-import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import type { Recipe } from "@/lib/types";
 
 export interface ScanRecipeGuardContext {
@@ -27,86 +25,23 @@ export function repairScanRecipesWithGuard(recipes: Recipe[], context: ScanRecip
 
   const wantsArabic = isArabicRecipeLanguage(context.recipeLanguage);
   const signals = buildIngredientSignals(context);
-  const dietContext = {
-    diets: context.diets ?? [],
-    allergens: context.allergens ?? []
-  };
   const repaired = recipes
-    .map((recipe) => repairIngredientOwnership(recipe, signals, wantsArabic))
-    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext))
-    .filter((recipe) => !findRecipeHealthViolation(recipe, context.conditions ?? []));
+    .map((recipe) => repairIngredientOwnership(recipe, signals, wantsArabic));
 
   const prefersSpecificCuisine = Boolean(context.preferredCuisine && context.preferredCuisine !== "Any");
   const cuisineMatchedRecipes = prefersSpecificCuisine
     ? repaired.filter((recipe) => recipeMatchesPreferredCuisine(recipe, context.preferredCuisine))
     : repaired;
-  const requestedSeafood = signals.some((signal) => signal.kind === "seafood");
-  const seafoodMinimum = requestedSeafood
-    ? Math.min(context.recipeCount, Math.max(1, Math.ceil(context.recipeCount * 0.4)))
-    : 0;
-  const seafoodCount = cuisineMatchedRecipes.filter(recipeContainsSeafood).length;
-  const cuisineGap = prefersSpecificCuisine ? Math.max(0, context.recipeCount - cuisineMatchedRecipes.length) : 0;
-  const fallbackCount = Math.max(0, seafoodMinimum - seafoodCount, cuisineGap);
-  const canUseSeafoodFallback = requestedSeafood && dietAllowsSeafoodFallback(dietContext);
-  const fallbackRecipes =
-    canUseSeafoodFallback && fallbackCount > 0
-      ? filterRecipesByGuardRules(buildSeafoodFallbackRecipes(context, fallbackCount, wantsArabic), context, dietContext)
-      : [];
-
-  let merged = dedupeRecipes(orderDiverseRecipes([
+  const merged = dedupeRecipes(orderDiverseRecipes([
     ...cuisineMatchedRecipes.filter(recipeContainsSeafood),
     ...repaired.filter((recipe) => recipeContainsSeafood(recipe) && !cuisineMatchedRecipes.includes(recipe)),
-    ...fallbackRecipes,
     ...cuisineMatchedRecipes.filter((recipe) => !recipeContainsSeafood(recipe)),
     ...repaired.filter((recipe) => !cuisineMatchedRecipes.includes(recipe))
   ]));
 
-  if (canUseSeafoodFallback && merged.length < context.recipeCount) {
-    merged = dedupeRecipes(orderDiverseRecipes([
-      ...merged,
-      ...filterRecipesByGuardRules(
-        buildSeafoodFallbackRecipes(context, context.recipeCount - merged.length, wantsArabic),
-        context,
-        dietContext
-      )
-    ]));
-  }
-
-  if (merged.length < context.recipeCount) {
-    merged = dedupeRecipes(orderDiverseRecipes([
-      ...merged,
-      ...filterRecipesByGuardRules(
-        buildIngredientFallbackRecipes(context, signals, context.recipeCount - merged.length),
-        context,
-        dietContext
-      )
-    ]));
-  }
-
+  // This guard is allowed to reorder or reject existing recipes, never to
+  // invent extra cards. Source retrieval must supply every visible recipe.
   return merged.slice(0, context.recipeCount);
-}
-
-function dietAllowsSeafoodFallback(dietContext: { diets: string[]; allergens: string[] }) {
-  const selectedDiets = new Set(dietContext.diets.map((diet) => diet.trim().toLowerCase()));
-  if (!selectedDiets.has("pescatarian")) return false;
-
-  return !findRecipeDietViolation({
-    name: "Seafood fallback probe",
-    cuisine: "Seafood",
-    ingredients: ["shrimp", "fish"],
-    missing_ingredients: [],
-    steps: ["Probe only."]
-  }, dietContext);
-}
-
-function filterRecipesByGuardRules(
-  recipes: Recipe[],
-  context: ScanRecipeGuardContext,
-  dietContext: { diets: string[]; allergens: string[] }
-) {
-  return recipes
-    .filter((recipe) => !findRecipeDietViolation(recipe, dietContext))
-    .filter((recipe) => !findRecipeHealthViolation(recipe, context.conditions ?? []));
 }
 
 interface IngredientSignal {
@@ -156,6 +91,7 @@ function repairIngredientOwnership(recipe: Recipe, signals: IngredientSignal[], 
   return wantsArabic ? ensureArabicRecipeLanguage(repaired) : repaired;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildSeafoodFallbackRecipes(context: ScanRecipeGuardContext, count: number, wantsArabic: boolean): Recipe[] {
   const preferredCuisine = context.preferredCuisine && context.preferredCuisine !== "Any"
     ? context.preferredCuisine
@@ -338,6 +274,7 @@ function buildSeafoodFallbackRecipes(context: ScanRecipeGuardContext, count: num
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildIngredientFallbackRecipes(
   context: ScanRecipeGuardContext,
   signals: IngredientSignal[],
@@ -1004,9 +941,8 @@ function getIngredientKind(canonical: string): IngredientSignal["kind"] {
 }
 
 function normalizeIngredientSignal(value: string): string {
-  const translated = translateIngredientToEnglish(value);
   const normalizedArabic = normalizeArabicIngredient(value);
-  const source = normalizedArabic || translated || value;
+  const source = normalizedArabic || (/[؀-ۿ]/u.test(value) ? translateIngredientToEnglish(value) : value);
 
   return normalizeText(source)
     .replace(/\b prawns\b/g, " shrimp")

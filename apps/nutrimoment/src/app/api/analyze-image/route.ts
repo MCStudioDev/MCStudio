@@ -1,4 +1,4 @@
-import { buildIngredientVisionPrompt } from "@/lib/aiPrompts";
+import { PromptBuilder } from "@/ai/PromptBuilder";
 import { USE_MOCK, callOpenAIVision, ensureAiAvailable, extractJson } from "@/lib/openai";
 import { logger } from "@/lib/logger";
 import {
@@ -32,6 +32,16 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!accessCheck.access.isPremium && !accessCheck.access.isAdmin) {
+      return Response.json(
+        {
+          error: "Scan fridge is a premium feature.",
+          access: accessPayload(accessCheck.access)
+        },
+        { status: 403 }
+      );
+    }
+
     if (!accessCheck.allowed) {
       return Response.json({
         ingredients: [],
@@ -48,7 +58,7 @@ export async function POST(request: Request) {
     }
 
     ensureAiAvailable();
-    const text = await callOpenAIVision(buildIngredientVisionPrompt(), image, "gemini-2.5-flash-lite");
+    const text = await callOpenAIVision(PromptBuilder.ingredientVision(), image, "gemini-2.5-flash-lite");
     const json = extractJson(text);
     const parsedResult = JSON.parse(json) as { ingredients?: string[] } | string[];
     const ingredients = Array.isArray(parsedResult) ? parsedResult : parsedResult.ingredients ?? [];

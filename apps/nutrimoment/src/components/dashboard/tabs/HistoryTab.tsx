@@ -372,6 +372,8 @@ export function HistoryTab() {
                       previewItems={buildRecipePreviewItems(recipe)}
                       imageUrl={getHistoryRecipeImageUrl(recipe, hasGeneratedImageAccess)}
                       imageSource={recipe.image_source}
+                      recipeSource={recipe.recipe_source_type}
+                      recipeSourceUrl={recipe.source_url}
                       imageAttributionName={recipe.image_attribution_name}
                       imageAttributionUrl={recipe.image_attribution_url}
                       imageQuery={buildRecipePhotoQuery(recipe)}

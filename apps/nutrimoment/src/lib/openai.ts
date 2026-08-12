@@ -22,8 +22,15 @@ export interface AiCallTraceOptions {
 }
 
 export interface AiTextGenerationOptions {
+  groundWithGoogleSearch?: boolean;
+  maxOutputTokens?: number;
   temperature?: number;
+  thinkingBudget?: number;
   topP?: number;
+  systemInstruction?: string;
+  responseMimeType?: string;
+  responseJsonSchema?: Record<string, unknown>;
+  requestTimeoutMs?: number;
 }
 
 const rawUseMock = process.env.USE_MOCK_API === "true";
@@ -37,9 +44,9 @@ export const HAS_GEMINI_API_KEY = apiKey.length > 0;
 
 export function getClient(): GoogleGenAI | null {
   if (!apiKey) return null;
-  // The Gemini SDK prefers GOOGLE_API_KEY when both variables exist in the process.
-  // Keep it aligned so a stale machine-level key cannot override this app's key.
-  process.env.GOOGLE_API_KEY = apiKey;
+  // The GenAI SDK also inspects this legacy environment variable and warns
+  // when it competes with the explicitly supplied Gemini key.
+  delete process.env.GOOGLE_API_KEY;
   return new GoogleGenAI({ apiKey });
 }
 
@@ -130,11 +137,11 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createGeminiRequestAbortController() {
+function createGeminiRequestAbortController(timeoutMs = requestTimeoutMs) {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => {
-    controller.abort(new Error(`Gemini request timed out after ${requestTimeoutMs}ms`));
-  }, requestTimeoutMs);
+    controller.abort(new Error(`Gemini request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
 
   return { controller, timeout };
 }
@@ -161,7 +168,8 @@ export async function callOpenAIText(
     for (let modelAttempt = 1; modelAttempt <= transientRetryAttempts; modelAttempt += 1) {
       attempt += 1;
       try {
-        const { controller, timeout } = createGeminiRequestAbortController();
+        const effectiveRequestTimeoutMs = Math.max(5_000, options?.requestTimeoutMs ?? requestTimeoutMs);
+        const { controller, timeout } = createGeminiRequestAbortController(effectiveRequestTimeoutMs);
         logger.debug("Gemini text generation attempt started", {
           requestId: trace?.requestId,
           feature: trace?.feature,
@@ -171,6 +179,8 @@ export async function callOpenAIText(
           attempt,
           attempts: totalAttempts
         });
+        const supportsResponseMimeType = !options?.groundWithGoogleSearch;
+        const supportsResponseJsonSchema = !options?.groundWithGoogleSearch;
         let response;
         try {
           response = await client.models.generateContent({
@@ -178,10 +188,22 @@ export async function callOpenAIText(
             contents: prompt,
             config: {
               abortSignal: controller.signal,
+              ...(options?.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
+              ...(supportsResponseMimeType && options?.responseMimeType
+                ? { responseMimeType: options.responseMimeType }
+                : {}),
+              ...(supportsResponseJsonSchema && options?.responseJsonSchema
+                ? { responseJsonSchema: options.responseJsonSchema }
+                : {}),
+              ...(options?.groundWithGoogleSearch ? { tools: [{ googleSearch: {} }] } : {}),
+              ...(typeof options?.maxOutputTokens === "number" ? { maxOutputTokens: options.maxOutputTokens } : {}),
               ...(typeof options?.temperature === "number" ? { temperature: options.temperature } : {}),
+              ...(typeof options?.thinkingBudget === "number"
+                ? { thinkingConfig: { thinkingBudget: options.thinkingBudget } }
+                : {}),
               ...(typeof options?.topP === "number" ? { topP: options.topP } : {}),
               httpOptions: {
-                timeout: requestTimeoutMs
+                timeout: effectiveRequestTimeoutMs
               }
             }
           });
@@ -190,7 +212,24 @@ export async function callOpenAIText(
         }
 
         const text = response.text?.trim() ?? "";
-        if (!text) throw new Error(`Empty response from Gemini model ${model}`);
+        if (!text) {
+          const candidate = response.candidates?.[0];
+          const usage = response.usageMetadata;
+          const partKinds = candidate?.content?.parts
+            ?.map((part) => Object.keys(part).sort().join("+"))
+            .filter(Boolean)
+            .join(",") || "none";
+          throw new Error([
+            `Empty response from Gemini model ${model}`,
+            `finishReason=${candidate?.finishReason ?? "none"}`,
+            `finishMessage=${candidate?.finishMessage ?? "none"}`,
+            `partKinds=${partKinds}`,
+            `promptTokens=${usage?.promptTokenCount ?? 0}`,
+            `toolTokens=${usage?.toolUsePromptTokenCount ?? 0}`,
+            `thoughtTokens=${usage?.thoughtsTokenCount ?? 0}`,
+            `outputTokens=${usage?.candidatesTokenCount ?? 0}`
+          ].join("; "));
+        }
         logger.info("Gemini text generation attempt succeeded", {
           requestId: trace?.requestId,
           feature: trace?.feature,

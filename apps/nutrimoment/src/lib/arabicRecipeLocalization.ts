@@ -1,13 +1,20 @@
 ﻿import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 import { OFFLINE_INGREDIENT_TAXONOMY } from "@/data/offline/ingredientTaxonomy";
+import { ARABIC_CULINARY_DICTIONARY } from "@/data/culinary/arabicCulinaryDictionary";
+import { buildFoodDictionaryLocalizationLookups } from "@/food/FoodDictionary";
+import { localizationService } from "@/lib/localization/LocalizationService";
 
 const RECIPE_TITLES: Record<string, string> = {
+  ...ARABIC_CULINARY_DICTIONARY.dishTitles,
   "Kofta": "كفتة",
   "Egyptian Kofta": "كفتة مصرية",
   "Kofta Kebab": "كفتة مشوية",
   "Taagen Kofta": "طاجن كفتة",
   "Hawawshi": "حواوشي",
   "Macarona Bechamel": "مكرونة بشاميل",
+  "Pasta Puttanesca": "مكرونة بوتانيسكا",
+  "Macaroni and Cheese": "مكرونة بالجبنة",
+  "Spaghetti Carbonara": "سباجيتي كاربونارا",
   "Koshary": "كشري",
   "Ful Medames": "فول مدمس",
   "Taameya": "طعمية",
@@ -16,6 +23,13 @@ const RECIPE_TITLES: Record<string, string> = {
   "Chicken Molokhia": "ملوخية بالدجاج",
   "Chicken Fattah": "فتة دجاج",
   "Chicken Negresco": "نجرسكو دجاج",
+  "Chicken Macarona Bechamel": "مكرونة بشاميل بالدجاج",
+  "Creamy Tuscan Chicken": "دجاج توسكاني بصوص كريمي",
+  "Tuscan Chicken": "دجاج على الطريقة التوسكانية",
+  "Creamy Spinach Chicken": "دجاج بالسبانخ وصوص كريمي",
+  "Chicken Florentine": "دجاج بالسبانخ وصوص كريمي",
+  "Chicken Alfredo": "دجاج ألفريدو",
+  "Chicken Parmesan": "دجاج بصلصة الطماطم والبارميزان",
   "Sayadeya": "صيادية سمك",
   "Samak Singari": "سمك سنجاري",
   "Egyptian Fish Tagine": "طاجن سمك مصري",
@@ -27,7 +41,10 @@ const RECIPE_TITLES: Record<string, string> = {
   "Samak Harra": "سمك حار",
   "Shrimp Sayadieh": "صيادية جمبري",
   "Pollo Cacciatore": "دجاج كاتشاتوري",
-  "Chicken Piccata": "دجاج بيكاتا",
+  "Chicken Piccata": "دجاج بصلصة الليمون والكبر على الطريقة الإيطالية",
+  "Herbed Chicken Marsala": "دجاج بالفطر والأعشاب على الطريقة الإيطالية",
+  "Chicken Marsala": "دجاج بالفطر على الطريقة الإيطالية",
+  "Chicken Pizzaiola": "دجاج بصوص الطماطم والموزاريلا على الطريقة الإيطالية",
   "Tagliatelle al Ragu": "تالياتيلي بالراجو",
   "Shrimp Scampi": "جمبري سكامبي",
   "Shrimp Ceviche": "سيفيتشي جمبري",
@@ -44,7 +61,37 @@ const RECIPE_TITLES: Record<string, string> = {
   "Lime Skewers & Shrimp Marinade": "تتبيلة جمبري بالليمون",
   "Simple & Lime Skewers & Shrimp Marinade": "تتبيلة جمبري بسيطة بالليمون",
   "Butter Chicken": "دجاج بالزبدة",
+  "Chicken Tikka Masala": "دجاج تيكا ماسالا",
+  "Palak Paneer": "بالاك بانير بالسبانخ",
+  "Hyderabadi Biryani": "برياني حيدر آبادي",
+  "Paella Valenciana": "باييلا فالنسيانا",
+  "Mole Poblano": "مولي بوبلانو",
   "Tandoori Chicken": "دجاج تندوري",
+  "Gai Pad Krapow": "دجاج بالريحان التايلندي",
+  "Pad Krapow Gai": "دجاج بالريحان التايلندي",
+  "Pad Krapow Goong": "جمبري بالريحان التايلندي",
+  "Cashew Chicken": "دجاج بالكاجو",
+  "Chicken Cashew": "دجاج بالكاجو",
+  "Chicken Cacciatore": "دجاج كاتشاتوري بصوص الطماطم",
+  "Italian Chicken Cacciatore": "دجاج كاتشاتوري بصوص الطماطم",
+  "Easy Chicken Cacciatore": "دجاج كاتشاتوري بصوص الطماطم",
+  "Chicken and Pasta Alfredo": "مكرونة ألفريدو بالدجاج",
+  "Chicken Alfredo Primavera": "مكرونة بالدجاج والخضروات الموسمية",
+  "Pasta Primavera": "مكرونة بالخضروات الموسمية",
+  "Baked Italian Chicken and Pasta": "طاجن مكرونة بالدجاج على الطريقة الإيطالية",
+  "Baked Spaghetti with Chicken": "سباجيتي مخبوزة بالدجاج",
+  "Basil Chicken and Pasta": "مكرونة بالدجاج والريحان",
+  "Italian Chicken": "دجاج بالطماطم والأعشاب على الطريقة الإيطالية",
+  "Chicken Italian-Style": "دجاج بالطماطم والأعشاب على الطريقة الإيطالية",
+  "Baked Italian Chicken": "دجاج مخبوز بالأعشاب على الطريقة الإيطالية",
+  "Baked Zesty Italian Chicken": "دجاج مخبوز بالليمون والأعشاب على الطريقة الإيطالية",
+  "Italian Sauteed Chicken With Italian Mushroom Rice": "دجاج مشوح مع أرز بالفطر على الطريقة الإيطالية",
+  "Italian Chicken Saute with Italian Mushroom Rice": "دجاج مشوح مع أرز بالفطر على الطريقة الإيطالية",
+  "Chicken And Pasta Neapolitan": "مكرونة نابوليتان بالدجاج",
+  "Minestrone": "شوربة مينستروني بالخضروات",
+  "Italian Country Chicken(6 To 8 Servings)": "دجاج ريفي بالطماطم والأعشاب على الطريقة الإيطالية",
+  "Chicken and Dumplings": "دجاج بصوص كريمي مع زلابية آسيوية",
+  "Creamy Chicken and Dumplings": "دجاج بصوص كريمي مع زلابية آسيوية",
   "Keema Matar": "كيما بالبازلاء",
   "Fish Curry": "كاري سمك",
   "Prawn Masala": "جمبري ماسالا",
@@ -143,6 +190,7 @@ const CUISINES: Record<string, string> = {
 };
 
 const INGREDIENTS: Record<string, string> = {
+  ...ARABIC_CULINARY_DICTIONARY.ingredients,
   "greek yogurt": "زبادي يوناني",
   "mixed berries": "توت مشكل",
   granola: "جرانولا",
@@ -157,6 +205,13 @@ const INGREDIENTS: Record<string, string> = {
   tomato: "طماطم",
   "olive oil": "زيت زيتون",
   "chicken breast": "صدر دجاج",
+  chicken: "دجاج",
+  "cooking cream": "كريمة طبخ",
+  "heavy cream": "كريمة طبخ",
+  cream: "كريمة طبخ",
+  "cream sauce": "صوص كريمي",
+  "creamy sauce": "صوص كريمي",
+  parmesan: "بارميزان",
   rice: "أرز",
   broccoli: "بروكلي",
   garlic: "ثوم",
@@ -183,6 +238,20 @@ const INGREDIENTS: Record<string, string> = {
   linguine: "لينجويني",
   "canned beans": "فول",
   chickpeas: "حمص",
+  chickpea: "حمص",
+  paneer: "جبنة بانير",
+  olives: "زيتون",
+  capers: "كبر",
+  anchovies: "أنشوجة",
+  guanciale: "لحم مقدد",
+  breadcrumbs: "بقسماط",
+  mustard: "خردل",
+  tahini: "طحينة",
+  pickles: "مخلل",
+  salad: "سلطة",
+  bulgur: "برغل",
+  "tomato paste": "معجون طماطم",
+  "pepper paste": "معجون فلفل",
   cucumber: "خيار",
   "turkey breast": "صدر ديك رومي",
   quinoa: "كينوا",
@@ -237,6 +306,7 @@ const INGREDIENTS: Record<string, string> = {
 };
 
 const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
+  pastina: "معكرونة صغيرة",
   bean: "فول",
   beans: "فول",
   "broad beans": "فول",
@@ -253,11 +323,54 @@ const ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES: Record<string, string> = {
   seafood: "مأكولات بحرية",
   "ground beef": "لحم مفروم",
   "ground meat": "لحم مفروم",
+  beef: "لحم",
   "minced meat": "لحم مفروم",
   "minced beef": "لحم مفروم",
   liver: "كبدة",
   "beef liver": "كبدة",
   "chicken liver": "كبدة دجاج",
+  chicken: "دجاج",
+  molokhia: "ملوخية",
+  "molokhia leaves": "ملوخية",
+  saffron: "زعفران",
+  rabbit: "أرنب",
+  "green beans": "فاصوليا خضراء",
+  herbs: "أعشاب",
+  herb: "عشب",
+  chocolate: "شوكولاتة",
+  chili: "فلفل حار",
+  spices: "بهارات",
+  spice: "بهارات",
+  yogurt: "زبادي",
+  mint: "نعناع",
+  "fried onion": "بصل محمر",
+  chickpea: "حمص",
+  paneer: "جبنة بانير",
+  olives: "زيتون",
+  capers: "كبر",
+  anchovies: "أنشوجة",
+  guanciale: "لحم مقدد",
+  breadcrumbs: "بقسماط",
+  mustard: "خردل",
+  tahini: "طحينة",
+  pickles: "مخلل",
+  salad: "سلطة",
+  bulgur: "برغل",
+  "tomato paste": "معجون طماطم",
+  "pepper paste": "معجون فلفل",
+  flour: "دقيق",
+  butter: "زبدة",
+  cheese: "جبنة",
+  fenugreek: "حلبة",
+  "garam masala": "جارام ماسالا",
+  ginger: "زنجبيل",
+  "cooking cream": "كريمة طبخ",
+  "heavy cream": "كريمة طبخ",
+  cream: "كريمة طبخ",
+  "cream sauce": "صوص كريمي",
+  "creamy sauce": "صوص كريمي",
+  parmesan: "بارميزان",
+  "parmesan cheese": "جبنة بارميزان",
   lime: "ليمون أخضر",
   limes: "ليمون أخضر",
   "lime juice": "عصير ليمون أخضر",
@@ -410,6 +523,10 @@ const STEP_TRANSLATIONS: Record<string, string> = {
 };
 
 const REVERSE_RECIPE_TITLES = reverseLookup(RECIPE_TITLES);
+const FOOD_DICTIONARY_TRANSLATIONS = buildFoodDictionaryLocalizationLookups();
+const NORMALIZED_RECIPE_TITLE_LOOKUP: Record<string, string> = Object.fromEntries(
+  Object.entries(RECIPE_TITLES).map(([title, localizedTitle]) => [normalizeTranslationKey(title), localizedTitle])
+);
 const REVERSE_CUISINES = reverseLookup(CUISINES);
 const REVERSE_INGREDIENTS = reverseLookup(INGREDIENTS);
 const REVERSE_STEP_TRANSLATIONS = reverseLookup(STEP_TRANSLATIONS);
@@ -421,12 +538,14 @@ const {
 
 const ENGLISH_TO_ARABIC_INGREDIENT_LOOKUP: Record<string, string> = {
   ...TAXONOMY_ENGLISH_TO_ARABIC,
+  ...FOOD_DICTIONARY_TRANSLATIONS.englishToArabic,
   ...INGREDIENTS,
   ...ENGLISH_TO_ARABIC_INGREDIENT_OVERRIDES
 };
 
 const ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP: Record<string, string> = {
   ...TAXONOMY_ARABIC_TO_ENGLISH,
+  ...FOOD_DICTIONARY_TRANSLATIONS.arabicToEnglish,
   ...REVERSE_INGREDIENTS,
   ...ARABIC_TO_ENGLISH_INGREDIENT_OVERRIDES
 };
@@ -468,7 +587,10 @@ export function ensureArabicRecipeLanguage(recipe: Recipe): Recipe {
 
   return {
     ...baseRecipe,
-    steps: buildArabicOnlySteps(localized.steps, baseRecipe)
+    // Do not transliterate an untranslated source instruction into fake Arabic.
+    // A complete Arabic rule-based translation is useful; otherwise preserve
+    // the original authored English step until a real translation is available.
+    steps: buildArabicOnlySteps(recipe.steps)
   };
 }
 
@@ -534,10 +656,37 @@ export function isArabicRecipeLanguage(language?: string) {
 }
 
 function translateRecipeTitle(value: string) {
-  const exact = RECIPE_TITLES[value];
+  const normalized = normalizeTranslationKey(value);
+  const exact =
+    RECIPE_TITLES[value] ??
+    NORMALIZED_RECIPE_TITLE_LOOKUP[normalized] ??
+    FOOD_DICTIONARY_TRANSLATIONS.englishToArabic[normalized];
   if (exact) return exact;
-  if (!/[A-Za-z]/.test(value)) return value;
-  return ensureArabicDisplayText(translateEnglishRecipeTitle(value));
+  if (!/[A-Za-z]/.test(value)) return normalizeArabicRecipeTitle(value);
+  // Recipe titles must be localized by meaning. Do not turn an unknown Latin
+  // dish name into Arabic-looking phonetics; ensureArabicTitleText will build
+  // a clean ingredient/cuisine title when no authored equivalent exists.
+  return translateEnglishRecipeTitle(value);
+}
+
+export function localizeRecipeTitleForArabic(value: string) {
+  return translateRecipeTitle(value).trim();
+}
+
+export function hasApprovedArabicRecipeTitle(value: string) {
+  const normalized = normalizeTranslationKey(value);
+  return Boolean(
+    RECIPE_TITLES[value] ??
+    NORMALIZED_RECIPE_TITLE_LOOKUP[normalized] ??
+    FOOD_DICTIONARY_TRANSLATIONS.englishToArabic[normalized]
+  );
+}
+
+function normalizeArabicRecipeTitle(value: string) {
+  return value
+    .replace(/(?:كاشياتوري|كاشاتوري|كاتشياتوري)/gu, "كاتشاتوري")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function ensureArabicTitleText(recipe: Pick<Recipe, "name" | "image_search_index" | "image_search_indices">, ingredients: string[], missingIngredients: string[]) {
@@ -820,7 +969,7 @@ function translateWeakArabicIngredientTitleToEnglish(normalized: string) {
 }
 
 function translateCuisine(value: string) {
-  return CUISINES[value] ?? value;
+  return CUISINES[value] ?? FOOD_DICTIONARY_TRANSLATIONS.englishToArabic[normalizeTranslationKey(value)] ?? value;
 }
 
 function ensureArabicCuisineText(value: string) {
@@ -833,7 +982,7 @@ function ensureArabicCuisineText(value: string) {
 }
 
 export function translateCuisineToEnglish(value: string) {
-  return REVERSE_CUISINES[value] ?? value;
+  return REVERSE_CUISINES[value] ?? FOOD_DICTIONARY_TRANSLATIONS.arabicToEnglish[normalizeTranslationKey(value)] ?? value;
 }
 
 function translateIngredient(value: string) {
@@ -848,7 +997,7 @@ function translateIngredient(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 
-  return translated || value;
+  return localizationService.normalizeIngredient(translated || value, "en");
 }
 
 function ensureArabicIngredientText(value: string) {
@@ -866,15 +1015,15 @@ function ensureArabicIngredientText(value: string) {
 }
 
 export function translateIngredientToArabic(value: string) {
-  return translateIngredient(value);
+  return localizationService.normalizeIngredient(translateIngredient(value), "ar");
 }
 
 export function translateIngredientToEnglish(value: string) {
   const trimmed = value.trim();
   const normalized = normalizeTranslationKey(trimmed);
   const exact = ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[trimmed] ?? ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP[normalized];
-  if (exact) return exact;
-  if (!/[\u0600-\u06FF]/.test(value)) return value;
+  if (exact) return localizationService.normalizeIngredient(exact, "en");
+  if (!/[\u0600-\u06FF]/.test(value)) return localizationService.normalizeIngredient(value, "en");
 
   const translated = replaceIngredientPhrases(trimmed, ARABIC_TO_ENGLISH_INGREDIENT_LOOKUP)
     .replace(/\s+/g, " ")
@@ -894,25 +1043,15 @@ function translateStep(value: string) {
   return translateEnglishCookingStep(value);
 }
 
-function buildArabicOnlySteps(steps: string[], recipe: Recipe) {
+function buildArabicOnlySteps(steps: string[]) {
   const translatedSteps = steps.map(translateStep).map((step) => step.trim()).filter(Boolean);
-  if (translatedSteps.length >= 7 && translatedSteps.every((step) => !hasLatinText(step))) {
+  if (translatedSteps.length > 0 && translatedSteps.every((step) => !hasLatinText(step))) {
     return translatedSteps;
   }
 
-  const primary = recipe.ingredients[0] ?? recipe.missing_ingredients[0] ?? "المكون الرئيسي";
-  const secondary = recipe.ingredients[1] ?? recipe.missing_ingredients[1] ?? "المكون الثاني";
-  const finishing = [...recipe.ingredients, ...recipe.missing_ingredients].slice(2, 5).join("، ") || "باقي المكونات";
-
-  return [
-    `حضّر ${recipe.name}: جهز ${primary} و${secondary} وضع ${finishing} بجانبك قبل بدء الطبخ.`,
-    "سخّن المقلاة على نار متوسطة لمدة دقيقتين، ثم أضف ملعقة صغيرة من الزيت أو الدهن المناسب.",
-    `أضف ${primary} أولا واطهه لمدة 4 إلى 6 دقائق مع التقليب حتى يبدأ في النضج.`,
-    `أضف ${secondary} مع ملعقتين كبيرتين من الماء أو سائل الطبخ، واتركه 3 إلى 5 دقائق حتى تتجانس النكهات.`,
-    `أضف ${finishing} على دفعات صغيرة واطهه 2 إلى 4 دقائق حتى يبقى القوام متماسكا.`,
-    "تذوق واضبط الملح والفلفل أو التوابل حسب الحاجة، ثم اترك الخليط دقيقة أخيرة على النار.",
-    "ارفع الوجبة عن النار لمدة دقيقتين، ثم قدمها ساخنة في طبق مناسب."
-  ];
+  // The source remains readable and accurate. Never replace it with a
+  // transliteration or a generic cooking paragraph.
+  return steps.map((step) => step.trim()).filter(Boolean);
 }
 
 function translateStepToEnglish(value: string) {
@@ -920,9 +1059,23 @@ function translateStepToEnglish(value: string) {
 }
 
 function translatePreferenceHit(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "catalog-dish-match") return "وصفة مناسبة";
+  if (normalized === "catalog-ingredient-match") return "تطابق مع المكونات";
+  if (normalized.startsWith("anchor-match")) return "يعتمد على مكوناتك";
+  if (normalized.startsWith("support-match")) return "اقتراحات مكملة";
+  if (normalized.includes("sparse pantry")) return "مناسب للمكونات المحدودة";
+  if (normalized.includes("low-carb") || normalized.includes("blood-sugar")) return "مناسب لهدفك الصحي";
+  if (normalized.includes("gluten-free")) return "مراعي للحساسية";
+  if (normalized.includes("dairy")) return "مراعي لتفضيلاتك";
+  if (normalized.includes("lower-sodium")) return "أخف في الملح";
+  if (normalized.includes("entered protein")) return "يركز على البروتين المتوفر";
+  if (normalized === "calorie-aligned") return "مناسب لهدف السعرات";
+
   return value
     .replace("cuisine-aligned", "متوافق مع المطبخ المفضل")
     .replace("calorie-target", "مناسب لهدف السعرات")
+    .replace("calorie-aligned", "مناسب لهدف السعرات")
     .replace("pantry", "مناسب للمكونات المتوفرة");
 }
 
@@ -1031,7 +1184,7 @@ function translateShoppingItem(value: string) {
 }
 
 function translateUnitText(value: string) {
-  return value
+  return replaceIngredientPhrases(value, FOOD_DICTIONARY_TRANSLATIONS.englishToArabic)
     .replace(/\bcup\b/g, "كوب")
     .replace(/\bcups\b/g, "أكواب")
     .replace(/\bwhole\b/g, "حبة")
@@ -1108,6 +1261,13 @@ function translateEnglishCookingStep(value: string) {
   let translated = ` ${value.trim()} `;
 
   const phraseReplacements: Array<[RegExp, string]> = [
+    [/\bprepare the main ingredients for\b/gi, "جهز المكونات الرئيسية ل"],
+    [/\badd supporting flavors such as\b/gi, "أضف نكهات داعمة مثل"],
+    [/\badjusting to taste\b/gi, "واضبط حسب الرغبة"],
+    [/\bcook until the ingredients are tender and the flavors match the traditional\b/gi, "اطه حتى تطرى المكونات وتظهر نكهة"],
+    [/\bserve warm with a balanced portion size\b/gi, "قدمه دافئا بحصة متوازنة"],
+    [/\bseason the dish to taste\b/gi, "تبل الطبق حسب الرغبة"],
+    [/\bprofile\b/gi, "التقليدية"],
     [/\bstuffed bell peppers\b/gi, " محشي فلفل رومي "],
     [/\bmahshi bell peppers\b/gi, " محشي فلفل رومي "],
     [/\bmahshi bell pepper\b/gi, " محشي فلفل رومي "],
@@ -1181,6 +1341,7 @@ function translateEnglishCookingStep(value: string) {
     translated = translated.replace(pattern, replacement);
   }
 
+  translated = replaceRecipeTitlesInSentence(translated);
   translated = replaceIngredientsInSentence(translated);
   translated = translateUnitText(translated);
   translated = translated
@@ -1201,7 +1362,11 @@ function translateEnglishCookingStep(value: string) {
     .replace(/\s+([.,])/g, "$1")
     .trim();
 
-  return translated || value;
+  return localizationService.normalizeCookingStep(translated || value, "ar");
+}
+
+function replaceRecipeTitlesInSentence(value: string) {
+  return replaceIngredientPhrases(value, RECIPE_TITLES);
 }
 
 function replaceIngredientsInSentence(value: string) {
@@ -1290,6 +1455,7 @@ function translateEnglishRecipeTitle(value: string) {
   let translated = ` ${value.trim()} `;
 
   const phraseReplacements: Array<[RegExp, string]> = [
+    [/\bbrodo di pollo\b/gi, " شوربة الدجاج الإيطالية "],
     [/\bmacarona bechamel\b/gi, " مكرونة بشاميل "],
     [/\bmacaroni bechamel\b/gi, " مكرونة بشاميل "],
     [/\bbechamel pasta\b/gi, " مكرونة بشاميل "],
@@ -1306,6 +1472,23 @@ function translateEnglishRecipeTitle(value: string) {
     [/\bchicken molokhia\b/gi, " ملوخية بالدجاج "],
     [/\bchicken fattah\b/gi, " فتة دجاج "],
     [/\bchicken negresco\b/gi, " نجرسكو دجاج "],
+    [/\bcreamy tuscan chicken\b/gi, " دجاج توسكاني بصوص كريمي "],
+    [/\btuscan creamy chicken\b/gi, " دجاج توسكاني بصوص كريمي "],
+    [/\btuscan chicken\b/gi, " دجاج على الطريقة التوسكانية "],
+    [/\bcreamy spinach chicken\b/gi, " دجاج بالسبانخ وصوص كريمي "],
+    [/\bchicken florentine\b/gi, " دجاج بالسبانخ وصوص كريمي "],
+    [/\bcreamy chicken soup\b/gi, " شوربة دجاج كريمية "],
+    [/\bcreamy chicken\b/gi, " دجاج بصوص كريمي "],
+    [/\bchicken alfredo\b/gi, " دجاج ألفريدو "],
+    [/\bchicken parmesan\b/gi, " دجاج بصلصة الطماطم والبارميزان "],
+    [/\bparmesan chicken\b/gi, " دجاج بصلصة الطماطم والبارميزان "],
+    [/\bchicken piccata\b/gi, " دجاج بيكاتا "],
+    [/\bchicken cacciatore\b/gi, " دجاج كاتشاتوري "],
+    [/\bgai pad krapow\b/gi, " دجاج بالريحان التايلندي "],
+    [/\bpad krapow gai\b/gi, " دجاج بالريحان التايلندي "],
+    [/\bcashew chicken\b/gi, " دجاج بالكاجو "],
+    [/\bchicken and dumplings\b/gi, " دجاج بصوص كريمي مع زلابية آسيوية "],
+    [/\bcreamy chicken and dumplings\b/gi, " دجاج بصوص كريمي مع زلابية آسيوية "],
     [/\bsayadeya\b/gi, " صيادية سمك "],
     [/\bsamak singari\b/gi, " سمك سنجاري "],
     [/\begyptian fish tagine\b/gi, " طاجن سمك مصري "],
@@ -1371,6 +1554,16 @@ function translateEnglishRecipeTitle(value: string) {
     [/\bplate\b/gi, " طبق "],
     [/\btoast\b/gi, " توست "],
     [/\bpasta\b/gi, " مكرونة "],
+    [/\bheavy cream\b/gi, " كريمة طبخ "],
+    [/\bcooking cream\b/gi, " كريمة طبخ "],
+    [/\bcream sauce\b/gi, " صوص كريمي "],
+    [/\bcreamy sauce\b/gi, " صوص كريمي "],
+    [/\bcreamy\b/gi, " بصوص كريمي "],
+    [/\bcream\b/gi, " كريمة طبخ "],
+    [/\bchicken\b/gi, " دجاج "],
+    [/\btuscan\b/gi, " توسكاني "],
+    [/\bparmesan\b/gi, " بارميزان "],
+    [/\bflorentine\b/gi, " بالسبانخ وصوص كريمي "],
     [/\bcurry\b/gi, " كاري "],
     [/\bpilaf\b/gi, " بيلاف "],
     [/\btray bake\b/gi, " صينية مخبوزة "],

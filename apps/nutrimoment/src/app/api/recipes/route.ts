@@ -18,6 +18,7 @@ import {
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { logger } from "@/lib/logger";
 import { enforceAuthenticCuisineRecipeSet } from "@/lib/cuisineAuthenticityResolver";
+import { PromptBuilder } from "@/ai/PromptBuilder";
 import type { Recipe } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -122,7 +123,8 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return Response.json({ error: "Invalid request" }, { status: 400 });
     }
-    const { prompt, image } = parsed.data;
+    const { image } = parsed.data;
+    const prompt = PromptBuilder.legacyRecipeRequest(parsed.data.prompt);
 
     if (!accessCheck.allowed) {
       return Response.json({

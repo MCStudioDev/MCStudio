@@ -556,6 +556,10 @@
     color: #123028 !important;
   }
 
+  .dashboard-shell[data-dashboard-theme="mintWhite"] .theme-recipe-source-photo {
+    color: #276b5b !important;
+  }
+
   .dashboard-shell[data-dashboard-theme="mintWhite"] .theme-recipe-match-pill {
     background: rgba(226, 250, 244, 0.94) !important;
     border-color: rgba(90, 177, 154, 0.24) !important;

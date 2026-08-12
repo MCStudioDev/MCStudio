@@ -22,6 +22,7 @@ export const arabicTranslations: Record<string, string> = {
   scanner: "الماسح",
   pantry: "المخزن",
   health: "الصحة",
+  comingSoon: "قريباً",
   mealplan: "خطة الوجبات",
   history: "السجل",
   settings: "الإعدادات",

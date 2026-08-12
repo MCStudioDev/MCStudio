@@ -937,9 +937,9 @@ function RecipeProvenanceBadge({
         : imageLabel;
 
   return (
-    <div className="absolute left-4 top-4 z-20 max-w-[11rem] rounded-md border border-white/15 bg-[#061b17]/85 px-2.5 py-2 text-[9px] font-semibold leading-tight text-white/88 shadow-lg backdrop-blur-md">
+    <div className="theme-recipe-source-pill absolute left-4 top-4 z-20 max-w-[11rem] rounded-md border border-white/15 bg-[#061b17]/85 px-2.5 py-2 text-[9px] font-semibold leading-tight text-white/88 shadow-lg backdrop-blur-md">
       <p className="truncate">{rtl ? getArabicRecipeSourceLabel(recipeSource) : recipeLabel}</p>
-      <p className="mt-1 truncate text-cyan-100/90">{rtl ? getArabicImageSourceLabel(imageSource) : displayImageLabel}</p>
+      <p className="theme-recipe-source-photo mt-1 truncate text-cyan-100/90">{rtl ? getArabicImageSourceLabel(imageSource) : displayImageLabel}</p>
       {hasExternalRecipeSource ? <span className="sr-only">{recipeSourceUrl}</span> : null}
     </div>
   );

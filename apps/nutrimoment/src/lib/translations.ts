@@ -17,6 +17,7 @@ export const translations = {
     scanner: "Scanner",
     pantry: "Pantry",
     health: "Health",
+    comingSoon: "Coming soon",
     mealplan: "Meal Plan",
     history: "History",
     settings: "Settings",

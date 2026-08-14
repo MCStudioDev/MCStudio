@@ -51,6 +51,31 @@ describe("recipe quality gate", () => {
     ]));
   });
 
+  it("rejects meat-template cooking semantics after plant substitutions", () => {
+    const gate = new RecipeQualityGate();
+    const bolognese = gate.validate({
+      ...validRecipe,
+      name: "Pasta Bolognese",
+      ingredients: ["1 lb ground chickpeas", "1 lb pasta", "2 cups tomatoes"],
+      steps: [
+        "Brown the ground chickpeas, breaking them up with a spoon, then drain off excess fat.",
+        "Simmer the chickpeas with tomatoes for 45 minutes and serve over pasta."
+      ]
+    }, "English");
+    const carbonara = gate.validate({
+      ...validRecipe,
+      name: "Spaghetti Carbonara",
+      ingredients: ["1 lb spaghetti", "2 tbsp ground flaxseed mixed with 5 tbsp water", "4 oz smoked mushrooms"],
+      steps: [
+        "Whisk the ground flaxseed slurry and temper it with hot pasta water.",
+        "Toss it over hot spaghetti so the slurry cooks into a creamy carbonara sauce."
+      ]
+    }, "English");
+
+    expect(bolognese.reasons).toContain("plant_substitution_template_artifact");
+    expect(carbonara.reasons).toContain("plant_substitution_template_artifact");
+  });
+
   it("exposes the same parsed ingredient identity used by validation", () => {
     expect(getRecipeIngredientValidationIdentity("1 medium onion, chopped")).toBe("onion chopped");
     expect(getRecipeIngredientValidationIdentity("2 cloves garlic, minced")).toBe("garlic minced");

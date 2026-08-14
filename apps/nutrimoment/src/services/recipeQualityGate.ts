@@ -140,7 +140,10 @@ function validateCookabilityContract(recipe: Recipe) {
 
   const hasPlantGroundProtein = /\b(?:ground|minced)\s+(?:chickpeas?|lentils?|beans?|tofu|tempeh)\b/.test(listedText);
   const hasAnimalProtein = /\b(?:beef|chicken|lamb|pork|turkey|fish|shrimp|meat)\b/.test(listedText);
-  if (hasPlantGroundProtein && !hasAnimalProtein && /\b(?:drain off pan drippings?|stirring to crumble)\b/.test(stepsText)) {
+  const hasMeatTemplateTechnique = /\b(?:drain off (?:pan drippings?|excess fat)|rendered fat|stirring to crumble)\b/.test(stepsText);
+  const hasFlaxCarbonaraTemplate = /\bcarbonara\b/.test(recipeIdentity) &&
+    /\bground flaxseed\b/.test(`${listedText} ${stepsText}`);
+  if ((hasPlantGroundProtein && !hasAnimalProtein && hasMeatTemplateTechnique) || hasFlaxCarbonaraTemplate) {
     reasons.push("plant_substitution_template_artifact");
   }
 

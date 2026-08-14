@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFreeAiCreditsExhaustedNotice,
   FREE_LIFETIME_AI_CREDITS,
   FREE_LIFETIME_WEEKLY_PLANS,
   hasAiFeatureAccess,
@@ -9,6 +10,13 @@ import {
 } from "../services/authService";
 
 describe("auth service access tiers", () => {
+  it("builds exhausted-credit copy from the configured ten-credit allowance", () => {
+    expect(FREE_LIFETIME_AI_CREDITS).toBe(10);
+    expect(buildFreeAiCreditsExhaustedNotice("Use shared recipes or upgrade.")).toBe(
+      "Your 10 free AI credits are used. Use shared recipes or upgrade."
+    );
+  });
+
   it("keeps explicit free entitlements free even when status is active", () => {
     expect(resolveEffectiveAccessTier({ tier: "free", status: "active" }, undefined)).toBe("free");
     expect(resolveEffectiveAccessTier({ tier: "free", status: "trialing" }, undefined)).toBe("free");

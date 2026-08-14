@@ -26,6 +26,31 @@ const validRecipe: Recipe = {
 };
 
 describe("recipe quality gate", () => {
+  it("rejects a lasagna with missing assembly, baking, and ingredient consistency", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      name: "Lasagna",
+      ingredients: ["1 lb ground chickpeas", "1 can tomatoes"],
+      missing_ingredients: ["8 oz lasagna noodles", "4 slices dairy-free cheese"],
+      steps: [
+        "Brown ground chickpeas in oil, stirring to crumble.",
+        "Drain off pan dripping.",
+        "Stir tomato paste and seasonings into the chickpeas.",
+        "Bring to a boil.",
+        "Reduce heat and simmer for 40 minutes."
+      ]
+    }, "English");
+
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      "step_ingredient_not_listed:tomato paste",
+      "required_ingredient_not_used:lasagna noodles",
+      "required_ingredient_not_used:dairy-free cheese",
+      "missing_dish_stage:lasagna_assembly",
+      "missing_dish_stage:lasagna_baking",
+      "plant_substitution_template_artifact"
+    ]));
+  });
+
   it("exposes the same parsed ingredient identity used by validation", () => {
     expect(getRecipeIngredientValidationIdentity("1 medium onion, chopped")).toBe("onion chopped");
     expect(getRecipeIngredientValidationIdentity("2 cloves garlic, minced")).toBe("garlic minced");

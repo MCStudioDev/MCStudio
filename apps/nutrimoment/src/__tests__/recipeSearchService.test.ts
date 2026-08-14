@@ -135,7 +135,7 @@ describe("recipe search service", () => {
     }
   });
 
-  it("returns trusted coverage where it exists without manufacturing unsupported coverage", async () => {
+  it("returns trusted coverage and falls back to compatible shared-pool recipes", async () => {
     const { searchCatalogRecipes } = await import("../services/recipeSearchService");
 
     for (const ingredient of ["chicken", "beef"]) {
@@ -153,15 +153,23 @@ describe("recipe search service", () => {
       expect(result.recipes.some((recipe) => recipe.matched_required_count > 0), ingredient).toBe(true);
     }
 
-    const unsupported = await searchCatalogRecipes({
+    const sharedPoolFallback = await searchCatalogRecipes({
       ingredients: ["rice"],
       preferredCuisine: "Any",
+      maxMissingIngredients: 3,
       maxResults: 5,
       recipeLanguage: "English",
       uid: "test-user"
     });
-    expect(unsupported.recipes).toEqual([]);
-    expect(unsupported.candidateRecipes.every((recipe) =>
+    const fallbackText = sharedPoolFallback.recipes
+      .flatMap((recipe) => [recipe.name, recipe.dish_identity ?? "", ...recipe.ingredients])
+      .join(" ")
+      .toLowerCase();
+
+    expect(sharedPoolFallback.recipes.length).toBeGreaterThan(0);
+    expect(sharedPoolFallback.recipes.some((recipe) => recipe.missing_ingredients.length > 0)).toBe(true);
+    expect(fallbackText).not.toMatch(/\b(chicken|beef|lamb|pork|fish|salmon|tuna|shrimp|prawn)\b/);
+    expect(sharedPoolFallback.candidateRecipes.every((recipe) =>
       recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified"
     )).toBe(true);
   });

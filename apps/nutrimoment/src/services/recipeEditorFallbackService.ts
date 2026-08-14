@@ -17,12 +17,16 @@ const EDITED_RECIPE_BLOCKING_REASONS = new Set([
   "missing_instructions",
   "missing_required_fields",
   "missing_title_or_cuisine",
+  "plant_substitution_template_artifact",
   "unrealistic_cooking_time"
 ]);
 
 const EDITED_RECIPE_BLOCKING_PREFIXES = [
   "ingredient_not_used:",
-  "protein_missing_quantity:"
+  "missing_dish_stage:",
+  "protein_missing_quantity:",
+  "required_ingredient_not_used:",
+  "step_ingredient_not_listed:"
 ];
 
 const SOURCE_FALLBACK_BLOCKING_REASONS = new Set([
@@ -38,8 +42,15 @@ const SOURCE_FALLBACK_BLOCKING_REASONS = new Set([
   "missing_ingredients",
   "missing_instructions",
   "missing_title_or_cuisine",
+  "plant_substitution_template_artifact",
   "unrealistic_cooking_time"
 ]);
+
+const SOURCE_FALLBACK_BLOCKING_PREFIXES = [
+  "missing_dish_stage:",
+  "required_ingredient_not_used:",
+  "step_ingredient_not_listed:"
+];
 
 const qualityGate = new RecipeQualityGate();
 
@@ -63,7 +74,10 @@ export function buildValidatedSourceFallback(
 
   const fallback = cloneRecipe(selected);
   const reasons = qualityGate.validate(fallback, recipeLanguage).reasons;
-  if (reasons.some((reason) => SOURCE_FALLBACK_BLOCKING_REASONS.has(reason))) {
+  if (reasons.some((reason) =>
+    SOURCE_FALLBACK_BLOCKING_REASONS.has(reason) ||
+    SOURCE_FALLBACK_BLOCKING_PREFIXES.some((prefix) => reason.startsWith(prefix))
+  )) {
     return null;
   }
 

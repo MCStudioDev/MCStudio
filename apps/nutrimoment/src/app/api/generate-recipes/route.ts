@@ -12,6 +12,7 @@ import {
 import {
   isFirebaseTransientError,
   accessPayload,
+  buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
   consumeFreeAiCredit,
 } from "@/services/authService";
@@ -384,6 +385,7 @@ export async function POST(request: Request) {
   try {
     accessCheck = await canUseApiFeature(request, "recipe_generation");
     const requestAccess = accessCheck.access;
+    const hasAiGenerationAccess = accessCheck.allowed;
     // Free users with remaining trial credits can receive freshly generated
     // recipes. Curated matches are the first successful path, not an error.
     const isFreeTier = !requestAccess.isPremium && !requestAccess.isAdmin;
@@ -1344,7 +1346,9 @@ export async function POST(request: Request) {
           // findRecipeReferencesForGeneration. Avoid transferring the same
           // source documents again during catalog fallback.
           includeFirestoreReferences: false,
-          allowRemoteCaches: false
+          allowRemoteCaches: !hasAiGenerationAccess,
+          forceSharedCacheRead: !hasAiGenerationAccess,
+          maxMissingIngredients: parsed.data.maxMissingIngredients
         });
       }
       return sharedRecipeSearchPromise;
@@ -1777,6 +1781,11 @@ export async function POST(request: Request) {
           result: JSON.stringify(responseReadySourceRecipes),
           servedFrom: "shared_pool",
           generationStatus: RecipeGenerationStatus.PARTIAL_RESULTS,
+          message: `Showing ${responseReadySourceRecipes.length} of ${recipeCount} shared-pool recipes. ${buildFreeAiCreditsExhaustedNotice("Shared recipes remain available.")}`,
+          requestedCount: recipeCount,
+          returnedCount: responseReadySourceRecipes.length,
+          aiFillAttempted: false,
+          aiFillUnavailableReason: accessCheck.reason,
           canLoadMore: false,
           access: accessPayload(requestAccess)
         });
@@ -1799,6 +1808,10 @@ export async function POST(request: Request) {
         result: "[]",
         servedFrom: "shared_pool",
         generationStatus: RecipeGenerationStatus.NO_RESULTS,
+        requestedCount: recipeCount,
+        returnedCount: 0,
+        aiFillAttempted: false,
+        aiFillUnavailableReason: accessCheck.reason,
         canLoadMore: false,
         access: accessPayload(requestAccess)
       });

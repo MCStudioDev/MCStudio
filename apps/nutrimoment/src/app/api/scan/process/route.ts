@@ -3,6 +3,7 @@ import { getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/open
 import {
   accessErrorResponse,
   accessPayload,
+  buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
   consumeFreeAiCredit,
   isFirebaseTransientError
@@ -109,7 +110,7 @@ export async function POST(request: Request) {
 
 function buildScanProcessFallbackNotice(language?: string) {
   if (!isArabicRecipeLanguage(language ?? "English")) {
-    return "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.";
+    return buildFreeAiCreditsExhaustedNotice("Add ingredients manually or upgrade to premium for image scans.");
   }
 
   return "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. أضف المكونات يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور.";

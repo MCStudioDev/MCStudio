@@ -74,6 +74,8 @@ export interface CatalogRecipeSearchInput {
   uid?: string;
   includeFirestoreReferences?: boolean;
   allowRemoteCaches?: boolean;
+  forceSharedCacheRead?: boolean;
+  maxMissingIngredients?: number;
 }
 
 export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
@@ -112,8 +114,10 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   const { seededRecipes, cuisineCatalogRecipes, realSourceArtifactRecipes, quarantinedRecipes } = getStaticLocalRecipeSources();
   const localSourceCount = seededRecipes.length + cuisineCatalogRecipes.length + realSourceArtifactRecipes.length;
   const warmSharedRecipeCache = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
+  const forceSharedCacheRead = input.forceSharedCacheRead === true;
   const readRemoteRecipeCaches = shouldReadRemoteRecipeCaches({
     allowRemoteCaches: input.allowRemoteCaches !== false,
+    forceSharedCacheRead,
     localSourceCount,
     requestedRecipeCount: limit
   });
@@ -122,7 +126,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
       ? Promise.resolve([])
       : listFirestoreReferenceCatalogRecipes(normalized),
     readRemoteRecipeCaches ? listUserCachedRecipes(input.uid) : Promise.resolve([]),
-    warmSharedRecipeCache.length || !readRemoteRecipeCaches
+    (warmSharedRecipeCache.length && !forceSharedCacheRead) || !readRemoteRecipeCaches
       ? Promise.resolve([])
       : listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients)
   ]);
@@ -130,8 +134,9 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     targetedRecipeCount: ingredientSharedCachedRecipes.length,
     warmRecipeCount: warmSharedRecipeCache.length
   });
-  const sharedCachedRecipes =
-    sharedReadStrategy === "warm"
+  const sharedCachedRecipes = forceSharedCacheRead
+    ? dedupeCatalogRecipes([...ingredientSharedCachedRecipes, ...warmSharedRecipeCache])
+    : sharedReadStrategy === "warm"
       ? warmSharedRecipeCache
       : sharedReadStrategy === "targeted"
         ? ingredientSharedCachedRecipes
@@ -185,12 +190,20 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     recipeMap,
     requestedCount: limit
   });
-  const primaryCompatibleRanked = compatibilitySelection.compatible;
+  const primaryCompatibleRanked = compatibilitySelection.primaryCompatible;
+  const evidenceCompatibleRanked = compatibilitySelection.compatible;
   const ingredientMatchedRanked = compatibilitySelection.ingredientMatched;
   const compatibilityCompletedAt = Date.now();
   // Ingredient and cuisine matching determine order. They must never turn a
   // usable source pool into an empty result set.
-  const ingredientPrioritized = prioritizeIngredientMatches(primaryCompatibleRanked, ingredientMatchedRanked);
+  const missingIngredientLimit = Number.isFinite(input.maxMissingIngredients)
+    ? Math.max(0, Number(input.maxMissingIngredients))
+    : Number.POSITIVE_INFINITY;
+  const safeSharedPoolRanked = mergeDistinctRankedResults(
+    evidenceCompatibleRanked,
+    primaryCompatibleRanked
+  ).filter((result) => result.missingRequired.length + result.missingOptional.length <= missingIngredientLimit);
+  const ingredientPrioritized = prioritizeIngredientMatches(safeSharedPoolRanked, ingredientMatchedRanked);
   const rankedResults = cuisineSearchOrder.length
     ? ingredientPrioritized
     : prioritizeRankedResultsForSpecificCuisine(
@@ -250,6 +263,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     firestoreReferenceRecipeCount: firestoreReferenceRecipes.length,
     matchingRecipeCount: ingredientMatchedRanked.length,
     primaryCompatibleRecipeCount: primaryCompatibleRanked.length,
+    evidenceCompatibleRecipeCount: evidenceCompatibleRanked.length,
     compatibilityEvaluatedCount: compatibilitySelection.evaluatedCount,
     returnedRecipeCount: recipes.length,
     timingsMs: {
@@ -328,6 +342,7 @@ function selectCompatibleRankedCandidates(input: {
   requestedCount: number;
 }) {
   const compatible: RankedRecipeResult[] = [];
+  const primaryCompatible: RankedRecipeResult[] = [];
   const ingredientMatched: RankedRecipeResult[] = [];
   const minimumEvaluated = Math.min(input.ranked.length, Math.max(300, input.requestedCount * 12));
   const desiredCompatible = Math.max(60, input.requestedCount * 4);
@@ -339,8 +354,9 @@ function selectCompatibleRankedCandidates(input: {
     const recipe = input.recipeMap.get(result.recipeId);
     if (recipe) {
       const primary = input.evaluator.evaluatePrimary(recipe);
-      if (primary.compatible && input.evaluator.evaluateEvidence(recipe).compatible) {
-        compatible.push(result);
+      if (primary.compatible) {
+        primaryCompatible.push(result);
+        if (input.evaluator.evaluateEvidence(recipe).compatible) compatible.push(result);
         if (
           result.matchedRequiredCount + result.matchedOptionalCount > 0 &&
           recipeHasRequestedIngredientSignal(recipe, input.normalized)
@@ -359,7 +375,7 @@ function selectCompatibleRankedCandidates(input: {
     }
   }
 
-  return { compatible, evaluatedCount, ingredientMatched };
+  return { compatible, evaluatedCount, ingredientMatched, primaryCompatible };
 }
 
 export function selectSharedRecipeReadStrategy(input: {
@@ -373,10 +389,22 @@ export function selectSharedRecipeReadStrategy(input: {
 
 export function shouldReadRemoteRecipeCaches(input: {
   allowRemoteCaches: boolean;
+  forceSharedCacheRead?: boolean;
   localSourceCount: number;
   requestedRecipeCount: number;
 }) {
-  return input.allowRemoteCaches && input.localSourceCount < input.requestedRecipeCount;
+  return input.allowRemoteCaches && (
+    input.forceSharedCacheRead === true || input.localSourceCount < input.requestedRecipeCount
+  );
+}
+
+function mergeDistinctRankedResults(...groups: RankedRecipeResult[][]) {
+  const seen = new Set<string>();
+  return groups.flat().filter((result) => {
+    if (seen.has(result.recipeId)) return false;
+    seen.add(result.recipeId);
+    return true;
+  });
 }
 
 const BROAD_RELEVANCE_TERMS = new Set([

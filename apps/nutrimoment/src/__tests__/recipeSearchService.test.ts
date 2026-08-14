@@ -7,7 +7,50 @@ import { RecipeQualityGate } from "../services/recipeQualityGate";
 vi.mock("../services/userRecipeCacheService", () => ({
   getWarmSharedRecipeCacheSnapshot: () => [],
   listSharedCachedRecipes: () => Promise.resolve([]),
-  listSharedCachedRecipesForIngredients: () => Promise.resolve([]),
+  listSharedCachedRecipesForIngredients: () => Promise.resolve([{
+    id: "shared-vegan-rice-bowl",
+    title: "Chickpea Rice Bowl",
+    slug: "chickpea-rice-bowl",
+    description: "A complete plant-based rice bowl.",
+    ingredients: [
+      { name: "rice", canonical: "rice", quantity: 1, unit: "cup", required: true },
+      { name: "chickpeas", canonical: "chickpeas", quantity: 1, unit: "cup", required: true },
+      { name: "tomato", canonical: "tomato", quantity: 1, unit: "cup", required: false }
+    ],
+    ingredientCanonicals: ["rice", "chickpeas", "tomato"],
+    requiredCanonicals: ["rice", "chickpeas"],
+    optionalCanonicals: ["tomato"],
+    dietTags: ["vegan", "vegetarian", "dairy-free"],
+    allergenTags: [],
+    mealType: "dinner",
+    cuisine: "Mediterranean",
+    prepMinutes: 10,
+    cookMinutes: 25,
+    totalMinutes: 35,
+    difficulty: "easy",
+    calories: 480,
+    protein: 16,
+    carbs: 78,
+    fat: 10,
+    calorieBand: "301_500",
+    servings: 2,
+    steps: [
+      "Rinse the rice under cool water until the water runs clear, then drain it thoroughly and place it in a medium saucepan with two cups of water.",
+      "Bring the saucepan to a boil over high heat, reduce to low heat, cover, and simmer the rice for 18 minutes until the grains are tender.",
+      "Dice the tomato while the rice cooks, then drain and rinse the chickpeas so every component is ready before assembly.",
+      "Heat the chickpeas and diced tomato in a skillet over medium heat for 5 minutes, stirring and seasoning until the tomato softens.",
+      "Fluff the cooked rice with a fork, divide it between two bowls, and spoon the warm chickpea and tomato mixture over the top."
+    ],
+    image: { storagePath: "recipes/shared-vegan-rice-bowl.jpg" },
+    source: { provider: "NutriMoment shared pool", url: "https://example.com/chickpea-rice-bowl" },
+    searchTokens: ["rice", "chickpeas", "vegan rice bowl"],
+    popularityScore: 80,
+    qualityScore: 92,
+    qualityStatus: "verified",
+    isActive: true,
+    createdAt: 1,
+    updatedAt: 1
+  }]),
   listUserCachedRecipes: () => Promise.resolve([]),
   primeFullSharedRecipeCache: () => undefined
 }));
@@ -159,7 +202,8 @@ describe("recipe search service", () => {
       maxMissingIngredients: 3,
       maxResults: 5,
       recipeLanguage: "English",
-      uid: "test-user"
+      uid: "test-user",
+      forceSharedCacheRead: true
     });
     const fallbackText = sharedPoolFallback.recipes
       .flatMap((recipe) => [recipe.name, recipe.dish_identity ?? "", ...recipe.ingredients])

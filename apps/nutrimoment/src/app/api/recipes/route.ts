@@ -11,6 +11,7 @@ import {
 import {
   accessErrorResponse,
   accessPayload,
+  buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
   consumeFreeAiCredit,
   isFirebaseTransientError
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
       return Response.json({
         result: "[]",
         servedFrom: "shared_pool",
-        fallbackNotice: "Your 5 free AI credits are used. Use the shared recipe pool or upgrade to premium.",
+        fallbackNotice: buildFreeAiCreditsExhaustedNotice("Use the shared recipe pool or upgrade to premium."),
         access: accessPayload(accessCheck.access)
       });
     }

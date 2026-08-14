@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import {
   accessErrorResponse,
   accessPayload,
+  buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
   consumeFreeAiCredit
 } from "@/services/authService";
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
     if (!accessCheck.allowed) {
       return Response.json({
         ingredients: [],
-        fallbackNotice: "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium.",
+        fallbackNotice: buildFreeAiCreditsExhaustedNotice("Add ingredients manually or upgrade to premium."),
         access: accessPayload(accessCheck.access)
       });
     }

@@ -96,6 +96,7 @@ export class RecipeQualityGate {
       ...validateRecipeShape(recipe),
       ...validateTitle(recipe),
       ...validateRecipeIdentityContent(recipe),
+      ...validateCookabilityContract(recipe),
       ...this.recipeValidator.validate(recipe).reasons,
       ...this.ingredientValidator.validate(recipe),
       ...this.languageValidator.validate(recipe, recipeLanguage),
@@ -103,6 +104,47 @@ export class RecipeQualityGate {
     ];
     return { valid: reasons.length === 0, reasons: Array.from(new Set(reasons)) };
   }
+}
+
+function validateCookabilityContract(recipe: Recipe) {
+  const reasons: string[] = [];
+  const listedIngredients = [...readRecipeIngredients(recipe.ingredients), ...readRecipeIngredients(recipe.missing_ingredients)];
+  const listedText = normalizeText(listedIngredients.map((ingredient) => ingredient.label).join(" "));
+  const stepsText = normalizeText(recipe.steps.join(" "));
+  const recipeIdentity = normalizeText([recipe.name, recipe.dish_identity, recipe.dish_intent?.dish_name].filter(Boolean).join(" "));
+
+  if (/\btomato paste\b/.test(stepsText) && !/\btomato paste\b/.test(listedText)) {
+    reasons.push("step_ingredient_not_listed:tomato paste");
+  }
+
+  if (/\blasagna\b/.test(recipeIdentity)) {
+    const requiredStructuralIngredients = listedIngredients
+      .map((ingredient) => ({
+        identity: ingredient.label.toLocaleLowerCase().trim(),
+        normalized: normalizeText(ingredient.label)
+      }))
+      .filter((ingredient) => /\b(?:lasagna noodles?|lasagne sheets?|dairy free cheese|vegan cheese|mozzarella|ricotta)\b/.test(ingredient.normalized));
+    for (const ingredient of requiredStructuralIngredients) {
+      const key = /cheese|mozzarella|ricotta/.test(ingredient.normalized) ? "cheese" : "lasagna noodles";
+      if (!new RegExp(`\\b${key.replaceAll(" ", "\\s+")}\\b`).test(stepsText)) {
+        reasons.push(`required_ingredient_not_used:${ingredient.identity}`);
+      }
+    }
+    if (!/\b(?:assemble|layer|arrange)\b/.test(stepsText)) {
+      reasons.push("missing_dish_stage:lasagna_assembly");
+    }
+    if (!/\b(?:bake|oven)\b/.test(stepsText)) {
+      reasons.push("missing_dish_stage:lasagna_baking");
+    }
+  }
+
+  const hasPlantGroundProtein = /\b(?:ground|minced)\s+(?:chickpeas?|lentils?|beans?|tofu|tempeh)\b/.test(listedText);
+  const hasAnimalProtein = /\b(?:beef|chicken|lamb|pork|turkey|fish|shrimp|meat)\b/.test(listedText);
+  if (hasPlantGroundProtein && !hasAnimalProtein && /\b(?:drain off pan drippings?|stirring to crumble)\b/.test(stepsText)) {
+    reasons.push("plant_substitution_template_artifact");
+  }
+
+  return reasons;
 }
 
 function validateRecipeShape(recipe: Recipe) {

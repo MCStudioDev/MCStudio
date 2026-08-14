@@ -1,5 +1,10 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
+export {
+  buildFreeAiCreditsExhaustedNotice,
+  FREE_LIFETIME_AI_CREDITS
+} from "@/lib/freeAiCredits";
+import { FREE_LIFETIME_AI_CREDITS } from "@/lib/freeAiCredits";
 import { logger } from "@/lib/logger";
 
 export type AccessRole = "admin" | "user";
@@ -14,7 +19,6 @@ export type EntitlementFeatureKey =
   | "shoppingList.quantities"
   | "pantry.manual";
 
-export const FREE_LIFETIME_AI_CREDITS = 10;
 export const FREE_LIFETIME_WEEKLY_PLANS = 3;
 const FIREBASE_TRANSIENT_RETRY_ATTEMPTS = 5;
 const ACCESS_CACHE_TTL_MS = 10 * 60 * 1000;

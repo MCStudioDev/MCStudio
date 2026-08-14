@@ -2,7 +2,7 @@
 
 import { KeyboardEvent, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Heart, Plus, Ruler, Scale } from "lucide-react";
+import { Check, Heart, Plus, Ruler, Scale, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useApp } from "@/contexts/AppContext";
@@ -112,6 +112,26 @@ export function HealthTab() {
             <h3 className="mt-2 text-xl font-display font-bold text-white sm:text-2xl">{t("healthConditionsTitle")}</h3>
             <p className="mt-2 text-sm font-semibold text-cyan-100/72">{t("comingSoon")}</p>
           </div>
+
+          {health.conditions.length > 0 && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <div className="flex flex-wrap gap-2">
+                {health.conditions.map((condition) => (
+                  <span key={condition} className="rounded-full border border-white/12 bg-white/[0.06] px-3 py-1 text-sm text-emerald-50/72">
+                    {condition}
+                  </span>
+                ))}
+              </div>
+              <Button
+                className="mt-3"
+                variant="secondary"
+                leftIcon={<X className="h-4 w-4" />}
+                onClick={() => void saveHealth({ conditions: [] })}
+              >
+                {rtl ? "مسح الحالات المحفوظة" : "Clear saved conditions"}
+              </Button>
+            </div>
+          )}
 
           <div className="theme-callout-warn rounded-[1.35rem] border border-amber-200/16 bg-amber-400/10 px-4 py-4 text-sm font-medium leading-relaxed text-amber-50/92 sm:rounded-[1.5rem] sm:px-5">
             <strong>{t("medicalDisclaimer")}</strong> {t("medicalDisclaimerText")}

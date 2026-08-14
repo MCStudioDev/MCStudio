@@ -3,6 +3,7 @@ import { getClientFacingAiErrorMessage, isTransientModelError, USE_MOCK } from "
 import {
   accessErrorResponse,
   accessPayload,
+  buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
   consumeFreeAiCredit,
   isFirebaseTransientError
@@ -142,9 +143,9 @@ function localizeScannedIngredients(raw: string[], canonical: string[], language
 function buildScanFallbackNotice(language: string, isPantry: boolean) {
   const wantsArabic = isArabicRecipeLanguage(language);
   if (!wantsArabic) {
-    return isPantry
-      ? "Your 5 free AI credits are used. Add pantry items manually or upgrade to premium for image scans."
-      : "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.";
+    return buildFreeAiCreditsExhaustedNotice(isPantry
+      ? "Add pantry items manually or upgrade to premium for image scans."
+      : "Add ingredients manually or upgrade to premium for image scans.");
   }
 
   return isPantry

@@ -26,6 +26,7 @@ import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import type { TranslationKey } from "@/lib/translations";
 import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
+import { buildRecipeGenerationStatusDetail } from "@/lib/recipeGenerationPresentation";
 import {
   forgetPendingRecipeHistoryId,
   isLikelyBackgroundFetchInterruption,
@@ -193,6 +194,7 @@ export function ScannerTab() {
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipeGenerationStatus, setRecipeGenerationStatus] = useState<RecipeGenerationStatus | null>(null);
+  const [recipeGenerationDetail, setRecipeGenerationDetail] = useState<string | null>(null);
   const [imageRepairVersion, setImageRepairVersion] = useState(0);
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -800,6 +802,7 @@ export function ScannerTab() {
     readPendingRecipeHistoryIds().forEach(forgetPendingRecipeHistoryId);
     setRecipeLoading(true);
     setRecipeGenerationStatus(null);
+    setRecipeGenerationDetail(null);
     let pendingEntryId: string | null = null;
     try {
       const ingredientNames = ingredients.map((item) => item.name);
@@ -844,6 +847,9 @@ export function ScannerTab() {
         message?: string;
         servedFrom?: "shared_pool" | "fallback_ai" | "mock" | "recipe_reference" | "local_recipe_sources";
         generationStatus?: RecipeGenerationStatus;
+        requestedCount?: number;
+        returnedCount?: number;
+        aiFillUnavailableReason?: string;
       };
       await refreshAccess();
       if (!response.ok) {
@@ -877,6 +883,13 @@ export function ScannerTab() {
             : "show_empty_ready_state_without_no_results_status"
       });
       setRecipeGenerationStatus(nextStatus);
+      setRecipeGenerationDetail(data.message ?? buildRecipeGenerationStatusDetail({
+        aiFillUnavailableReason: data.aiFillUnavailableReason,
+        requestedCount: data.requestedCount ?? settings.recipeCount,
+        returnedCount: data.returnedCount ?? nextRecipes.length,
+        servedFrom: data.servedFrom,
+        status: nextStatus
+      }));
       setRecipes(nextRecipes);
       if (!nextRecipes.length) {
         setHistoryEntryId(null);
@@ -900,6 +913,7 @@ export function ScannerTab() {
       }
       setError(message);
       setRecipeGenerationStatus(null);
+      setRecipeGenerationDetail(null);
     } finally {
       setRecipeLoading(false);
     }
@@ -1292,7 +1306,7 @@ export function ScannerTab() {
           </div>
         ) : recipes.length ? (
           <div className="space-y-4">
-            <RecipeGenerationStatusCard status={recipeGenerationStatus} rtl={rtl} />
+            <RecipeGenerationStatusCard status={recipeGenerationStatus} detail={recipeGenerationDetail} rtl={rtl} />
             <ResultLegalNotice mode="recipes" />
             <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
               {recipes.map((recipe, index) => (
@@ -1367,7 +1381,7 @@ export function ScannerTab() {
             </div>
           </div>
         ) : recipeGenerationStatus === RecipeGenerationStatus.NO_RESULTS ? (
-          <RecipeGenerationStatusCard status={recipeGenerationStatus} rtl={rtl} />
+          <RecipeGenerationStatusCard status={recipeGenerationStatus} detail={recipeGenerationDetail} rtl={rtl} />
         ) : (
           <EmptyState
             title={t("readyToCook")}
@@ -1408,9 +1422,11 @@ function resolveRecipeGenerationStatus(
 }
 
 function RecipeGenerationStatusCard({
+  detail,
   rtl,
   status
 }: {
+  detail: string | null;
   rtl: boolean;
   status: RecipeGenerationStatus | null;
 }) {
@@ -1432,7 +1448,7 @@ function RecipeGenerationStatusCard({
         <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
         <div className="space-y-1">
           <p className="font-semibold">{copy.title}</p>
-          <p className="text-xs leading-relaxed opacity-80">{copy.detail}</p>
+          <p className="text-xs leading-relaxed opacity-80">{detail ?? copy.detail}</p>
         </div>
       </div>
     </div>

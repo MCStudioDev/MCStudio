@@ -6,6 +6,7 @@ import {
 } from "@/lib/recipePhotoIdentity";
 
 export interface PexelsRecipePhotoLookupResult {
+  descriptiveText: string;
   imageUrl: string;
   matchedQuery: string;
   score: number;
@@ -32,7 +33,9 @@ interface PexelsSearchResponse {
 }
 
 const pexelsApiKey = process.env.PEXELS_API_KEY ?? "";
-const PROVIDER_REQUEST_TIMEOUT_MS = 8000;
+const PROVIDER_REQUEST_TIMEOUT_MS = 4500;
+const PROVIDER_IDENTITY_QUERY_LIMIT = 2;
+const PROVIDER_REQUEST_VARIANT_LIMIT = 3;
 
 const BLOCKED_TERMS = ["dessert", "cake", "cookie", "pancake"];
 const NON_FOOD_TERMS = [
@@ -85,7 +88,7 @@ export async function findPexelsRecipePhoto(
   if (!isPexelsRecipePhotoSearchConfigured()) return null;
 
   const identity = buildRecipePhotoIdentity(query);
-  const candidates = Array.from(new Set([query, ...identity.searchQueries])).slice(0, 5);
+  const candidates = Array.from(new Set([query, ...identity.searchQueries])).slice(0, PROVIDER_IDENTITY_QUERY_LIMIT);
 
   const results = await Promise.allSettled(
     candidates.map((candidateQuery) => searchPexelsPhotos(candidateQuery, identity, options?.excludeUrls))
@@ -97,6 +100,7 @@ export async function findPexelsRecipePhoto(
   if (!bestCandidate) return null;
 
   return {
+    descriptiveText: bestCandidate.descriptiveText,
     imageUrl: bestCandidate.url,
     matchedQuery: bestCandidate.matchedQuery,
     score: bestCandidate.score,
@@ -141,6 +145,7 @@ async function searchPexelsPhotos(
         const descriptiveHaystack = normalizeRecipePhotoQuery([photo.alt, photo.url].filter(Boolean).join(" "));
         const attributionHaystack = normalizeRecipePhotoQuery([photo.photographer].filter(Boolean).join(" "));
         return {
+          descriptiveText: descriptiveHaystack,
           matchedQuery: requestQuery,
           score: scorePexelsCandidate(descriptiveHaystack, attributionHaystack, imageUrl, identity, requestQuery, photo),
           url: imageUrl
@@ -343,7 +348,7 @@ function buildPexelsRequestQueries(query: string, identity: ReturnType<typeof bu
     .map((value) => normalizeRecipePhotoQuery(value))
     .filter((value) => value.length >= 3);
 
-  return Array.from(new Set(values)).slice(0, 8);
+  return Array.from(new Set(values)).slice(0, PROVIDER_REQUEST_VARIANT_LIMIT);
 }
 
 function looksLikeFoodPhoto(

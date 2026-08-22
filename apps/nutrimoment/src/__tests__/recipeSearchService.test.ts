@@ -41,7 +41,14 @@ vi.mock("../services/userRecipeCacheService", () => ({
       "Heat the chickpeas and diced tomato in a skillet over medium heat for 5 minutes, stirring and seasoning until the tomato softens.",
       "Fluff the cooked rice with a fork, divide it between two bowls, and spoon the warm chickpea and tomato mixture over the top."
     ],
-    image: { storagePath: "recipes/shared-vegan-rice-bowl.jpg" },
+    image: {
+      storagePath: "https://firebasestorage.googleapis.com/v0/b/app/o/recipes%2Fshared-vegan-rice-bowl.jpg?alt=media",
+      source: "shared_pool",
+      dietTags: ["vegan"],
+      status: "ready",
+      validatedAt: 123456,
+      validatorHash: "recipe-photo-asset-v1:diet-v1:2026-08-15"
+    },
     source: { provider: "NutriMoment shared pool", url: "https://example.com/chickpea-rice-bowl" },
     searchTokens: ["rice", "chickpeas", "vegan rice bowl"],
     popularityScore: 80,
@@ -60,6 +67,58 @@ vi.mock("../data/offline/firestoreRecipeReferenceCatalog", () => ({
 }));
 
 describe("recipe search service", () => {
+  it("returns a shared recipe with its linked photo asset", async () => {
+    const { mapCatalogRecipeToMeal, searchCatalogRecipes } = await import("../services/recipeSearchService");
+    const result = await searchCatalogRecipes({
+      diets: ["vegan"],
+      forceSharedCacheRead: true,
+      ingredients: ["rice", "chickpeas"],
+      maxResults: 5,
+      preferredCuisine: "Any",
+      recipeLanguage: "English",
+      uid: "test-user"
+    });
+    const linked = result.recipes.find((recipe) => recipe.source_recipe_id === "shared-vegan-rice-bowl");
+
+    expect(linked?.image_url).toContain("shared-vegan-rice-bowl.jpg");
+    expect(linked?.photo_asset).toMatchObject({
+      dietTags: ["vegan"],
+      source: "shared_pool",
+      status: "ready"
+    });
+
+    const catalogRecipe = result.candidateRecipes.find((recipe) => recipe.id === "shared-vegan-rice-bowl");
+    const meal = mapCatalogRecipeToMeal(catalogRecipe, { diets: ["vegan"], recipeLanguage: "English" });
+    expect(meal).toMatchObject({
+      cook_time: "35 mins",
+      difficulty: "Easy",
+      recipe_source_type: "local_database",
+      source_recipe_id: "shared-vegan-rice-bowl",
+      image_source: "shared_pool",
+      photo_asset: {
+        dietTags: ["vegan"],
+        source: "shared_pool",
+        status: "ready"
+      }
+    });
+    expect(meal.ingredients).toEqual(expect.arrayContaining(["1 cup rice", "1 cup chickpeas"]));
+  });
+
+  it("hard-filters shared recipes that conflict with the active diet", async () => {
+    const { filterRecipeCatalogByDietConstraints } = await import("../services/recipeSearchService");
+    const eggKofta = {
+      id: "shared-premium-egg-kofta",
+      title: "Kofta",
+      ingredients: [{ name: "eggs", canonical: "eggs", quantity: 2, unit: "", required: true }],
+      missing_ingredients: ["2 eggs"],
+      steps: ["Mix in one beaten egg before shaping the kofta."],
+      dietTags: ["dairy-free"]
+    };
+
+    expect(filterRecipeCatalogByDietConstraints([eggKofta as never], ["vegan"], [])).toEqual([]);
+    expect(filterRecipeCatalogByDietConstraints([eggKofta as never], ["dairyFree"], [])).toHaveLength(1);
+  });
+
   it("includes cuisine catalog V2 dishes in the deterministic recipe pool", () => {
     const recipes = getCuisineCatalogV2RecipeDocs();
 
@@ -218,6 +277,31 @@ describe("recipe search service", () => {
     )).toBe(true);
   });
 
+  it("finds a complete Egyptian Koshary recipe for a free user's pantry filters", async () => {
+    const { searchCatalogRecipes } = await import("../services/recipeSearchService");
+
+    const result = await searchCatalogRecipes({
+      ingredients: ["rice", "tomato", "chickpeas"],
+      preferredCuisine: "Egyptian",
+      calorieTarget: 1650,
+      diets: ["vegetarian", "vegan", "dairyFree"],
+      maxMissingIngredients: 3,
+      maxResults: 10,
+      recipeLanguage: "English",
+      uid: "free-user",
+      allowRemoteCaches: false
+    });
+    const koshary = result.recipes.find((recipe) => /koshary|koshari/i.test(recipe.name));
+
+    expect(koshary).toBeDefined();
+    expect(koshary?.missing_ingredients.length).toBeLessThanOrEqual(3);
+    expect(koshary?.steps.length).toBeGreaterThanOrEqual(6);
+    expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/lentil/);
+    expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/pasta/);
+    expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/tomato/);
+    expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/onion/);
+  });
+
   it("does not fill an egg-and-vegetable search with unrequested animal proteins", async () => {
     const { searchCatalogRecipes } = await import("../services/recipeSearchService");
 
@@ -235,5 +319,18 @@ describe("recipe search service", () => {
       .toLowerCase();
 
     expect(returnedText).not.toMatch(/\b(chicken|beef|lamb|pork|fish|grouper|salmon|tuna|shrimp|prawn)\b/);
+  });
+
+  it("uses the Premium shopping-burden policy for the shared-pool missing limit", async () => {
+    const { countNonPantryMissingIngredients } = await import("../services/recipeSearchService");
+
+    expect(countNonPantryMissingIngredients({
+      missingRequired: ["shrimp", "tomato"],
+      missingOptional: ["olive oil", "salt", "black pepper", "water", "lemon"]
+    }, 4)).toBeCloseTo(2.1);
+    expect(countNonPantryMissingIngredients({
+      missingRequired: ["onion", "garlic", "vegetable broth"],
+      missingOptional: ["paprika", "cilantro", "bell pepper"]
+    }, 4)).toBeLessThanOrEqual(5);
   });
 });

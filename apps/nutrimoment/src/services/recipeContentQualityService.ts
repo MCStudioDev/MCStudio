@@ -4,6 +4,7 @@ import {
   getIngredientProfileForTerm,
   normalizeIngredientText
 } from "@/food/IngredientNormalizer";
+import { hasCurrentPremiumValidationReceipt } from "@/services/recipeValidationContractService";
 
 export const RECIPE_CONTENT_VERSION = "recipe-content-v2";
 
@@ -37,14 +38,16 @@ const PREPARATION_PATTERN = /\b(?:across the grain|bite-size|chop|clean|coat|cub
 const COOKING_CONTROL_PATTERN = /\b(?:low|medium|high|heat|oven|grill|skillet|pan|pot|baking dish|sheet|rack|temperature|\d{2,3}\s*(?:c|f)\b)/i;
 const TIME_OR_DONENESS_PATTERN = /\b(?:\d+\s*(?:to|-)?\s*\d*\s*(?:minute|minutes|min|hour|hours)|until|golden|browned|tender|opaque|crisp|set|reaches?\s+\d{2,3}\s*(?:c|f))\b/i;
 const UNSAFE_INSTRUCTION_PATTERN = /\b(?:serve|eat)\s+(?:(?:the\s+)?(?:raw|undercooked)\s+(?:chicken|poultry|pork|ground meat|ground beef)|(?:the\s+)?(?:chicken|poultry|pork|ground meat|ground beef)\s+(?:raw|undercooked))|\b(?:bleach|detergent|cleaning product)\b/i;
+const NON_FOOD_RECIPE_TITLE_PATTERN = /\b(?:play[ -]?doh|play[ -]?dough|slime|soap|cleaner|cleaning solution)\b/i;
 
 export function classifyRecipeContentQuality(recipe: RecipeCatalogDoc): RecipeContentQualityResult {
   const reasons: string[] = [];
   const steps = normalizeSteps(recipe.steps);
   const sourceProvider = normalizeIngredientText(recipe.source?.provider ?? "");
 
-  if (recipe.qualityStatus === "blocked" || hasUnsafeInstructions(steps)) {
+  if (recipe.qualityStatus === "blocked" || hasUnsafeInstructions(steps) || NON_FOOD_RECIPE_TITLE_PATTERN.test(recipe.title)) {
     if (hasUnsafeInstructions(steps)) reasons.push("unsafe_cooking_instruction");
+    if (NON_FOOD_RECIPE_TITLE_PATTERN.test(recipe.title)) reasons.push("non_food_recipe");
     if (recipe.qualityStatus === "blocked") reasons.push("explicitly_blocked");
     return result("blocked", reasons, 0);
   }
@@ -157,6 +160,23 @@ export function partitionRecipeCatalogByQuality(recipes: RecipeCatalogDoc[]): Re
       });
       continue;
     }
+    if (
+      recipe.qualityStatus !== "blocked" &&
+      recipe.source?.provider === "premium-validated" &&
+      hasCurrentPremiumValidationReceipt(recipe)
+    ) {
+      discoverable.push({
+        ...recipe,
+        contentVersion: RECIPE_CONTENT_VERSION,
+        qualityReasons: [],
+        qualityScore: Math.max(
+          recipe.qualityScore,
+          recipe.validationReceipt?.acceptanceScore ?? MINIMUM_DISCOVERY_SCORE
+        ),
+        qualityStatus: "verified"
+      });
+      continue;
+    }
     const quality = classifyRecipeContentQuality(recipe);
     if (!quality.eligibleForDiscovery) {
       quarantined.push({ recipe, quality });
@@ -173,6 +193,8 @@ export function partitionRecipeCatalogByQuality(recipes: RecipeCatalogDoc[]): Re
 
   return { discoverable, quarantined };
 }
+
+const MINIMUM_DISCOVERY_SCORE = 70;
 
 function validateTitleMethodPromises(title: string, instructions: string) {
   const normalizedTitle = normalizeIngredientText(title);

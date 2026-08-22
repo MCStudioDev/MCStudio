@@ -34,6 +34,17 @@ export interface PhotoIdentity {
   cuisine_key?: string;
 }
 
+export interface RecipePhotoAsset {
+  url?: string;
+  source?: RecipeImageSource;
+  attributionName?: string;
+  attributionUrl?: string;
+  dietTags: string[];
+  status: "pending" | "ready";
+  validatedAt?: number;
+  validatorHash?: string;
+}
+
 export interface PantryItem {
   id?: string;
   name: string;
@@ -109,6 +120,7 @@ export interface Recipe {
   image_source?: RecipeImageSource;
   image_attribution_name?: string;
   image_attribution_url?: string;
+  photo_asset?: RecipePhotoAsset;
   image_loading?: boolean;
   image_error?: boolean;
   image_placeholder?: {
@@ -135,6 +147,9 @@ export interface RecipeIngredientOwnership {
 export interface MealPlanMeal {
   name: string;
   cuisine?: string;
+  recipe_source_type?: Recipe["recipe_source_type"];
+  source_recipe_id?: string;
+  meal_type?: RecipeMealType;
   image_search_index?: string;
   image_search_indices?: string[];
   calories: number;
@@ -143,10 +158,13 @@ export interface MealPlanMeal {
   fat: string;
   ingredients?: string[];
   steps?: string[];
+  cook_time?: string;
+  difficulty?: string;
   image_url?: string;
   image_source?: RecipeImageSource;
   image_attribution_name?: string;
   image_attribution_url?: string;
+  photo_asset?: RecipePhotoAsset;
   photo_identity?: PhotoIdentity;
 }
 

@@ -4,8 +4,9 @@ import {
   RECIPE_CONTENT_VERSION
 } from "@/services/recipeContentQualityService";
 import { canonicalizeRecipeIdentityMetadata } from "@/services/recipeIdentityContractService";
+import { hasCurrentPremiumValidationReceipt } from "@/services/recipeValidationContractService";
 
-export const SHARED_RECIPE_VALIDATOR_HASH = "recipe-content-v2:identity-pure:2026-08-09";
+export const SHARED_RECIPE_VALIDATOR_HASH = "recipe-content-v2:identity-pure:diet-v5:compact-ingredients:alias-index:2026-08-14";
 
 export type SharedRecipeQualityEnforcementMode = "gate" | "observe" | "strict";
 
@@ -21,13 +22,35 @@ export function auditSharedRecipePoolDocument(
 ): SharedRecipePoolAuditResult {
   const canonical = canonicalizeSharedRecipeDerivedIdentity(source);
   const quality = classifyRecipeContentQuality(canonical);
+  const untrustedProvenance = hasUntrustedSharedPoolProvenance(canonical);
+  const premiumValidated =
+    canonical.source?.provider === "premium-validated" &&
+    hasCurrentPremiumValidationReceipt(canonical);
+  const premiumPublicationEligible =
+    premiumValidated &&
+    quality.status !== "blocked" &&
+    quality.status !== "dish_intent";
+  const qualityReasons = Array.from(new Set([
+    ...quality.reasons,
+    ...(untrustedProvenance ? ["untrusted_shared_pool_provenance"] : [])
+  ]));
+  const qualityStatus = premiumPublicationEligible
+    ? "verified"
+    : untrustedProvenance && (quality.status === "golden" || quality.status === "verified")
+      ? "probation"
+      : quality.status;
   const document: RecipeCatalogDoc = {
     ...canonical,
     ...deriveRecipeComplianceTags(canonical),
     contentVersion: quality.contentVersion,
-    qualityReasons: quality.reasons,
-    qualityScore: quality.score,
-    qualityStatus: quality.status,
+    publicationWarnings: premiumPublicationEligible ? quality.reasons : canonical.publicationWarnings,
+    qualityReasons: premiumPublicationEligible ? [] : qualityReasons,
+    qualityScore: premiumPublicationEligible
+      ? Math.max(quality.score, canonical.validationReceipt?.acceptanceScore ?? 0)
+      : untrustedProvenance
+        ? Math.min(quality.score, 60)
+        : quality.score,
+    qualityStatus,
     validatedAt,
     validatorHash: SHARED_RECIPE_VALIDATOR_HASH
   };
@@ -40,16 +63,23 @@ export function auditSharedRecipePoolDocument(
 }
 
 export function deriveRecipeComplianceTags(recipe: RecipeCatalogDoc) {
-  const ingredients = new Set(
-    [...recipe.ingredientCanonicals, ...recipe.ingredients.flatMap((ingredient) => [ingredient.canonical, ingredient.name])]
-      .map(normalizeTagText)
-      .filter(Boolean)
+  const recipeSignals = new Set(
+    [
+      recipe.title,
+      recipe.description,
+      recipe.dishIntent?.dish_name ?? "",
+      ...recipe.steps,
+      ...recipe.ingredientCanonicals,
+      ...recipe.ingredients.flatMap((ingredient) => [ingredient.canonical, ingredient.name])
+    ].map(normalizeTagText).filter(Boolean)
   );
-  const contains = (pattern: RegExp) => Array.from(ingredients).some((ingredient) => pattern.test(ingredient));
-  const hasMeat = contains(/\b(?:beef|chicken|duck|goat|lamb|meat|pork|turkey|veal)\b/);
+  const contains = (pattern: RegExp) => Array.from(recipeSignals).some((signal) => pattern.test(signal));
+  const hasMeat = contains(/\b(?:bacon|beef|chicken|chorizo|duck|goat|ham|hot dog|kielbasa|lamb|lard|meat|meatball|mutton|pancetta|pepperoni|pork|prosciutto|salami|sausage|turkey|veal)\b/);
   const hasSeafood = contains(/\b(?:anchovy|clam|cod|crab|fish|lobster|mussel|oyster|salmon|seafood|shrimp|tuna)\b/);
   const hasDairy = contains(/\b(?:butter|cheese|cream|dairy|ghee|milk|yogurt)\b/);
-  const hasEgg = contains(/\b(?:egg|eggs)\b/);
+  const hasEgg = contains(/\b(?:egg|eggs|mayonnaise|mayo)\b/);
+  const hasNonVegetarianAnimalProduct = contains(/\b(?:gelatin|lard)\b/);
+  const hasNonVeganAnimalProduct = hasNonVegetarianAnimalProduct || contains(/\b(?:honey)\b/);
   const hasGluten = contains(/\b(?:barley|bread|bulgur|couscous|flour|pasta|rye|semolina|wheat)\b/);
   const hasShellfish = contains(/\b(?:clam|crab|lobster|mussel|oyster|shrimp)\b/);
   const hasTreeNuts = contains(/\b(?:almond|cashew|hazelnut|pecan|pistachio|walnut)\b/);
@@ -57,8 +87,8 @@ export function deriveRecipeComplianceTags(recipe: RecipeCatalogDoc) {
   const hasSoy = contains(/\b(?:soy|soya|tofu|tempeh)\b/);
 
   const dietTags = new Set<string>();
-  if (!hasMeat && !hasSeafood && !hasDairy && !hasEgg) dietTags.add("vegan");
-  if (!hasMeat && !hasSeafood) dietTags.add("vegetarian");
+  if (!hasMeat && !hasSeafood && !hasDairy && !hasEgg && !hasNonVeganAnimalProduct) dietTags.add("vegan");
+  if (!hasMeat && !hasSeafood && !hasNonVegetarianAnimalProduct) dietTags.add("vegetarian");
   if (!hasMeat && hasSeafood) dietTags.add("pescatarian");
   if (!hasDairy) dietTags.add("dairy-free");
   if (!hasGluten) dietTags.add("gluten-free");
@@ -97,6 +127,19 @@ export function isSharedRecipeDiscoverable(
     return !hasCurrentValidation || recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified";
   }
   return hasCurrentValidation && (recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified");
+}
+
+export function isSharedRecipePublishable(recipe: RecipeCatalogDoc) {
+  return !hasUntrustedSharedPoolProvenance(recipe) && isSharedRecipeDiscoverable(recipe, "strict");
+}
+
+export function resolveSharedRecipeQualityMode(value: string | undefined): SharedRecipeQualityEnforcementMode {
+  if (value === "observe" || value === "gate") return value;
+  return "strict";
+}
+
+function hasUntrustedSharedPoolProvenance(recipe: RecipeCatalogDoc) {
+  return recipe.source?.provider === "shared-user-cache" || recipe.source?.provider === "shared-backfill";
 }
 
 function canonicalizeSharedRecipeDerivedIdentity(source: RecipeCatalogDoc): RecipeCatalogDoc {

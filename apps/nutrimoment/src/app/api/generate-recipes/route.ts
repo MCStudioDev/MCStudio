@@ -19,12 +19,21 @@ import {
 import { applyRateLimit, rateLimitHeaders } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
-import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
+import {
+  getWarmSharedRecipeCacheSnapshot,
+  persistGeneratedRecipeCache,
+  persistPremiumValidatedRecipeCache
+} from "@/services/userRecipeCacheService";
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
+import {
+  getMissingIngredientPurchaseWeight,
+  isCommonPantrySupportIngredient
+} from "@/services/recipeMissingIngredientPolicyService";
 import { getIngredientProfileForTerm, normalizeIngredientText } from "@/food/IngredientNormalizer";
 import {
   findRecipeReferencesForGeneration,
-  mapRecipeReferencesToRecipes
+  mapRecipeReferencesToRecipes,
+  shouldLoadRecipeReferencesForGeneration
 } from "@/services/recipeReferenceService";
 import {
   buildRecipeDishFamilyKey,
@@ -55,6 +64,7 @@ import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { ensureArabicRecipeLanguage, isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
+import type { RecipeCatalogDoc } from "@/lib/domain";
 import type { Recipe } from "@/lib/types";
 import { normalizeRecipeTitleEncoding } from "@/lib/recipeDisplayNames";
 import { logger } from "@/lib/logger";
@@ -66,6 +76,11 @@ import {
   type SharedRecipePhotoEntry
 } from "@/lib/sharedRecipePhotoCache";
 import { isKnownWeakRecipeProviderImageUrl } from "@/lib/recipeImageQuality";
+import {
+  attachValidatedRecipePhotoAsset,
+  canReuseRecipePhotoForDiet
+} from "@/services/recipePhotoReusePolicy";
+import { buildSharedRecipePhotoLinkSearchTokens } from "@/services/sharedRecipePhotoLinkService";
 import {
   adaptRecipeForDietRestrictions,
   findRecipeDietViolation,
@@ -624,7 +639,10 @@ export async function POST(request: Request) {
       diets: parsed.data.diets,
       preferredCuisine: parsed.data.preferredCuisine
     });
-    const recipeReferencesPromise = ingredients.length
+    const recipeReferencesPromise = shouldLoadRecipeReferencesForGeneration({
+      hasAiGenerationAccess,
+      ingredientCount: ingredients.length
+    })
       ? findRecipeReferencesForGeneration({
           avoidRecipeNames: Array.from(recentRecipeMemory.names),
           allergens: parsed.data.allergens,
@@ -649,7 +667,7 @@ export async function POST(request: Request) {
         })
       : recipeCount;
     const prepareRecipes = (recipes: Recipe[]) => recipes.map(normalizeRecipeLosslessly);
-    const finalizeRecipes = (recipes: Recipe[]) => {
+    const finalizeRecipes = async (recipes: Recipe[]) => {
       const finalizationStartedAt = Date.now();
       let previousFinalizationStageAt = finalizationStartedAt;
       const logFinalizationStage = (stage: string, recipeTotal: number) => {
@@ -1202,8 +1220,19 @@ export async function POST(request: Request) {
       // Recent scans already lower a candidate's ranking. They never exclude a
       // recipe outright, because repeated testing or a small cuisine catalog
       // must still return the best available recipes.
-      const coverageSelected = selectRecipesByRequestPolicy(localizedSelected, requestPolicy, recipeCount);
-      const responseRecipes = markProgressiveRecipeImages(coverageSelected);
+      const activeDiets = parsed.data.diets ?? [];
+      const policySelected = selectRecipesByRequestPolicy(localizedSelected, requestPolicy, recipeCount);
+      const photoReadySelected = isFreeTier
+        ? selectRecipesByRequestPolicy(localizedSelected, requestPolicy, recipeCount, {
+            isEligible: (recipe) => canReuseRecipePhotoForDiet(recipe, activeDiets, true)
+          })
+        : [];
+      const coverageSelected = photoReadySelected.length >= recipeCount
+        ? photoReadySelected
+        : policySelected;
+      const responseRecipes = markProgressiveRecipeImages(
+        await attachPhotosFromPublishedRecipeBundles(coverageSelected, activeDiets)
+      );
       const coverageAnalysis = analyzeRecipeInputCoverage(responseRecipes, inputCoveragePlan);
       logger.info("Recipe input coverage selection completed", {
         requestId,
@@ -1224,8 +1253,6 @@ export async function POST(request: Request) {
       });
       return responseRecipes;
     };
-    // Cards are returned as soon as the source recipe is validated. ScannerTab
-    // then hydrates cached/provider images concurrently without delaying recipes.
     const finalizeRecipeResponse = async (recipes: Recipe[]) => finalizeRecipes(recipes);
     const strictRankingOptions = {
       ...parsed.data,
@@ -1297,7 +1324,8 @@ export async function POST(request: Request) {
         uid: requestAccess.uid,
         recipeLanguage,
         recipes: finalRecipes,
-        dietContext
+        dietContext,
+        promoteToSharedPool: requestAccess.isPremium
       });
       await persistRecipeGenerationHistoryEntry({
         historyEntryId,
@@ -1348,6 +1376,7 @@ export async function POST(request: Request) {
           includeFirestoreReferences: false,
           allowRemoteCaches: !hasAiGenerationAccess,
           forceSharedCacheRead: !hasAiGenerationAccess,
+          skipStaticSources: !hasAiGenerationAccess,
           maxMissingIngredients: parsed.data.maxMissingIngredients
         });
       }
@@ -1472,7 +1501,8 @@ export async function POST(request: Request) {
               uid: requestAccess.uid,
               recipeLanguage,
               recipes: finalRecipes,
-              dietContext
+              dietContext,
+              promoteToSharedPool: requestAccess.isPremium
             });
             await persistRecipeGenerationHistoryEntry({
               historyEntryId,
@@ -1611,7 +1641,8 @@ export async function POST(request: Request) {
             uid: requestAccess.uid,
             recipeLanguage,
             recipes: validatedLocalSourceRecipes,
-            dietContext
+            dietContext,
+            promoteToSharedPool: requestAccess.isPremium
           });
           await persistRecipeGenerationHistoryEntry({
             historyEntryId,
@@ -1728,7 +1759,8 @@ export async function POST(request: Request) {
           uid: requestAccess.uid,
           recipeLanguage,
           recipes: finalDatasetRecipes,
-          dietContext
+          dietContext,
+          promoteToSharedPool: requestAccess.isPremium
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -1768,7 +1800,8 @@ export async function POST(request: Request) {
           uid: requestAccess.uid,
           recipeLanguage,
           recipes: responseReadySourceRecipes,
-          dietContext
+          dietContext,
+          promoteToSharedPool: requestAccess.isPremium
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -2471,7 +2504,8 @@ export async function POST(request: Request) {
           uid: requestAccess.uid,
           recipeLanguage,
           recipes: finalRecipes,
-          dietContext
+          dietContext,
+          promoteToSharedPool: requestAccess.isPremium
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -2542,7 +2576,8 @@ export async function POST(request: Request) {
           uid: requestAccess.uid,
           recipeLanguage,
           recipes: finalRecipes,
-          dietContext
+          dietContext,
+          promoteToSharedPool: requestAccess.isPremium
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -2582,7 +2617,8 @@ export async function POST(request: Request) {
       uid: requestAccess.uid,
       recipeLanguage,
       recipes: finalRecipes,
-      dietContext
+      dietContext,
+      promoteToSharedPool: requestAccess.isPremium
     });
     await persistRecipeGenerationHistoryEntry({
       historyEntryId,
@@ -7291,13 +7327,27 @@ async function queueRecipeCachePersist(input: {
   recipes?: Recipe[];
   uid?: string | null;
   dietContext?: DietEnforcementContext;
+  promoteToSharedPool?: boolean;
 }) {
-  scheduleAfterResponse("recipe cache persistence", async () => {
+  const persist = async () => {
     const startedAt = Date.now();
     try {
       await persistGeneratedRecipeCache(input);
+      const promotionRecipes = input.promoteToSharedPool
+        ? await attachRecipePhotosPreservingOrder(input.recipes ?? [], {
+            allowProviderLookup: false,
+            diets: input.dietContext?.diets ?? []
+          })
+        : input.recipes;
+      const promotion = input.promoteToSharedPool
+        ? await persistPremiumValidatedRecipeCache({
+            recipeLanguage: input.recipeLanguage,
+            recipes: promotionRecipes
+          })
+        : null;
       logger.info("Recipe cache persisted after response", {
         durationMs: Date.now() - startedAt,
+        promotedRecipeCount: promotion?.published ?? 0,
         recipeCount: input.recipes?.length ?? 0,
         uid: input.uid ?? null
       });
@@ -7308,7 +7358,17 @@ async function queueRecipeCachePersist(input: {
         errorMessage: error instanceof Error ? error.message : String(error)
       });
     }
-  });
+  };
+
+  // Premium recipes must exist in the shared pool before their client-side
+  // photo requests begin, otherwise the generated image has no document to
+  // link to and free users receive a permanently pending photo bundle.
+  if (input.promoteToSharedPool) {
+    await persist();
+    return;
+  }
+
+  scheduleAfterResponse("recipe cache persistence", persist);
 }
 
 function scheduleAfterResponse(label: string, task: () => Promise<void>) {
@@ -8450,29 +8510,7 @@ function getRecipePantryUsageStats(recipe: Recipe, availableIngredients: string[
 
 function getMissingIngredientRankingWeight(ingredient: string, availableIngredientCount: number) {
   const normalized = normalizeIngredientForStrictMatch(ingredient);
-  if (!normalized) return 0;
-
-  if (isCommonPantrySupportIngredient(normalized)) {
-    return availableIngredientCount <= 2 ? 0.15 : 0.35;
-  }
-
-  if (isRecipeStructureSupportIngredient(normalized)) {
-    return availableIngredientCount <= 2 ? 0.45 : 0.75;
-  }
-
-  return 1;
-}
-
-function isCommonPantrySupportIngredient(normalizedIngredient: string) {
-  return /\b(salt|pepper|black pepper|cumin|coriander|paprika|turmeric|chili|chilli|cayenne|sumac|oregano|mint|parsley|cilantro|dill|basil|garlic|onion|oil|olive oil|butter|vinegar|lemon|lime|tomato paste|pepper paste|tahini|yogurt|water|stock|broth)\b/.test(
-    normalizedIngredient
-  );
-}
-
-function isRecipeStructureSupportIngredient(normalizedIngredient: string) {
-  return /\b(rice|bread|pita|flatbread|baladi bread|pasta|penne|macaroni|spaghetti|flour|dough|pide dough|phyllo|filo|yufka|potato|carrot|celery|tomato|tomato sauce|green pepper|bell pepper|eggplant|aubergine|cheese|mozzarella)\b/.test(
-    normalizedIngredient
-  );
+  return getMissingIngredientPurchaseWeight(normalized, availableIngredientCount);
 }
 
 function getMatchQualityScore(matchQuality: Recipe["match_quality"]) {
@@ -8708,56 +8746,44 @@ function selectPhotoRankingCandidates(recipes: Recipe[], recipeCount: number) {
   return recipes.slice(0, Math.max(recipeCount * 3, 30));
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function attachRecipePhotosPreservingOrder(
   recipes: Recipe[],
   options?: {
     allowProviderLookup?: boolean;
+    diets?: string[];
   }
 ) {
-  const usedImageUrls = new Set<string>();
-  const attached: Recipe[] = [];
-
-  for (const recipe of recipes) {
-    const currentImageUrl = recipe.image_url;
-    if (
-      isDurableRecipeImageUrl(currentImageUrl) &&
-      !usedImageUrls.has(currentImageUrl) &&
-      canKeepExistingRecipeImageUrl(recipe)
-    ) {
-      usedImageUrls.add(currentImageUrl);
-      attached.push(recipe);
-      continue;
+  const diets = options?.diets ?? [];
+  const settled = await mapSettledWithConcurrency(recipes, 10, async (recipe) => {
+    if (canReuseRecipePhotoForDiet(recipe, diets, true) && canKeepExistingRecipeImageUrl(recipe)) {
+      return attachValidatedRecipePhotoAsset(recipe, diets);
     }
 
-    try {
-      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls, options);
-      const candidateImageUrl = resolvedPhoto.recipePatch?.image_url;
-      if (isDurableRecipeImageUrl(candidateImageUrl) && !usedImageUrls.has(candidateImageUrl)) {
-        usedImageUrls.add(candidateImageUrl);
-        attached.push({
-          ...recipe,
-          ...(resolvedPhoto.recipePatch ?? {})
-        });
-        continue;
-      }
-    } catch (error) {
-      logger.warn("Recipe final photo attachment failed", {
-        recipeName: recipe.name,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      });
-    }
-
-    attached.push({
-      ...recipe,
-      image_attribution_name: undefined,
-      image_attribution_url: undefined,
-      image_source: undefined,
-      image_url: undefined
+    const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, new Set(), {
+      allowProviderLookup: options?.allowProviderLookup
     });
-  }
+    return attachValidatedRecipePhotoAsset({
+      ...recipe,
+      ...(resolvedPhoto.recipePatch ?? {})
+    }, diets);
+  });
 
-  return attached;
+  const resolved = settled.map((result, index) => {
+    if (result.status === "fulfilled") return result.value;
+    logger.warn("Recipe bundled photo attachment failed", {
+      recipeName: recipes[index]?.name,
+      errorMessage: result.reason instanceof Error ? result.reason.message : String(result.reason)
+    });
+    return attachValidatedRecipePhotoAsset(recipes[index], diets);
+  });
+  const usedImageUrls = new Set<string>();
+  return resolved.map((recipe) => {
+    if (!recipe.image_url || usedImageUrls.has(recipe.image_url)) {
+      return attachValidatedRecipePhotoAsset({ ...recipe, image_url: undefined }, diets);
+    }
+    usedImageUrls.add(recipe.image_url);
+    return recipe;
+  });
 }
 
 async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
@@ -8862,13 +8888,151 @@ function markProgressiveRecipeImages(recipes: Recipe[]) {
       ...recipe,
       image_attribution_name: undefined,
       image_attribution_url: undefined,
-      image_error: false,
-      image_loading: true,
+      image_error: true,
+      image_loading: false,
       image_placeholder: placeholder,
       image_source: undefined,
       image_url: undefined
     };
   });
+}
+
+async function attachPhotosFromPublishedRecipeBundles(recipes: Recipe[], diets: string[]) {
+  const recipesMissingReusablePhotos = recipes
+    .filter((recipe) => !canReuseRecipePhotoForDiet(recipe, diets, true));
+  const sourceRecipeIds = Array.from(new Set(recipesMissingReusablePhotos
+    .map((recipe) => recipe.source_recipe_id ?? recipe.id)
+    .filter((id): id is string => Boolean(id?.startsWith("shared-")))
+  ));
+  const exactTitleTokens = buildSharedRecipePhotoLinkSearchTokens(recipesMissingReusablePhotos.flatMap((recipe) => [
+    recipe.name,
+    recipe.localized?.English?.name,
+    recipe.dish_intent?.dish_name
+  ].filter((value): value is string => Boolean(value?.trim()))));
+  const db = getAdminDb();
+  const sharedRecipeCollection = db.collection("sharedOfflineRecipeCache");
+  const [sourceDocuments, exactTitleSnapshot] = await Promise.all([
+    sourceRecipeIds.length
+      ? db.getAll(
+        ...sourceRecipeIds.map((id) => db.collection("sharedOfflineRecipeCache").doc(id))
+      ).catch((error) => {
+        logger.warn("Bundled recipe photo source lookup failed", {
+          errorMessage: error instanceof Error ? error.message : String(error),
+          sourceRecipeCount: sourceRecipeIds.length
+        });
+        return [];
+      })
+      : [],
+    exactTitleTokens.length
+      ? sharedRecipeCollection
+        .where("searchTokens", "array-contains-any", exactTitleTokens)
+        .get()
+        .catch((error) => {
+          logger.warn("Bundled recipe photo title lookup failed", {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            titleTokenCount: exactTitleTokens.length
+          });
+          return null;
+        })
+      : null
+  ]);
+  const directBundlesById = new Map<string, RecipeCatalogDoc>();
+  sourceDocuments.forEach((document) => {
+    if (!document.exists) return;
+    directBundlesById.set(document.id, { ...document.data(), id: document.id } as RecipeCatalogDoc);
+  });
+  const exactTitleBundles = exactTitleSnapshot?.docs.map((document) => ({
+    ...document.data(),
+    id: document.id
+  } as RecipeCatalogDoc)) ?? [];
+  const publishedBundles = Array.from(new Map([
+    ...getWarmSharedRecipeCacheSnapshot({ allowStale: true }),
+    ...exactTitleBundles,
+    ...directBundlesById.values()
+  ].map((recipe) => [recipe.id, recipe])).values())
+    .filter((recipe) =>
+      recipe.image.status === "ready" &&
+      isDurableRecipeImageUrl(recipe.image.thumbPath || recipe.image.storagePath)
+    );
+  if (!publishedBundles.length) return recipes;
+
+  const bundlesByIdentity = new Map<string, typeof publishedBundles>();
+  publishedBundles.forEach((bundle) => {
+    buildPublishedRecipeBundleKeys({
+      cuisine: bundle.cuisine,
+      names: [bundle.title, bundle.localized?.English?.name, bundle.dishIntent?.dish_name]
+    }).forEach((key) => {
+      const current = bundlesByIdentity.get(key) ?? [];
+      current.push(bundle);
+      bundlesByIdentity.set(key, current);
+    });
+  });
+
+  const usedImageUrls = new Set<string>();
+  return recipes.map((recipe) => {
+    if (canReuseRecipePhotoForDiet(recipe, diets, true) && !usedImageUrls.has(recipe.image_url ?? "")) {
+      if (recipe.image_url) usedImageUrls.add(recipe.image_url);
+      return attachValidatedRecipePhotoAsset({
+        ...recipe,
+        image_source: "cache",
+        photo_asset: recipe.photo_asset
+          ? { ...recipe.photo_asset, source: "cache" }
+          : recipe.photo_asset
+      }, diets);
+    }
+
+    const sourceRecipeId = recipe.source_recipe_id ?? recipe.id;
+    const directBundle = sourceRecipeId ? directBundlesById.get(sourceRecipeId) : undefined;
+    const candidates = [
+      ...(directBundle ? [directBundle] : []),
+      ...buildPublishedRecipeBundleKeys({
+      cuisine: recipe.cuisine,
+      names: [recipe.name, recipe.localized?.English?.name, recipe.dish_intent?.dish_name]
+      }).flatMap((key) => bundlesByIdentity.get(key) ?? [])
+    ];
+    const bundle = candidates.find((candidate) => {
+      const imageUrl = candidate.image.thumbPath || candidate.image.storagePath;
+      return imageUrl && !usedImageUrls.has(imageUrl);
+    });
+    if (!bundle) return attachValidatedRecipePhotoAsset(recipe, diets);
+
+    const imageUrl = bundle.image.thumbPath || bundle.image.storagePath;
+    const linked = attachValidatedRecipePhotoAsset({
+      ...recipe,
+      image_attribution_name: bundle.image.attributionName,
+      image_attribution_url: bundle.image.attributionUrl,
+      image_source: "cache",
+      image_url: imageUrl,
+      photo_asset: {
+        attributionName: bundle.image.attributionName,
+        attributionUrl: bundle.image.attributionUrl,
+        dietTags: bundle.image.dietTags ?? bundle.dietTags,
+        source: "cache",
+        status: "ready",
+        url: imageUrl,
+        validatedAt: bundle.image.validatedAt,
+        validatorHash: bundle.image.validatorHash
+      }
+    }, diets);
+    if (linked.image_url) usedImageUrls.add(linked.image_url);
+    return linked;
+  });
+}
+
+function buildPublishedRecipeBundleKeys(input: {
+  cuisine: string;
+  names: Array<string | null | undefined>;
+}) {
+  const cuisine = toIdentityKey(input.cuisine);
+  return Array.from(new Set(input.names.flatMap((name) => {
+    if (!name?.trim()) return [];
+    const normalizedName = toIdentityKey(name);
+    const canonicalDishKey = buildRecipePhotoIdentity(name).canonicalDishKey;
+    return [
+      normalizedName ? `${cuisine}:${normalizedName}` : "",
+      canonicalDishKey ? `${cuisine}:canonical:${canonicalDishKey}` : ""
+    ].filter(Boolean);
+  })));
 }
 
 function isRecipeLocalizationAcceptable(recipe: Recipe, recipeLanguage: string) {

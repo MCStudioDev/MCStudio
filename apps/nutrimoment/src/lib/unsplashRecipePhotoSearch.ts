@@ -7,7 +7,9 @@ import {
 
 const UNSPLASH_APP_NAME = "nutrimoment";
 const unsplashAccessKey = process.env.UNSPLASH_ACCESS_KEY ?? process.env.UNSPLASH_API_KEY ?? "";
-const PROVIDER_REQUEST_TIMEOUT_MS = 8000;
+const PROVIDER_REQUEST_TIMEOUT_MS = 4500;
+const PROVIDER_IDENTITY_QUERY_LIMIT = 2;
+const PROVIDER_REQUEST_VARIANT_LIMIT = 3;
 const BLOCKED_TERMS = ["dessert", "cake", "cookie", "pancake"];
 const NON_FOOD_TERMS = [
   "ancient",
@@ -51,6 +53,7 @@ const FOOD_CONTEXT_TERMS = [
 export interface UnsplashRecipePhotoLookupResult {
   attributionName: string;
   attributionUrl: string;
+  descriptiveText: string;
   imageUrl: string;
   matchedQuery: string;
   score: number;
@@ -95,7 +98,7 @@ export async function findUnsplashRecipePhoto(
   if (!isUnsplashRecipePhotoSearchConfigured()) return null;
 
   const identity = buildRecipePhotoIdentity(query);
-  const candidates = Array.from(new Set([query, ...identity.searchQueries])).slice(0, 5);
+  const candidates = Array.from(new Set([query, ...identity.searchQueries])).slice(0, PROVIDER_IDENTITY_QUERY_LIMIT);
 
   const results = await Promise.allSettled(
     candidates.map((candidateQuery) => searchUnsplashPhotos(candidateQuery, identity, options?.excludeUrls))
@@ -109,6 +112,7 @@ export async function findUnsplashRecipePhoto(
   return {
     attributionName: bestCandidate.attributionName,
     attributionUrl: bestCandidate.attributionUrl,
+    descriptiveText: bestCandidate.descriptiveText,
     imageUrl: bestCandidate.url,
     matchedQuery: bestCandidate.matchedQuery,
     score: bestCandidate.score,
@@ -158,6 +162,7 @@ async function searchUnsplashPhotos(
         return {
           attributionName: photographerName,
           attributionUrl: photographerUrl,
+          descriptiveText: descriptiveHaystack,
           matchedQuery: requestQuery,
           score: scoreUnsplashCandidate(descriptiveHaystack, attributionHaystack, imageUrl, identity, requestQuery, photo),
           url: imageUrl
@@ -388,7 +393,7 @@ function buildUnsplashRequestQueries(query: string, identity: ReturnType<typeof 
     .map((value) => normalizeRecipePhotoQuery(value))
     .filter((value) => value.length >= 3);
 
-  return Array.from(new Set(values)).slice(0, 8);
+  return Array.from(new Set(values)).slice(0, PROVIDER_REQUEST_VARIANT_LIMIT);
 }
 
 function looksLikeFoodPhoto(

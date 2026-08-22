@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { RecipeGenerationStatus } from "../lib/RecipeGenerationStatus";
-import { buildRecipeGenerationStatusDetail } from "../lib/recipeGenerationPresentation";
+import {
+  buildRecipeGenerationStatusDetail,
+  resolveDisplayedRecipeGenerationStatus
+} from "../lib/recipeGenerationPresentation";
 
 describe("recipe generation presentation", () => {
+  it("always presents an empty recipe response as no results", () => {
+    expect(resolveDisplayedRecipeGenerationStatus({
+      status: RecipeGenerationStatus.PARTIAL_RESULTS,
+      servedFrom: "shared_pool",
+      returnedCount: 0,
+      requestedCount: 10
+    })).toBe(RecipeGenerationStatus.NO_RESULTS);
+  });
+
   it("reports the exact partial result count", () => {
     expect(buildRecipeGenerationStatusDetail({
       returnedCount: 6,

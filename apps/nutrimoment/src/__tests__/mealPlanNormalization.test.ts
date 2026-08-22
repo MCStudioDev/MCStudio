@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+import { normalizeMealPlanData } from "@/lib/mealPlan";
+
+describe("meal plan normalization", () => {
+  it("preserves validated recipe and photo identity fields", () => {
+    const meal = {
+      name: "Chickpea Tomato Stew",
+      cuisine: "Mediterranean",
+      recipe_source_type: "local_database",
+      source_recipe_id: "chickpea-tomato-stew",
+      meal_type: "dinner",
+      calories: 450,
+      protein: "18g",
+      carbs: "62g",
+      fat: "14g",
+      ingredients: ["1 cup chickpeas", "1 cup tomato"],
+      steps: ["Simmer 1 cup chickpeas with 1 cup tomato for 20 minutes until thick."],
+      cook_time: "25 minutes",
+      difficulty: "Easy",
+      image_url: "https://storage.googleapis.com/nutrimoment/recipe-photo-cache/chickpea-stew.webp",
+      image_source: "shared_pool",
+      photo_asset: {
+        url: "https://storage.googleapis.com/nutrimoment/recipe-photo-cache/chickpea-stew.webp",
+        source: "shared_pool",
+        dietTags: ["vegan"],
+        status: "ready",
+        validatedAt: 1234,
+        validatorHash: "validator-v1"
+      },
+      photo_identity: {
+        dish_slug: "chickpea-tomato-stew",
+        english_name: "Chickpea Tomato Stew"
+      }
+    };
+
+    const result = normalizeMealPlanData({
+      plan: [{ day: "Monday", breakfast: meal, lunch: meal, dinner: meal }],
+      shoppingList: []
+    });
+
+    expect(result?.plan[0].dinner).toMatchObject({
+      cook_time: "25 minutes",
+      difficulty: "Easy",
+      meal_type: "dinner",
+      recipe_source_type: "local_database",
+      source_recipe_id: "chickpea-tomato-stew",
+      image_source: "shared_pool",
+      photo_asset: {
+        status: "ready",
+        source: "shared_pool",
+        dietTags: ["vegan"],
+        validatorHash: "validator-v1"
+      },
+      photo_identity: {
+        dish_slug: "chickpea-tomato-stew"
+      }
+    });
+  });
+});

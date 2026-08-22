@@ -1,4 +1,4 @@
-import type { MealPlanData, MealPlanDay, PhotoIdentity } from "@/lib/types";
+import type { MealPlanData, MealPlanDay, PhotoIdentity, RecipeImageSource, RecipePhotoAsset } from "@/lib/types";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { normalizePhotoIdentity } from "@/lib/photoIdentityBuilders";
 
@@ -127,6 +127,9 @@ function normalizeMeal(value: unknown) {
   const imageUrl = readString(value, ["image_url", "imageUrl", "photo_url", "photoUrl"]);
   const hasDurableImage = isDurableRecipeImageUrl(imageUrl);
   const photoIdentity = readPhotoIdentity(value);
+  const photoAsset = readPhotoAsset(value);
+  const recipeSourceType = readString(value, ["recipe_source_type", "recipeSourceType"]);
+  const mealType = readString(value, ["meal_type", "mealType"]);
 
   return {
     ...value,
@@ -136,6 +139,17 @@ function normalizeMeal(value: unknown) {
     image_search_indices: imageSearchIndices,
     ingredients,
     steps,
+    cook_time: readString(value, ["cook_time", "cookTime", "total_time", "totalTime"]),
+    difficulty: readString(value, ["difficulty"]),
+    source_recipe_id: readString(value, ["source_recipe_id", "sourceRecipeId"]),
+    recipe_source_type:
+      recipeSourceType === "local_database" || recipeSourceType === "external_source" || recipeSourceType === "generated"
+        ? recipeSourceType
+        : undefined,
+    meal_type:
+      mealType === "breakfast" || mealType === "lunch" || mealType === "dinner" || mealType === "snack"
+        ? mealType
+        : undefined,
     calories: readNumber(value, ["calories", "kcal"]),
     protein: readMacro(value, ["protein"]),
     carbs: readMacro(value, ["carbs", "carbohydrates"]),
@@ -144,8 +158,35 @@ function normalizeMeal(value: unknown) {
     image_source: hasDurableImage ? readString(value, ["image_source", "imageSource"]) : undefined,
     image_attribution_name: hasDurableImage ? readString(value, ["image_attribution_name", "imageAttributionName"]) : undefined,
     image_attribution_url: hasDurableImage ? readString(value, ["image_attribution_url", "imageAttributionUrl"]) : undefined,
+    photo_asset: hasDurableImage && photoAsset?.status === "ready"
+      ? { ...photoAsset, url: imageUrl }
+      : photoAsset?.status === "pending"
+        ? photoAsset
+        : undefined,
     photo_identity: photoIdentity
   };
+}
+
+function readPhotoAsset(record: UnknownRecord): RecipePhotoAsset | undefined {
+  const raw = record["photo_asset"] ?? record["photoAsset"];
+  if (!isRecord(raw)) return undefined;
+  const status = raw.status === "ready" ? "ready" : raw.status === "pending" ? "pending" : null;
+  if (!status) return undefined;
+  const source = readString(raw, ["source"]);
+  return {
+    url: readString(raw, ["url"]) || undefined,
+    source: isRecipeImageSource(source) ? source : undefined,
+    attributionName: readString(raw, ["attributionName", "attribution_name"]) || undefined,
+    attributionUrl: readString(raw, ["attributionUrl", "attribution_url"]) || undefined,
+    dietTags: readStringList(raw, ["dietTags", "diet_tags"]),
+    status,
+    validatedAt: readNumber(raw, ["validatedAt", "validated_at"]) || undefined,
+    validatorHash: readString(raw, ["validatorHash", "validator_hash"]) || undefined
+  };
+}
+
+function isRecipeImageSource(value: string): value is RecipeImageSource {
+  return ["api", "cache", "pexels", "replicate", "search", "shared_pool", "unsplash", "wikimedia"].includes(value);
 }
 
 function readPhotoIdentity(record: UnknownRecord): PhotoIdentity | undefined {

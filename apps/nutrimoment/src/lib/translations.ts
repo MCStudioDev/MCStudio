@@ -345,13 +345,9 @@ export const translations = {
     privacyShort: "Privacy"
     ,
     ingredientSnapshot: "Ingredient snapshot",
-    curatedFallback: "Curated fallback",
-    awaitingPlatedMatch: "Awaiting a stronger plated match",
-    hideWeakMatches: "We hide weak image matches so the recipe stays accurate.",
     findingPhoto: "Finding photo",
     generatingRecipeImage: "Generating recipe image",
     recipeImageLoadingHint: "We are creating a fresh premium image for this recipe now.",
-    noExactPhoto: "No exact photo",
     retryPhoto: "Retry photo",
     hoverPreview: "Hover for preview, click for full recipe",
     fullRecipeDetails: "Full recipe details available inside",

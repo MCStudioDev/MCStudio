@@ -18,20 +18,22 @@ import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { containerVariants, itemVariants } from "@/lib/animations";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import { formatDate } from "@/lib/utils";
-import type { Recipe } from "@/lib/types";
+import type { Recipe, RecipeImageSource } from "@/lib/types";
+import { canReuseRecipePhotoForDiet } from "@/services/recipePhotoReusePolicy";
 import { EmptyState, SectionHero } from "./shared";
 
 const HISTORY_INITIAL_ENTRY_COUNT = 6;
 const HISTORY_LOAD_MORE_COUNT = 6;
 const HISTORY_EAGER_IMAGE_COUNT = 3;
-const HISTORY_PREMIUM_IMAGE_REPAIR_DELAYS_MS = [18 * 1000, 60 * 1000, 5 * 60 * 1000] as const;
 const HISTORY_IMAGE_CACHE_REPAIR_BATCH_SIZE = 30;
+const HISTORY_PREMIUM_IMAGE_CONCURRENCY = 2;
+const HISTORY_PREMIUM_IMAGE_TIMEOUT_MS = 70 * 1000;
 
 type HistoryPhotoBatchResult = {
   error?: string;
   imageAttributionName?: string;
   imageAttributionUrl?: string;
-  imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+  imageSource?: RecipeImageSource;
   imageUrl?: string;
   ok: boolean;
   status: number;
@@ -45,15 +47,14 @@ type ReusableHistoryImage = {
 };
 
 export function HistoryTab() {
-  const { t, setError, settings } = useApp();
+  const { t, setError, settings, health } = useApp();
   const { access, getAuthHeaders, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items, clear, removeEntry, loading, error: historyError, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
-  const [imageRepairVersion, setImageRepairVersion] = useState(0);
-  const [imageRepairAttempt, setImageRepairAttempt] = useState(0);
   const cacheRepairKeysRef = useRef<Set<string>>(new Set());
+  const [repairingPhotoKeys, setRepairingPhotoKeys] = useState<Set<string>>(() => new Set());
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -112,45 +113,25 @@ export function HistoryTab() {
     setVisibleEntryCount(HISTORY_INITIAL_ENTRY_COUNT);
   }, [searchQuery]);
 
-  const visibleMissingPremiumImages = useMemo(() => {
-    if (!hasGeneratedImageAccess) return 0;
-    return visibleItems.reduce(
-      (count, entry) =>
-        count + entry.recipes.filter((recipe) => !hasStrictRenderableImage(recipe.image_url, true)).length,
-      0
+  useEffect(() => {
+    if (!user || !visibleItems.length) return;
+
+    const reusableImagesByKey = buildReusableHistoryImageIndex(
+      items,
+      hasGeneratedImageAccess,
+      health.diets
     );
-  }, [hasGeneratedImageAccess, visibleItems]);
-
-  useEffect(() => {
-    setImageRepairAttempt(0);
-  }, [visibleMissingPremiumImages]);
-
-  useEffect(() => {
-    if (!visibleMissingPremiumImages) return;
-    const delay = HISTORY_PREMIUM_IMAGE_REPAIR_DELAYS_MS[imageRepairAttempt];
-    if (delay == null) return;
-
-    const timeout = globalThis.setTimeout(() => {
-      setImageRepairVersion((value) => value + 1);
-      setImageRepairAttempt((value) => value + 1);
-    }, delay);
-    return () => globalThis.clearTimeout(timeout);
-  }, [imageRepairAttempt, visibleMissingPremiumImages]);
-
-  useEffect(() => {
-    if (!hasGeneratedImageAccess || !user || !visibleItems.length) return;
-
-    const reusableImagesByKey = buildReusableHistoryImageIndex(items, hasGeneratedImageAccess);
     const reusableMatches: Array<{
       entryId: string;
       image: ReusableHistoryImage;
       recipeIndex: number;
+      repairKey: string;
     }> = [];
     const candidates = visibleItems.flatMap((entry) =>
       entry.recipes
         .map((recipe, recipeIndex) => {
-          if (hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess)) return null;
-          const repairKey = buildHistoryPhotoRepairKey(entry.id, recipeIndex, recipe);
+          if (canReuseRecipePhotoForDiet(recipe, health.diets, hasGeneratedImageAccess)) return null;
+          const repairKey = buildHistoryPhotoRepairKey(entry.id, recipeIndex, recipe, health.diets);
           if (cacheRepairKeysRef.current.has(repairKey)) return null;
           cacheRepairKeysRef.current.add(repairKey);
 
@@ -159,7 +140,8 @@ export function HistoryTab() {
             reusableMatches.push({
               entryId: entry.id,
               image: reusableImage,
-              recipeIndex
+              recipeIndex,
+              repairKey
             });
             return null;
           }
@@ -178,12 +160,16 @@ export function HistoryTab() {
 
     if (!candidates.length && !reusableMatches.length) return;
 
-    let cancelled = false;
+    const repairKeys = [
+      ...reusableMatches.map((match) => match.repairKey),
+      ...candidates.map((candidate) => candidate.queryKey)
+    ];
+    setRepairingPhotoKeys((current) => new Set([...current, ...repairKeys]));
 
     const repairFromCache = async () => {
       try {
+        const premiumGenerationCandidates: typeof candidates = [];
         for (const match of reusableMatches) {
-          if (cancelled) return;
           await updateRecipeImage(
             match.entryId,
             match.recipeIndex,
@@ -204,6 +190,7 @@ export function HistoryTab() {
                 alt: candidate.queries.slice(1),
                 cacheOnly: true,
                 cuisine: buildRecipePhotoCuisine(candidate.recipe),
+                diet: health.diets,
                 exact: buildRecipePhotoExactNames(candidate.recipe),
                 ingredient: buildRecipePhotoPromptIngredients(candidate.recipe).slice(0, 10),
                 ...buildRecipePhotoIdentityBatchParams(candidate.recipe),
@@ -216,11 +203,10 @@ export function HistoryTab() {
           const payload = (await response.json().catch(() => ({ results: {} }))) as {
             results?: Record<string, HistoryPhotoBatchResult>;
           };
-          if (cancelled) return;
 
           for (const candidate of chunk) {
             const data = payload.results?.[candidate.queryKey];
-            if (data?.ok && hasStrictRenderableImage(data.imageUrl, true)) {
+            if (isReusableHistoryPhotoResponse(candidate.recipe, data, health.diets, hasGeneratedImageAccess)) {
               await updateRecipeImage(
                 candidate.entryId,
                 candidate.recipeIndex,
@@ -229,20 +215,45 @@ export function HistoryTab() {
                 data.imageSource,
                 { name: data.imageAttributionName, url: data.imageAttributionUrl }
               );
+            } else if (hasGeneratedImageAccess && candidate.entryId === visibleItems[0]?.id) {
+              premiumGenerationCandidates.push(candidate);
             }
           }
         }
+
+        await runHistoryPhotoTasks(
+          premiumGenerationCandidates,
+          HISTORY_PREMIUM_IMAGE_CONCURRENCY,
+          async (candidate) => {
+            const response = await fetch(buildHistoryRecipePhotoRequestUrl(candidate.recipe, health.diets), {
+              headers: await getAuthHeaders(),
+              signal: AbortSignal.timeout(HISTORY_PREMIUM_IMAGE_TIMEOUT_MS)
+            });
+            const data = (await response.json().catch(() => null)) as HistoryPhotoBatchResult | null;
+            if (!response.ok || !isReusableHistoryPhotoResponse(candidate.recipe, data, health.diets, true)) return;
+            await updateRecipeImage(
+              candidate.entryId,
+              candidate.recipeIndex,
+              data.imageUrl,
+              false,
+              data.imageSource,
+              { name: data.imageAttributionName, url: data.imageAttributionUrl }
+            );
+          }
+        );
       } catch {
         candidates.forEach((candidate) => cacheRepairKeysRef.current.delete(candidate.queryKey));
+      } finally {
+        setRepairingPhotoKeys((current) => {
+          const next = new Set(current);
+          repairKeys.forEach((key) => next.delete(key));
+          return next;
+        });
       }
     };
 
     void repairFromCache();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getAuthHeaders, hasGeneratedImageAccess, items, updateRecipeImage, user, visibleItems]);
+  }, [getAuthHeaders, hasGeneratedImageAccess, health.diets, items, updateRecipeImage, user, visibleItems]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -359,19 +370,28 @@ export function HistoryTab() {
 
                 {entry.recipes.length ? (
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
-                    {entry.recipes.map((recipe, recipeIndex) => (
-                    <MealRevealCard
+                    {entry.recipes.map((recipe, recipeIndex) => {
+                      const repairKey = buildHistoryPhotoRepairKey(entry.id, recipeIndex, recipe, health.diets);
+                      const imageLoading = repairingPhotoKeys.has(repairKey);
+                      return (
+                      <MealRevealCard
                       key={`${entry.id}-${recipe.id ?? recipeIndex}`}
+                      disableAutoImageLookup
                       deferImageLookup={entryIndex !== 0 || recipeIndex >= HISTORY_EAGER_IMAGE_COUNT}
-                      imageLookupVersion={imageRepairVersion}
+                      trustProvidedImage
                       eyebrow={getRecipeEyebrow(recipe, t)}
                       name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
                       visualMatchLabel={recipe.visual_match_label}
                       summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                       previewLabel={getRecipePreviewLabel(recipe, t)}
                       previewItems={buildRecipePreviewItems(recipe)}
-                      imageUrl={getHistoryRecipeImageUrl(recipe, hasGeneratedImageAccess)}
+                      imageUrl={getHistoryRecipeImageUrl(recipe, hasGeneratedImageAccess, health.diets)}
                       imageSource={recipe.image_source}
+                      imageDiets={health.diets}
+                      imageLoading={imageLoading}
+                      imageError={
+                        !imageLoading && !canReuseRecipePhotoForDiet(recipe, health.diets, hasGeneratedImageAccess)
+                      }
                       recipeSource={recipe.recipe_source_type}
                       recipeSourceUrl={recipe.source_url}
                       imageAttributionName={recipe.image_attribution_name}
@@ -406,7 +426,8 @@ export function HistoryTab() {
                       stats={buildRecipeStats(recipe)}
                       sections={buildRecipeSections(recipe, t)}
                     />
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : null}
               </Card>
@@ -481,21 +502,66 @@ function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedO
   return isUsableRecipeImageForAccess(imageUrl, strictGeneratedOnly);
 }
 
-function getHistoryRecipeImageUrl(recipe: Recipe, strictGeneratedOnly: boolean) {
-  return hasStrictRenderableImage(recipe.image_url, strictGeneratedOnly) ? recipe.image_url : undefined;
+function isReusableHistoryPhotoResponse(
+  recipe: Recipe,
+  data: HistoryPhotoBatchResult | null | undefined,
+  diets: string[],
+  hasGeneratedImageAccess: boolean
+): data is HistoryPhotoBatchResult & { imageUrl: string } {
+  if (!data?.ok || !hasStrictRenderableImage(data.imageUrl, hasGeneratedImageAccess)) return false;
+  return canReuseRecipePhotoForDiet({
+    ...recipe,
+    image_source: data.imageSource,
+    image_url: data.imageUrl
+  }, diets, hasGeneratedImageAccess);
 }
 
-function buildReusableHistoryImageIndex(items: Array<{ recipes: Recipe[] }>, strictGeneratedOnly: boolean) {
+function buildHistoryRecipePhotoRequestUrl(recipe: Recipe, diets: string[]) {
+  const queries = buildRecipePhotoQuery(recipe);
+  const params = new URLSearchParams();
+  params.set("query", queries[0] ?? recipe.name);
+  queries.slice(1, 5).forEach((query) => params.append("alt", query));
+  buildRecipePhotoExactNames(recipe).forEach((name) => params.append("exact", name));
+  buildRecipePhotoPromptIngredients(recipe).slice(0, 10).forEach((ingredient) => params.append("ingredient", ingredient));
+  diets.forEach((diet) => params.append("diet", diet));
+  const cuisine = normalizeHistoryRecipePhotoParam(buildRecipePhotoCuisine(recipe));
+  if (cuisine) params.set("cuisine", cuisine);
+
+  Object.entries(buildRecipePhotoIdentityBatchParams(recipe)).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `/api/recipe-photo?${params.toString()}`;
+}
+
+async function runHistoryPhotoTasks<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+) {
+  for (let index = 0; index < items.length; index += concurrency) {
+    await Promise.allSettled(items.slice(index, index + concurrency).map(worker));
+  }
+}
+
+function getHistoryRecipeImageUrl(recipe: Recipe, strictGeneratedOnly: boolean, diets: string[]) {
+  return canReuseRecipePhotoForDiet(recipe, diets, strictGeneratedOnly) ? recipe.image_url : undefined;
+}
+
+function buildReusableHistoryImageIndex(
+  items: Array<{ recipes: Recipe[] }>,
+  strictGeneratedOnly: boolean,
+  diets: string[]
+) {
   const imagesByKey = new Map<string, ReusableHistoryImage>();
 
   for (const entry of items) {
     for (const recipe of entry.recipes) {
-      if (!hasStrictRenderableImage(recipe.image_url, strictGeneratedOnly)) continue;
+      if (!canReuseRecipePhotoForDiet(recipe, diets, strictGeneratedOnly)) continue;
       const image: ReusableHistoryImage = {
         imageAttributionName: recipe.image_attribution_name,
         imageAttributionUrl: recipe.image_attribution_url,
         imageSource: recipe.image_source,
-        imageUrl: recipe.image_url
+        imageUrl: recipe.image_url!
       };
 
       for (const key of buildReusableHistoryRecipeKeys(recipe)) {
@@ -535,10 +601,11 @@ function normalizeHistoryRecipeImageKey(value?: string) {
     .replace(/\s+/g, " ");
 }
 
-function buildHistoryPhotoRepairKey(entryId: string, recipeIndex: number, recipe: Recipe) {
+function buildHistoryPhotoRepairKey(entryId: string, recipeIndex: number, recipe: Recipe, diets: string[]) {
   return [
     entryId,
     recipeIndex,
+    diets.map((diet) => diet.trim().toLowerCase()).sort().join("+"),
     recipe.photo_identity?.dish_slug,
     buildRecipePhotoExactNames(recipe).join("||"),
     buildRecipePhotoQuery(recipe).join("||")

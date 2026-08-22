@@ -25,6 +25,8 @@ const REPLICATE_WAIT_SECONDS = 40;
 const REPLICATE_CANCEL_AFTER_SECONDS = 55;
 const REPLICATE_POLL_ATTEMPTS = 6;
 const REPLICATE_POLL_DELAY_MS = 1500;
+const REPLICATE_CREATE_REQUEST_TIMEOUT_MS = 45 * 1000;
+const REPLICATE_POLL_REQUEST_TIMEOUT_MS = 8 * 1000;
 
 interface DishVisualPrompt {
   englishName: string;
@@ -1946,7 +1948,8 @@ async function createReplicatePrediction(body: { input: Record<string, unknown>;
       "Cancel-After": `${REPLICATE_CANCEL_AFTER_SECONDS}s`,
       Prefer: `wait=${REPLICATE_WAIT_SECONDS}`
     }),
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REPLICATE_CREATE_REQUEST_TIMEOUT_MS)
   });
 
   const prediction = (await response.json().catch(() => null)) as ReplicatePrediction | null;
@@ -1974,7 +1977,8 @@ async function waitForReplicatePrediction(initialPrediction: ReplicatePrediction
     await sleep(REPLICATE_POLL_DELAY_MS);
 
     const response = await fetch(pollUrl, {
-      headers: buildReplicateHeaders()
+      headers: buildReplicateHeaders(),
+      signal: AbortSignal.timeout(REPLICATE_POLL_REQUEST_TIMEOUT_MS)
     });
     const nextPrediction = (await response.json().catch(() => null)) as ReplicatePrediction | null;
 

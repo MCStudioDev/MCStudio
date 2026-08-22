@@ -127,6 +127,11 @@ function normalizeRecipeCatalogRuntimeShape(recipe: RecipeCatalogDoc): RecipeCat
     description: typeof recipe.description === "string" ? recipe.description : "",
     ingredients,
     ingredientCanonicals,
+    ingredientLookupCanonicals: normalizeStringArray(
+      recipe.ingredientLookupCanonicals?.length
+        ? recipe.ingredientLookupCanonicals
+        : ingredientCanonicals
+    ),
     requiredCanonicals: normalizeStringArray(recipe.requiredCanonicals),
     optionalCanonicals: normalizeStringArray(recipe.optionalCanonicals),
     dietTags: normalizeStringArray(recipe.dietTags),
@@ -137,7 +142,14 @@ function normalizeRecipeCatalogRuntimeShape(recipe: RecipeCatalogDoc): RecipeCat
       thumbPath: recipe.image?.thumbPath,
       signature: recipe.image?.signature,
       sharedCacheKey: recipe.image?.sharedCacheKey,
-      sourceQuery: recipe.image?.sourceQuery
+      sourceQuery: recipe.image?.sourceQuery,
+      source: recipe.image?.source,
+      attributionName: recipe.image?.attributionName,
+      attributionUrl: recipe.image?.attributionUrl,
+      dietTags: normalizeStringArray(recipe.image?.dietTags),
+      status: recipe.image?.status,
+      validatedAt: recipe.image?.validatedAt,
+      validatorHash: recipe.image?.validatorHash
     },
     regionalCuisines: normalizeStringArray(recipe.regionalCuisines),
     styleTags: normalizeStringArray(recipe.styleTags),

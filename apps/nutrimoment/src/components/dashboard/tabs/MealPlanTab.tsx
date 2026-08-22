@@ -341,15 +341,26 @@ export function MealPlanTab() {
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           allergens: health.allergens ?? [],
+          conditions: health.conditions,
           diets: health.diets,
           mealPlan: nextMealPlan,
+          preferredCuisine: settings.preferredCuisine,
           uiLanguage: settings.uiLanguage
         })
       });
     } catch {
       // Recipe-cache persistence is a background convenience; the user plan is already saved.
     }
-  }, [getAuthHeaders, hasGeneratedImageAccess, health.allergens, health.diets, settings.uiLanguage, user]);
+  }, [
+    getAuthHeaders,
+    hasGeneratedImageAccess,
+    health.allergens,
+    health.conditions,
+    health.diets,
+    settings.preferredCuisine,
+    settings.uiLanguage,
+    user
+  ]);
 
   const resolveMealPlanImages = useCallback(async () => {
     void mealPlanImagePlanKey;

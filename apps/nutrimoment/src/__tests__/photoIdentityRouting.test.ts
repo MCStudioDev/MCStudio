@@ -38,6 +38,12 @@ const baseCatalog: RecipeCatalogDoc = {
 };
 
 describe("photo identity routing", () => {
+  it("maps common Farakh Meshwi transliteration variants to one canonical dish", () => {
+    expect(buildRecipePhotoIdentity("Frakh Meshwi").canonicalDishKey).toBe("farakh-meshwi");
+    expect(buildRecipePhotoIdentity("Farkh Meshwi").canonicalDishKey).toBe("farakh-meshwi");
+    expect(buildRecipePhotoIdentity("Farakh Meshwi").canonicalDishKey).toBe("farakh-meshwi");
+  });
+
   it("derives a usable identity from a catalog row", () => {
     const identity = buildPhotoIdentityFromCatalog(baseCatalog);
     expect(identity).toMatchObject({

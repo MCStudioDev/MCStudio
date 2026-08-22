@@ -43,6 +43,7 @@ import { IngredientGraph } from "@/food/IngredientGraph";
 import { RecipeDiversityEngine } from "@/food/RecipeDiversityEngine";
 import { getIngredientProfileForTerm, normalizeIngredientText } from "@/food/IngredientNormalizer";
 import type { IngredientNormalizationResult } from "@/services/ingredientNormalizationService";
+import { countMissingIngredientPurchaseBurden } from "@/services/recipeMissingIngredientPolicyService";
 import { buildRecipeDiscoveryPlan, type RecipeDiscoveryPlan } from "@/services/recipePipeline/recipeDiscoveryPlan";
 import {
   createRecipeIngredientCompatibilityEvaluator,
@@ -51,6 +52,8 @@ import {
 import {
   partitionRecipeCatalogByQuality
 } from "@/services/recipeContentQualityService";
+import { findRecipeDietViolation } from "@/lib/dietEnforcement";
+import { attachValidatedRecipePhotoAsset } from "@/services/recipePhotoReusePolicy";
 
 const recipeDiversityEngine = new RecipeDiversityEngine();
 const ingredientGraph = new IngredientGraph();
@@ -75,6 +78,7 @@ export interface CatalogRecipeSearchInput {
   includeFirestoreReferences?: boolean;
   allowRemoteCaches?: boolean;
   forceSharedCacheRead?: boolean;
+  skipStaticSources?: boolean;
   maxMissingIngredients?: number;
 }
 
@@ -111,7 +115,14 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   const normalizationCompletedAt = Date.now();
 
   const limit = input.maxResults ?? 3;
-  const { seededRecipes, cuisineCatalogRecipes, realSourceArtifactRecipes, quarantinedRecipes } = getStaticLocalRecipeSources();
+  const { seededRecipes, cuisineCatalogRecipes, realSourceArtifactRecipes, quarantinedRecipes } = input.skipStaticSources
+    ? {
+        seededRecipes: [],
+        cuisineCatalogRecipes: [],
+        realSourceArtifactRecipes: [],
+        quarantinedRecipes: []
+      }
+    : getStaticLocalRecipeSources();
   const localSourceCount = seededRecipes.length + cuisineCatalogRecipes.length + realSourceArtifactRecipes.length;
   const warmSharedRecipeCache = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
   const forceSharedCacheRead = input.forceSharedCacheRead === true;
@@ -151,7 +162,11 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     ...cuisineCatalogRecipes
   ]));
   const allQuarantinedRecipes = [...quarantinedRecipes, ...recipePoolQuality.quarantined];
-  const primaryRecipePool = recipePoolQuality.discoverable;
+  const primaryRecipePool = filterRecipeCatalogByDietConstraints(
+    recipePoolQuality.discoverable,
+    input.diets ?? [],
+    input.allergens ?? []
+  );
   const cuisineFocusedRecipePool = selectRecipeSearchCuisinePool(
     primaryRecipePool,
     preferences.preferredCuisine
@@ -202,7 +217,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   const safeSharedPoolRanked = mergeDistinctRankedResults(
     evidenceCompatibleRanked,
     primaryCompatibleRanked
-  ).filter((result) => result.missingRequired.length + result.missingOptional.length <= missingIngredientLimit);
+  ).filter((result) => countNonPantryMissingIngredients(result, normalized.raw.length) <= missingIngredientLimit);
   const ingredientPrioritized = prioritizeIngredientMatches(safeSharedPoolRanked, ingredientMatchedRanked);
   const rankedResults = cuisineSearchOrder.length
     ? ingredientPrioritized
@@ -231,14 +246,17 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
         .concat(result.missingOptional)
         .filter((ingredient) => specializedCanonicals.has(ingredient));
       const mappedRecipe = specializedRecipe
-        ? mapCatalogRecipeToUiRecipe(
-            specializedRecipe,
-            specializedMissingIngredients,
-            result.matchQuality,
-            result.matchedRequiredCount,
-            result.matchedOptionalCount,
-            result.preferenceHits,
-            input.recipeLanguage
+        ? attachValidatedRecipePhotoAsset(
+            mapCatalogRecipeToUiRecipe(
+              specializedRecipe,
+              specializedMissingIngredients,
+              result.matchQuality,
+              result.matchedRequiredCount,
+              result.matchedOptionalCount,
+              result.preferenceHits,
+              input.recipeLanguage
+            ),
+            input.diets ?? []
           )
         : null;
       return mappedRecipe ? { recipe: mappedRecipe, result } : null;
@@ -290,6 +308,28 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     matchingRecipeCount: ingredientMatchedRanked.length,
     discoveryPlan
   };
+}
+
+export function filterRecipeCatalogByDietConstraints(
+  recipes: RecipeCatalogDoc[],
+  diets: string[],
+  allergens: string[]
+) {
+  if (!diets.length && !allergens.length) return recipes;
+
+  return recipes.filter((recipe) =>
+    findRecipeDietViolation(recipe, { diets, allergens }) === null
+  );
+}
+
+export function countNonPantryMissingIngredients(
+  result: Pick<RankedRecipeResult, "missingRequired" | "missingOptional">,
+  availableIngredientCount = 3
+) {
+  return countMissingIngredientPurchaseBurden(
+    [...result.missingRequired, ...result.missingOptional],
+    availableIngredientCount
+  );
 }
 
 export function selectRecipeSearchCuisinePool(
@@ -586,9 +626,22 @@ export function mapCatalogRecipeToUiRecipe(
     cook_time: normalizedRecipe.localized?.English?.cook_time ?? `${normalizedRecipe.totalMinutes} mins`,
     difficulty: normalizedRecipe.localized?.English?.difficulty ?? capitalize(normalizedRecipe.difficulty),
     image_url: englishImageUrl,
-    image_source: englishImageUrl ? normalizedRecipe.localized?.English?.image_source : undefined,
-    image_attribution_name: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_name : undefined,
-    image_attribution_url: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_url : undefined,
+    image_source: englishImageUrl ? normalizedRecipe.localized?.English?.image_source ?? normalizedRecipe.image.source : undefined,
+    image_attribution_name: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_name ?? normalizedRecipe.image.attributionName : undefined,
+    image_attribution_url: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_url ?? normalizedRecipe.image.attributionUrl : undefined,
+    photo_asset: englishImageUrl ? {
+      attributionName: normalizedRecipe.localized?.English?.image_attribution_name ?? normalizedRecipe.image.attributionName,
+      attributionUrl: normalizedRecipe.localized?.English?.image_attribution_url ?? normalizedRecipe.image.attributionUrl,
+      dietTags: normalizedRecipe.image.dietTags ?? normalizedRecipe.dietTags,
+      source: normalizedRecipe.localized?.English?.image_source ?? normalizedRecipe.image.source,
+      status: "ready",
+      url: englishImageUrl,
+      validatedAt: normalizedRecipe.image.validatedAt,
+      validatorHash: normalizedRecipe.image.validatorHash
+    } : {
+      dietTags: normalizedRecipe.image.dietTags ?? normalizedRecipe.dietTags,
+      status: "pending"
+    },
     image_search_index: normalizedRecipe.localized?.English?.image_search_index,
     image_search_indices: normalizedRecipe.localized?.English?.image_search_indices,
     match_quality: matchQuality,
@@ -657,7 +710,10 @@ export function mapCatalogRecipeToUiRecipe(
       });
 }
 
-export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): MealPlanMeal {
+export function mapCatalogRecipeToMeal(
+  recipe: RecipeCatalogDoc | undefined,
+  options: { diets?: string[]; recipeLanguage?: string } = {}
+): MealPlanMeal {
   if (!recipe) {
     return {
       name: "Flexible meal slot",
@@ -669,18 +725,41 @@ export function mapCatalogRecipeToMeal(recipe: RecipeCatalogDoc | undefined): Me
     };
   }
 
-  const photoIdentity = buildPhotoIdentityFromCatalog(recipe);
+  const uiRecipe = attachValidatedRecipePhotoAsset(
+    mapCatalogRecipeToUiRecipe(
+      recipe,
+      [],
+      "good",
+      recipe.requiredCanonicals.length,
+      recipe.optionalCanonicals.length,
+      [],
+      options.recipeLanguage ?? "English"
+    ),
+    options.diets ?? []
+  );
 
   return {
-    name: recipe.title,
-    cuisine: recipe.cuisine,
-    calories: recipe.calories,
-    protein: `${recipe.protein}g`,
-    carbs: `${recipe.carbs}g`,
-    fat: `${recipe.fat}g`,
-    ingredients: recipe.ingredientCanonicals,
-    steps: recipe.steps,
-    ...(photoIdentity ? { photo_identity: photoIdentity } : {})
+    name: uiRecipe.name,
+    cuisine: uiRecipe.cuisine,
+    recipe_source_type: "local_database",
+    source_recipe_id: recipe.id,
+    meal_type: recipe.mealType,
+    calories: uiRecipe.calories,
+    protein: uiRecipe.protein,
+    carbs: uiRecipe.carbs,
+    fat: uiRecipe.fat,
+    ingredients: [...uiRecipe.ingredients, ...uiRecipe.missing_ingredients],
+    steps: uiRecipe.steps,
+    cook_time: uiRecipe.cook_time,
+    difficulty: uiRecipe.difficulty,
+    image_search_index: uiRecipe.image_search_index,
+    image_search_indices: uiRecipe.image_search_indices,
+    image_url: uiRecipe.image_url,
+    image_source: uiRecipe.image_source,
+    image_attribution_name: uiRecipe.image_attribution_name,
+    image_attribution_url: uiRecipe.image_attribution_url,
+    photo_asset: uiRecipe.photo_asset,
+    photo_identity: uiRecipe.photo_identity
   };
 }
 

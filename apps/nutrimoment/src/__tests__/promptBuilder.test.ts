@@ -141,4 +141,21 @@ describe("PromptBuilder", () => {
     expect(PromptBuilder.recipeBatchGenerationSystemPrompt("English"))
       .toContain("combine the greatest number of requested anchors");
   });
+
+  it("gives meal plans the same quantified recipe fields as recipe generation", () => {
+    const prompt = PromptBuilder.mealPlan({
+      pantry: ["chickpeas", "tomato"],
+      diets: ["vegan"],
+      conditions: [],
+      recipeLanguage: "English",
+      preferredCuisine: "Mediterranean",
+      calorieTarget: 1800
+    });
+
+    expect(prompt).toContain("Every ingredient string must begin with a positive quantity and a recognizable unit");
+    expect(prompt).toContain("cook_time as total whole minutes in the exact format '<number> minutes'");
+    expect(prompt).toContain('"difficulty":"Easy"');
+    expect(prompt).toContain("maximize use of compatible pantry ingredients before adding groceries");
+    expect(prompt).toContain("Never invent pantry ownership");
+  });
 });

@@ -53,6 +53,8 @@ const TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bkposhary\b/gi, "koshary"],
   [/\bkoshari\b/gi, "koshary"],
   [/\bkushari\b/gi, "koshary"],
+  [/\bfrakh\b/gi, "farakh"],
+  [/\bfarkh\b/gi, "farakh"],
   [/\bborghol\b/gi, "bulgur"],
   [/\bburghul\b/gi, "bulgur"],
   [/\bburghol\b/gi, "bulgur"],
@@ -358,16 +360,22 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "roast-chicken"
   },
   {
-    aliases: [/\bbutter chicken\b/i],
-    canonicalName: "butter chicken",
-    cuisineKey: "indian",
-    key: "butter-chicken"
-  },
-  {
     aliases: [/\b(garlic butter chicken|garlic-butter chicken|lemon garlic butter chicken)\b/i],
     canonicalName: "garlic butter chicken",
     cuisineKey: "american",
     key: "garlic-butter-chicken"
+  },
+  {
+    aliases: [/\b(lemon butter chicken|lemon-butter chicken)\b/i],
+    canonicalName: "lemon butter chicken",
+    cuisineKey: "american",
+    key: "lemon-butter-chicken"
+  },
+  {
+    aliases: [/\bbutter chicken\b/i],
+    canonicalName: "butter chicken",
+    cuisineKey: "indian",
+    key: "butter-chicken"
   },
   {
     aliases: [/\bkung pao chicken\b/i],
@@ -2347,6 +2355,19 @@ export function normalizeRecipePhotoQuery(query: string) {
     .toLowerCase();
 
   return clean || "food";
+}
+
+export function buildGeneratedRecipePhotoCacheQuery(exactRecipeName: string | undefined, generationQuery: string) {
+  return exactRecipeName?.trim()
+    ? normalizeRecipePhotoQuery(exactRecipeName)
+    : normalizeRecipePhotoQuery(generationQuery);
+}
+
+export function buildGeneratedRecipePhotoStorageSlug(exactRecipeName: string | undefined, fallbackQuery: string) {
+  return buildGeneratedRecipePhotoCacheQuery(exactRecipeName, fallbackQuery)
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, "-")
+    .slice(0, 96);
 }
 
 function findCatalogKnownDish(normalizedQuery: string): KnownDishDefinition | null {

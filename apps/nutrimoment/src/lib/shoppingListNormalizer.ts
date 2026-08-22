@@ -30,8 +30,15 @@ const FORCE_MEASURED_SHOPPING_UNITS = new Set([
   "baking soda",
   "breadcrumbs",
   "bulgur",
+  "beans",
+  "black beans",
+  "canned beans",
+  "chickpeas",
   "couscous",
   "flour",
+  "garlic",
+  "kidney beans",
+  "lentils",
   "macaroni",
   "noodles",
   "oats",
@@ -43,6 +50,7 @@ const FORCE_MEASURED_SHOPPING_UNITS = new Set([
   "spaghetti",
   "tomato paste",
   "tomato sauce",
+  "white beans",
   "vinegar",
   "tahini",
   "honey",
@@ -154,6 +162,18 @@ export function buildNormalizedShoppingList(input: {
   return reconcileShoppingEntries(sourceEntries, input.pantryItems ?? [], input.displayLanguage === "ar" ? "ar" : "en");
 }
 
+export function buildShoppingListFromMealIngredients(input: {
+  displayLanguage: ShoppingLanguage | string;
+  mealPlan: Pick<MealPlanData, "plan">;
+  pantryItems?: ShoppingListPantryItem[];
+}) {
+  return reconcileShoppingEntries(
+    deriveEntriesFromMealPlan(input.mealPlan),
+    input.pantryItems ?? [],
+    input.displayLanguage === "ar" ? "ar" : "en"
+  );
+}
+
 export function reconcileShoppingListWithPantryAndLanguage(
   shoppingList: string[],
   pantryItems: ShoppingListPantryItem[],
@@ -171,7 +191,8 @@ function deriveEntriesFromMealPlan(mealPlan: Pick<MealPlanData, "plan"> | null) 
   return mealPlan.plan
     .flatMap((day) => [day.breakfast, day.lunch, day.dinner])
     .flatMap((meal) => meal.ingredients ?? [])
-    .map((ingredient) => `${ingredient} - 1 item`);
+    .map((ingredient) => ingredient.trim())
+    .filter(Boolean);
 }
 
 function reconcileShoppingEntries(entries: string[], pantryItems: ShoppingListPantryItem[], displayLanguage: ShoppingLanguage) {
@@ -294,7 +315,12 @@ function mergeCompatibleQuantity(current: ShoppingAmount, next: ShoppingAmount, 
 }
 
 function isVagueItemUnit(unit: string) {
-  return normalizeShoppingUnit(unit) === "whole";
+  const normalized = normalizeShoppingUnit(unit);
+  return normalized === "whole" ||
+    normalized === "portion" ||
+    normalized === "portions" ||
+    normalized === "serving" ||
+    normalized === "servings";
 }
 
 function isPackageLikeUnit(unit: string) {
@@ -330,6 +356,17 @@ function buildPantryStock(items: ShoppingListPantryItem[]) {
 function parseShoppingEntry(entry: string): { label: string; quantity: number; unit: string } | null {
   const normalized = normalizeNumerals(entry).replace(/[\u2013\u2014]/g, "-").trim();
   if (!normalized) return null;
+
+  const quantifiedIngredientMatch = normalized.match(
+    /^(\d+(?:\.\d+)?|\d+\s*\/\s*\d+)\s+([^\s]+)\s+(.+)$/
+  );
+  if (quantifiedIngredientMatch && !normalized.includes(" - ")) {
+    return {
+      label: quantifiedIngredientMatch[3].trim(),
+      quantity: parseShoppingNumber(quantifiedIngredientMatch[1]),
+      unit: normalizeShoppingDetailUnit(quantifiedIngredientMatch[2])
+    };
+  }
 
   const [namePart, ...detailParts] = normalized.split(/\s+-\s+/);
   const label = namePart?.trim();
@@ -409,6 +446,13 @@ function normalizeShoppingUnit(unit: string) {
   if (!normalized) return "";
   if (normalized === TO_TASTE_UNIT) return TO_TASTE_UNIT;
   return normalizeUnit(ARABIC_UNIT_ALIASES[normalized] ?? normalized);
+}
+
+function parseShoppingNumber(value: string) {
+  const fraction = value.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (!fraction) return Number.parseFloat(value);
+  const denominator = Number.parseFloat(fraction[2]);
+  return denominator ? Number.parseFloat(fraction[1]) / denominator : 0;
 }
 
 function chooseShoppingUnit(canonical: string, unit: string) {

@@ -1,7 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { buildNormalizedShoppingList } from "../lib/shoppingListNormalizer";
+import { buildNormalizedShoppingList, buildShoppingListFromMealIngredients } from "../lib/shoppingListNormalizer";
 
 describe("shopping list normalizer", () => {
+  it("derives one aggregated list from quantified meal ingredients and subtracts pantry stock", () => {
+    const meal = {
+      name: "Rice bowl",
+      calories: 400,
+      protein: "12g",
+      carbs: "60g",
+      fat: "10g",
+      ingredients: ["2 cups rice", "1 medium onion, chopped", "2 cloves garlic, minced"],
+      steps: ["Cook and serve."]
+    };
+    const list = buildShoppingListFromMealIngredients({
+      displayLanguage: "en",
+      mealPlan: {
+        plan: [{ day: "Monday", breakfast: meal, lunch: meal, dinner: meal }]
+      },
+      pantryItems: [
+        { name: "rice", quantity: "4 cup" },
+        { name: "onion", quantity: "2 whole" },
+        { name: "garlic", quantity: "4 clove" }
+      ]
+    });
+
+    expect(list).toEqual([
+      "garlic - 2 clove",
+      "onion - 1 item",
+      "rice - 2 cup"
+    ]);
+  });
+
+  it("normalizes vague portions for known pantry staples before subtracting stock", () => {
+    const meal = {
+      name: "Lentil bowl",
+      calories: 400,
+      protein: "16g",
+      carbs: "60g",
+      fat: "8g",
+      ingredients: ["2 portions lentils", "1 portion garlic", "1 cup chickpeas"],
+      steps: ["Cook and serve."]
+    };
+    const list = buildShoppingListFromMealIngredients({
+      displayLanguage: "en",
+      mealPlan: {
+        plan: [{ day: "Monday", breakfast: meal, lunch: meal, dinner: meal }]
+      },
+      pantryItems: [
+        { name: "lentils", quantity: "5 cup" },
+        { name: "garlic", quantity: "2 clove" },
+        { name: "chickpeas", quantity: "10 can" }
+      ]
+    });
+
+    expect(list).toEqual([
+      "chickpeas - 3 cup",
+      "garlic - 1 clove",
+      "lentils - 1 cup"
+    ]);
+  });
+
   it("merges duplicate Arabic ingredients when one line has a measured unit and another is a vague item count", () => {
     expect(
       buildNormalizedShoppingList({

@@ -6,9 +6,13 @@ import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import { isDurableRecipeImageUrl, isTransientRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export interface SharedRecipePhotoEntry {
+  canonicalDishKey?: string;
+  dietTags?: string[];
+  familyKey?: string;
   imageAttributionName?: string;
   imageAttributionUrl?: string;
   imageUrl: string;
+  mainIngredientKey?: string;
   model?: string;
   query: string;
   signature: string;
@@ -24,7 +28,6 @@ type SharedRecipePhotoCandidate = {
 
 const COLLECTION_NAME = "recipePhotoCache";
 const CATEGORY_VERSION = 2;
-const APPROXIMATE_CATEGORY_SCAN_LIMIT = 500;
 const SHARED_RECIPE_PHOTO_SOURCES = new Set<SharedRecipePhotoEntry["source"]>([
   "generated",
   "google_search",
@@ -74,6 +77,10 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
     imageAttributionName: typeof data.imageAttributionName === "string" ? data.imageAttributionName : undefined,
     imageAttributionUrl: typeof data.imageAttributionUrl === "string" ? data.imageAttributionUrl : getPexelsPhotoPageUrl(rawImageUrl),
     imageUrl,
+    canonicalDishKey: typeof data.canonicalDishKey === "string" ? data.canonicalDishKey : undefined,
+    dietTags: Array.isArray(data.dietTags) ? data.dietTags.filter((value: unknown): value is string => typeof value === "string") : undefined,
+    familyKey: typeof data.familyKey === "string" ? data.familyKey : undefined,
+    mainIngredientKey: typeof data.mainIngredientKey === "string" ? data.mainIngredientKey : undefined,
     model: typeof data.model === "string" ? data.model : undefined,
     query: typeof data.query === "string" ? data.query : "",
     signature,
@@ -84,13 +91,19 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
 export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
   if (!hasFirebaseAdminConfig()) return null;
 
-  const candidates = (
-    await Promise.all(signatures.map(async (signature, index) => {
-      const snapshot = await getAdminDb().collection(COLLECTION_NAME).doc(signature).get();
+  const db = getAdminDb();
+  const lookupSignatures = normalizeCacheLookupCandidates(signatures).slice(0, 16);
+  if (!lookupSignatures.length) return null;
+
+  const snapshots = await db.getAll(
+    ...lookupSignatures.map((signature) => db.collection(COLLECTION_NAME).doc(signature))
+  );
+  const candidates = snapshots
+    .map((snapshot, index) => {
       if (!snapshot.exists) return null;
 
       const raw = snapshot.data() ?? {};
-      const entry = mapSharedRecipePhotoData(raw, signature);
+      const entry = mapSharedRecipePhotoData(raw, snapshot.id);
       if (!entry) return null;
 
       return {
@@ -99,8 +112,8 @@ export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
         lookupIndex: index,
         raw
       } satisfies SharedRecipePhotoCandidate;
-    }))
-  ).filter((candidate): candidate is SharedRecipePhotoCandidate => Boolean(candidate));
+    })
+    .filter((candidate): candidate is SharedRecipePhotoCandidate => Boolean(candidate));
 
   return selectBestSharedRecipePhotoCandidate(candidates)?.entry ?? null;
 }
@@ -115,7 +128,9 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
   const queries = normalizeCacheLookupCandidates(input.queries ?? []);
   const db = getAdminDb();
 
-  const directDocCandidates = Array.from(new Set([...signatures, ...queries])).slice(0, 40);
+  const directDocCandidates = Array.from(new Set([...signatures, ...queries]))
+    .filter(isValidFirestoreDocumentIdSegment)
+    .slice(0, 16);
   const directCandidates = (
     await Promise.all(
       directDocCandidates.map(async (candidate, index) => {
@@ -149,54 +164,7 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
 
   const bestCandidate = selectBestSharedRecipePhotoCandidate(candidates);
   if (bestCandidate) return bestCandidate.entry;
-
-  // Backward-compatible scan for very old docs whose query/signature
-  // fields contain stray whitespace or casing differences and do not yet have
-  // normalized lookup keys. Keep this bounded so a photo request never walks the
-  // full collection.
-  const snapshot = await db
-    .collection(COLLECTION_NAME)
-    .limit(250)
-    .get()
-    .catch((error) => {
-      logger.warn("Shared recipe photo normalized lookup scan failed", {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return null;
-    });
-
-  if (!snapshot) return null;
-
-  const queryKeys = new Set(queries.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
-  const signatureKeys = new Set(signatures.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
-  const scanCandidates: SharedRecipePhotoCandidate[] = [];
-  for (const [index, docSnap] of snapshot.docs.entries()) {
-    const data = docSnap.data();
-    const docKeys = [
-      docSnap.id,
-      data.query,
-      data.signature,
-      data.queryKey,
-      data.signatureKey
-    ]
-      .filter((value): value is string => typeof value === "string")
-      .map(normalizeRecipePhotoCacheLookupKey)
-      .filter(Boolean);
-
-    if (docKeys.some((key) => queryKeys.has(key) || signatureKeys.has(key))) {
-      const entry = mapSharedRecipePhotoData(data, docSnap.id);
-      if (entry) {
-        scanCandidates.push({
-          docId: docSnap.id,
-          entry,
-          lookupIndex: index,
-          raw: data
-        });
-      }
-    }
-  }
-
-  return selectBestSharedRecipePhotoCandidate(scanCandidates)?.entry ?? null;
+  return null;
 }
 
 export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
@@ -336,16 +304,13 @@ export async function getSharedRecipePhotoByApproximateCategory(input: {
     ...mealTypeKeys.map((key) => ({ field: "mealTypeKey", key }))
   ];
   const snapshots = await Promise.all(
-    lookupPairs.slice(0, 36).map(({ field, key }) => getRecipePhotoCacheCategorySnapshot(field, key))
+    lookupPairs.slice(0, 8).map(({ field, key }) => getRecipePhotoCacheCategorySnapshot(field, key))
   );
   const docsById = new Map<string, FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>>();
   snapshots.forEach((snapshot) => {
     snapshot?.docs.forEach((docSnap) => docsById.set(docSnap.id, docSnap));
   });
-  if (docsById.size === 0 || !lookupPairs.length) {
-    const scanSnapshot = await getRecipePhotoCacheApproximateScanSnapshot();
-    scanSnapshot?.docs.forEach((docSnap) => docsById.set(docSnap.id, docSnap));
-  }
+  if (docsById.size === 0 || !lookupPairs.length) return null;
 
   const candidates = Array.from(docsById.values())
     .map((docSnap) => ({
@@ -443,18 +408,15 @@ function stableRecipePhotoCacheHash(value: string) {
   return hash >>> 0;
 }
 
-async function getRecipePhotoCacheApproximateScanSnapshot() {
-  try {
-    return await getAdminDb()
-      .collection(COLLECTION_NAME)
-      .limit(APPROXIMATE_CATEGORY_SCAN_LIMIT)
-      .get();
-  } catch (error) {
-    logger.warn("Shared recipe photo approximate scan failed", {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return null;
-  }
+function isValidFirestoreDocumentIdSegment(value: string) {
+  const normalized = value.trim();
+  return Boolean(
+    normalized &&
+    normalized !== "." &&
+    normalized !== ".." &&
+    !normalized.includes("/") &&
+    normalized.length <= 500
+  );
 }
 
 async function getRecipePhotoCacheCategorySnapshot(field: string, mainIngredientKey: string) {
@@ -956,6 +918,7 @@ export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
         imageAttributionName: nextEntry.imageAttributionName ?? null,
         imageAttributionUrl: nextEntry.imageAttributionUrl ?? null,
         model: nextEntry.model ?? null,
+        dietTags: nextEntry.dietTags ?? [],
         query: nextEntry.query,
         queryKey: normalizeRecipePhotoCacheLookupKey(nextEntry.query),
         signature: nextEntry.signature,
@@ -998,6 +961,7 @@ export async function persistSharedRecipePhotoAliases(entry: SharedRecipePhotoEn
             imageAttributionName: persisted.imageAttributionName ?? null,
             imageAttributionUrl: persisted.imageAttributionUrl ?? null,
             model: persisted.model ?? null,
+            dietTags: persisted.dietTags ?? [],
             query: persisted.query,
             queryKey: normalizeRecipePhotoCacheLookupKey(persisted.query),
             signature: alias,

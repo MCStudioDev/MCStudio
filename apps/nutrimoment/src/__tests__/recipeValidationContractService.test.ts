@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeCatalogDoc } from "../lib/domain";
-import { auditSharedRecipePoolDocument, isSharedRecipePublishable } from "../services/sharedRecipePoolQualityService";
+import {
+  auditSharedRecipePoolDocument,
+  canonicalizeSharedRecipeForPublication,
+  isSharedRecipePublishable
+} from "../services/sharedRecipePoolQualityService";
 import { partitionRecipeCatalogByQuality } from "../services/recipeContentQualityService";
 import {
   buildSharedRecipeIdentityKey,
@@ -135,6 +139,20 @@ describe("Premium recipe validation contract", () => {
     expect(buildSharedRecipeIdentityKey(source)).not.toContain("ful-bel-bayd");
   });
 
+  it("keeps distinct accepted titles separate when localized dish metadata shares a family", () => {
+    const kofta = recipe({
+      title: "Kofta",
+      localized: { English: { name: "Kofta", cuisine: "Egyptian", ingredients: [], missing_ingredients: [], steps: [], calories: 0, protein: "0g", carbs: "0g", fat: "0g", cook_time: "30 minutes", difficulty: "Medium" } }
+    });
+    const koftaPatties = recipe({
+      title: "Kofta Patties",
+      localized: { English: { name: "Kofta", cuisine: "Egyptian", ingredients: [], missing_ingredients: [], steps: [], calories: 0, protein: "0g", carbs: "0g", fat: "0g", cook_time: "30 minutes", difficulty: "Medium" } }
+    });
+
+    expect(buildSharedRecipeIdentityKey(koftaPatties)).toContain("kofta-patties");
+    expect(buildSharedRecipeIdentityKey(koftaPatties)).not.toBe(buildSharedRecipeIdentityKey(kofta));
+  });
+
   it("prefers a Premium-validated version over an older unvalidated document", () => {
     const existing = recipe({ qualityScore: 95, updatedAt: 100 });
     const incoming = premiumValidatedRecipe({ qualityScore: 80, updatedAt: 101 });
@@ -151,6 +169,12 @@ describe("Premium recipe validation contract", () => {
     if (!weakerReceipt) throw new Error("Expected a Premium validation receipt");
     const incoming = { ...incomingSource, validationReceipt: weakerReceipt };
     expect(shouldReplaceSharedRecipeVersion(existing, incoming)).toBe(false);
+  });
+
+  it("reactivates an identity even when its inactive version has a higher score", () => {
+    const existing = premiumValidatedRecipe({ isActive: false, qualityScore: 99, updatedAt: 100 });
+    const incoming = premiumValidatedRecipe({ isActive: true, qualityScore: 75, updatedAt: 101 });
+    expect(shouldReplaceSharedRecipeVersion(existing, incoming)).toBe(true);
   });
 
   it("replaces an equivalent Premium recipe when the incoming version adds its validated photo", () => {
@@ -180,6 +204,45 @@ describe("Premium recipe validation contract", () => {
     expect(audited.publicationWarnings?.length).toBeGreaterThan(0);
     expect(isSharedRecipePublishable(audited)).toBe(true);
     expect(partitionRecipeCatalogByQuality([audited]).discoverable).toHaveLength(1);
+  });
+
+  it("signs Premium receipts after canonical identity metadata is stabilized", () => {
+    const source = premiumValidatedRecipe({
+      validationReceipt: undefined,
+      localized: {
+        English: {
+          name: "Macarona Bechamel",
+          cuisine: "Egyptian",
+          ingredients: ["1 lb ground beef", "1 lb macaroni", "4 cups milk"],
+          missing_ingredients: [],
+          steps: [
+            "Brown the ground beef for 8 minutes over medium heat.",
+            "Boil and drain the macaroni, then layer it with the beef.",
+            "Whisk the milk sauce, pour it over the macaroni, and bake for 30 minutes."
+          ],
+          calories: 620,
+          protein: "35g",
+          carbs: "70g",
+          fat: "24g",
+          cook_time: "50 minutes",
+          difficulty: "Medium",
+          dish_intent: {
+            dish_name: "Feteer with Cheese",
+            cuisine: "Egyptian",
+            cooking_method: "baked",
+            visual_keywords: ["cheese pastry"],
+            exclude_keywords: []
+          }
+        }
+      }
+    });
+    const canonical = canonicalizeSharedRecipeForPublication(source);
+    const receipt = createPremiumRecipeValidationReceipt(canonical, { acceptanceScore: 85 });
+    const audited = auditSharedRecipePoolDocument({ ...canonical, validationReceipt: receipt ?? undefined }, 123456).document;
+
+    expect(receipt).not.toBeNull();
+    expect(audited.localized?.English?.dish_intent?.dish_name).toBe("Macarona Bechamel");
+    expect(isSharedRecipePublishable(audited)).toBe(true);
   });
 
   it("does not trust a Premium receipt after publication content is changed", () => {

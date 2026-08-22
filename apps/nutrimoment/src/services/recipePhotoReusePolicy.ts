@@ -1,7 +1,9 @@
 import type { Recipe } from "@/lib/types";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import {
+  inferRecipePhotoDietIds,
   isRecipePhotoDietCompatible,
+  normalizeRecipePhotoDietIds,
   requiresPlantBasedRecipePhotoProof
 } from "@/services/recipePhotoDietCompatibility";
 import {
@@ -20,6 +22,7 @@ export function canReuseRecipePhotoForDiet(
   diets: string[],
   hasGeneratedImageAccess = true
 ) {
+  const effectiveDiets = getRecipePhotoDietScope(recipe, diets);
   const imageUrl = getRecipeImageUrl(recipe);
   if (!isUsableRecipeImageForAccess(imageUrl, hasGeneratedImageAccess)) return false;
   // Provider search photos do not carry a durable food-identity contract.
@@ -32,12 +35,9 @@ export function canReuseRecipePhotoForDiet(
   })) {
     return false;
   }
-  if (!isGeneratedRecipePhotoUrlCompatibleWithQueries(imageUrl, [
-    recipe.localized?.English?.name,
-    recipe.name,
-    recipe.dish_intent?.dish_name
-  ].filter((value): value is string => Boolean(value?.trim())))) return false;
-  if (!diets.length) return true;
+  if (hasExplicitRecipePhotoProteinConflict(recipe, imageUrl, effectiveDiets)) return false;
+  if (!isGeneratedRecipePhotoUrlCompatibleWithQueries(imageUrl, buildRecipePhotoIdentityQueries(recipe))) return false;
+  if (!effectiveDiets.length) return true;
 
   const queryText = [
     recipe.name,
@@ -50,7 +50,7 @@ export function canReuseRecipePhotoForDiet(
   ]
     .filter((value): value is string => Boolean(value))
     .join(" ");
-  const plantDietRequested = diets.some((diet) => /^(vegan|vegetarian)$/i.test(diet.trim()));
+  const plantDietRequested = effectiveDiets.some((diet) => /^(vegan|vegetarian)$/i.test(diet.trim()));
   if (
     plantDietRequested &&
     isExternalRecipePhotoProviderUrl(imageUrl) &&
@@ -64,7 +64,7 @@ export function canReuseRecipePhotoForDiet(
     canonicalDishKey: recipe.photo_identity?.dish_slug,
     dietTags: Array.from(new Set([
       ...(recipe.photo_asset?.dietTags ?? []),
-      ...getDietTagsFromRecipePhotoUrl(imageUrl, diets)
+      ...getDietTagsFromRecipePhotoUrl(imageUrl, effectiveDiets)
     ])),
     imageUrl,
     mainIngredientKey: recipe.photo_identity?.protein,
@@ -78,10 +78,23 @@ export function canReuseRecipePhotoForDiet(
       recipe.photo_identity?.method
     ].filter(Boolean).join(" "),
     source: getRecipePhotoDietValidationSource(recipe.image_source)
-  }, { diets });
+  }, { diets: effectiveDiets });
+}
+
+export function hasRecipePhotoProteinConflict(
+  recipe: Recipe,
+  candidateIdentity: string,
+  diets: string[] = []
+) {
+  return hasExplicitRecipePhotoProteinConflict(
+    recipe,
+    candidateIdentity,
+    getRecipePhotoDietScope(recipe, diets)
+  );
 }
 
 export function attachValidatedRecipePhotoAsset(recipe: Recipe, diets: string[], validatedAt = Date.now()): Recipe {
+  const effectiveDiets = getRecipePhotoDietScope(recipe, diets);
   const imageUrl = getRecipeImageUrl(recipe);
   if (!canReuseRecipePhotoForDiet(recipe, diets, true)) {
     return {
@@ -93,7 +106,7 @@ export function attachValidatedRecipePhotoAsset(recipe: Recipe, diets: string[],
       image_source: undefined,
       image_url: undefined,
       photo_asset: {
-        dietTags: normalizeDietTags(diets),
+        dietTags: effectiveDiets,
         status: "pending"
       }
     };
@@ -102,7 +115,7 @@ export function attachValidatedRecipePhotoAsset(recipe: Recipe, diets: string[],
   const readyPhotoAsset = {
     attributionName: recipe.image_attribution_name ?? recipe.photo_asset?.attributionName,
     attributionUrl: recipe.image_attribution_url ?? recipe.photo_asset?.attributionUrl,
-    dietTags: normalizeDietTags(diets),
+    dietTags: effectiveDiets,
     source: recipe.image_source ?? recipe.photo_asset?.source,
     status: "ready" as const,
     url: imageUrl,
@@ -123,7 +136,75 @@ export function attachValidatedRecipePhotoAsset(recipe: Recipe, diets: string[],
 }
 
 function normalizeDietTags(diets: string[]) {
-  return Array.from(new Set(diets.map((diet) => diet.trim().toLowerCase()).filter(Boolean))).sort();
+  return normalizeRecipePhotoDietIds(diets);
+}
+
+function getRecipePhotoDietScope(recipe: Recipe, requestedDiets: string[]) {
+  const recipeDiets = (recipe.dish_intent?.diet_type ?? "")
+    .split(",")
+    .map((diet) => diet.trim())
+    .filter((diet) => /^(vegan|vegetarian|pescatarian|keto|paleo|dairy[ -]?free|gluten[ -]?free)$/i.test(diet));
+
+  return normalizeDietTags([
+    ...requestedDiets,
+    ...recipeDiets,
+    ...inferRecipePhotoDietIds([
+      recipe.name,
+      recipe.localized?.English?.name,
+      recipe.dish_intent?.dish_name
+    ]),
+    ...(recipe.photo_asset?.dietTags ?? [])
+  ]);
+}
+
+function buildRecipePhotoIdentityQueries(recipe: Recipe) {
+  return Array.from(new Set([
+    recipe.localized?.English?.name,
+    recipe.name,
+    recipe.dish_intent?.dish_name,
+    recipe.photo_identity?.english_name
+  ].filter((value): value is string => Boolean(value?.trim()))));
+}
+
+function hasExplicitRecipePhotoProteinConflict(recipe: Recipe, imageUrl: string, diets: string[]) {
+  const imageProteins = collectExplicitAnimalProteins(safeDecodeURIComponent(imageUrl));
+  if (!imageProteins.size) return false;
+  if (diets.some((diet) => diet === "vegan" || diet === "vegetarian")) return true;
+
+  const recipeProteins = collectExplicitAnimalProteins([
+    recipe.name,
+    recipe.dish_intent?.dish_name,
+    recipe.photo_identity?.protein,
+    ...recipe.ingredients,
+    ...recipe.missing_ingredients
+  ].filter(Boolean).join(" "));
+  if (!recipeProteins.size) return false;
+
+  return !Array.from(imageProteins).some((protein) => recipeProteins.has(protein));
+}
+
+function collectExplicitAnimalProteins(value: string) {
+  const normalized = value.toLowerCase().replace(/[-_]+/g, " ");
+  const patterns: Array<[string, RegExp]> = [
+    ["beef", /\b(?:beef|steak|veal)\b/],
+    ["chicken", /\b(?:chicken|poultry)\b/],
+    ["duck", /\bduck\b/],
+    ["fish", /\b(?:fish|salmon|tuna|tilapia|cod)\b/],
+    ["lamb", /\b(?:lamb|mutton)\b/],
+    ["pork", /\b(?:pork|bacon|ham)\b/],
+    ["shrimp", /\b(?:shrimp|prawn)\b/],
+    ["turkey", /\bturkey\b/]
+  ];
+
+  return new Set(patterns.filter(([, pattern]) => pattern.test(normalized)).map(([protein]) => protein));
+}
+
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function isExternalRecipePhotoProviderUrl(imageUrl: string) {

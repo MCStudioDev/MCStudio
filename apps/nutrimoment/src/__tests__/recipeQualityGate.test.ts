@@ -100,6 +100,22 @@ describe("recipe quality gate", () => {
     expect(result.reasons).not.toContain("ingredient_not_used:minced");
   });
 
+  it("accepts compact metric quantities from generated recipes", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      ingredients: ["500g ground beef", "400g macaroni pasta", "100ml milk"],
+      steps: [
+        "Brown the ground beef for 8 minutes, then fold in the cooked macaroni.",
+        "Add the milk and simmer the macaroni mixture for 12 minutes."
+      ]
+    }, "English");
+
+    expect(result.reasons).not.toContain("protein_missing_quantity:ground beef");
+    expect(result.reasons).not.toContain("ingredient_missing_quantity_or_unit:ground beef");
+    expect(result.reasons).not.toContain("ingredient_missing_quantity_or_unit:macaroni pasta");
+    expect(result.reasons).not.toContain("ingredient_missing_quantity_or_unit:milk");
+  });
+
   it("rejects unused ingredients, duplicate steps, and Arabic English leakage", () => {
     const result = new RecipeQualityGate().validate({
       ...validRecipe,

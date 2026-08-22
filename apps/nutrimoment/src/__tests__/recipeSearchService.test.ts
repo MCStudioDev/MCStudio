@@ -300,6 +300,27 @@ describe("recipe search service", () => {
     expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/pasta/);
     expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/tomato/);
     expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/onion/);
+    expect(koshary?.image_source).toBe("wikimedia");
+    expect(koshary?.image_url).toMatch(/Egyptian_food_Koshary\.jpg/);
+  });
+
+  it("keeps the trusted Koshary baseline when a free user also reads the shared pool", async () => {
+    const { searchCatalogRecipes } = await import("../services/recipeSearchService");
+
+    const result = await searchCatalogRecipes({
+      ingredients: ["rice", "tomato", "shrimp", "beef"],
+      preferredCuisine: "Egyptian",
+      calorieTarget: 1650,
+      maxMissingIngredients: 5,
+      maxResults: 10,
+      recipeLanguage: "English",
+      uid: "free-user",
+      allowRemoteCaches: true,
+      forceSharedCacheRead: true,
+      skipStaticSources: false
+    });
+
+    expect(result.recipes.some((recipe) => /koshary|koshari/i.test(recipe.name))).toBe(true);
   });
 
   it("does not fill an egg-and-vegetable search with unrequested animal proteins", async () => {

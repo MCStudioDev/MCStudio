@@ -62,6 +62,7 @@ import {
   buildRecipePhotoQueryCandidates
 } from "@/lib/recipePhotoQueries";
 import {
+  inferRecipePhotoDietIds,
   isRecipePhotoDietCompatible,
   normalizeRecipePhotoDietIds,
   scopeRecipePhotoAliasesForDiet
@@ -185,7 +186,6 @@ export async function GET(request: Request) {
     parsed.data.query,
     ...searchParams.getAll("alt")
   ];
-  const activeDiets = normalizeRecipePhotoDietIds(searchParams.getAll("diet"));
   const exactNameHints = normalizeExactRecipePhotoHints([
     ...searchParams.getAll("exact"),
     ...searchParams.getAll("exactName"),
@@ -193,6 +193,10 @@ export async function GET(request: Request) {
     ...searchParams.getAll("englishName"),
     ...searchParams.getAll("arabicName"),
     ...searchParams.getAll("dishName")
+  ]);
+  const activeDiets = normalizeRecipePhotoDietIds([
+    ...searchParams.getAll("diet"),
+    ...inferRecipePhotoDietIds([...rawQueryCandidates, ...exactNameHints])
   ]);
   const arabicDishNameHints = extractArabicDishNameHints(rawQueryCandidates);
   const exactRecipeNameHint = selectExactRecipePhotoNameHint(exactNameHints);
@@ -226,6 +230,7 @@ export async function GET(request: Request) {
   ]), activeDiets);
   const explicitlyExcludedImageUrls = normalizeExcludedRecipePhotoUrls(searchParams.getAll("exclude"));
   const cacheOnly = searchParams.get("cacheOnly") === "1" || searchParams.get("cacheOnly") === "true";
+  const strictIdentity = searchParams.get("strictIdentity") === "1" || searchParams.get("strictIdentity") === "true";
   const baseUnscopedExactAliasCandidates = buildRecipePhotoExactAliases({
     cuisine: searchParams.get("cuisine") ?? undefined,
     names: exactNameHints
@@ -579,7 +584,7 @@ export async function GET(request: Request) {
   const hasApproximateRecipePhotoCategoryLookup =
     approximateMainIngredientKeys.length > 0 ||
     approximateCategoryIdentities.some(hasRecipePhotoCategoryLookupKey);
-  if (!useReplicateGeneration && hasApproximateRecipePhotoCategoryLookup) {
+  if (!strictIdentity && !useReplicateGeneration && hasApproximateRecipePhotoCategoryLookup) {
     const approximateCached = await getSharedRecipePhotoByApproximateCategory({
       allowProviderPhotos: true,
       canonicalDishKeys: [...identities, ...replicateIdentities].map((entry) => entry.canonicalDishKey),
@@ -655,7 +660,7 @@ export async function GET(request: Request) {
     );
   }
 
-  if (useReplicateGeneration && hasApproximateRecipePhotoCategoryLookup) {
+  if (!strictIdentity && useReplicateGeneration && hasApproximateRecipePhotoCategoryLookup) {
     const categoryCached = await getSharedRecipePhotoByApproximateCategory({
       canonicalDishKeys: [...identities, ...replicateIdentities].map((entry) => entry.canonicalDishKey),
       cookingMethodKeys: [...identities, ...replicateIdentities].map((entry) => entry.cookingMethodKey),

@@ -54,6 +54,7 @@ import {
 } from "@/services/recipeContentQualityService";
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { attachValidatedRecipePhotoAsset } from "@/services/recipePhotoReusePolicy";
+import { getKnownDishRecipePhoto } from "@/lib/freeRecipePhotos";
 
 const recipeDiversityEngine = new RecipeDiversityEngine();
 const ingredientGraph = new IngredientGraph();
@@ -596,9 +597,19 @@ export function mapCatalogRecipeToUiRecipe(
   const cleanedEnglishCuisine = normalizeEnglishCuisineLabel(normalizedRecipe.localized?.English?.cuisine ?? normalizedRecipe.cuisine);
   const cleanedArabicCuisine = translateCuisineLabelToArabic(normalizedRecipe.localized?.Arabic?.cuisine ?? normalizedRecipe.cuisine);
   const photoIdentity = buildPhotoIdentityFromCatalog(normalizedRecipe);
+  const knownDishPhoto = normalizedRecipe.id.startsWith("trusted-source-")
+    ? getKnownDishRecipePhoto(normalizedRecipe.localized?.English?.name ?? normalizedRecipe.title)
+    : null;
   const englishImageUrl =
     normalizeRecipeImageUrl(normalizedRecipe.localized?.English?.image_url) ??
-    normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath);
+    normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath) ??
+    knownDishPhoto?.imageUrl;
+  const englishImageSource = englishImageUrl
+    ? normalizedRecipe.localized?.English?.image_source ?? normalizedRecipe.image.source ?? knownDishPhoto?.source
+    : undefined;
+  const recipePhotoDietTags = normalizedRecipe.image.dietTags?.length
+    ? normalizedRecipe.image.dietTags
+    : normalizedRecipe.dietTags;
   const englishBase: Recipe = {
     id: normalizedRecipe.id,
     name: isWeakEnglishTitle(normalizedRecipe.localized?.English?.name ?? normalizedRecipe.title)
@@ -626,20 +637,20 @@ export function mapCatalogRecipeToUiRecipe(
     cook_time: normalizedRecipe.localized?.English?.cook_time ?? `${normalizedRecipe.totalMinutes} mins`,
     difficulty: normalizedRecipe.localized?.English?.difficulty ?? capitalize(normalizedRecipe.difficulty),
     image_url: englishImageUrl,
-    image_source: englishImageUrl ? normalizedRecipe.localized?.English?.image_source ?? normalizedRecipe.image.source : undefined,
+    image_source: englishImageSource,
     image_attribution_name: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_name ?? normalizedRecipe.image.attributionName : undefined,
     image_attribution_url: englishImageUrl ? normalizedRecipe.localized?.English?.image_attribution_url ?? normalizedRecipe.image.attributionUrl : undefined,
     photo_asset: englishImageUrl ? {
       attributionName: normalizedRecipe.localized?.English?.image_attribution_name ?? normalizedRecipe.image.attributionName,
       attributionUrl: normalizedRecipe.localized?.English?.image_attribution_url ?? normalizedRecipe.image.attributionUrl,
-      dietTags: normalizedRecipe.image.dietTags ?? normalizedRecipe.dietTags,
-      source: normalizedRecipe.localized?.English?.image_source ?? normalizedRecipe.image.source,
+      dietTags: recipePhotoDietTags,
+      source: englishImageSource,
       status: "ready",
       url: englishImageUrl,
       validatedAt: normalizedRecipe.image.validatedAt,
       validatorHash: normalizedRecipe.image.validatorHash
     } : {
-      dietTags: normalizedRecipe.image.dietTags ?? normalizedRecipe.dietTags,
+      dietTags: recipePhotoDietTags,
       status: "pending"
     },
     image_search_index: normalizedRecipe.localized?.English?.image_search_index,

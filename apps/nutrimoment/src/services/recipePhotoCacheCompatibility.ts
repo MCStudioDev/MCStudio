@@ -30,6 +30,13 @@ export function isGeneratedRecipePhotoUrlCompatibleWithQueries(
   return requestQueries.some((requestQuery) => {
     const requestIdentity = buildRecipePhotoIdentity(requestQuery);
     if (!haveCompatibleNamedStarches(storedQuery, requestQuery)) return false;
+    if (
+      storedIdentity.mainIngredientKey &&
+      requestIdentity.mainIngredientKey &&
+      !mainIngredientKeysMatch(storedIdentity.mainIngredientKey, requestIdentity.mainIngredientKey)
+    ) {
+      return false;
+    }
     if (storedIdentity.canonicalDishKey || requestIdentity.canonicalDishKey) {
       return storedIdentity.canonicalDishKey === requestIdentity.canonicalDishKey;
     }

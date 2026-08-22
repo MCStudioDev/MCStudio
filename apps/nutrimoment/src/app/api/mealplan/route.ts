@@ -1752,13 +1752,15 @@ async function queueMealPlanCachePersist(input: {
       uid: input.uid ?? null,
       mealCount: input.meals?.length ?? 0,
       generatedMealCount: generatedMeals.length,
-      promotedRecipeCount: promotion?.published ?? 0,
+      promotedRecipeCount: promotion?.available ?? promotion?.published ?? 0,
+      publishedRecipeCount: promotion?.published ?? 0,
+      reusedRecipeCount: promotion?.reused ?? 0,
       rejectedPromotionCount: promotion?.rejected ?? 0
     });
     return {
       generatedMealCount: generatedMeals.length,
       validatedRecipeCount: validatedRecipes.length,
-      promotedRecipeCount: promotion?.published ?? 0,
+      promotedRecipeCount: promotion?.available ?? promotion?.published ?? 0,
       rejectedPromotionCount: promotion?.rejected ?? 0,
       supersededRecipeCount: promotion?.superseded ?? 0,
       persistenceSucceeded: true

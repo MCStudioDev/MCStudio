@@ -172,4 +172,55 @@ describe("shopping list normalizer", () => {
     expect(arabicList).toContain("\u0644\u062d\u0645 - 0.5 \u0643\u062c\u0645");
     expect(arabicList).toContain("\u062c\u0645\u0628\u0631\u064a - 0.3 \u0643\u062c\u0645");
   });
+
+  it("parses ingredient adjectives as names rather than units and combines convertible measures", () => {
+    const meal = {
+      name: "Mexican dinner",
+      calories: 500,
+      protein: "25g",
+      carbs: "60g",
+      fat: "15g",
+      ingredients: [
+        "1/2 yellow bell pepper, sliced",
+        "1/2 red bell pepper, sliced",
+        "1/4 lime, cut into wedges",
+        "1/4 cup salsa roja",
+        "2 tbsp salsa roja",
+        "2 corn tortillas"
+      ],
+      steps: ["Cook and serve."]
+    };
+
+    const list = buildShoppingListFromMealIngredients({
+      displayLanguage: "en",
+      mealPlan: { plan: [{ day: "Monday", breakfast: meal, lunch: meal, dinner: meal }] }
+    });
+
+    expect(list).toContain("bell pepper - 3 item");
+    expect(list).toContain("lime - 0.8 item");
+    expect(list).toContain("salsa roja - 1.1 cup");
+    expect(list).toContain("corn tortilla - 6 item");
+    expect(list.join(" ")).not.toMatch(/yellow|red|wedges|corn item/i);
+  });
+
+  it("rebuilds an existing plan from its ingredients instead of trusting a corrupted stored list", () => {
+    const meal = {
+      name: "Tacos",
+      calories: 400,
+      protein: "20g",
+      carbs: "45g",
+      fat: "12g",
+      ingredients: ["2 corn tortillas", "1/4 lime, cut into wedges"],
+      steps: ["Cook and serve."]
+    };
+    const list = buildNormalizedShoppingList({
+      displayLanguage: "en",
+      mealPlan: {
+        plan: [{ day: "Monday", breakfast: meal, lunch: meal, dinner: meal }],
+        shoppingList: ["tortillas - 6 corn", "cut into wedges - 0.8 lime"]
+      }
+    });
+
+    expect(list).toEqual(["corn tortilla - 6 item", "lime - 0.8 item"]);
+  });
 });

@@ -22,7 +22,8 @@ const batchItemSchema = z.object({
   photoSauce: z.string().optional(),
   photoMethod: z.string().optional(),
   query: z.string().min(3),
-  queryKey: z.string().min(1).max(500)
+  queryKey: z.string().min(1).max(500),
+  strictIdentity: z.boolean().optional()
 });
 
 const batchSchema = z.object({
@@ -129,6 +130,9 @@ function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   appendValues(params, "exclude", item.exclude, 8);
   if (item.cacheOnly) {
     params.set("cacheOnly", "1");
+  }
+  if (item.strictIdentity) {
+    params.set("strictIdentity", "1");
   }
   const cuisine = normalizeBatchRecipePhotoParam(item.cuisine);
   if (cuisine) {

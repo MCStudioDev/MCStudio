@@ -2,6 +2,29 @@ import { describe, expect, it } from "vitest";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 
 describe("meal plan normalization", () => {
+  it("assigns the same recipe provenance contract used by recipe generation", () => {
+    const generatedMeal = {
+      name: "Ful Medames with Vegetables",
+      calories: 420,
+      protein: "18g",
+      carbs: "58g",
+      fat: "12g"
+    };
+    const libraryMeal = {
+      ...generatedMeal,
+      name: "Koshary",
+      source_recipe_id: "shared-koshary-v2"
+    };
+
+    const result = normalizeMealPlanData({
+      plan: [{ day: "Monday", breakfast: generatedMeal, lunch: libraryMeal, dinner: generatedMeal }],
+      shoppingList: []
+    });
+
+    expect(result?.plan[0].breakfast.recipe_source_type).toBe("generated");
+    expect(result?.plan[0].lunch.recipe_source_type).toBe("local_database");
+  });
+
   it("preserves validated recipe and photo identity fields", () => {
     const meal = {
       name: "Chickpea Tomato Stew",

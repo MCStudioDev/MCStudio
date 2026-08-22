@@ -34,6 +34,33 @@ function recipe(overrides: Partial<Recipe>): Recipe {
 }
 
 describe("recipe diversity validator", () => {
+  it("keeps only one Fattah family variant in a result set", () => {
+    const recipes = [
+      recipe({ name: "Fattah", dish_identity: "Fattah Egyptian", ingredients: ["rice", "beef", "bread"] }),
+      recipe({ name: "Fattah Base", dish_identity: "Fattah Base Egyptian", ingredients: ["rice", "tomato", "bread"] }),
+      recipe({ name: "Vegan Fattah", dish_identity: "Vegan Fattah Egyptian", ingredients: ["rice", "chickpeas", "bread"] }),
+      recipe({ name: "Classic Egyptian Koshary", dish_identity: "Koshary", ingredients: ["rice", "lentils", "pasta"] })
+    ];
+
+    const selected = enforceRecipeDiversity(recipes, { limit: 4, softFill: true });
+
+    expect(selected.filter((entry) => /fattah/i.test(entry.name))).toHaveLength(1);
+    expect(selected.some((entry) => /koshary/i.test(entry.name))).toBe(true);
+  });
+
+  it("keeps only one Mahshi Filfil variant in a result set", () => {
+    const recipes = [
+      recipe({ name: "Mahshi Filfil", ingredients: ["rice", "pepper", "tomato"] }),
+      recipe({ name: "Vegan Mahshi Filfil", ingredients: ["rice", "pepper", "tomato"] }),
+      recipe({ name: "Kofta", ingredients: ["ground beef", "onion", "parsley"] })
+    ];
+
+    const selected = enforceRecipeDiversity(recipes, { limit: 3, softFill: true });
+
+    expect(selected.filter((entry) => /mahshi filfil/i.test(entry.name))).toHaveLength(1);
+    expect(selected.some((entry) => /kofta/i.test(entry.name))).toBe(true);
+  });
+
   it("rejects recipes above the similarity threshold", () => {
     const duplicate = recipe({
       name: "Baked Chicken Parmesan",
@@ -162,6 +189,28 @@ describe("recipe diversity validator", () => {
 
     expect(enforceRecipeDiversity([tabbouleh, authenticTabbouleh], { limit: 2, softFill: true }))
       .toEqual([tabbouleh]);
+  });
+
+  it("allows one controlled family repeat when a caller explicitly requests underfill recovery", () => {
+    const tabbouleh = recipe({
+      id: "tabbouleh-1",
+      name: "Tabbouleh",
+      dish_identity: "Tabbouleh",
+      dish_intent: { ...baseRecipe.dish_intent!, dish_name: "Tabbouleh", cooking_method: "assembled" }
+    });
+    const lemonTabbouleh = recipe({
+      id: "tabbouleh-2",
+      name: "Lemon Tabbouleh",
+      dish_identity: "Tabbouleh",
+      ingredients: ["2 cups parsley", "1 cup bulgur", "1/2 cup lemon juice"],
+      dish_intent: { ...baseRecipe.dish_intent!, dish_name: "Tabbouleh", cooking_method: "assembled" }
+    });
+
+    expect(enforceRecipeDiversity([tabbouleh, lemonTabbouleh], {
+      limit: 2,
+      maxPerFamilyDuringSoftFill: 2,
+      softFill: true
+    })).toEqual([tabbouleh, lemonTabbouleh]);
   });
 
   it("collapses localized and qualified variants of the same named dish", () => {

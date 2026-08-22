@@ -29,6 +29,24 @@ export function normalizeRecipePhotoDietIds(values: string[]) {
   return Array.from(new Set(values.map(normalizeRecipePhotoDietId).filter(Boolean))).sort();
 }
 
+export function inferRecipePhotoDietIds(values: Array<string | null | undefined>) {
+  const text = values
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ")
+    .toLowerCase();
+  const inferred: string[] = [];
+
+  if (/\b(?:vegan|plant[ -]based)\b/.test(text)) inferred.push("vegan");
+  if (/\bvegetarian\b/.test(text)) inferred.push("vegetarian");
+  if (/\bpesc(?:a|e)tarian\b/.test(text)) inferred.push("pescatarian");
+  if (/\bgluten[ -]?free\b/.test(text)) inferred.push("glutenFree");
+  if (/\bdairy[ -]?free\b/.test(text)) inferred.push("dairyFree");
+  if (/\bketo(?:genic)?\b/.test(text)) inferred.push("keto");
+  if (/\bpaleo\b/.test(text)) inferred.push("paleo");
+
+  return normalizeRecipePhotoDietIds(inferred);
+}
+
 export function scopeRecipePhotoAliasesForDiet(aliases: string[], diets: string[]) {
   const normalizedDiets = normalizeRecipePhotoDietIds(diets);
   if (!normalizedDiets.length) return aliases;

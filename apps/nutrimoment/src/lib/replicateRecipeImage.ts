@@ -849,6 +849,46 @@ const DISH_VISUAL_PROMPTS: Record<string, DishVisualPrompt> = {
       "plain lentil rice, mujadara, rice and lentils only, biryani, risotto, spaghetti-only pasta, tomato rice, meat, chicken, creamy sauce, soup, hidden pasta, no chickpeas, no crispy onions",
     cuisineStyle: "authentic Egyptian street food"
   },
+  "tomato-soup": {
+    englishName: "vegan tomato soup",
+    visualDescription:
+      "a smooth blended red tomato soup with a glossy liquid surface and uniform creamy tomato texture made without dairy. The bowl must contain soup, not a chunky stew, curry, sauce plate, or solid protein pieces",
+    plating:
+      "served as one deep soup bowl with the red liquid clearly visible; at most a small swirl of olive oil or tiny herb garnish only when listed",
+    avoid:
+      "meat, beef, chicken, fish, shrimp, eggs, dairy cream, cheese, bread chunks, toast as the main subject, solid cubes, meatballs, stew, curry, pasta, rice, dry plate, sauce without a soup bowl",
+    cuisineStyle: "simple Egyptian vegan soup"
+  },
+  "mahshi-filfil": {
+    englishName: "Egyptian mahshi filfil",
+    visualDescription:
+      "several whole bell peppers visibly hollowed and stuffed with seasoned rice, tomato, onion, parsley, and herbs only when listed. Show at least one pepper cut open or viewed from above so the rice filling is clearly inside the pepper shell",
+    plating:
+      "served as three to five distinct stuffed bell peppers on one shallow Egyptian platter, with pepper walls and rice filling both clearly visible",
+    avoid:
+      "plain rice mound, pilaf, loose rice bowl, fried rice, tomatoes without peppers, empty peppers, hidden filling, meat when vegan or vegetarian, cheese, soup, salad, unrelated side dishes",
+    cuisineStyle: "authentic Egyptian stuffed vegetables"
+  },
+  taameya: {
+    englishName: "Egyptian taameya sandwich",
+    visualDescription:
+      "an opened Egyptian pita or baladi bread pocket filled with two or three green-herb fava-bean taameya falafel patties, visibly crisp and deep-fried outside with a green fava-bean and herb interior. Tahini, tomato, parsley, or salad appears only when listed",
+    plating:
+      "served as one filled pita sandwich, preferably cut or opened so the distinct round taameya patties and bread pocket are immediately recognizable",
+    avoid:
+      "omelette, eggs, chickpeas scattered loose, hummus toast, open-faced toast, pancakes, flatbread pizza, meat, chicken, beef, fish, rice, soup, generic salad, falafel bowl without bread, hidden patties",
+    cuisineStyle: "authentic Egyptian street-food breakfast"
+  },
+  fattah: {
+    englishName: "Egyptian fattah",
+    visualDescription:
+      "a clearly layered Egyptian fattah plate with crisp toasted pita bread shards visibly forming the base and edges, white rice above the bread, garlic tomato sauce spooned across the rice, and chickpeas only when listed. Meat appears only when explicitly listed. The toasted bread must remain visibly distinct so the dish cannot read as a plain rice bowl",
+    plating:
+      "served on one shallow Egyptian platter with separate visible layers of toasted pita, rice, sauce, and the listed protein or chickpeas",
+    avoid:
+      "plain rice bowl, chickpea rice bowl, koshary, biryani, pilaf, hidden bread, no pita, chicken when not listed, meat when vegan or vegetarian, salad, soup",
+    cuisineStyle: "authentic Egyptian fattah"
+  },
   kafta: {
     englishName: "kofta kebab",
     visualDescription:
@@ -1895,6 +1935,17 @@ const VEGAN_SHAKSHUKA_VISUAL_PROMPT: DishVisualPrompt = {
   cuisineStyle: "vegan Middle Eastern breakfast"
 };
 
+const VEGAN_KOFTA_VISUAL_PROMPT: DishVisualPrompt = {
+  englishName: "vegan lentil kofta",
+  visualDescription:
+    "plant-based kofta made from mashed lentils, fine bulgur, onion, parsley, cumin, and coriander only when listed, shaped into browned oval logs or short kofta fingers. The surface and cut edge should show a coarse lentil, grain, and herb texture rather than ground meat",
+  plating:
+    "served as several distinct plant-based kofta logs on one plate; pita or tahini appears only when listed and remains secondary",
+  avoid:
+    "meat, beef, lamb, chicken, ground meat, meatballs, steak, kebab meat, burger, eggs, dairy, rice as the main subject, soup, curry, hidden kofta",
+  cuisineStyle: "Egyptian vegan kofta"
+};
+
 export function isReplicateConfigured() {
   return Boolean(replicateApiToken && replicateModel);
 }
@@ -2625,11 +2676,30 @@ function findDishVisualPrompt(
   if (/\bshakshuka\b|\u0634\u0643\u0634\u0648\u0643\u0629/iu.test(source) && isVeganOrDairyFreeSource(source)) {
     return VEGAN_SHAKSHUKA_VISUAL_PROMPT;
   }
+  if (/\b(?:kofta|kafta|kofte|kefta)\b|\u0643\u0641\u062a(?:\u0629|\u0647)/iu.test(source) && isVeganOrDairyFreeSource(source)) {
+    return VEGAN_KOFTA_VISUAL_PROMPT;
+  }
+  if (/\bmahshi\s+filfil\b/.test(source)) {
+    return DISH_VISUAL_PROMPTS["mahshi-filfil"];
+  }
+  if (/\btomato\s+soup\b/.test(source)) {
+    return DISH_VISUAL_PROMPTS["tomato-soup"];
+  }
+  if (/\btaameya(?:\s+sandwich)?\b/.test(source)) {
+    return DISH_VISUAL_PROMPTS.taameya;
+  }
 
+  const cleanQueryKey = identity.cleanQuery.toLowerCase().replace(/\s+/g, "-");
+  const dietAgnosticQueryKey = cleanQueryKey.replace(
+    /^(?:(?:vegan|vegetarian|pescatarian|dairy-?free|dairyfree|gluten-?free|glutenfree|keto|paleo)-)+/,
+    ""
+  );
   const keys = [
     identity.canonicalDishKey,
     identity.familyKey,
-    identity.cleanQuery.toLowerCase().replace(/\s+/g, "-")
+    cleanQueryKey,
+    dietAgnosticQueryKey,
+    dietAgnosticQueryKey === "taameya-sandwich" ? "taameya" : undefined
   ].filter(Boolean) as string[];
 
   for (const key of keys) {

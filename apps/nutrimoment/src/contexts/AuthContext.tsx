@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   getIdTokenResult,
   onAuthStateChanged,
@@ -74,23 +74,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [access, setAccess] = useState<UserAccessState>(DEFAULT_ACCESS);
+  const accessRefreshSequenceRef = useRef(0);
 
   const refreshAccessForUser = useCallback(async (currentUser: User | null) => {
+    const refreshSequence = ++accessRefreshSequenceRef.current;
     if (!currentUser) {
       setAccess({ ...DEFAULT_ACCESS, loading: false });
       return;
     }
 
-    const [tokenResult, usageDoc, weeklyPlanUsageDoc, entitlementDoc] = await Promise.all([
-      withFirebaseClientRetry(() => getIdTokenResult(currentUser, true)),
-      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits"))),
-      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "weeklyPlans"))),
-      withFirebaseClientRetry(() => getDoc(doc(db, "entitlements", currentUser.uid)))
-    ]);
+    const tokenResult = await withFirebaseClientRetry(() => getIdTokenResult(currentUser, true));
+    let entitlement: Record<string, unknown> | undefined;
+    try {
+      const entitlementDoc = await withFirebaseClientRetry(() => getDoc(doc(db, "entitlements", currentUser.uid)));
+      entitlement = entitlementDoc.data();
+    } catch (error) {
+      // Signed custom claims remain authoritative when Firestore is temporarily unavailable.
+      console.warn("Entitlement read failed; using signed access claims.", error);
+    }
 
-    const usage = usageDoc.data();
-    const weeklyPlanUsage = weeklyPlanUsageDoc.data();
-    const entitlement = entitlementDoc.data();
+    if (refreshSequence !== accessRefreshSequenceRef.current) return;
+
     const tier = resolveEffectiveAccessTier(entitlement, tokenResult.claims.tier);
     const role: UserAccessState["role"] =
       entitlement?.role === "admin" || entitlement?.role === "user"
@@ -99,50 +103,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? "admin"
           : "user";
     const features = normalizeEntitlementFeatures(entitlement?.features);
-    const aiCreditsUsed = Number(usage?.lifetimeUsed ?? 0);
-    const aiCreditsLimit = Math.max(10, Number(usage?.lifetimeLimit ?? 10));
-    const weeklyPlanUsed = Number(weeklyPlanUsage?.lifetimeUsed ?? 0);
-    const weeklyPlanLimit = Math.max(3, Number(weeklyPlanUsage?.lifetimeLimit ?? 3));
 
-    setAccess({
+    setAccess((current) => ({
+      ...current,
       role,
       tier,
       features,
-      aiCreditsLimit,
-      aiCreditsUsed,
-      aiCreditsRemaining: tier === "premium" ? aiCreditsLimit : Math.max(aiCreditsLimit - aiCreditsUsed, 0),
-      weeklyPlanLimit,
-      weeklyPlanUsed,
-      weeklyPlanRemaining: tier === "premium" ? weeklyPlanLimit : Math.max(weeklyPlanLimit - weeklyPlanUsed, 0),
+      aiCreditsRemaining: tier === "premium" ? current.aiCreditsLimit : Math.max(current.aiCreditsLimit - current.aiCreditsUsed, 0),
+      weeklyPlanRemaining: tier === "premium" ? current.weeklyPlanLimit : Math.max(current.weeklyPlanLimit - current.weeklyPlanUsed, 0),
       loading: false
+    }));
+
+    const [usageResult, weeklyPlanUsageResult] = await Promise.allSettled([
+      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits"))),
+      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "weeklyPlans")))
+    ]);
+    if (refreshSequence !== accessRefreshSequenceRef.current) return;
+
+    const usage = usageResult.status === "fulfilled" ? usageResult.value.data() : undefined;
+    const weeklyPlanUsage = weeklyPlanUsageResult.status === "fulfilled" ? weeklyPlanUsageResult.value.data() : undefined;
+    setAccess((current) => {
+      const aiCreditsUsed = Number(usage?.lifetimeUsed ?? current.aiCreditsUsed);
+      const aiCreditsLimit = Math.max(10, Number(usage?.lifetimeLimit ?? current.aiCreditsLimit));
+      const weeklyPlanUsed = Number(weeklyPlanUsage?.lifetimeUsed ?? current.weeklyPlanUsed);
+      const weeklyPlanLimit = Math.max(3, Number(weeklyPlanUsage?.lifetimeLimit ?? current.weeklyPlanLimit));
+
+      return {
+        ...current,
+        aiCreditsLimit,
+        aiCreditsUsed,
+        aiCreditsRemaining: tier === "premium" ? aiCreditsLimit : Math.max(aiCreditsLimit - aiCreditsUsed, 0),
+        weeklyPlanLimit,
+        weeklyPlanUsed,
+        weeklyPlanRemaining: tier === "premium" ? weeklyPlanLimit : Math.max(weeklyPlanLimit - weeklyPlanUsed, 0)
+      };
     });
   }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
       if (currentUser) {
         try {
-          // Ensure user document exists in Firestore
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const userDoc = await withFirebaseClientRetry(() => getDoc(userDocRef));
-
-          if (!userDoc.exists()) {
-            await withFirebaseClientRetry(() => setDoc(userDocRef, {
-              email: currentUser.email,
-              displayName: currentUser.displayName,
-              createdAt: new Date().toISOString(),
-            }));
-          }
-
           await refreshAccessForUser(currentUser);
         } catch (error) {
           console.warn("Access refresh failed; keeping previous access state.", error);
           setAccess((current) => ({ ...current, loading: false }));
         }
+
+        void ensureUserDocument(currentUser).catch((error) => {
+          console.warn("User profile initialization failed.", error);
+        });
       } else {
-        setAccess({ ...DEFAULT_ACCESS, loading: false });
+        await refreshAccessForUser(null);
       }
-      setUser(currentUser);
       setLoading(false);
     });
 
@@ -284,4 +298,16 @@ function isEntitlementFeatureKey(value: string): value is EntitlementFeatureKey 
     "shoppingList.quantities",
     "pantry.manual"
   ].includes(value);
+}
+
+async function ensureUserDocument(currentUser: User) {
+  const userDocRef = doc(db, "users", currentUser.uid);
+  const userDoc = await withFirebaseClientRetry(() => getDoc(userDocRef));
+  if (userDoc.exists()) return;
+
+  await withFirebaseClientRetry(() => setDoc(userDocRef, {
+    email: currentUser.email,
+    displayName: currentUser.displayName,
+    createdAt: new Date().toISOString()
+  }));
 }

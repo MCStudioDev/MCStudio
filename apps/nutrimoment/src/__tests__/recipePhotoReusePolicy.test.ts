@@ -3,6 +3,7 @@ import type { Recipe } from "@/lib/types";
 import {
   attachValidatedRecipePhotoAsset,
   canReuseRecipePhotoForDiet,
+  hasRecipePhotoProteinConflict,
   RECIPE_PHOTO_ASSET_VALIDATOR_HASH
 } from "@/services/recipePhotoReusePolicy";
 
@@ -48,6 +49,80 @@ describe("recipe photo reuse policy", () => {
       name: "Fattah Base",
       photo_identity: { dish_slug: "fattah" }
     }, ["vegan"], false)).toBe(false);
+  });
+
+  it("rejects a chicken Fattah image for a beef Fattah recipe", () => {
+    expect(canReuseRecipePhotoForDiet({
+      ...baseRecipe,
+      dish_intent: {
+        cuisine: "Egyptian",
+        dish_name: "Fattah Egyptian",
+        exclude_keywords: [],
+        visual_keywords: []
+      },
+      image_source: "cache",
+      image_url: "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v7%3Achicken-fattah.jpg?alt=media",
+      ingredients: ["rice", "beef", "tomato"],
+      name: "Fattah"
+    }, [], false)).toBe(false);
+  });
+
+  it("enforces a recipe's own vegan identity without a user diet filter", () => {
+    expect(canReuseRecipePhotoForDiet({
+      ...baseRecipe,
+      dish_intent: {
+        cuisine: "Egyptian",
+        diet_type: "dairy-free, vegan, vegetarian",
+        dish_name: "Vegan Fattah Egyptian",
+        exclude_keywords: [],
+        visual_keywords: []
+      },
+      image_source: "cache",
+      image_url: "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v7%3Achicken-fattah.jpg?alt=media",
+      name: "Vegan Fattah"
+    }, [], false)).toBe(false);
+  });
+
+  it("enforces vegan catalog tags carried by a pending photo asset", () => {
+    expect(canReuseRecipePhotoForDiet({
+      ...baseRecipe,
+      image_source: "cache",
+      image_url: "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v7%3Achicken-fattah.jpg?alt=media",
+      name: "Fattah Base",
+      photo_asset: {
+        dietTags: ["dairy-free", "vegan", "vegetarian"],
+        status: "pending"
+      },
+      photo_identity: { dish_slug: "fattah" }
+    }, [], false)).toBe(false);
+  });
+
+  it("enforces vegan intent from the title when source diet metadata is absent", () => {
+    expect(canReuseRecipePhotoForDiet({
+      ...baseRecipe,
+      image_source: "cache",
+      image_url: "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v7%3Achicken-fattah.jpg?alt=media",
+      name: "Vegan Fattah"
+    }, [], false)).toBe(false);
+  });
+
+  it("flags stale pending chicken identity for vegan Fattah", () => {
+    expect(hasRecipePhotoProteinConflict({
+      ...baseRecipe,
+      name: "Fattah Base",
+      photo_asset: {
+        dietTags: ["vegan", "vegetarian"],
+        status: "pending"
+      }
+    }, "chicken fattah")).toBe(true);
+  });
+
+  it("flags stale pending chicken identity for beef Fattah", () => {
+    expect(hasRecipePhotoProteinConflict({
+      ...baseRecipe,
+      ingredients: ["rice", "beef", "bread", "tomato"],
+      name: "Fattah"
+    }, "chicken fattah")).toBe(true);
   });
 
   it("rejects a generated pigeon photo linked to a broccoli recipe", () => {

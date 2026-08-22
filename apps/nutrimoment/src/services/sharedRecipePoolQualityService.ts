@@ -20,7 +20,7 @@ export function auditSharedRecipePoolDocument(
   source: RecipeCatalogDoc,
   validatedAt = Date.now()
 ): SharedRecipePoolAuditResult {
-  const canonical = canonicalizeSharedRecipeDerivedIdentity(source);
+  const canonical = canonicalizeSharedRecipeForPublication(source);
   const quality = classifyRecipeContentQuality(canonical);
   const untrustedProvenance = hasUntrustedSharedPoolProvenance(canonical);
   const premiumValidated =
@@ -60,6 +60,10 @@ export function auditSharedRecipePoolDocument(
     document,
     previousStatus: source.qualityStatus
   };
+}
+
+export function canonicalizeSharedRecipeForPublication(source: RecipeCatalogDoc): RecipeCatalogDoc {
+  return canonicalizeSharedRecipeDerivedIdentity(source);
 }
 
 export function deriveRecipeComplianceTags(recipe: RecipeCatalogDoc) {

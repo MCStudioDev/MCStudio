@@ -12,6 +12,11 @@ import {
   isRecipePhotoDietCompatible,
   normalizeRecipePhotoDietIds
 } from "../src/services/recipePhotoDietCompatibility";
+import {
+  canReuseRecipePhotoForDiet,
+  hasRecipePhotoProteinConflict
+} from "../src/services/recipePhotoReusePolicy";
+import { mapCatalogRecipeToUiRecipe } from "../src/services/recipeSearchService";
 import { SHARED_RECIPE_VALIDATOR_HASH } from "../src/services/sharedRecipePoolQualityService";
 
 loadEnv({ path: path.join(process.cwd(), ".env.local") });
@@ -213,12 +218,22 @@ function inspectRecipePhoto(recipe: RecipeCatalogDoc, rejectedUrls: Set<string>)
   if (recipe.qualityStatus !== "golden" && recipe.qualityStatus !== "verified") return null;
 
   const imageUrl = readString(recipe.image?.thumbPath || recipe.image?.storagePath);
-  if (recipe.image?.status !== "ready" && !imageUrl) return null;
+  const sourceQuery = readString(recipe.image?.sourceQuery);
+  const title = recipe.localized?.English?.name ?? recipe.title;
+  if (recipe.image?.status !== "ready" && !imageUrl) {
+    if (!sourceQuery) return null;
+    const uiRecipe = mapCatalogRecipeToUiRecipe(recipe, [], "good", 0, 0, [], "English");
+    return (
+      hasRecipePhotoProteinConflict(uiRecipe, sourceQuery, recipe.dietTags) ||
+      !isApproximateRecipePhotoCacheCompatible(
+        { imageUrl: "", query: sourceQuery, signature: undefined },
+        [title]
+      )
+    ) ? "pending_recipe_photo_identity_mismatch" : null;
+  }
   if (!imageUrl || !isDurableRecipeImageUrl(imageUrl)) return "missing_or_non_durable_recipe_image";
   if (rejectedUrls.has(imageUrl)) return "linked_to_rejected_photo_cache_asset";
 
-  const sourceQuery = readString(recipe.image?.sourceQuery);
-  const title = recipe.localized?.English?.name ?? recipe.title;
   const source = normalizeRecipePhotoSource(readString(recipe.image?.source));
   const entry = {
     canonicalDishKey: recipe.dishIntent?.dish_name,
@@ -238,6 +253,10 @@ function inspectRecipePhoto(recipe: RecipeCatalogDoc, rejectedUrls: Set<string>)
   }
   if (!isRecipePhotoDietCompatible(entry, { diets: recipe.dietTags })) {
     return "recipe_photo_diet_mismatch";
+  }
+  const uiRecipe = mapCatalogRecipeToUiRecipe(recipe, [], "good", 0, 0, [], "English");
+  if (!canReuseRecipePhotoForDiet(uiRecipe, recipe.dietTags, true)) {
+    return "recipe_photo_recipe_identity_mismatch";
   }
 
   return null;
@@ -264,9 +283,16 @@ function removeRecipePhoto(recipe: RecipeCatalogDoc): RecipeCatalogDoc {
       ...recipe.image,
       attributionName: undefined,
       attributionUrl: undefined,
+      dietTags: recipe.dietTags,
+      sharedCacheKey: undefined,
+      signature: undefined,
+      source: undefined,
+      sourceQuery: recipe.localized?.English?.name ?? recipe.title,
       status: "pending",
       storagePath: "",
-      thumbPath: undefined
+      thumbPath: undefined,
+      validatedAt: undefined,
+      validatorHash: undefined
     },
     localized,
     updatedAt: Date.now()

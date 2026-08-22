@@ -30,6 +30,7 @@ const confirmed = process.argv.includes("--confirm");
 const includeAllSources = process.argv.includes("--all");
 const pageSize = Math.min(300, readNumberArg("--page-size") ?? 100);
 const maxDocs = readNumberArg("--max");
+const exactTitle = readStringArg("--title");
 
 async function main() {
   if (!hasFirebaseAdminConfig()) throw new Error("Firebase Admin credentials are not configured.");
@@ -47,12 +48,13 @@ async function main() {
 
   while (maxDocs == null || scanned < maxDocs) {
     const limit = Math.min(pageSize, maxDocs == null ? pageSize : maxDocs - scanned);
-    let query = includeAllSources
-      ? db.collection(COLLECTION_NAME).orderBy(FieldPath.documentId()).limit(limit)
-      : db.collection(COLLECTION_NAME)
-          .where("source.provider", "==", "premium-validated")
-          .orderBy(FieldPath.documentId())
-          .limit(limit);
+    let query = db.collection(COLLECTION_NAME).orderBy(FieldPath.documentId()).limit(limit);
+    if (!includeAllSources) {
+      query = query.where("source.provider", "==", "premium-validated");
+    }
+    if (exactTitle) {
+      query = query.where("title", "==", exactTitle);
+    }
     if (cursor) query = query.startAfter(cursor);
     const snapshot = await query.get();
     if (snapshot.empty) break;
@@ -99,6 +101,7 @@ async function main() {
     collection: COLLECTION_NAME,
     dryRun,
     includeAllSources,
+    exactTitle: exactTitle ?? null,
     linked,
     samples,
     scanned,
@@ -231,6 +234,14 @@ function readNumberArg(name: string) {
   const parsed = Number(process.argv[index + 1]);
   if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${name} must be a positive number.`);
   return Math.floor(parsed);
+}
+
+function readStringArg(name: string) {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1]?.trim();
+  if (!value || value.startsWith("--")) throw new Error(`${name} must have a value.`);
+  return value;
 }
 
 function stripUndefinedDeep<T>(value: T): T {

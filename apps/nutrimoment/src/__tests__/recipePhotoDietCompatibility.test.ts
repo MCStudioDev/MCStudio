@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  inferRecipePhotoDietIds,
   isRecipePhotoDietCompatible,
   scopeRecipePhotoAliasesForDiet
 } from "@/services/recipePhotoDietCompatibility";
 
 describe("recipe photo diet compatibility", () => {
+  it("infers a recipe's hard diet identity from its displayed name", () => {
+    expect(inferRecipePhotoDietIds(["Vegan Fattah", "Egyptian dinner"]))
+      .toEqual(["vegan"]);
+  });
+
   it("rejects an animal-food cache entry for a vegan request", () => {
     expect(isRecipePhotoDietCompatible({
       imageUrl: "https://images.pexels.com/photos/27359375/pexels-photo-27359375.jpeg",

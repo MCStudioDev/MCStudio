@@ -26,7 +26,11 @@ import {
   isApproximateRecipePhotoCacheCompatible,
   isGeneratedRecipePhotoUrlCompatibleWithQueries
 } from "@/services/recipePhotoCacheCompatibility";
-import { isRecipePhotoDietCompatible } from "@/services/recipePhotoDietCompatibility";
+import {
+  inferRecipePhotoDietIds,
+  isRecipePhotoDietCompatible,
+  normalizeRecipePhotoDietIds
+} from "@/services/recipePhotoDietCompatibility";
 import { canReuseRecipePhotoForDiet } from "@/services/recipePhotoReusePolicy";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
@@ -1516,11 +1520,18 @@ function buildRecipePhotoBatchItem(
 ) {
   const queries = buildRecipePhotoQuery(recipe);
   const identity = recipe.photo_identity;
+  const recipeDiets = inferRecipePhotoDietIds([
+    recipe.name,
+    recipe.localized?.English?.name,
+    recipe.dish_intent?.dish_name,
+    recipe.dish_intent?.diet_type,
+    ...(recipe.photo_asset?.dietTags ?? [])
+  ]);
   return {
     alt: queries.slice(1, 5),
     cacheOnly: true,
     cuisine: buildRecipePhotoCuisine(recipe),
-    diet: diets,
+    diet: normalizeRecipePhotoDietIds([...diets, ...recipeDiets]),
     exact: buildRecipePhotoExactNames(recipe),
     exclude: excludeUrls.slice(0, 8),
     ingredient: buildRecipePhotoPromptIngredients(recipe).slice(0, 10),

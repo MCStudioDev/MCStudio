@@ -129,6 +129,7 @@ function normalizeMeal(value: unknown) {
   const photoIdentity = readPhotoIdentity(value);
   const photoAsset = readPhotoAsset(value);
   const recipeSourceType = readString(value, ["recipe_source_type", "recipeSourceType"]);
+  const sourceRecipeId = readString(value, ["source_recipe_id", "sourceRecipeId"]);
   const mealType = readString(value, ["meal_type", "mealType"]);
 
   return {
@@ -141,11 +142,13 @@ function normalizeMeal(value: unknown) {
     steps,
     cook_time: readString(value, ["cook_time", "cookTime", "total_time", "totalTime"]),
     difficulty: readString(value, ["difficulty"]),
-    source_recipe_id: readString(value, ["source_recipe_id", "sourceRecipeId"]),
+    source_recipe_id: sourceRecipeId,
     recipe_source_type:
       recipeSourceType === "local_database" || recipeSourceType === "external_source" || recipeSourceType === "generated"
         ? recipeSourceType
-        : undefined,
+        : sourceRecipeId
+          ? "local_database"
+          : "generated",
     meal_type:
       mealType === "breakfast" || mealType === "lunch" || mealType === "dinner" || mealType === "snack"
         ? mealType

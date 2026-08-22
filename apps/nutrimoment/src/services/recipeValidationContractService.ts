@@ -85,8 +85,8 @@ export function buildRecipeCatalogContentFingerprint(recipe: RecipeCatalogDoc) {
 export function buildSharedRecipeIdentityKey(recipe: RecipeCatalogDoc) {
   const english = recipe.localized?.English;
   const dishIdentity =
-    english?.name ||
     recipe.title ||
+    english?.name ||
     english?.dish_identity ||
     english?.dish_intent?.dish_name ||
     recipe.dishIntent?.dish_name ||
@@ -109,6 +109,7 @@ export function shouldReplaceSharedRecipeVersion(
   incoming: RecipeCatalogDoc
 ) {
   if (!existing) return true;
+  if (existing.isActive !== incoming.isActive) return incoming.isActive;
   const incomingPremium = hasCurrentPremiumValidationReceipt(incoming);
   const existingPremium = hasCurrentPremiumValidationReceipt(existing);
   if (incomingPremium !== existingPremium) return incomingPremium;

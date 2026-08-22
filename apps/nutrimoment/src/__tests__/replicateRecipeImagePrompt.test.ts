@@ -198,6 +198,52 @@ describe("replicate recipe image prompts", () => {
     expect(prompt).toContain("plain lentil rice");
   });
 
+  it("keeps vegan Fattah visibly layered instead of a plain chickpea rice bowl", () => {
+    const prompt = buildRecipeImagePromptForTest(
+      "Vegan Fattah Base",
+      ["rice", "toasted pita bread", "tomato sauce", "chickpeas", "garlic"],
+      { exactRecipeName: "Vegan Fattah Base" }
+    );
+
+    expect(prompt).toContain("crisp toasted pita bread shards");
+    expect(prompt).toContain("white rice above the bread");
+    expect(prompt).toContain("The toasted bread must remain visibly distinct");
+    expect(prompt).toContain("plain rice bowl");
+    expect(prompt).toContain("meat when vegan or vegetarian");
+  });
+
+  it("keeps Egyptian vegan dishes in their recognizable plated forms", () => {
+    const soup = buildRecipeImagePromptForTest(
+      "Vegan Tomato Soup",
+      ["tomato", "onion", "garlic", "vegetable broth"],
+      { exactRecipeName: "Vegan Tomato Soup" }
+    );
+    const mahshi = buildRecipeImagePromptForTest(
+      "Vegan Mahshi Filfil",
+      ["bell pepper", "rice", "tomato", "onion", "parsley"],
+      { exactRecipeName: "Vegan Mahshi Filfil" }
+    );
+    const taameya = buildRecipeImagePromptForTest(
+      "Vegan Taameya Sandwich",
+      ["fava beans", "pita bread", "parsley", "cilantro", "tahini", "tomato"],
+      { exactRecipeName: "Vegan Taameya Sandwich" }
+    );
+    const kofta = buildRecipeImagePromptForTest(
+      "Vegan Lentil Kofta",
+      ["lentils", "fine bulgur", "onion", "parsley", "cumin"],
+      { exactRecipeName: "Vegan Lentil Kofta" }
+    );
+
+    expect(soup).toContain("smooth blended red tomato soup");
+    expect(soup).toContain("meat, beef, chicken");
+    expect(mahshi).toContain("whole bell peppers visibly hollowed and stuffed");
+    expect(mahshi).toContain("plain rice mound");
+    expect(taameya).toContain("green-herb fava-bean taameya falafel patties");
+    expect(taameya).toContain("omelette, eggs");
+    expect(kofta).toContain("coarse lentil, grain, and herb texture");
+    expect(kofta).toContain("meat, beef, lamb");
+  });
+
   it("uses stable English visual identities for vegetarian catalog examples", () => {
     const palakIdentity = buildRecipePhotoIdentity("Vegan Palak Paneer With Tofu");
     const palakPrompt = buildRecipeImagePromptForTest(

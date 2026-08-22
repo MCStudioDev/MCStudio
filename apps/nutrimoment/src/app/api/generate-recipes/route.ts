@@ -160,6 +160,7 @@ import {
   selectRecipesByRequestPolicy,
   type CompiledRecipeRequestPolicy
 } from "@/services/recipeRequestPolicyService";
+import { dedupeExactRecipeCandidates } from "@/services/recipeCandidateMergeService";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
 const MIN_RECIPE_RESULT_COUNT = 1;
@@ -452,17 +453,6 @@ export async function POST(request: Request) {
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const recipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
-    const requestPolicy = compileRecipeRequestPolicy({
-      allergens: parsed.data.allergens,
-      conditions: parsed.data.conditions,
-      diets: parsed.data.diets,
-      excludedIngredients: parsed.data.excludedIngredients,
-      ingredients,
-      preferredCuisine: parsed.data.preferredCuisine,
-      requestedCount: recipeCount
-    });
-    const inputCoveragePlan = requestPolicy.coveragePlan;
-    const inputCoveragePrompt = toRecipeInputCoveragePrompt(inputCoveragePlan);
     const recipeGenerationCandidateCount = Math.min(
       MAX_RECIPE_GENERATION_CANDIDATES,
       recipeCount + Math.max(2, Math.ceil(recipeCount * 0.6))
@@ -498,6 +488,17 @@ export async function POST(request: Request) {
       ...expandIngredientFamilies(normalizedIngredientNames)
     ]));
     const scoringIngredients = expandedNormalizedIngredientNames;
+    const requestPolicy = compileRecipeRequestPolicy({
+      allergens: parsed.data.allergens,
+      conditions: parsed.data.conditions,
+      diets: parsed.data.diets,
+      excludedIngredients: parsed.data.excludedIngredients,
+      ingredients: normalizedIngredientNames,
+      preferredCuisine: parsed.data.preferredCuisine,
+      requestedCount: recipeCount
+    });
+    const inputCoveragePlan = requestPolicy.coveragePlan;
+    const inputCoveragePrompt = toRecipeInputCoveragePrompt(inputCoveragePlan);
     // Server-side hard filter context for diet + allergens. Used to drop
     // anything generated that violates the user's rules, regardless of
     // how confidently the prompt asked the model to respect them.
@@ -546,6 +547,10 @@ export async function POST(request: Request) {
     const rememberValidSearchRecipes = (recipes: Recipe[], stage: string) => {
       if (!recipes.length) return;
       const responseSizedRecipes = recipes
+        .filter((recipe) =>
+          isTrustedSourcedRecipe(recipe) ||
+          (Number.isFinite(recipe.acceptance_score) && Number(recipe.acceptance_score) >= 70)
+        )
         .filter((recipe) => recipeCompatibilityEvaluator.evaluatePrimary(recipe).compatible)
         .filter((recipe) => isCustomerFacingRecipeContractAcceptable(recipe, recipeLanguage))
         .slice(0, recipeCount);
@@ -828,7 +833,15 @@ export async function POST(request: Request) {
       const cuisineBalancedPantry = parsed.data.preferredCuisine === "Any"
         ? selectRecipesByRequestPolicy(pantryPrioritized, requestPolicy, preValidationCandidateCount)
         : pantryPrioritized.slice(0, preValidationCandidateCount);
-      const varied = enforceDistinctRecipeVariety(cuisineBalancedPantry, preValidationCandidateCount);
+      // Do not let candidates with a conflicting hidden protein occupy the
+      // bounded diversity slots and get rejected only after valid alternatives
+      // have already been displaced.
+      const primaryCompatibleCuisineCandidates = cuisineBalancedPantry.filter((recipe) =>
+        recipeCompatibilityEvaluator.evaluatePrimary(recipe).compatible
+      );
+      // Quality acceptance is authoritative. Keep every compatible candidate
+      // until that gate runs so early variety scoring cannot create underfill.
+      const varied = primaryCompatibleCuisineCandidates.slice(0, preValidationCandidateCount);
       logFinalizationStage("source_selection_and_initial_ranking", varied.length);
       recordRecipePipelineStage(validationReport, {
         entered: pantryPrioritized,
@@ -874,10 +887,10 @@ export async function POST(request: Request) {
       const finalCuisineBalanced = parsed.data.preferredCuisine === "Any"
         ? selectRecipesByRequestPolicy(finalPantryPrioritized, requestPolicy, preValidationCandidateCount)
         : finalPantryPrioritized.slice(0, preValidationCandidateCount);
-      const finalCountRepaired = enforceDistinctRecipeVariety(
-        finalCuisineBalanced,
-        preValidationCandidateCount
+      const finalPrimaryCompatibleCandidates = finalCuisineBalanced.filter((recipe) =>
+        recipeCompatibilityEvaluator.evaluatePrimary(recipe).compatible
       );
+      const finalCountRepaired = finalPrimaryCompatibleCandidates.slice(0, preValidationCandidateCount);
       recordRecipePipelineStage(validationReport, {
         entered: finalSparseIngredientAlignedSelected,
         exited: finalCountRepaired,
@@ -1112,6 +1125,7 @@ export async function POST(request: Request) {
       });
       const diversityPreferred = enforceRecipeDiversity(qualityGated, {
         limit: candidateRecipeCount,
+        maxPerFamilyDuringSoftFill: 2,
         rotateCuisines: !parsed.data.preferredCuisine || parsed.data.preferredCuisine === "Any",
         softFill: true,
         similarityThreshold: RECIPE_SIMILARITY_REJECTION_THRESHOLD
@@ -1376,7 +1390,10 @@ export async function POST(request: Request) {
           includeFirestoreReferences: false,
           allowRemoteCaches: !hasAiGenerationAccess,
           forceSharedCacheRead: !hasAiGenerationAccess,
-          skipStaticSources: !hasAiGenerationAccess,
+          // The trusted bundled catalog is a validated, zero-AI-cost baseline
+          // for every account. Free users still read the shared pool, but a
+          // noisy or incomplete remote index must not hide canonical dishes.
+          skipStaticSources: false,
           maxMissingIngredients: parsed.data.maxMissingIngredients
         });
       }
@@ -2466,12 +2483,10 @@ export async function POST(request: Request) {
         const rawResponseCandidates = sourceRecipeEditorEnabled
           ? [...strictRecipes, ...localizedReserveRecipes]
           : [...responseReadySourceRecipes, ...strictRecipes];
-        const responseCandidates = enforceRecipeDiversity(rawResponseCandidates, {
-          limit: sourceRankingOptions.candidateLimit,
-          rotateCuisines: !parsed.data.preferredCuisine || parsed.data.preferredCuisine === "Any",
-          softFill: true,
-          similarityThreshold: RECIPE_SIMILARITY_REJECTION_THRESHOLD
-        });
+        // Finalization applies the authoritative diversity policy after quality
+        // acceptance. Truncating by dish family here can discard valid reserve
+        // candidates before malformed cards are rejected and cause underfill.
+        const responseCandidates = rawResponseCandidates.slice(0, sourceRankingOptions.candidateLimit);
         let finalRecipes: Recipe[] = await finalizeRecipeResponse(
           mergeRecipeResults(
             exactScanMatch,
@@ -3208,32 +3223,16 @@ function mergeRecipeResults(
   markSimilarOrigins: boolean,
   recipeCount: number
 ) {
-  const merged: Recipe[] = [];
-  const seenIds = new Set<string>();
-  const seenNames = new Set<string>();
-
-  const pushRecipe = (recipe: Recipe, fallbackOrigin?: Recipe["recipe_origin"]) => {
-    const idKey = recipe.source_recipe_id || recipe.id || "";
-    const nameKey = buildNormalizedRecipeNameSignature(
-      recipe.dish_identity || recipe.dish_intent?.dish_name || recipe.name
-    ) || normalizeDishRestrictionKey(recipe.name);
-    if ((idKey && seenIds.has(idKey)) || (nameKey && seenNames.has(nameKey))) return;
-    if (idKey) seenIds.add(idKey);
-    if (nameKey) seenNames.add(nameKey);
-    merged.push({
+  const candidates: Recipe[] = [
+    ...(exactRecipe
+      ? [{ ...exactRecipe, recipe_origin: exactRecipe.recipe_origin ?? "exact_scan_match" as const }]
+      : []),
+    ...similarRecipes.map((recipe) => ({
       ...recipe,
-      recipe_origin: recipe.recipe_origin ?? fallbackOrigin
-    });
-  };
-
-  if (exactRecipe) {
-    pushRecipe(exactRecipe, "exact_scan_match");
-  }
-
-  for (const recipe of similarRecipes) {
-    pushRecipe(recipe, markSimilarOrigins ? "similar_ingredients" : undefined);
-  }
-
+      recipe_origin: recipe.recipe_origin ?? (markSimilarOrigins ? "similar_ingredients" as const : undefined)
+    }))
+  ];
+  const merged = dedupeExactRecipeCandidates(candidates);
   return prioritizePantryBalancedRecipes(merged).slice(0, recipeCount);
 }
 
@@ -6995,7 +6994,9 @@ function getRecentRecipeRepetitionPenalty(recipe: Recipe, memory?: RecentRecipeM
   if (imageIdentityKey && memory.imageIdentityKeys.has(imageIdentityKey)) penalty += 45;
   if (structureKey && memory.structureKeys.has(structureKey)) penalty += 30;
 
-  return penalty;
+  // Recent dishes should rotate lower, but must remain eligible when they are
+  // still the strongest pantry/cuisine match for a repeated request.
+  return Math.min(penalty, 30);
 }
 
 function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOptions): RankedRecipeCandidate[] {
@@ -7003,6 +7004,9 @@ function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOp
   const preferredCuisine = options.preferredCuisine && options.preferredCuisine !== "Any"
     ? options.preferredCuisine.toLowerCase()
     : "";
+  const missingIngredientLimit = Number.isFinite(options.maxMissingIngredients)
+    ? Math.max(0, Number(options.maxMissingIngredients))
+    : Number.POSITIVE_INFINITY;
 
   return recipes
     .map((recipe, index) => {
@@ -7036,6 +7040,7 @@ function buildRankedRecipeCandidates(recipes: Recipe[], options: RecipeRankingOp
         score: baseScore - recentPenalty
       };
     })
+    .filter((candidate) => candidate.missingCount <= missingIngredientLimit)
     .sort((left, right) => {
       if (left.anchorMatchCount !== right.anchorMatchCount) {
         return right.anchorMatchCount - left.anchorMatchCount;
@@ -7347,7 +7352,9 @@ async function queueRecipeCachePersist(input: {
         : null;
       logger.info("Recipe cache persisted after response", {
         durationMs: Date.now() - startedAt,
-        promotedRecipeCount: promotion?.published ?? 0,
+        promotedRecipeCount: promotion?.available ?? promotion?.published ?? 0,
+        publishedRecipeCount: promotion?.published ?? 0,
+        reusedRecipeCount: promotion?.reused ?? 0,
         recipeCount: input.recipes?.length ?? 0,
         uid: input.uid ?? null
       });
@@ -7417,6 +7424,9 @@ function scoreStrictRecipe(
   const dishIntentScore = Math.max(0, (recipe.dish_intent?.candidate_score ?? 0) / 8);
   const dishIntentHitScore = Math.min(recipe.dish_intent?.candidate_hits?.length ?? 0, 4) * 2;
   const namedDishScore = getNamedDishSpecificityScore(recipe);
+  const namedDishPantryFitBonus = namedDishScore > 0 && ownedCount >= 2 && missingCount <= options.maxMissingIngredients
+    ? 50
+    : 0;
   const ingredientIntegrationScore = getIngredientIntegrationScore(recipe, options.availableIngredients);
   const basicFallbackPenalty = getBasicFallbackPenalty(recipe);
   const cuisineFit = scoreCuisineFit({
@@ -7444,6 +7454,7 @@ function scoreStrictRecipe(
     dishIntentScore +
     dishIntentHitScore +
     namedDishScore +
+    namedDishPantryFitBonus +
     ingredientIntegrationScore -
     basicFallbackPenalty +
     calorieScore +
@@ -7609,7 +7620,22 @@ function selectTrustedSourceCuisineRecipes(
       !hasRecipeConflictingCuisineIdentity(recipe, preferredCuisine)
     );
   });
-  return candidates
+  // Older shared records can carry broad photo/search aliases from adjacent
+  // cuisines. Those aliases should not hide a recipe whose displayed identity
+  // and authoritative cuisine are still coherent. Keep them as soft-fill
+  // candidates after the strongest metadata matches.
+  const safeExactCuisineFallbacks = recipes.filter((recipe) =>
+    normalizeCuisineLabel(recipe.cuisine) === normalizedPreferredCuisine &&
+    !hasRecipeConflictingCuisineTitleIdentity(recipe, preferredCuisine)
+  );
+  const mergedCandidates = Array.from(new Map(
+    [...candidates, ...safeExactCuisineFallbacks].map((recipe) => [
+      recipe.id ?? `${recipe.name}|${recipe.cuisine}`,
+      recipe
+    ])
+  ).values());
+
+  return mergedCandidates
     .sort((left, right) => {
       const score = (recipe: Recipe) =>
         Number(cuisineMatchesPreference(recipe.cuisine, preferredCuisine)) * 80 +
@@ -8645,6 +8671,15 @@ function hasRecipeConflictingCuisineIdentity(recipe: Recipe, preferredCuisine: s
   ].filter(Boolean).join(" ")), preferredCuisine);
 }
 
+function hasRecipeConflictingCuisineTitleIdentity(recipe: Recipe, preferredCuisine: string) {
+  return hasConflictingCuisineDisplaySignal(normalizeCuisineIdentityText([
+    recipe.name,
+    recipe.dish_identity,
+    recipe.dish_intent?.dish_name,
+    recipe.localized?.English?.name
+  ].filter(Boolean).join(" ")), preferredCuisine);
+}
+
 function countRecipesWithUsefulPantryCoverage(
   recipes: Recipe[],
   availableIngredients: string[],
@@ -8666,6 +8701,12 @@ function shouldReplaceResponseSourceSet(
   if (!candidate.length) return false;
   if (!current.length) return true;
 
+  const currentInputCoverage = countCoveredRequestedIngredients(current, availableIngredients);
+  const candidateInputCoverage = countCoveredRequestedIngredients(candidate, availableIngredients);
+  if (candidateInputCoverage !== currentInputCoverage) {
+    return candidateInputCoverage > currentInputCoverage;
+  }
+
   const currentCoverage = countRecipesWithUsefulPantryCoverage(
     current,
     availableIngredients,
@@ -8682,6 +8723,13 @@ function shouldReplaceResponseSourceSet(
   }
 
   return candidate.length > current.length;
+}
+
+function countCoveredRequestedIngredients(recipes: Recipe[], availableIngredients: string[]) {
+  return availableIngredients.filter((ingredient) => {
+    const evaluator = createRecipeIngredientCompatibilityEvaluator([ingredient]);
+    return recipes.some((recipe) => evaluator.evaluateEvidence(recipe).compatible);
+  }).length;
 }
 
 // Photo resolution is intentionally client-side for scanner responses so recipe
@@ -8951,6 +8999,8 @@ async function attachPhotosFromPublishedRecipeBundles(recipes: Recipe[], diets: 
     ...directBundlesById.values()
   ].map((recipe) => [recipe.id, recipe])).values())
     .filter((recipe) =>
+      recipe.isActive &&
+      (recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified") &&
       recipe.image.status === "ready" &&
       isDurableRecipeImageUrl(recipe.image.thumbPath || recipe.image.storagePath)
     );
@@ -8997,6 +9047,8 @@ async function attachPhotosFromPublishedRecipeBundles(recipes: Recipe[], diets: 
     if (!bundle) return attachValidatedRecipePhotoAsset(recipe, diets);
 
     const imageUrl = bundle.image.thumbPath || bundle.image.storagePath;
+    const targetDietTags = recipe.photo_asset?.dietTags ?? [];
+    const bundleDietTags = bundle.image.dietTags?.length ? bundle.image.dietTags : bundle.dietTags;
     const linked = attachValidatedRecipePhotoAsset({
       ...recipe,
       image_attribution_name: bundle.image.attributionName,
@@ -9006,7 +9058,7 @@ async function attachPhotosFromPublishedRecipeBundles(recipes: Recipe[], diets: 
       photo_asset: {
         attributionName: bundle.image.attributionName,
         attributionUrl: bundle.image.attributionUrl,
-        dietTags: bundle.image.dietTags ?? bundle.dietTags,
+        dietTags: Array.from(new Set([...targetDietTags, ...bundleDietTags])),
         source: "cache",
         status: "ready",
         url: imageUrl,

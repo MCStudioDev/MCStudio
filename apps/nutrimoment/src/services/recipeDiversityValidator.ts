@@ -2,6 +2,7 @@ import type { Recipe } from "@/lib/types";
 
 export interface RecipeDiversityValidationOptions {
   limit: number;
+  maxPerFamilyDuringSoftFill?: number;
   rotateCuisines?: boolean;
   softFill?: boolean;
   targets?: RecipeDiversityTargets;
@@ -115,7 +116,11 @@ export function enforceRecipeDiversity(
 
   if (options.softFill && selected.length < options.limit && remaining.length) {
     const selectedIds = new Set(selected.map((recipe) => recipe.id).filter(Boolean));
-    const selectedFamilies = new Set(selected.map(recipeKey).filter(Boolean));
+    const familyCounts = new Map<string, number>();
+    const maxPerFamily = Math.max(1, Math.floor(options.maxPerFamilyDuringSoftFill ?? 1));
+    selected.map(recipeKey).filter(Boolean).forEach((family) => {
+      familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
+    });
     const rankedFill = remaining
       .map((entry) => ({
         ...entry,
@@ -127,10 +132,10 @@ export function enforceRecipeDiversity(
 
     for (const entry of rankedFill) {
       const family = recipeKey(entry.recipe);
-      if (family && selectedFamilies.has(family)) continue;
+      if (family && (familyCounts.get(family) ?? 0) >= maxPerFamily) continue;
       fill.push(entry.recipe);
       if (entry.recipe.id) selectedIds.add(entry.recipe.id);
-      if (family) selectedFamilies.add(family);
+      if (family) familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
       if (selected.length + fill.length >= options.limit) break;
     }
 
@@ -236,6 +241,7 @@ function canonicalNamedDishKey(value: string) {
   if (koftaVariant) return koftaVariant;
 
   const identities: Array<[string, RegExp]> = [
+    ["mahshi-filfil", /\b(?:vegan\s+)?mahshi\s+filfil\b|\bstuffed\s+peppers?\b/],
     ["cacciatore", /\b(?:cacciatore|cacciatora)\b|(?:كاتشاتوري|كاستياتوري)/u],
     ["parmigiana", /\b(?:parmesan|parmigiana|parmigiano)\b|(?:بارميزان|باريميجيانا)/u],
     ["piccata", /\bpiccata\b|بيكاتا/u],
@@ -243,6 +249,7 @@ function canonicalNamedDishKey(value: string) {
     ["lasagna", /\b(?:lasagna|lasagne)\b|لازانيا/u],
     ["minestrone", /\bminestrone\b|مينستروني/u],
     ["shawarma", /\bshawarma\b|شاورما/u],
+    ["fattah", /\b(?:fattah|fatta)\b|فتة/u],
     ["kofta", /\b(?:kofta|kofte|kafta|kefta)\b|كفتة/u],
     ["hawawshi", /\bhawawshi\b|حواوشي/u],
     ["biryani", /\bbiryani\b|برياني/u],

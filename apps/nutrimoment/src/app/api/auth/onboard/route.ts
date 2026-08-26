@@ -4,7 +4,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const access = await getRequestAccess(request);
+    const access = await getRequestAccess(request, { ensureProfileDefaults: true });
     return Response.json({
       ok: true,
       access: accessPayload(access)

@@ -25,26 +25,10 @@ import {
   persistPilotLanguage
 } from "@/lib/language";
 import { isRtl, t as translate, type TranslationKey } from "@/lib/translations";
+import { createDefaultUserHealthProfile, createDefaultUserSettings } from "@/lib/userDefaults";
 
-const DEFAULT_SETTINGS: UserSettings = {
-  calorieTarget: 2000,
-  preferredCuisine: "Egyptian",
-  maxMissingIngredients: 3,
-  recipeCount: 5,
-  uiLanguage: "en",
-  themeMode: "auroraDark",
-  targetWeightKg: null,
-  goalTimelineMonths: null
-};
-
-const DEFAULT_HEALTH: HealthProfile = {
-  diets: [],
-  conditions: [],
-  allergens: [],
-  ageYears: 30,
-  weightKg: 75,
-  heightCm: null
-};
+const DEFAULT_SETTINGS: UserSettings = createDefaultUserSettings();
+const DEFAULT_HEALTH: HealthProfile = createDefaultUserHealthProfile();
 const MAX_USER_NOTIFICATIONS = 50;
 
 interface AppContextValue {

@@ -6,6 +6,7 @@ export {
 } from "@/lib/freeAiCredits";
 import { FREE_LIFETIME_AI_CREDITS } from "@/lib/freeAiCredits";
 import { logger } from "@/lib/logger";
+import { createDefaultUserHealthProfile, createDefaultUserSettings } from "@/lib/userDefaults";
 
 export type AccessRole = "admin" | "user";
 export type AccessTier = "free" | "premium";
@@ -97,17 +98,28 @@ interface AuthenticatedUserEnrollment {
 
 async function ensureAuthenticatedUserEnrollment(
   db: ReturnType<typeof getAdminDb>,
-  identity: AuthenticatedUserEnrollment
+  identity: AuthenticatedUserEnrollment,
+  options: { ensureProfileDefaults?: boolean } = {}
 ): Promise<Record<string, unknown>> {
   const userRef = db.doc(`users/${identity.uid}`);
   const entitlementRef = db.doc(`entitlements/${identity.uid}`);
+  const settingsRef = db.doc(`users/${identity.uid}/profile/settings`);
+  const healthRef = db.doc(`users/${identity.uid}/profile/health`);
   const [userSnapshot, entitlementSnapshot] = await withFirebaseTransientRetry(
     () => db.getAll(userRef, entitlementRef),
     "read user enrollment"
   );
 
   if (userSnapshot.exists && entitlementSnapshot.exists) {
-    return entitlementSnapshot.data() ?? {};
+    if (!options.ensureProfileDefaults) return entitlementSnapshot.data() ?? {};
+
+    const [settingsSnapshot, healthSnapshot] = await withFirebaseTransientRetry(
+      () => db.getAll(settingsRef, healthRef),
+      "read user profile defaults"
+    );
+    if (settingsSnapshot.exists && healthSnapshot.exists) {
+      return entitlementSnapshot.data() ?? {};
+    }
   }
 
   const defaultEntitlement = {
@@ -124,9 +136,11 @@ async function ensureAuthenticatedUserEnrollment(
 
   return withFirebaseTransientRetry(
     () => db.runTransaction(async (transaction) => {
-      const [currentUser, currentEntitlement] = await Promise.all([
+      const [currentUser, currentEntitlement, currentSettings, currentHealth] = await Promise.all([
         transaction.get(userRef),
-        transaction.get(entitlementRef)
+        transaction.get(entitlementRef),
+        transaction.get(settingsRef),
+        transaction.get(healthRef)
       ]);
 
       if (!currentUser.exists) {
@@ -142,8 +156,17 @@ async function ensureAuthenticatedUserEnrollment(
 
       if (!currentEntitlement.exists) {
         transaction.set(entitlementRef, defaultEntitlement);
-        return defaultEntitlement;
       }
+
+      if (!currentSettings.exists) {
+        transaction.set(settingsRef, createDefaultUserSettings());
+      }
+
+      if (!currentHealth.exists) {
+        transaction.set(healthRef, createDefaultUserHealthProfile());
+      }
+
+      if (!currentEntitlement.exists) return defaultEntitlement;
 
       return currentEntitlement.data() ?? {};
     }),
@@ -151,7 +174,10 @@ async function ensureAuthenticatedUserEnrollment(
   );
 }
 
-export async function getRequestAccess(request: Request): Promise<RequestAccess> {
+export async function getRequestAccess(
+  request: Request,
+  options: { ensureProfileDefaults?: boolean } = {}
+): Promise<RequestAccess> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     throw new AccessError("Sign in is required to use this feature.", 401);
@@ -169,7 +195,8 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
         uid: decoded.uid,
         email: decoded.email ?? null,
         displayName: decoded.name ?? null
-      }
+      },
+      options
     );
   } catch (error) {
     if (isFirebaseTransientError(error)) {

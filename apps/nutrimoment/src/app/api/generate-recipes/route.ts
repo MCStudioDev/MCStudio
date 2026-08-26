@@ -171,8 +171,9 @@ import {
   mergeSharedRecipeV2Results,
   planSharedRecipeV2Fulfillment
 } from "@/services/sharedRecipeV2PolicyService";
+import { DEFAULT_USER_SETTINGS } from "@/lib/userDefaults";
 
-const DEFAULT_RECIPE_RESULT_COUNT = 5;
+const DEFAULT_RECIPE_RESULT_COUNT = DEFAULT_USER_SETTINGS.recipeCount;
 const MIN_RECIPE_RESULT_COUNT = 1;
 const MAX_SHARED_POOL_RECIPE_RESULT_COUNT = 10;
 const MAX_RECIPE_EDITOR_BATCH_SIZE = 12;

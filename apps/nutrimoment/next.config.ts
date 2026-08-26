@@ -16,9 +16,9 @@ const buildContentSecurityPolicy = (): string => {
     "default-src 'self'",
     `script-src 'self' ${isProd ? "" : "'unsafe-eval'"} 'unsafe-inline' https://apis.google.com https://www.gstatic.com https://www.googleapis.com`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src 'self' data: blob: https://images.unsplash.com https://upload.wikimedia.org https://commons.wikimedia.org https://images.pexels.com https://lh3.googleusercontent.com https://*.googleusercontent.com https://firebasestorage.googleapis.com https://replicate.delivery https://*.replicate.delivery",
+    "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com https://firebasestorage.googleapis.com https://storage.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://generativelanguage.googleapis.com https://api.openai.com wss://*.firebaseio.com",
+    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://generativelanguage.googleapis.com wss://*.firebaseio.com",
     "frame-src 'self' https://nutrimoment-production.firebaseapp.com https://*.firebaseapp.com https://accounts.google.com",
     "media-src 'self' blob:",
     "worker-src 'self' blob:",
@@ -35,15 +35,10 @@ const nextConfig: NextConfig = {
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [
-      { protocol: "https", hostname: "images.unsplash.com" },
-      { protocol: "https", hostname: "upload.wikimedia.org" },
-      { protocol: "https", hostname: "commons.wikimedia.org" },
-      { protocol: "https", hostname: "images.pexels.com" },
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
       { protocol: "https", hostname: "**.googleusercontent.com" },
       { protocol: "https", hostname: "firebasestorage.googleapis.com" },
-      { protocol: "https", hostname: "replicate.delivery" },
-      { protocol: "https", hostname: "**.replicate.delivery" }
+      { protocol: "https", hostname: "storage.googleapis.com" }
     ]
   },
   poweredByHeader: false,

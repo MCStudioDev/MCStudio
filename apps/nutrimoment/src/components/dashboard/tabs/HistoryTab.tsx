@@ -204,21 +204,24 @@ export function HistoryTab() {
 
                 {entry.recipes.length ? (
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
-                    {entry.recipes.map((recipe, recipeIndex) => (
+                    {entry.recipes.map((recipe, recipeIndex) => {
+                      const entryHasGeneratedImageAccess = hasGeneratedImageAccess || Boolean(entry.imageActionGrantId);
+                      return (
                       <MealRevealCard
                       key={`${entry.id}-${recipe.id ?? recipeIndex}`}
-                      disableAutoImageLookup
+                      disableAutoImageLookup={!entryHasGeneratedImageAccess}
                       trustProvidedImage
+                      imageActionGrantId={entry.imageActionGrantId}
                       eyebrow={getRecipeEyebrow(recipe, t)}
                       name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
                       visualMatchLabel={recipe.visual_match_label}
                       summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                       previewLabel={getRecipePreviewLabel(recipe, t)}
                       previewItems={buildRecipePreviewItems(recipe)}
-                      imageUrl={getHistoryRecipeImageUrl(recipe, hasGeneratedImageAccess, health.diets)}
+                      imageUrl={getHistoryRecipeImageUrl(recipe, entryHasGeneratedImageAccess, health.diets)}
                       imageSource={recipe.image_source}
                       imageDiets={health.diets}
-                      imageError={!canReuseRecipePhotoForDiet(recipe, health.diets, hasGeneratedImageAccess)}
+                      imageError={!canReuseRecipePhotoForDiet(recipe, health.diets, entryHasGeneratedImageAccess)}
                       recipeSource={recipe.recipe_source_type}
                       recipeSourceUrl={recipe.source_url}
                       imageAttributionName={recipe.image_attribution_name}
@@ -232,7 +235,7 @@ export function HistoryTab() {
                         user
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                               const persistedImageUrl =
-                                hasGeneratedImageAccess
+                                entryHasGeneratedImageAccess
                                   ? null
                                   : await persistRecipeImageForUser({
                                       uid: user.uid,
@@ -253,7 +256,8 @@ export function HistoryTab() {
                       stats={buildRecipeStats(recipe)}
                       sections={buildRecipeSections(recipe, t)}
                     />
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : null}
               </Card>

@@ -408,6 +408,7 @@ export async function POST(request: Request) {
         dietContext
       });
       await persistMealPlanResultForUser({
+        actionGrantId: aiAction.actionGrantId,
         historyEntryId: parsed.data.historyEntryId,
         historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
         historyTitle: parsed.data.historyTitle,
@@ -418,7 +419,7 @@ export async function POST(request: Request) {
       });
       return Response.json({
         ...actionGrantPayload,
-        result: JSON.stringify({ ...outputMockPlan, preferenceSignature }),
+        result: JSON.stringify({ ...outputMockPlan, preferenceSignature, imageActionGrantId: aiAction.actionGrantId }),
         access: accessPayload(nextAccess)
       });
     }
@@ -549,6 +550,7 @@ export async function POST(request: Request) {
           sharedPublication.recipeLinks
         );
         await persistMealPlanResultForUser({
+          actionGrantId: aiAction.actionGrantId,
           historyEntryId: parsed.data.historyEntryId,
           historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
           historyTitle: parsed.data.historyTitle,
@@ -566,6 +568,7 @@ export async function POST(request: Request) {
           ...actionGrantPayload,
           result: JSON.stringify({
             ...linkedOutputMealPlan,
+            imageActionGrantId: aiAction.actionGrantId,
             preferenceSignature,
             repeatFallback: repeatFallbackMetadata,
             servedFrom: "fallback_ai"
@@ -688,6 +691,7 @@ export async function POST(request: Request) {
       dietContext
     });
     await persistMealPlanResultForUser({
+      actionGrantId: aiAction.actionGrantId,
       historyEntryId: parsed.data.historyEntryId,
       historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
       historyTitle: parsed.data.historyTitle,
@@ -702,7 +706,12 @@ export async function POST(request: Request) {
     });
     return Response.json({
       ...actionGrantPayload,
-      result: JSON.stringify({ ...outputEmergencyMealPlan, preferenceSignature, repeatFallback: repeatFallbackMetadata }),
+      result: JSON.stringify({
+        ...outputEmergencyMealPlan,
+        imageActionGrantId: aiAction.actionGrantId,
+        preferenceSignature,
+        repeatFallback: repeatFallbackMetadata
+      }),
       servedFrom: "shared_pool",
       repeatFallback: repeatFallbackMetadata,
       fallbackNotice: repeatFallbackMetadata
@@ -1555,6 +1564,7 @@ function getShoppingListItemKey(value: string) {
 }
 
 async function persistMealPlanResultForUser({
+  actionGrantId,
   historyEntryId,
   historyIngredients,
   historyTitle,
@@ -1563,6 +1573,7 @@ async function persistMealPlanResultForUser({
   persistResult,
   uid
 }: {
+  actionGrantId?: string;
   historyEntryId?: string;
   historyIngredients: string[];
   historyTitle?: string;
@@ -1575,7 +1586,8 @@ async function persistMealPlanResultForUser({
 
   try {
     const db = getAdminDb();
-    const sanitized = sanitizeMealPlanForFirestore(mealPlan);
+    const authorizedMealPlan = actionGrantId ? { ...mealPlan, imageActionGrantId: actionGrantId } : mealPlan;
+    const sanitized = sanitizeMealPlanForFirestore(authorizedMealPlan);
     await db.doc(`users/${uid}/plans/currentWeekly`).set(
       {
         mealPlan: preferenceSignature ? { ...sanitized, preferenceSignature } : sanitized,
@@ -1591,6 +1603,7 @@ async function persistMealPlanResultForUser({
           completedAt: new Date().toISOString(),
           generationMessage: null,
           generationStatus: "completed",
+          ...(actionGrantId ? { imageActionGrantId: actionGrantId } : {}),
           ingredients: historyIngredients,
           recipes: stripUndefinedForFirestore(buildMealPlanHistoryRecipes(mealPlan)),
           sessionType: "weekly_meal_plan",

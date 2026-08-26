@@ -181,6 +181,7 @@ export interface MealPlanData {
   recommendedRecipes?: Recipe[];
   servedFrom?: "shared_pool" | "fallback_ai" | "mock";
   preferenceSignature?: string;
+  imageActionGrantId?: string;
 }
 
 export interface HistoryItem {
@@ -193,6 +194,7 @@ export interface HistoryItem {
   generationStatus?: "pending" | "completed" | "failed";
   generationMessage?: string;
   completedAt?: string;
+  imageActionGrantId?: string;
 }
 
 export interface HealthProfile {

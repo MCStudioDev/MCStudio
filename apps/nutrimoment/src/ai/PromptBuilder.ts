@@ -1687,7 +1687,7 @@ export function buildMealPlanPrompt({
     stuffedDishGuidance,
     dessertCatalogGuidance,
     ingredientPrepFormGuidance,
-    "For every breakfast, lunch, and dinner object also output image_search_indices: an array of 3 to 5 short English food-photo search phrases tuned for Unsplash first and Pexels second, ordered from most exact to broader backup searches.",
+    "For every breakfast, lunch, and dinner object also output image_search_indices: an array of 3 to 5 short English visual identity phrases for matching a stored Replicate photo or building a precise Replicate prompt, ordered from most exact to broader identity aliases.",
     "Each image_search_indices item should be 2 to 6 words, use canonical dish nouns first, add cuisine, protein, sauce, cooking method, or starch only when it improves accuracy, and avoid quantities, health claims, macro words, filler adjectives, and branding.",
     "When the meal has an important visual or prep-form variant, encode it in the search phrases and visual keywords. Examples: chicken cubes rice bowl, chicken cutlet, minced fish cakes, whole grilled fish, white sauce pasta, tomato noodle stir fry.",
     imageGuidance,

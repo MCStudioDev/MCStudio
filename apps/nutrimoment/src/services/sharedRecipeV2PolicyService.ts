@@ -130,8 +130,19 @@ export function buildSharedRecipeV2VisualFingerprint(recipe: RecipeCatalogDoc) {
 function hasCurrentReadyPhoto(recipe: RecipeCatalogDoc) {
   const imageUrl = recipe.image.thumbPath || recipe.image.storagePath;
   return recipe.image.status === "ready" &&
+    recipe.image.source === "replicate" &&
     recipe.image.validatorHash === RECIPE_PHOTO_ASSET_VALIDATOR_HASH &&
-    isDurableRecipeImageUrl(imageUrl);
+    isDurableRecipeImageUrl(imageUrl) &&
+    isStoredRecipePhotoUrl(imageUrl);
+}
+
+function isStoredRecipePhotoUrl(imageUrl: string) {
+  try {
+    const host = new URL(imageUrl).hostname.toLowerCase();
+    return host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com";
+  } catch {
+    return false;
+  }
 }
 
 function normalizeTitle(value?: string | null) {

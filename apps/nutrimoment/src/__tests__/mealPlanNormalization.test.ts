@@ -79,4 +79,22 @@ describe("meal plan normalization", () => {
       }
     });
   });
+
+  it("preserves the action grant that completes images after navigation", () => {
+    const meal = {
+      name: "Menemen",
+      calories: 250,
+      protein: "15g",
+      carbs: "12g",
+      fat: "16g"
+    };
+
+    const result = normalizeMealPlanData({
+      imageActionGrantId: "weekly-plan-final-credit",
+      plan: [{ day: "Monday", breakfast: meal, lunch: meal, dinner: meal }],
+      shoppingList: []
+    });
+
+    expect(result?.imageActionGrantId).toBe("weekly-plan-final-credit");
+  });
 });

@@ -15,7 +15,7 @@ Current capabilities include:
 - scan and recipe history (server-side `/api/history` returns the latest 50 sessions)
 - Arabic UI support with RTL layout
 - in-app legal/safety notices and legal pages
-- tiered recipe photos: free users get Unsplash/Pexels/allow-listed Wikimedia search; premium/admin users get Replicate-generated images (`flux-schnell` by default)
+- shared recipe photos: all users reuse validated Replicate photos persisted with V2 recipes; eligible generation requests create missing photos through Replicate (`flux-schnell` by default)
 - server-enforced free-tier quotas: 10 lifetime AI credits and 3 lifetime weekly meal plans per Firebase user
 
 ## Development

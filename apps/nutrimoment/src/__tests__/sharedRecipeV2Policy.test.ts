@@ -85,6 +85,23 @@ describe("shared recipe V2 policy", () => {
     expect(isSharedRecipeV2Searchable(published)).toBe(true);
   });
 
+  it("rejects legacy providers and unpersisted Replicate URLs from V2 search", () => {
+    const ready = withReadyPhoto(recipe("recipe-1", "Koshary"));
+    const legacySource = buildSharedRecipeV2Document({
+      ...ready,
+      image: { ...ready.image, source: "cache" }
+    });
+    const transientReplicate = buildSharedRecipeV2Document({
+      ...ready,
+      image: { ...ready.image, storagePath: "https://replicate.delivery/example/photo.webp", thumbPath: undefined }
+    });
+
+    expect(legacySource.publicationStatus).toBe("pending_photo");
+    expect(isSharedRecipeV2Searchable(legacySource)).toBe(false);
+    expect(transientReplicate.publicationStatus).toBe("pending_photo");
+    expect(isSharedRecipeV2Searchable(transientReplicate)).toBe(false);
+  });
+
   it("publishes the same hierarchical ingredient lookup keys used by retrieval", () => {
     const source = recipe("recipe-1", "Kofta Kebab");
     const published = buildSharedRecipeV2Document({

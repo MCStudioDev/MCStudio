@@ -31,13 +31,13 @@ describe("recipe photo reuse policy", () => {
     }, ["vegan"], false)).toBe(true);
   });
 
-  it("retains the canonical Wikimedia Koshary image", () => {
+  it("rejects a canonical Wikimedia image after provider fallbacks are retired", () => {
     expect(canReuseRecipePhotoForDiet({
       ...baseRecipe,
       image_source: "cache",
       image_url: "https://upload.wikimedia.org/wikipedia/commons/koshary.jpg",
       name: "Classic Egyptian Koshary"
-    }, ["vegan"], false)).toBe(true);
+    }, ["vegan"], false)).toBe(false);
   });
 
   it("rejects an ambiguous external Fattah image even when recipe text says vegan", () => {

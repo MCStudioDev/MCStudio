@@ -39,7 +39,6 @@ const MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY = 3;
 const MEAL_PLAN_IMAGE_RESTORE_TIMEOUT_MS = 8_000;
 const MEAL_PLAN_IMAGE_CACHE_TIMEOUT_MS = 12_000;
 const MEAL_PLAN_IMAGE_GENERATION_TIMEOUT_MS = 45_000;
-const MEAL_PLAN_AI_ACTION_GRANT_STORAGE_KEY = "nutrimoment.mealPlanAiActionGrant";
 type MealSlotType = "breakfast" | "lunch" | "dinner";
 type MealPhotoLookupResponse = {
   error?: string;
@@ -117,8 +116,10 @@ export function MealPlanTab() {
   const canGenerateMealPlan = isPremiumFeatureUnlocked || access.aiCreditsRemaining > 0;
 
   useEffect(() => {
-    setAiActionGrantId(readMealPlanAiActionGrant());
-  }, []);
+    if (mealPlan?.imageActionGrantId) {
+      setAiActionGrantId(mealPlan.imageActionGrantId);
+    }
+  }, [mealPlan?.imageActionGrantId]);
 
   useEffect(() => {
     if (mealPlanError) {
@@ -192,7 +193,6 @@ export function MealPlanTab() {
         setError(data.fallbackNotice);
       }
       if (data.aiActionGrantId) {
-        rememberMealPlanAiActionGrant(data.aiActionGrantId);
         setAiActionGrantId(data.aiActionGrantId);
       }
 
@@ -354,7 +354,8 @@ export function MealPlanTab() {
   }, [historyItems, reloadMealPlan]);
 
   const persistMealPlanRecipes = useCallback(async (nextMealPlan: NonNullable<typeof mealPlan>) => {
-    if (!user || !hasGeneratedImageAccess) return;
+    const effectiveActionGrantId = nextMealPlan.imageActionGrantId ?? aiActionGrantId;
+    if (!user || (!hasNativeGeneratedImageAccess && !effectiveActionGrantId)) return;
 
     try {
       await fetch("/api/mealplan/cache", {
@@ -362,7 +363,7 @@ export function MealPlanTab() {
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           allergens: health.allergens ?? [],
-          actionGrantId: aiActionGrantId,
+          actionGrantId: effectiveActionGrantId,
           conditions: health.conditions,
           diets: health.diets,
           mealPlan: nextMealPlan,
@@ -376,7 +377,7 @@ export function MealPlanTab() {
   }, [
     getAuthHeaders,
     aiActionGrantId,
-    hasGeneratedImageAccess,
+    hasNativeGeneratedImageAccess,
     health.allergens,
     health.conditions,
     health.diets,
@@ -1348,30 +1349,4 @@ async function runWithConcurrency<T>(
       }
     })
   );
-}
-
-function rememberMealPlanAiActionGrant(actionGrantId: string) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(MEAL_PLAN_AI_ACTION_GRANT_STORAGE_KEY, JSON.stringify({
-    actionGrantId,
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000
-  }));
-}
-
-function readMealPlanAiActionGrant() {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(MEAL_PLAN_AI_ACTION_GRANT_STORAGE_KEY) ?? "null") as {
-      actionGrantId?: string;
-      expiresAt?: number;
-    } | null;
-    if (!stored?.actionGrantId || Number(stored.expiresAt ?? 0) <= Date.now()) {
-      window.localStorage.removeItem(MEAL_PLAN_AI_ACTION_GRANT_STORAGE_KEY);
-      return undefined;
-    }
-    return stored.actionGrantId;
-  } catch {
-    window.localStorage.removeItem(MEAL_PLAN_AI_ACTION_GRANT_STORAGE_KEY);
-    return undefined;
-  }
 }

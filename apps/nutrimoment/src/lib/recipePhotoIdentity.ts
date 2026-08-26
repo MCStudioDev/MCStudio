@@ -22,7 +22,6 @@ export interface KnownDishDefinition {
   aliases: RegExp[];
   canonicalName: string;
   cuisineKey?: string;
-  imageUrl?: string;
   key: string;
 }
 
@@ -208,8 +207,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     aliases: [/\b(kafta|kofta|kofte|kefta|kufta)\b/i, /\u0643\u0641\u062a(?:\u0629|\u0647)/iu],
     canonicalName: "kafta kebab",
     cuisineKey: "middle-eastern",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/Oriental_food_including_beef_kabab%2C_shish_tawoook%2C_and_kafta_kabab_%28Orlando%29_May_2023.jpg/960px-Oriental_food_including_beef_kabab%2C_shish_tawoook%2C_and_kafta_kabab_%28Orlando%29_May_2023.jpg",
     key: "kafta"
   },
   {
@@ -1095,24 +1092,18 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     aliases: [/\b(koshary|koshari|kushari)\b/i],
     canonicalName: "koshary",
     cuisineKey: "egyptian",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
     key: "koshary"
   },
   {
     aliases: [/\b(roz bel ads|ruz bel ads|rice with lentils|lentils and rice)\b/i],
     canonicalName: "mujadara",
     cuisineKey: "middle-eastern",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Mujaddara.jpg/960px-Mujaddara.jpg",
     key: "mujadara"
   },
   {
     aliases: [/\b(macarona bel ads|macarona bel adas|pasta and lentils)\b/i],
     canonicalName: "koshary",
     cuisineKey: "egyptian",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
     key: "koshary"
   },
   {
@@ -1989,7 +1980,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     ],
     canonicalName: "ful medames",
     cuisineKey: "egyptian",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
     key: "ful-medames"
   },
   {
@@ -2084,15 +2074,12 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     aliases: [/\bmujadara\b/i, /\bmujaddara\b/i],
     canonicalName: "mujadara",
     cuisineKey: "middle-eastern",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Mujaddara.jpg/960px-Mujaddara.jpg",
     key: "mujadara"
   },
   {
     aliases: [/\bshakshuka\b/i, new RegExp(ARABIC.shakshuka, "iu")],
     canonicalName: "shakshuka",
     cuisineKey: "middle-eastern",
-    imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Shakshuka%202025.jpg",
     key: "shakshuka"
   },
   {

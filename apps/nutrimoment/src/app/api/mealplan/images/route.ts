@@ -16,7 +16,6 @@ import {
 } from "@/services/recipePhotoDietCompatibility";
 import { isSharedRecipePublishable } from "@/services/sharedRecipePoolQualityService";
 import { isSharedRecipeV2Searchable, SHARED_RECIPE_V2_COLLECTION } from "@/services/sharedRecipeV2PolicyService";
-import { listUserCachedRecipes } from "@/services/userRecipeCacheService";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -39,7 +38,7 @@ interface MatchedMealImage {
 
 export async function POST(request: Request) {
   try {
-    const access = await requireUser(request);
+    await requireUser(request);
 
     const parsed = requestSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
@@ -51,11 +50,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Meal plan data was not usable." }, { status: 400 });
     }
 
-    const [userCachedRecipes, sharedCachedRecipes] = await Promise.all([
-      listUserCachedRecipes(access.uid),
-      listExactSharedMealRecipes(mealPlan)
-    ]);
-    const cachedRecipes = [...userCachedRecipes, ...sharedCachedRecipes];
+    const cachedRecipes = await listExactSharedMealRecipes(mealPlan);
     const cachedImagesByExactName = new Map<string, MatchedMealImage["imageUrl"]>();
 
     for (const recipe of cachedRecipes) {
@@ -186,7 +181,7 @@ function getMealExactNames(meal: {
   ].filter((value): value is string => Boolean(value?.trim()));
 }
 
-function getCachedRecipeExactNames(recipe: Awaited<ReturnType<typeof listUserCachedRecipes>>[number]) {
+function getCachedRecipeExactNames(recipe: RecipeCatalogDoc) {
   return [
     recipe.title,
     recipe.localized?.English?.name,

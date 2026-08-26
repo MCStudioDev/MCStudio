@@ -38,7 +38,7 @@ const requiredEnv: RequiredEnv[] = [
     validate: (value) => (value.includes("BEGIN PRIVATE KEY") ? null : "must contain BEGIN PRIVATE KEY")
   },
   { name: "GEMINI_API_KEY", description: "Gemini API key" },
-  { name: "UNSPLASH_ACCESS_KEY", description: "Unsplash access key for recipe photos" }
+  { name: "REPLICATE_API_TOKEN", description: "Replicate token for generated recipe photos" }
 ];
 
 const optionalEnv = [
@@ -46,12 +46,7 @@ const optionalEnv = [
     name: "NEXT_PUBLIC_FIRESTORE_DATABASE_ID",
     description: "Firestore database ID; defaults to (default) when unset"
   },
-  { name: "PEXELS_API_KEY", description: "Pexels fallback recipe photo key" },
   { name: "LOG_LEVEL", description: "Server log verbosity" },
-  {
-    name: "REPLICATE_API_TOKEN",
-    description: "Replicate token for premium recipe-image generation; without it premium users fall through to 'no exact photo'"
-  },
   {
     name: "REPLICATE_IMAGE_MODEL",
     description: "Replicate model id; defaults to black-forest-labs/flux-schnell when unset"

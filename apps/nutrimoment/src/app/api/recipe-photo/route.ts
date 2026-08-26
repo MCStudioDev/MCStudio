@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
-import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
 import { generateRecipeImageWithReplicate, getReplicateImageModel, isReplicateConfigured } from "@/lib/replicateRecipeImage";
 import {
   buildGeneratedRecipePhotoCacheQuery,
@@ -11,8 +9,6 @@ import {
   type RecipePhotoIdentityOverride
 } from "@/lib/recipePhotoIdentity";
 import { toIdentityKey } from "@/lib/photoIdentityBuilders";
-import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
-import { getAllDishes } from "@/lib/cuisineCatalogs/completeCatalogs";
 import {
   getSharedGeneratedRecipePhotoByQueries,
   getSharedRecipePhotoByApproximateCategory,
@@ -29,7 +25,7 @@ import {
   canUseApiFeature,
   consumeFreeAiActionImageGrant,
   consumeFreeAiCredit,
-  hasFreeAiActionImageGrant,
+  hasFreeAiActionImageGrantForKey,
   hasGeneratedRecipeImageAccess
 } from "@/services/authService";
 import { logger } from "@/lib/logger";
@@ -56,13 +52,9 @@ import {
 } from "@/services/recipePhotoCacheCompatibility";
 import {
   buildRecipePhotoReuseKeyCandidates,
-  buildRecipePhotoReuseKeyFromIdentity,
   buildRecipePhotoReuseKeyFromQuery
 } from "@/lib/recipePhotoReuse";
-import {
-  buildProviderRecipePhotoQueryCandidates,
-  buildRecipePhotoQueryCandidates
-} from "@/lib/recipePhotoQueries";
+import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import {
   inferRecipePhotoDietIds,
   isRecipePhotoDietCompatible,
@@ -87,7 +79,7 @@ type CachedRecipePhoto = {
   imageAttributionUrl?: string;
   imageSource: RecipeImageSource;
   imageUrl: string;
-  source: "generated" | "google_search" | "pexels_search" | "unsplash_search" | "wikimedia";
+  source: "generated";
   model?: string;
   query?: string;
   signature: string;
@@ -112,19 +104,6 @@ type RecipePhotoLookupResult =
       ok: false;
     };
 
-type ProviderRecipePhotoCandidate = {
-  attributionName?: string;
-  attributionUrl?: string;
-  imageSource: "pexels" | "unsplash" | "wikimedia";
-  imageUrl: string;
-  matchedQuery: string;
-  model: "pexels_search" | "unsplash_search" | "wikimedia_lookup";
-  score: number;
-  signature: string;
-  source: "pexels_search" | "unsplash_search" | "wikimedia";
-  weightedScore: number;
-};
-
 const recipePhotoCache = new Map<string, CachedRecipePhoto>();
 const recipePhotoFailureCache = new Map<string, CachedRecipePhotoFailure>();
 const inFlightRecipePhotoLookups = new Map<string, Promise<RecipePhotoLookupResult>>();
@@ -135,28 +114,9 @@ const STRICT_NO_MATCH_TTL_MS = 30 * 60 * 1000;
 const RECENT_SELECTION_TTL_MS = 30 * 60 * 1000;
 const PREMIUM_REPLICATE_RETRY_TTL_MS = 3 * 1000;
 const PREMIUM_REPLICATE_RETRY_AFTER_SECONDS = 2;
-const WIKIMEDIA_ENABLED = true;
 const FIRESTORE_RECIPE_PHOTO_CACHE_ONLY = false;
 const STRICT_RECIPE_PHOTO_CACHE_VERSION = "strict-v7";
 const STRICT_RECIPE_PHOTO_CACHE_PATTERN = /(?:^|:)strict-v\d+(?=:)/i;
-const MIN_ACCEPTED_PROVIDER_SCORE = {
-  wikimedia: 12,
-  pexels_search: 11,
-  unsplash_search: 11
-} as const;
-const PROVIDER_RECIPE_QUERY_LIMIT = 3;
-const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
-  ...getAllDishes().map((dish) => dish.id),
-  "cilbir",
-  "shakshuka",
-  "mujadara",
-  "koshary",
-  "besara",
-  "balila",
-  "fasolia",
-  "loubia-bzeit",
-  "kafta"
-]);
 
 export async function GET(request: Request) {
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>>;
@@ -213,21 +173,10 @@ export async function GET(request: Request) {
     ingredients: ingredientHints,
     name: exactRecipeNameHint ?? parsed.data.query
   });
-  const providerStyleQueryCandidates = buildProviderRecipePhotoQueryCandidates({
-    cuisine: searchParams.get("cuisine") ?? undefined,
-    imageSearchIndex: parsed.data.query,
-    imageSearchIndices: rawQueryCandidates,
-    ingredients: ingredientHints,
-    name: exactRecipeNameHint ?? parsed.data.query
-  });
   const queryCandidates = normalizeRecipePhotoQueries([
     ...detailedCacheQueryCandidates,
     ...rawQueryCandidates
   ]);
-  const providerQueryCandidates = addDietContextToRecipePhotoQueries(normalizeRecipePhotoQueries([
-    ...providerStyleQueryCandidates,
-    ...queryCandidates
-  ]), activeDiets);
   const replicateQueryCandidates = addDietContextToRecipePhotoQueries(normalizeRecipePhotoQueries([
     ...exactNameHints,
     ...detailedCacheQueryCandidates,
@@ -245,7 +194,6 @@ export async function GET(request: Request) {
   const photoIdentityOverride = buildPhotoIdentityOverrideFromSearchParams(searchParams);
   const query = queryCandidates[0] ?? parsed.data.query.trim();
   const identities = queryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate, photoIdentityOverride));
-  const providerIdentities = providerQueryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate, photoIdentityOverride));
   const replicateIdentities = replicateQueryCandidates.map((candidate) => buildRecipePhotoIdentity(candidate, photoIdentityOverride));
   const canonicalAliasCandidates = Array.from(new Set(
     [...identities, ...replicateIdentities]
@@ -277,7 +225,7 @@ export async function GET(request: Request) {
 
   const hasNativeGenerationTier = hasGeneratedRecipeImageAccess(accessCheck.access);
   const hasActionGenerationGrant = !hasNativeGenerationTier &&
-    await hasFreeAiActionImageGrant(accessCheck.access, actionGrantId).catch((error) => {
+    await hasFreeAiActionImageGrantForKey(accessCheck.access, actionGrantId, identity.signature).catch((error) => {
       logger.warn("Free AI action photo grant lookup failed", {
         uid: accessCheck.access.uid,
         errorMessage: error instanceof Error ? error.message : String(error)
@@ -310,8 +258,6 @@ export async function GET(request: Request) {
         activeDiets
       )[0]
     : null;
-  const allowProviderPhotoSearch =
-    !FIRESTORE_RECIPE_PHOTO_CACHE_ONLY && !useReplicateGeneration && accessCheck.allowed && !liverVisualRequest;
   const generatedAliasCandidates = scopeRecipePhotoAliasesForDiet(
     buildGeneratedRecipePhotoCacheAliasCandidates([...replicateIdentities, ...identities]),
     activeDiets
@@ -330,9 +276,7 @@ export async function GET(request: Request) {
           ]
     )
   );
-  const imageMode = useReplicateGeneration ? "generated" : allowProviderPhotoSearch ? "search" : "disabled";
-  const forceUnsplashFirst =
-    !useReplicateGeneration && allowProviderPhotoSearch && isUnsplashRecipePhotoSearchConfigured();
+  const imageMode = useReplicateGeneration ? "generated" : "disabled";
   const premiumFailureScope =
     useReplicateGeneration && ingredientHints.length
       ? `::ingredients:${ingredientHints.join("|")}`
@@ -435,7 +379,7 @@ export async function GET(request: Request) {
       selectedReplicateQuery
     }) &&
     isRecipePhotoDietCompatible(sharedExactCached, { diets: activeDiets }) &&
-    (WIKIMEDIA_ENABLED || sharedExactCached.source !== "wikimedia") &&
+    sharedExactCached.source === "generated" &&
     (!isRecipePhotoRecentlyUsedForDifferentSignature(sharedExactCached.imageUrl, exactCacheLookupCandidates, reuseKeyCandidates))
   ) {
     const sharedPhoto = buildCachedRecipePhotoFromShared(sharedExactCached);
@@ -545,7 +489,7 @@ export async function GET(request: Request) {
       selectedReplicateQuery
     }) &&
     isRecipePhotoDietCompatible(sharedCached, { diets: activeDiets }) &&
-    (WIKIMEDIA_ENABLED || sharedCached.source !== "wikimedia") &&
+    sharedCached.source === "generated" &&
     (!isRecipePhotoRecentlyUsedForDifferentSignature(sharedCached.imageUrl, signatureCandidates, reuseKeyCandidates))
   ) {
     const sharedPhoto = buildCachedRecipePhotoFromShared(sharedCached);
@@ -664,7 +608,7 @@ export async function GET(request: Request) {
       canUseSharedRecipePhotoForVisualRequest(approximateCached, strictVisualRequest, useReplicateGeneration) &&
       canUseApproximateSharedRecipePhotoForRequest(approximateCached, queryCandidates, exactNameHints) &&
       isRecipePhotoDietCompatible(approximateCached, { diets: activeDiets }) &&
-      (WIKIMEDIA_ENABLED || approximateCached.source !== "wikimedia") &&
+      approximateCached.source === "generated" &&
       (!isRecipePhotoRecentlyUsedForDifferentSignature(
         approximateCached.imageUrl,
         [approximateCached.signature, ...signatureCandidates, ...exactCacheLookupCandidates],
@@ -777,7 +721,7 @@ export async function GET(request: Request) {
   }
 
   const cached =
-    sourceRecipeId || forceUnsplashFirst || useReplicateGeneration
+    sourceRecipeId || useReplicateGeneration
       ? null
       : getRecipePhotoCacheBySignatures(signatureCandidates);
   if (
@@ -866,7 +810,7 @@ export async function GET(request: Request) {
     if (
       useReplicateGeneration &&
       !hasNativeGenerationTier &&
-      !await consumeFreeAiActionImageGrant(accessCheck.access, actionGrantId)
+      !await consumeFreeAiActionImageGrant(accessCheck.access, actionGrantId, identity.signature)
     ) {
       return buildRecipePhotoFailureResponse(
         createRecipePhotoFailure(
@@ -880,12 +824,6 @@ export async function GET(request: Request) {
     }
 
     const lookupPromise = performRecipePhotoLookup({
-      accessAllowed: allowProviderPhotoSearch,
-      // Premium users who actually attempted generation are eligible for the
-      // search-mode fallback when Replicate fails on a canonical dish. This
-      // preserves "generated only for premium" under normal conditions while
-      // protecting them from outages and rate-limit spikes.
-      allowSearchFallbackOnReplicateFailure: useReplicateGeneration,
       failureCacheKey,
       imageMode,
       identities,
@@ -897,9 +835,7 @@ export async function GET(request: Request) {
       explicitlyExcludedImageUrls,
       query,
       queryCandidates,
-      providerQueryCandidates,
       replicateQueryCandidates,
-      providerIdentities,
       replicateIdentities,
       photoIdentityOverride,
       exactRecipeNameHint,
@@ -918,8 +854,7 @@ export async function GET(request: Request) {
 
     const result = await lookupPromise;
     // Fire-and-forget: only bump the daily counter when this request paid for
-    // a fresh Replicate generation. Cache hits keep `imageSource` as "cache"
-    // (or "search"/"unsplash"/etc.) and do not consume budget.
+    // a fresh Replicate generation. Cache hits do not consume budget.
     if (
       useReplicateGeneration &&
       result.ok &&
@@ -1063,11 +998,10 @@ function canUseGeneratedRecipePhotoCacheForRequest(
 }
 
 function isUntrustedSharedProviderPhoto(source: string, imageUrl: string) {
-  if (/^(?:google_search|pexels_search|unsplash_search)$/i.test(source)) return true;
+  if (source !== "generated") return true;
   try {
     const host = new URL(imageUrl).hostname.toLowerCase();
-    return host === "images.pexels.com" || host.endsWith(".pexels.com") ||
-      host === "images.unsplash.com" || host.endsWith(".unsplash.com");
+    return host !== "firebasestorage.googleapis.com" && host !== "storage.googleapis.com";
   } catch {
     return true;
   }
@@ -1306,7 +1240,6 @@ function hasStrictGeneratedRecipePhotoSignature(signature: string, imageUrl: str
     isStrictGeneratedRecipePhotoSignature(getGeneratedRecipePhotoUrlSignature(imageUrl))
   );
 }
-
 function isStrictGeneratedRecipePhotoSignature(value: string | undefined | null) {
   return Boolean(value && STRICT_RECIPE_PHOTO_CACHE_PATTERN.test(value));
 }
@@ -1514,8 +1447,6 @@ function setRecipePhotoFailureCache(
 
 async function performRecipePhotoLookup({
   activeDiets,
-  accessAllowed,
-  allowSearchFallbackOnReplicateFailure,
   failureCacheKey,
   imageMode,
   identities,
@@ -1527,9 +1458,7 @@ async function performRecipePhotoLookup({
   explicitlyExcludedImageUrls,
   query,
   queryCandidates,
-  providerQueryCandidates,
   replicateQueryCandidates,
-  providerIdentities,
   replicateIdentities,
   photoIdentityOverride,
   exactRecipeNameHint,
@@ -1541,10 +1470,8 @@ async function performRecipePhotoLookup({
   sourceRecipeId
 }: {
   activeDiets: string[];
-  accessAllowed: boolean;
-  allowSearchFallbackOnReplicateFailure: boolean;
   failureCacheKey: string;
-  imageMode: "generated" | "search" | "disabled";
+  imageMode: "generated" | "disabled";
   identities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
   ingredientHints: string[];
   arabicDishNameHints: string[];
@@ -1554,9 +1481,7 @@ async function performRecipePhotoLookup({
   explicitlyExcludedImageUrls: Set<string>;
   query: string;
   queryCandidates: string[];
-  providerQueryCandidates: string[];
   replicateQueryCandidates: string[];
-  providerIdentities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
   replicateIdentities: Array<ReturnType<typeof buildRecipePhotoIdentity>>;
   photoIdentityOverride?: RecipePhotoIdentityOverride;
   exactRecipeNameHint?: string;
@@ -1567,22 +1492,12 @@ async function performRecipePhotoLookup({
   requestedCuisine?: string;
   sourceRecipeId?: string;
 }): Promise<RecipePhotoLookupResult> {
-  // When Replicate fails for a premium user *and* the dish is on the canonical
-  // catalog, we want the function to fall through to the existing search-mode
-  // pipeline so the user still gets a sensible photo. `effectiveAccessAllowed`
-  // tracks the gated state for Unsplash/Pexels lookups so we can flip it on
-  // post-failure without breaking the original `accessAllowed` contract.
-  let effectiveAccessAllowed = accessAllowed;
-  let replicateFailedWithFallback = false;
   const excludedUrls = new Set([
     ...getRecentlyUsedRecipeImageUrls([...generatedAliasCandidates, ...exactAliasCandidates, ...signatureCandidates], reuseKeyCandidates),
     ...explicitlyExcludedImageUrls
   ]);
   const baseIdentity = identities[0] ?? buildRecipePhotoIdentity(query);
-  let bestMatch: ProviderRecipePhotoCandidate | null = null;
   let replicateFallbackReason: string | null = null;
-  const preferWikimediaFirst = Boolean(baseIdentity.canonicalDishKey);
-  const boundedProviderQueryCandidates = providerQueryCandidates.slice(0, PROVIDER_RECIPE_QUERY_LIMIT);
 
   if (useReplicateGeneration) {
     if (!isReplicateConfigured()) {
@@ -1732,225 +1647,34 @@ async function performRecipePhotoLookup({
       }
     }
 
-    // Fallback path: when Replicate failed for a recognized canonical dish,
-    // try search-mode (Wikimedia allow-list / Unsplash / Pexels) before giving
-    // up. The dish must be on the canonical catalog so the strict scoring
-    // gates can find a known-good photo; for non-canonical recipes we keep
-    // the existing fast 503 retry response because search-mode would only
-    // return weak matches anyway.
-    const canonicalFallbackEligible =
-      allowSearchFallbackOnReplicateFailure &&
-      Boolean(replicateFallbackReason) &&
-      Boolean(baseIdentity.canonicalDishKey);
-
-    if (!canonicalFallbackEligible) {
-      const noReplicateFailure = createRecipePhotoFailure(
-        replicateFallbackReason
-          ? "Replicate image generation is temporarily unavailable. Retrying generated images shortly."
-          : "Premium recipe image generation is still working. Retrying generated images shortly.",
-        503,
-        PREMIUM_REPLICATE_RETRY_TTL_MS,
-        PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-      );
-      setRecipePhotoFailureCache(failureCacheKey, noReplicateFailure);
-      return {
-        failure: noReplicateFailure,
-        ok: false
-      };
-    }
-
-    // Allow search-mode providers for the rest of this lookup. Premium users
-    // never reach this branch unless Replicate genuinely failed; we trust the
-    // existing identity gate + minimum-score thresholds to reject bad matches.
-    effectiveAccessAllowed = true;
-    replicateFailedWithFallback = true;
-    logger.info("Replicate failed for a canonical dish; falling through to search-mode fallback", {
-      query,
-      canonicalDishKey: baseIdentity.canonicalDishKey,
-      replicateFallbackReason,
-      signature: baseIdentity.signature
-    });
-  }
-
-  if (preferWikimediaFirst && WIKIMEDIA_ENABLED) {
-    for (const [index, candidateQuery] of boundedProviderQueryCandidates.entries()) {
-      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
-      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
-      if (!shouldTryWikimediaRecipePhoto(candidateIdentity, index)) continue;
-      const knownDishPhoto = await findFreeRecipePhoto(candidateQuery);
-      if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl)) {
-        bestMatch = chooseBetterRecipePhoto(bestMatch, {
-          attributionName: undefined,
-          attributionUrl: undefined,
-          imageSource: "wikimedia",
-          imageUrl: knownDishPhoto.imageUrl,
-          matchedQuery: candidateQuery,
-          model: "wikimedia_lookup",
-          score: 18,
-          signature: candidateIdentity.signature,
-          source: knownDishPhoto.source,
-          weightedScore: 18 + 0.6 + queryPriorityAdjustment
-        });
-      }
-    }
-  }
-
-  if (effectiveAccessAllowed && isUnsplashRecipePhotoSearchConfigured()) {
-    const unsplashResults = await Promise.allSettled(boundedProviderQueryCandidates.map(async (candidateQuery, index) => {
-      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
-      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
-      const searchedPhoto = await findUnsplashRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
-      if (
-        searchedPhoto &&
-        !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl) &&
-        isRecipePhotoDietCompatible({
-          imageUrl: searchedPhoto.imageUrl,
-          query: `${searchedPhoto.matchedQuery} ${searchedPhoto.descriptiveText}`,
-          source: searchedPhoto.source
-        }, { diets: activeDiets })
-      ) {
-        return {
-          attributionName: searchedPhoto.attributionName,
-          attributionUrl: searchedPhoto.attributionUrl,
-          imageSource: "unsplash",
-          imageUrl: searchedPhoto.imageUrl,
-          matchedQuery: searchedPhoto.matchedQuery || candidateQuery,
-          model: "unsplash_search",
-          score: searchedPhoto.score,
-          signature: candidateIdentity.signature,
-          source: searchedPhoto.source,
-          weightedScore: searchedPhoto.score + 0.2 + queryPriorityAdjustment
-        } satisfies ProviderRecipePhotoCandidate;
-      }
-      return null;
-    }));
-    for (const result of unsplashResults) {
-      if (result.status === "fulfilled" && result.value) {
-        bestMatch = chooseBetterRecipePhoto(bestMatch, result.value);
-      }
-    }
-  }
-
-  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && effectiveAccessAllowed && isPexelsRecipePhotoSearchConfigured()) {
-    const pexelsResults = await Promise.allSettled(boundedProviderQueryCandidates.map(async (candidateQuery, index) => {
-      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
-      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
-      const searchedPhoto = await findPexelsRecipePhoto(candidateQuery, { excludeUrls: excludedUrls });
-      if (
-        searchedPhoto &&
-        !isKnownWeakRecipeProviderImageUrl(searchedPhoto.imageUrl) &&
-        isRecipePhotoDietCompatible({
-          imageUrl: searchedPhoto.imageUrl,
-          query: `${searchedPhoto.matchedQuery} ${searchedPhoto.descriptiveText}`,
-          source: searchedPhoto.source
-        }, { diets: activeDiets })
-      ) {
-        return {
-          imageSource: "pexels",
-          imageUrl: searchedPhoto.imageUrl,
-          matchedQuery: searchedPhoto.matchedQuery || candidateQuery,
-          model: "pexels_search",
-          score: searchedPhoto.score,
-          signature: candidateIdentity.signature,
-          source: searchedPhoto.source,
-          weightedScore: searchedPhoto.score + queryPriorityAdjustment
-        } satisfies ProviderRecipePhotoCandidate;
-      }
-      return null;
-    }));
-    for (const result of pexelsResults) {
-      if (result.status === "fulfilled" && result.value) {
-        bestMatch = chooseBetterRecipePhoto(bestMatch, result.value);
-      }
-    }
-  }
-
-  if (!(bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) && !preferWikimediaFirst && WIKIMEDIA_ENABLED) {
-    for (const [index, candidateQuery] of boundedProviderQueryCandidates.entries()) {
-      const candidateIdentity = providerIdentities[index] ?? buildRecipePhotoIdentity(candidateQuery);
-      const queryPriorityAdjustment = getRecipePhotoQueryPriorityAdjustment(baseIdentity, candidateIdentity, index);
-      if (!shouldTryWikimediaRecipePhoto(candidateIdentity, index)) continue;
-      const knownDishPhoto = await findFreeRecipePhoto(candidateQuery);
-      if (knownDishPhoto && !excludedUrls.has(knownDishPhoto.imageUrl)) {
-        bestMatch = chooseBetterRecipePhoto(bestMatch, {
-          attributionName: undefined,
-          attributionUrl: undefined,
-          imageSource: "wikimedia",
-          imageUrl: knownDishPhoto.imageUrl,
-          matchedQuery: candidateQuery,
-          model: "wikimedia_lookup",
-          score: 18,
-          signature: candidateIdentity.signature,
-          source: knownDishPhoto.source,
-          weightedScore: 18.5 + queryPriorityAdjustment
-        });
-      }
-    }
-  }
-
-  if (bestMatch && isKnownWeakRecipeProviderImageUrl(bestMatch.imageUrl)) {
-    bestMatch = null;
-  }
-
-  if (bestMatch && meetsRecipePhotoConfidenceThreshold(bestMatch)) {
-    const selectedPhoto = {
-      imageAttributionName: bestMatch.attributionName,
-      imageAttributionUrl: bestMatch.attributionUrl,
-      imageSource: bestMatch.imageSource,
-      imageUrl: bestMatch.imageUrl,
-      model: bestMatch.model,
-      signature: bestMatch.signature,
-      source: bestMatch.source
-    } satisfies CachedRecipePhoto;
-
-    rememberRecipePhotoSelection(selectedPhoto.imageUrl, bestMatch.signature, buildRecipePhotoReuseKeyFromIdentity(buildRecipePhotoIdentity(bestMatch.matchedQuery || query)));
-    logger.info("Recipe photo served", {
-      source: selectedPhoto.source,
-      query,
-      matchedQuery: bestMatch.matchedQuery,
-      imageUrl: selectedPhoto.imageUrl,
-      imageMode,
-      reason,
-      replicateFallbackReason,
-      replicateFailedWithFallback,
-      score: bestMatch.score,
-      cached: false,
-      cachePolicy: "replicate_generated_only",
-      signature: bestMatch.signature
-    });
-
+    const noReplicateFailure = createRecipePhotoFailure(
+      replicateFallbackReason
+        ? "Replicate image generation is temporarily unavailable. Retrying generated images shortly."
+        : "Premium recipe image generation is still working. Retrying generated images shortly.",
+      503,
+      PREMIUM_REPLICATE_RETRY_TTL_MS,
+      PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
+    );
+    setRecipePhotoFailureCache(failureCacheKey, noReplicateFailure);
     return {
-      consumeFreeCredit: false,
-      ok: true,
-      photo: selectedPhoto
+      failure: noReplicateFailure,
+      ok: false
     };
   }
 
-  const noMatchFailure = useReplicateGeneration
-    ? createRecipePhotoFailure(
-        replicateFallbackReason
-          ? "Replicate was unavailable and no strong backup recipe photo matched yet. Retrying with generated and backup sources shortly."
-          : "Premium recipe image generation is still working. Retrying with generated and backup sources shortly.",
-        503,
-        PREMIUM_REPLICATE_RETRY_TTL_MS,
-        PREMIUM_REPLICATE_RETRY_AFTER_SECONDS
-      )
-    : createRecipePhotoFailure(
-        "No strong plated recipe photo was found from cache, Unsplash, or Pexels search.",
-        404,
-        STRICT_NO_MATCH_TTL_MS
-      );
+  const noMatchFailure = createRecipePhotoFailure(
+    "No Replicate-generated photo is available in the shared recipe pool yet.",
+    404,
+    STRICT_NO_MATCH_TTL_MS
+  );
 
   setRecipePhotoFailureCache(failureCacheKey, noMatchFailure);
   logger.info("Recipe photo served", {
     source: "unavailable",
     query,
     queryCandidates,
-    providerQueryCandidates,
     imageMode,
     reason,
-    replicateFallbackReason,
-    replicateFailedWithFallback,
     signature: identities[0]?.signature ?? "unknown"
   });
 
@@ -2030,6 +1754,9 @@ function normalizeAiActionGrantId(value: string | null) {
 }
 
 function buildCachedRecipePhotoFromShared(entry: SharedRecipePhotoEntry) {
+  if (entry.source !== "generated") {
+    throw new Error("Only Replicate-generated shared recipe photos are supported.");
+  }
   return {
     imageAttributionName: entry.imageAttributionName,
     imageAttributionUrl: entry.imageAttributionUrl,
@@ -2038,12 +1765,12 @@ function buildCachedRecipePhotoFromShared(entry: SharedRecipePhotoEntry) {
     model: entry.model,
     query: entry.query,
     signature: entry.signature,
-    source: entry.source
+    source: "generated" as const
   } satisfies CachedRecipePhoto;
 }
 
 function isReusableCachedRecipePhoto(photo: CachedRecipePhoto) {
-  return photo.source === "generated" || photo.source === "wikimedia";
+  return photo.source === "generated";
 }
 
 function normalizeSharedRecipeId(value: string | null) {
@@ -2085,16 +1812,6 @@ async function linkCachedPhotoToPublishedRecipeBundle(
       signature: storageSignature || photo.signature
     });
   });
-}
-
-function chooseBetterRecipePhoto(
-  current: ProviderRecipePhotoCandidate | null,
-  candidate: ProviderRecipePhotoCandidate
-) {
-  if (!current) return candidate;
-  if (candidate.weightedScore > current.weightedScore) return candidate;
-  if (candidate.weightedScore === current.weightedScore && candidate.source === "unsplash_search") return candidate;
-  return current;
 }
 
 function buildGeneratedRecipePhotoSignature(
@@ -2366,36 +2083,6 @@ function buildFallbackReplicateRecipePhotoQuery(
   );
 }
 
-function getRecipePhotoQueryPriorityAdjustment(
-  baseIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
-  queryIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
-  index: number
-) {
-  let adjustment = Math.max(0, 1.8 - index * 0.45);
-
-  if (baseIdentity.mainIngredientKey && queryIdentity.mainIngredientKey) {
-    adjustment += baseIdentity.mainIngredientKey === queryIdentity.mainIngredientKey ? 1.4 : -6;
-  }
-
-  if (baseIdentity.sauceKey && queryIdentity.sauceKey) {
-    adjustment += baseIdentity.sauceKey === queryIdentity.sauceKey ? 1.1 : -5;
-  }
-
-  if (baseIdentity.starchKey && queryIdentity.starchKey) {
-    adjustment += baseIdentity.starchKey === queryIdentity.starchKey ? 0.9 : -3.5;
-  }
-
-  if (/\bmussel|mussels\b/i.test(baseIdentity.cleanQuery) && /\bshrimp|prawn\b/i.test(queryIdentity.cleanQuery)) {
-    adjustment -= 7;
-  }
-
-  if (/\btahini|sesame sauce\b/i.test(baseIdentity.cleanQuery) && /\b(pasta|spaghetti|linguine|marinara|pomodoro|red sauce)\b/i.test(queryIdentity.cleanQuery)) {
-    adjustment -= 7;
-  }
-
-  return adjustment;
-}
-
 function getRecentlyUsedRecipeImageUrls(signatureCandidates: string[], reuseKeyCandidates: string[]) {
   const now = Date.now();
   const allowedSignatures = new Set(signatureCandidates);
@@ -2443,10 +2130,6 @@ function getRecipePhotoReuseKeyForEntry(
   return buildRecipePhotoReuseKeyFromQuery(entry.query || entry.signature) || fallbackReuseKeys[0] || entry.signature;
 }
 
-function meetsRecipePhotoConfidenceThreshold(candidate: ProviderRecipePhotoCandidate) {
-  return candidate.score >= MIN_ACCEPTED_PROVIDER_SCORE[candidate.source];
-}
-
 function isStrictVisualIdentity(identity: ReturnType<typeof buildRecipePhotoIdentity>) {
   if (isStrictRecipePhotoIdentity(identity)) return true;
 
@@ -2466,10 +2149,4 @@ function isStrictVisualIdentity(identity: ReturnType<typeof buildRecipePhotoIden
     /\b(liver|kebda|kibda|ciger|cigeri|fish|seafood|shrimp|prawn|mussel|mussels|clam|clams|calamari|squid|tuna|salmon|sayadeya|sayadieh|sayadiah|samak|singari|sengari|bori|bouri)\b/.test(source) ||
     /\b(ground|minced|mince)\s+(beef|meat|lamb|veal|protein)\b|\b(beef|meat|lamb|veal)\s+(ground|minced|mince)\b|\bground\s+meat\b|\bminced\s+meat\b|\b(kofta|kafta|kofte|kefta|adana|lahmacun|lahm\s*(?:bi\s*)?ajin|lahm\s*b[iae]\s*ajeen|lahm\s*ajeen|kiymali\s+pide|hawawshi)\b|\u0643\u0641\u062a(?:\u0629|\u0647)|\u0644\u062d\u0645\s+\u0628\u0639\u062c\u064a\u0646|\u0623\u0636\u0646\u0629|\u0627\u062f\u0646\u0629|(?:\u0627\u0644)?\u0644\u062d\u0645(?:\u0629|\u0647)?\s+(?:\u0627\u0644)?\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?|\u0645\u0641\u0631\u0648\u0645(?:\u0629|\u0647)?\u0648?/iu.test(source)
   );
-}
-
-function shouldTryWikimediaRecipePhoto(identity: ReturnType<typeof buildRecipePhotoIdentity>, index: number) {
-  if (index > 1) return false;
-  if (identity.canonicalDishKey) return true;
-  return Boolean(identity.familyKey && WIKIMEDIA_FAMILY_ALLOWLIST.has(identity.familyKey));
 }

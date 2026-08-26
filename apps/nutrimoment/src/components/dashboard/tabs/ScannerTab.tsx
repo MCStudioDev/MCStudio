@@ -1736,11 +1736,10 @@ function buildRecipePhotoExactIdentityQueries(recipe: Recipe) {
 }
 
 function isUntrustedReusableRecipePhotoSource(source: string | undefined, imageUrl: string) {
-  if (/^(?:google_search|pexels_search|unsplash_search)$/i.test(source ?? "")) return true;
+  if (source !== "generated") return true;
   try {
     const host = new URL(imageUrl).hostname.toLowerCase();
-    return host === "images.pexels.com" || host.endsWith(".pexels.com") ||
-      host === "images.unsplash.com" || host.endsWith(".unsplash.com");
+    return host !== "firebasestorage.googleapis.com" && host !== "storage.googleapis.com";
   } catch {
     return true;
   }

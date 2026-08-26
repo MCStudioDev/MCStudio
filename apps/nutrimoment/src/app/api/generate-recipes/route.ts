@@ -47,7 +47,7 @@ import {
   normalizeRecipeThroughLocalizationService,
   validateArabicRecipeLocalization
 } from "@/lib/localization/LocalizationService";
-import { getAllDishes, getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
+import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import {
   buildCuisineUnderfillMessage,
@@ -63,9 +63,6 @@ import {
   buildCuisineAwareDishCandidates,
   enrichRecipeWithDishIntent
 } from "@/lib/recipeDishIntelligence";
-import { findPexelsRecipePhoto, isPexelsRecipePhotoSearchConfigured } from "@/lib/pexelsRecipePhotoSearch";
-import { findUnsplashRecipePhoto, isUnsplashRecipePhotoSearchConfigured } from "@/lib/unsplashRecipePhotoSearch";
-import { findFreeRecipePhoto } from "@/lib/freeRecipePhotos";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { ensureArabicRecipeLanguage, isArabicRecipeLanguage } from "@/lib/arabicRecipeLocalization";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
@@ -168,6 +165,7 @@ import {
 } from "@/services/recipeRequestPolicyService";
 import { dedupeExactRecipeCandidates } from "@/services/recipeCandidateMergeService";
 import {
+  isSharedRecipeV2Searchable,
   mergeSharedRecipeV2Results,
   planSharedRecipeV2Fulfillment
 } from "@/services/sharedRecipeV2PolicyService";
@@ -179,11 +177,6 @@ const MAX_SHARED_POOL_RECIPE_RESULT_COUNT = 10;
 const MAX_RECIPE_EDITOR_BATCH_SIZE = 12;
 const MAX_RECIPE_GENERATION_CANDIDATES = 16;
 const AI_RECIPE_TRANSIENT_RETRY_ATTEMPTS = 3;
-const MIN_ACCEPTED_PROVIDER_SCORE = {
-  wikimedia: 12,
-  pexels_search: 11,
-  unsplash_search: 11
-} as const;
 const RECIPE_TEXT_GENERATION_OPTIONS = {
   temperature: 0.92,
   topP: 0.95
@@ -193,19 +186,6 @@ const RECIPE_BATCH_GENERATION_MAX_OUTPUT_TOKENS = 24_576;
 const recipeQualityGate = new RecipeQualityGate();
 const recipeAcceptanceEngine = new RecipeAcceptanceEngine();
 const RECIPE_SIMILARITY_REJECTION_THRESHOLD = 0.75;
-const WIKIMEDIA_FAMILY_ALLOWLIST = new Set([
-  ...getAllDishes().map((dish) => dish.id),
-  "cilbir",
-  "shakshuka",
-  "mujadara",
-  "koshary",
-  "besara",
-  "balila",
-  "fasolia",
-  "loubia-bzeit",
-  "kafta"
-]);
-
 type RecentRecipeMemory = {
   familyKeys: Set<string>;
   imageIdentityKeys: Set<string>;
@@ -8890,17 +8870,13 @@ function countCoveredRequestedIngredients(recipes: Recipe[], availableIngredient
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function applyImageFirstRecipeRanking(
   recipes: Recipe[],
-  availableIngredientCount = 0,
-  options?: {
-    allowProviderLookup?: boolean;
-  }
+  availableIngredientCount = 0
 ) {
   const sparsePantryBonus = availableIngredientCount > 0 && availableIngredientCount <= 2 ? 1.35 : 1;
-  const allowProviderLookup = options?.allowProviderLookup !== false;
   const resolvedRecipes = await Promise.all(
     recipes.map(async (recipe, index) => {
       try {
-        const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, new Set(), { allowProviderLookup });
+        const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, new Set());
         return {
           index,
           photoFitScore: resolvedPhoto.photoFitScore * sparsePantryBonus,
@@ -8964,7 +8940,7 @@ async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
     }
 
     try {
-      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls, { allowProviderLookup: true });
+      const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, usedImageUrls);
       const candidateImageUrl = resolvedPhoto.recipePatch?.image_url;
 
       if (isDurableRecipeImageUrl(candidateImageUrl) && !usedImageUrls.has(candidateImageUrl)) {
@@ -9111,12 +9087,7 @@ async function attachPhotosFromPublishedRecipeBundles(recipes: Recipe[], diets: 
     ...exactTitleBundles,
     ...directBundlesById.values()
   ].map((recipe) => [recipe.id, recipe])).values())
-    .filter((recipe) =>
-      recipe.isActive &&
-      (recipe.qualityStatus === "golden" || recipe.qualityStatus === "verified") &&
-      recipe.image.status === "ready" &&
-      isDurableRecipeImageUrl(recipe.image.thumbPath || recipe.image.storagePath)
-    );
+    .filter(isSharedRecipeV2Searchable);
   if (!publishedBundles.length) return recipes;
 
   const bundlesByIdentity = new Map<string, typeof publishedBundles>();
@@ -9297,10 +9268,7 @@ function collectRecipePhotoIdentities(recipe: Recipe) {
 
 async function resolveRecipePhotoCandidate(
   recipe: Recipe,
-  excludedUrls: Set<string> = new Set(),
-  options?: {
-    allowProviderLookup?: boolean;
-  }
+  excludedUrls: Set<string> = new Set()
 ) {
   if (
     isDurableRecipeImageUrl(recipe.image_url) &&
@@ -9318,81 +9286,7 @@ async function resolveRecipePhotoCandidate(
   if (generatedCachedPhoto) {
     return generatedCachedPhoto;
   }
-  if (getStrictRecipePhotoRequestMainIngredientKeys(recipe, queries).size > 0) {
-    return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
-  }
-
-  if (options?.allowProviderLookup === false) {
-    return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
-  }
-
-  const baseIdentity = buildRecipePhotoIdentity(recipe.image_search_index ?? queries[0] ?? recipe.name);
-  if (isStrictVisualRecipePhotoRequest(recipe, [baseIdentity, ...queries.map((query) => buildRecipePhotoIdentity(query))])) {
-    return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
-  }
-
-  let bestScore = 0;
-  let bestSource: keyof typeof MIN_ACCEPTED_PROVIDER_SCORE | null = null;
-  let bestSourceScore = 0;
-  let recipePatch: Partial<Recipe> | null = null;
-
-  for (const [index, query] of queries.entries()) {
-    const queryIdentity = buildRecipePhotoIdentity(query);
-    const queryPriorityAdjustment = getPhotoQueryPriorityAdjustment(baseIdentity, queryIdentity, index);
-    if (shouldTryWikimediaRecipePhoto(queryIdentity, index)) {
-      const freePhoto = await findFreeRecipePhoto(query);
-      const knownDishScore = 18 + queryPriorityAdjustment;
-      if (freePhoto && !excludedUrls.has(freePhoto.imageUrl) && knownDishScore > bestScore) {
-        bestScore = knownDishScore;
-        bestSource = "wikimedia";
-        bestSourceScore = 18;
-        recipePatch = {
-          image_source: "wikimedia",
-          image_url: freePhoto.imageUrl
-        };
-      }
-    }
-
-    if (isUnsplashRecipePhotoSearchConfigured()) {
-      const unsplash = await findUnsplashRecipePhoto(query, { excludeUrls: excludedUrls });
-      if (unsplash) {
-        const score = unsplash.score + 2 + queryPriorityAdjustment;
-        if (score > bestScore) {
-          bestScore = score;
-          bestSource = "unsplash_search";
-          bestSourceScore = unsplash.score;
-          recipePatch = {
-            image_attribution_name: unsplash.attributionName,
-            image_attribution_url: unsplash.attributionUrl,
-            image_source: "unsplash",
-            image_url: unsplash.imageUrl
-          };
-        }
-      }
-    }
-
-    if (isPexelsRecipePhotoSearchConfigured()) {
-      const pexels = await findPexelsRecipePhoto(query, { excludeUrls: excludedUrls });
-      if (pexels) {
-        const score = pexels.score + queryPriorityAdjustment;
-        if (score > bestScore) {
-          bestScore = score;
-          bestSource = "pexels_search";
-          bestSourceScore = pexels.score;
-          recipePatch = {
-            image_source: "search",
-            image_url: pexels.imageUrl
-          };
-        }
-      }
-    }
-  }
-
-  if (!recipePatch || !bestSource || bestSourceScore < MIN_ACCEPTED_PROVIDER_SCORE[bestSource]) {
-    return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
-  }
-
-  return { photoFitScore: bestScore, recipePatch };
+  return { photoFitScore: 0, recipePatch: null as Partial<Recipe> | null };
 }
 
 async function resolveGeneratedRecipePhotoCacheCandidate(
@@ -9772,46 +9666,10 @@ function buildRecipePhotoQueriesForRanking(recipe: Recipe) {
   }).slice(0, 5);
 }
 
-function getPhotoQueryPriorityAdjustment(
-  baseIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
-  queryIdentity: ReturnType<typeof buildRecipePhotoIdentity>,
-  index: number
-) {
-  let adjustment = Math.max(0, 1.8 - index * 0.45);
-
-  if (baseIdentity.mainIngredientKey && queryIdentity.mainIngredientKey) {
-    adjustment += baseIdentity.mainIngredientKey === queryIdentity.mainIngredientKey ? 1.4 : -6;
-  }
-
-  if (baseIdentity.sauceKey && queryIdentity.sauceKey) {
-    adjustment += baseIdentity.sauceKey === queryIdentity.sauceKey ? 1.1 : -5;
-  }
-
-  if (baseIdentity.starchKey && queryIdentity.starchKey) {
-    adjustment += baseIdentity.starchKey === queryIdentity.starchKey ? 0.9 : -3.5;
-  }
-
-  if (/\bmussel|mussels\b/i.test(baseIdentity.cleanQuery) && /\bshrimp|prawn\b/i.test(queryIdentity.cleanQuery)) {
-    adjustment -= 7;
-  }
-
-  if (/\btahini|sesame sauce\b/i.test(baseIdentity.cleanQuery) && /\b(pasta|spaghetti|linguine|marinara|pomodoro|red sauce)\b/i.test(queryIdentity.cleanQuery)) {
-    adjustment -= 7;
-  }
-
-  return adjustment;
-}
-
 function getVisualMatchLabel(score: number, index: number, topScore: number) {
   if (score <= 0) return undefined;
   if (index === 0 && topScore >= 8) return "Best visual match";
   if (index === 0 && topScore >= 5) return "Top image match";
   if (index > 0 && score >= 8 && score >= topScore - 1) return "Strong visual match";
   return undefined;
-}
-
-function shouldTryWikimediaRecipePhoto(identity: ReturnType<typeof buildRecipePhotoIdentity>, index: number) {
-  if (index > 1) return false;
-  if (identity.canonicalDishKey) return true;
-  return Boolean(identity.familyKey && WIKIMEDIA_FAMILY_ALLOWLIST.has(identity.familyKey));
 }

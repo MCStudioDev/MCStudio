@@ -23,6 +23,7 @@ export function normalizeMealPlanData(value: unknown): MealPlanData | null {
   const normalized: MealPlanData = {
     plan,
     shoppingList: normalizeShoppingList(value.shoppingList),
+    imageActionGrantId: readString(value, ["imageActionGrantId", "image_action_grant_id"]),
     preferenceSignature: readString(value, ["preferenceSignature", "preference_signature"]),
     servedFrom:
       value.servedFrom === "shared_pool" || value.servedFrom === "fallback_ai" || value.servedFrom === "mock"

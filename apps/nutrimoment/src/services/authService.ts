@@ -530,6 +530,10 @@ export async function consumeFreeAiAction(
 }
 
 export async function hasFreeAiActionImageGrant(access: RequestAccess, actionGrantId?: string | null) {
+  return hasFreeAiActionImageGrantForKey(access, actionGrantId);
+}
+
+export async function hasFreeAiActionGrant(access: RequestAccess, actionGrantId?: string | null) {
   if (!actionGrantId || access.isAdmin || access.isPremium) return false;
   const snapshot = await getAdminDb().doc(
     `users/${access.uid}/aiActionGrants/${normalizeActionGrantId(actionGrantId)}`
@@ -537,11 +541,26 @@ export async function hasFreeAiActionImageGrant(access: RequestAccess, actionGra
   const data = snapshot.data();
   return snapshot.exists &&
     (data?.feature === "recipe_generation" || data?.feature === "weekly_plan") &&
-    Number(data?.expiresAt ?? 0) > Date.now() &&
-    Number(data?.imagesUsed ?? 0) < Number(data?.imageLimit ?? 0);
+    Number(data?.expiresAt ?? 0) > Date.now();
 }
 
-export async function consumeFreeAiActionImageGrant(access: RequestAccess, actionGrantId?: string | null) {
+export async function hasFreeAiActionImageGrantForKey(
+  access: RequestAccess,
+  actionGrantId?: string | null,
+  imageKey?: string | null
+) {
+  if (!actionGrantId || access.isAdmin || access.isPremium) return false;
+  const snapshot = await getAdminDb().doc(
+    `users/${access.uid}/aiActionGrants/${normalizeActionGrantId(actionGrantId)}`
+  ).get();
+  return canUseFreeAiActionImageGrant(snapshot.data(), Date.now(), imageKey);
+}
+
+export async function consumeFreeAiActionImageGrant(
+  access: RequestAccess,
+  actionGrantId?: string | null,
+  imageKey?: string | null
+) {
   if (access.isAdmin || access.isPremium) return true;
   if (!actionGrantId) return false;
   const grantRef = getAdminDb().doc(
@@ -551,18 +570,45 @@ export async function consumeFreeAiActionImageGrant(access: RequestAccess, actio
     const snapshot = await transaction.get(grantRef);
     const data = snapshot.data();
     const imagesUsed = Number(data?.imagesUsed ?? 0);
-    const imageLimit = Number(data?.imageLimit ?? 0);
-    const valid = snapshot.exists &&
-      (data?.feature === "recipe_generation" || data?.feature === "weekly_plan") &&
-      Number(data?.expiresAt ?? 0) > Date.now() &&
-      imagesUsed < imageLimit;
+    const normalizedImageKey = normalizeActionGrantImageKey(imageKey);
+    const imageKeys = readActionGrantImageKeys(data?.imageKeys);
+    const alreadyAuthorized = Boolean(normalizedImageKey && imageKeys.includes(normalizedImageKey));
+    const valid = snapshot.exists && canUseFreeAiActionImageGrant(data, Date.now(), normalizedImageKey);
     if (!valid) return false;
+    if (alreadyAuthorized) return true;
     transaction.update(grantRef, {
       imagesUsed: imagesUsed + 1,
+      ...(normalizedImageKey ? { imageKeys: [...imageKeys, normalizedImageKey] } : {}),
       lastImageAt: FieldValue.serverTimestamp()
     });
     return true;
   });
+}
+
+export function canUseFreeAiActionImageGrant(
+  data: Record<string, unknown> | undefined,
+  now: number,
+  imageKey?: string | null
+) {
+  const normalizedImageKey = normalizeActionGrantImageKey(imageKey);
+  const imageKeys = readActionGrantImageKeys(data?.imageKeys);
+  return Boolean(data) &&
+    (data?.feature === "recipe_generation" || data?.feature === "weekly_plan") &&
+    Number(data?.expiresAt ?? 0) > now &&
+    (Boolean(normalizedImageKey && imageKeys.includes(normalizedImageKey)) ||
+      Number(data?.imagesUsed ?? 0) < Number(data?.imageLimit ?? 0));
+}
+
+function readActionGrantImageKeys(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string").slice(0, 30)
+    : [];
+}
+
+function normalizeActionGrantImageKey(value?: string | null) {
+  return typeof value === "string"
+    ? value.trim().toLowerCase().replace(/[^a-z0-9:_-]/g, "-").slice(0, 200)
+    : "";
 }
 
 function normalizeActionGrantId(value: string) {

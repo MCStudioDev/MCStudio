@@ -39,11 +39,7 @@ type SharedRecipePhotoCandidate = {
 const COLLECTION_NAME = "recipePhotoCache";
 const CATEGORY_VERSION = 2;
 const SHARED_RECIPE_PHOTO_SOURCES = new Set<SharedRecipePhotoEntry["source"]>([
-  "generated",
-  "google_search",
-  "pexels_search",
-  "unsplash_search",
-  "wikimedia"
+  "generated"
 ]);
 
 export async function getSharedRecipePhoto(signature: string): Promise<SharedRecipePhotoEntry | null> {
@@ -65,8 +61,7 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
     });
     return null;
   }
-  const rawImageUrl = String(data.imageUrl);
-  const imageUrl = normalizeSharedRecipePhotoImageUrl(rawImageUrl);
+  const imageUrl = String(data.imageUrl);
   if (!isRenderableSharedRecipePhotoUrl(imageUrl)) {
     return null;
   }
@@ -85,7 +80,7 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
 
   return {
     imageAttributionName: typeof data.imageAttributionName === "string" ? data.imageAttributionName : undefined,
-    imageAttributionUrl: typeof data.imageAttributionUrl === "string" ? data.imageAttributionUrl : getPexelsPhotoPageUrl(rawImageUrl),
+    imageAttributionUrl: typeof data.imageAttributionUrl === "string" ? data.imageAttributionUrl : undefined,
     imageUrl,
     canonicalDishKey: typeof data.canonicalDishKey === "string" ? data.canonicalDishKey : undefined,
     dietTags: Array.isArray(data.dietTags) ? data.dietTags.filter((value: unknown): value is string => typeof value === "string") : undefined,
@@ -593,15 +588,8 @@ function hasGeneratedLiverQueryWithNonLiverSignature(data: FirebaseFirestore.Doc
 function normalizeSharedRecipePhotoSource(source: unknown): SharedRecipePhotoEntry["source"] | null {
   if (typeof source !== "string") return null;
   const normalized = source.trim().toLowerCase();
-  const aliased = normalized === "pexels"
-    ? "pexels_search"
-    : normalized === "unsplash"
-      ? "unsplash_search"
-      : normalized === "google"
-        ? "google_search"
-        : normalized;
-  return SHARED_RECIPE_PHOTO_SOURCES.has(aliased as SharedRecipePhotoEntry["source"])
-    ? aliased as SharedRecipePhotoEntry["source"]
+  return SHARED_RECIPE_PHOTO_SOURCES.has(normalized as SharedRecipePhotoEntry["source"])
+    ? normalized as SharedRecipePhotoEntry["source"]
     : null;
 }
 
@@ -684,16 +672,7 @@ function filterSharedRecipePhotoCandidates(
 }
 
 export function isReusableSharedRecipePhotoEntry(entry: SharedRecipePhotoEntry) {
-  if (entry.source !== "generated" && entry.source !== "wikimedia") return false;
-  try {
-    const host = new URL(entry.imageUrl).hostname.toLowerCase();
-    return host !== "images.pexels.com" &&
-      !host.endsWith(".pexels.com") &&
-      host !== "images.unsplash.com" &&
-      !host.endsWith(".unsplash.com");
-  } catch {
-    return false;
-  }
+  return entry.source === "generated" && isStoredRecipePhotoUrl(entry.imageUrl);
 }
 
 function compareSharedRecipePhotoCandidateFreshness(
@@ -712,7 +691,6 @@ function compareSharedRecipePhotoCandidateFreshness(
 function getSharedRecipePhotoUpdatedUrlScore(data: FirebaseFirestore.DocumentData, entry: SharedRecipePhotoEntry) {
   let score = getSharedRecipePhotoCacheSourcePriority(entry) * 12;
   if (getSharedRecipePhotoUpdatedAtMillis(data) > 0) score += 18;
-  if (isSharedRecipePhotoDirectPexelsImageUrl(entry.imageUrl)) score += 16;
   if (isSharedRecipePhotoCacheStorageUrl(entry.imageUrl)) score += 14;
   return score;
 }
@@ -720,26 +698,12 @@ function getSharedRecipePhotoUpdatedUrlScore(data: FirebaseFirestore.DocumentDat
 function getSharedRecipePhotoUpdatedUrlPriority(data: FirebaseFirestore.DocumentData, entry: SharedRecipePhotoEntry) {
   let priority = getSharedRecipePhotoCacheSourcePriority(entry);
   if (getSharedRecipePhotoUpdatedAtMillis(data) > 0) priority += 2;
-  if (isSharedRecipePhotoDirectPexelsImageUrl(entry.imageUrl)) priority += 2;
   if (isSharedRecipePhotoCacheStorageUrl(entry.imageUrl)) priority += 1;
   return priority;
 }
 
 function getSharedRecipePhotoCacheSourcePriority(entry: Pick<SharedRecipePhotoEntry, "source">) {
-  switch (entry.source) {
-    case "pexels_search":
-      return 5;
-    case "generated":
-      return 4;
-    case "google_search":
-      return 3;
-    case "unsplash_search":
-      return 2;
-    case "wikimedia":
-      return 1;
-    default:
-      return 0;
-  }
+  return entry.source === "generated" ? 1 : 0;
 }
 
 function getSharedRecipePhotoUpdatedAtMillis(data: FirebaseFirestore.DocumentData) {
@@ -794,66 +758,16 @@ function isSharedRecipePhotoCacheStorageUrl(imageUrl: string) {
   }
 }
 
-function isSharedRecipePhotoDirectPexelsImageUrl(imageUrl: string) {
+function isRenderableSharedRecipePhotoUrl(imageUrl: string) {
+  return isDurableRecipeImageUrl(imageUrl) && isStoredRecipePhotoUrl(imageUrl);
+}
+
+function isStoredRecipePhotoUrl(imageUrl: string) {
   try {
-    return new URL(imageUrl).hostname.toLowerCase() === "images.pexels.com";
+    const host = new URL(imageUrl).hostname.toLowerCase();
+    return host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com";
   } catch {
     return false;
-  }
-}
-
-function normalizeSharedRecipePhotoImageUrl(imageUrl: string) {
-  return convertPexelsPhotoPageUrlToImageUrl(imageUrl) ?? imageUrl;
-}
-
-function convertPexelsPhotoPageUrlToImageUrl(imageUrl: string) {
-  const photoId = getPexelsPhotoPageId(imageUrl);
-  if (!photoId) return null;
-  return `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=1200&h=900&fit=crop`;
-}
-
-function getPexelsPhotoPageId(imageUrl: string) {
-  try {
-    const url = new URL(imageUrl);
-    const host = url.hostname.toLowerCase();
-    if (host !== "www.pexels.com" && host !== "pexels.com") return null;
-
-    const pathParts = url.pathname.split("/").filter(Boolean);
-    if (pathParts[0] !== "photo") return null;
-
-    const slug = pathParts[pathParts.length - 1] ?? "";
-    const match = slug.match(/(\d+)$/);
-    return match?.[1] ?? null;
-  } catch {
-    const match = imageUrl.match(/pexels\.com\/photo\/[^/?#]*?(\d+)(?:[/?#]|$)/i);
-    return match?.[1] ?? null;
-  }
-}
-
-function getPexelsPhotoPageUrl(imageUrl: string) {
-  return getPexelsPhotoPageId(imageUrl) ? imageUrl : undefined;
-}
-
-function isRenderableSharedRecipePhotoUrl(imageUrl: string) {
-  if (!isDurableRecipeImageUrl(imageUrl)) return false;
-
-  try {
-    const url = new URL(imageUrl);
-    const host = url.hostname.toLowerCase();
-    const path = url.pathname.toLowerCase();
-
-    if (host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com") return true;
-    if (host === "images.pexels.com" || host === "images.unsplash.com" || host === "upload.wikimedia.org") return true;
-
-    // Provider landing pages like https://www.pexels.com/photo/... are HTML,
-    // not image bytes. They cause card backgrounds to stay blank even though a
-    // cache row was found.
-    if ((host === "www.pexels.com" || host === "pexels.com") && path.startsWith("/photo/")) return false;
-    if ((host === "www.unsplash.com" || host === "unsplash.com") && path.startsWith("/photos/")) return false;
-
-    return /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(url.href);
-  } catch {
-    return /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(imageUrl);
   }
 }
 

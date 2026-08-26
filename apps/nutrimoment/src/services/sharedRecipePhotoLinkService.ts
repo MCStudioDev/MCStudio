@@ -255,20 +255,11 @@ function buildSharedRecipePhotoEntryFromRecipe(recipe: RecipeCatalogDoc): Shared
 }
 
 function mapPhotoSource(source: SharedRecipePhotoEntry["source"]): RecipeImageSource {
-  if (source === "generated") return "replicate";
-  if (source === "pexels_search") return "pexels";
-  if (source === "unsplash_search") return "unsplash";
-  if (source === "wikimedia") return "wikimedia";
-  return "search";
+  return source === "generated" ? "replicate" : "search";
 }
 
 function mapStoredPhotoSource(source: RecipeImageSource | undefined): SharedRecipePhotoEntry["source"] | null {
-  if (source === "replicate" || source === "api" || source === "cache") return "generated";
-  if (source === "wikimedia") return "wikimedia";
-  if (source === "pexels") return "pexels_search";
-  if (source === "unsplash") return "unsplash_search";
-  if (source === "search") return "google_search";
-  return null;
+  return source === "replicate" ? "generated" : null;
 }
 
 function isValidSharedRecipeId(value: string) {

@@ -47,6 +47,7 @@ interface MealRevealStat {
 }
 
 interface MealRevealCardProps {
+  imageActionGrantId?: string;
   disableAutoImageLookup?: boolean;
   deferImageLookup?: boolean;
   trustProvidedImage?: boolean;
@@ -87,6 +88,7 @@ interface MealRevealCardProps {
 }
 
 export function MealRevealCard({
+  imageActionGrantId,
   disableAutoImageLookup = false,
   deferImageLookup = false,
   trustProvidedImage = false,
@@ -117,7 +119,7 @@ export function MealRevealCard({
 }: MealRevealCardProps) {
   const { t, rtl } = useApp();
   const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
-  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
+  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access) || Boolean(imageActionGrantId);
   const bypassClientCache = disableAutoImageLookup;
   const cardRef = useRef<HTMLElement | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
@@ -378,12 +380,14 @@ export function MealRevealCard({
         retrying: false
       });
     }, 0);
-    const existingRequest = inFlightRecipePhotoRequests.get(queryKey);
+    const requestKey = `${queryKey}|${hasGeneratedImageAccess ? "generate" : "cache"}`;
+    const existingRequest = inFlightRecipePhotoRequests.get(requestKey);
     const request =
       existingRequest ??
       getAuthHeaders()
         .then((headers) =>
           fetch(buildRecipePhotoRequestUrl(queryCandidates, imagePromptIngredients ?? [], excludedImageUrls, {
+            actionGrantId: imageActionGrantId,
             cacheOnly: !hasGeneratedImageAccess,
             cuisine: imageCuisine,
             exactNames: exactNamesForLookup,
@@ -422,10 +426,10 @@ export function MealRevealCard({
           throw new Error(String(retryAfterSeconds ?? 0));
         })
         .finally(() => {
-          inFlightRecipePhotoRequests.delete(queryKey);
+          inFlightRecipePhotoRequests.delete(requestKey);
         });
 
-    inFlightRecipePhotoRequests.set(queryKey, request);
+    inFlightRecipePhotoRequests.set(requestKey, request);
 
     request
       .then((data) => {
@@ -528,6 +532,7 @@ export function MealRevealCard({
     };
   }, [
     hasGeneratedImageAccess,
+    imageActionGrantId,
     authLoading,
     bypassClientCache,
     cachedImage,
@@ -1056,6 +1061,7 @@ function buildRecipePhotoRequestUrl(
   ingredients: string[] = [],
   excludeUrls: string[] = [],
   exactContext: {
+    actionGrantId?: string;
     cacheOnly?: boolean;
     cuisine?: string;
     diets?: string[];
@@ -1064,6 +1070,9 @@ function buildRecipePhotoRequestUrl(
   } = {}
 ) {
   const params = new URLSearchParams();
+  if (exactContext.actionGrantId) {
+    params.set("actionGrant", exactContext.actionGrantId);
+  }
   queries.forEach((query, index) => {
     if (index === 0) {
       params.set("query", query);

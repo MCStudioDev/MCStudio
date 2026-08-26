@@ -37,6 +37,7 @@ type HistoryDocData = {
   createdAt?: FirestoreTimestampLike | null;
   generationMessage?: string;
   generationStatus?: HistoryItem["generationStatus"];
+  imageActionGrantId?: string;
   ingredients?: string[];
   recipes?: Recipe[];
   sessionType?: HistoryItem["sessionType"];
@@ -127,6 +128,7 @@ function mapHistoryDoc(id: string, data: HistoryDocData): HistoryItem & { create
     recipes: Array.isArray(data.recipes) ? sanitizeHistoryRecipes(data.recipes) : [],
     generationStatus: data.generationStatus,
     generationMessage: data.generationMessage,
+    imageActionGrantId: data.imageActionGrantId,
     completedAt: data.completedAt,
     createdAt: data.createdAt
   };
@@ -384,6 +386,7 @@ export function useHistory(): UseHistoryResult {
               recipes: item.recipes,
               generationStatus: item.generationStatus,
               generationMessage: item.generationMessage,
+              imageActionGrantId: item.imageActionGrantId,
               completedAt: item.completedAt
             };
             return stripUndefined(historyItem);
@@ -416,6 +419,7 @@ export function useHistory(): UseHistoryResult {
       recipes: sanitizeHistoryRecipes(entry.recipes),
       generationStatus: entry.generationStatus,
       generationMessage: entry.generationMessage,
+      imageActionGrantId: entry.imageActionGrantId,
       completedAt: entry.completedAt,
       createdAt: serverTimestamp()
     }));

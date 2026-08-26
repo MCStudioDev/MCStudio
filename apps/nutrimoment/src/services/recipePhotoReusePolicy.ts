@@ -3,8 +3,7 @@ import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import {
   inferRecipePhotoDietIds,
   isRecipePhotoDietCompatible,
-  normalizeRecipePhotoDietIds,
-  requiresPlantBasedRecipePhotoProof
+  normalizeRecipePhotoDietIds
 } from "@/services/recipePhotoDietCompatibility";
 import {
   isGeneratedRecipePhotoCachePayloadConsistent,
@@ -25,10 +24,7 @@ export function canReuseRecipePhotoForDiet(
   const effectiveDiets = getRecipePhotoDietScope(recipe, diets);
   const imageUrl = getRecipeImageUrl(recipe);
   if (!isUsableRecipeImageForAccess(imageUrl, hasGeneratedImageAccess)) return false;
-  // Provider search photos do not carry a durable food-identity contract.
-  // They can be considered during live lookup, but must not be trusted as a
-  // reusable shared asset for a different session or account.
-  if (isExternalRecipePhotoProviderUrl(imageUrl)) return false;
+  if (!isStoredGeneratedRecipePhoto(recipe, imageUrl)) return false;
   if (!isGeneratedRecipePhotoCachePayloadConsistent({
     imageUrl,
     query: recipe.localized?.English?.name || recipe.name
@@ -50,16 +46,6 @@ export function canReuseRecipePhotoForDiet(
   ]
     .filter((value): value is string => Boolean(value))
     .join(" ");
-  const plantDietRequested = effectiveDiets.some((diet) => /^(vegan|vegetarian)$/i.test(diet.trim()));
-  if (
-    plantDietRequested &&
-    isExternalRecipePhotoProviderUrl(imageUrl) &&
-    (requiresPlantBasedRecipePhotoProof([queryText]) ||
-      !/\b(plant[ -]based|vegan|vegetarian)\b/i.test(queryText))
-  ) {
-    return false;
-  }
-
   return isRecipePhotoDietCompatible({
     canonicalDishKey: recipe.photo_identity?.dish_slug,
     dietTags: Array.from(new Set([
@@ -207,13 +193,12 @@ function safeDecodeURIComponent(value: string) {
   }
 }
 
-function isExternalRecipePhotoProviderUrl(imageUrl: string) {
+function isStoredGeneratedRecipePhoto(recipe: Recipe, imageUrl: string) {
+  const source = recipe.image_source ?? recipe.photo_asset?.source;
+  if (source !== "replicate" && source !== "cache" && source !== "shared_pool") return false;
   try {
     const host = new URL(imageUrl).hostname.toLowerCase();
-    return host === "images.pexels.com" ||
-      host.endsWith(".pexels.com") ||
-      host === "images.unsplash.com" ||
-      host.endsWith(".unsplash.com");
+    return host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com";
   } catch {
     return false;
   }

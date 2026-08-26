@@ -300,8 +300,8 @@ describe("recipe search service", () => {
     expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/pasta/);
     expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/tomato/);
     expect(koshary?.steps.join(" ").toLowerCase()).toMatch(/onion/);
-    expect(koshary?.image_source).toBe("wikimedia");
-    expect(koshary?.image_url).toMatch(/Egyptian_food_Koshary\.jpg/);
+    expect(koshary?.image_source).toBeUndefined();
+    expect(koshary?.image_url).toBeUndefined();
   });
 
   it("keeps the trusted Koshary baseline when a free user also reads the shared pool", async () => {

@@ -54,7 +54,6 @@ import {
 } from "@/services/recipeContentQualityService";
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { attachValidatedRecipePhotoAsset } from "@/services/recipePhotoReusePolicy";
-import { getKnownDishRecipePhoto } from "@/lib/freeRecipePhotos";
 
 const recipeDiversityEngine = new RecipeDiversityEngine();
 const ingredientGraph = new IngredientGraph();
@@ -601,15 +600,11 @@ export function mapCatalogRecipeToUiRecipe(
   const cleanedEnglishCuisine = normalizeEnglishCuisineLabel(normalizedRecipe.localized?.English?.cuisine ?? normalizedRecipe.cuisine);
   const cleanedArabicCuisine = translateCuisineLabelToArabic(normalizedRecipe.localized?.Arabic?.cuisine ?? normalizedRecipe.cuisine);
   const photoIdentity = buildPhotoIdentityFromCatalog(normalizedRecipe);
-  const knownDishPhoto = normalizedRecipe.id.startsWith("trusted-source-")
-    ? getKnownDishRecipePhoto(normalizedRecipe.localized?.English?.name ?? normalizedRecipe.title)
-    : null;
   const englishImageUrl =
     normalizeRecipeImageUrl(normalizedRecipe.localized?.English?.image_url) ??
-    normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath) ??
-    knownDishPhoto?.imageUrl;
+    normalizeRecipeImageUrl(normalizedRecipe.image.thumbPath || normalizedRecipe.image.storagePath);
   const englishImageSource = englishImageUrl
-    ? normalizedRecipe.localized?.English?.image_source ?? normalizedRecipe.image.source ?? knownDishPhoto?.source
+    ? normalizedRecipe.localized?.English?.image_source ?? normalizedRecipe.image.source
     : undefined;
   const recipePhotoDietTags = normalizedRecipe.image.dietTags?.length
     ? normalizedRecipe.image.dietTags

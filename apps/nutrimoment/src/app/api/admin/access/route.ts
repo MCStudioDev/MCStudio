@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
-import { accessErrorResponse, requireAdmin, type AccessRole, type AccessTier } from "@/services/authService";
+import {
+  accessErrorResponse,
+  buildDefaultEntitlementFeatures,
+  requireAdmin,
+  type AccessRole,
+  type AccessTier
+} from "@/services/authService";
 
 export const runtime = "nodejs";
 
@@ -45,15 +51,7 @@ export async function POST(request: Request) {
         role,
         tier,
         status: tier === "premium" ? "active" : "free",
-        features: {
-          "pantry.manual": true,
-          "pantry.imageScan": tier === "premium",
-          "recipes.offline": true,
-          "recipes.api": true,
-          "recipes.imageLookup": tier === "premium",
-          "mealPlan.weekly": true,
-          "shoppingList.quantities": true
-        },
+        features: buildDefaultEntitlementFeatures(tier),
         updatedAt: FieldValue.serverTimestamp()
       },
       { merge: true }

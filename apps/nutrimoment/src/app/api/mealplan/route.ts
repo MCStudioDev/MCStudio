@@ -7,7 +7,7 @@ import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiCredit,
+  consumeFreeAiAction,
   isFirebaseTransientError
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
@@ -43,11 +43,16 @@ import {
   summarizeMealPlanRepeatUsage,
   validateMealPlanRecipeContracts
 } from "@/services/mealPlanRecipeContractService";
+import {
+  attachSharedRecipeLinksToMealPlan,
+  type MealPlanSharedRecipeLink
+} from "@/services/mealPlanSharedRecipeLinkService";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
 const requestSchema = z.object({
+  actionId: z.string().min(1).max(128).optional(),
   prompt: z.string().min(20).optional(),
   pantry: z.array(z.string()).optional(),
   pantryItems: z.array(z.object({ name: z.string(), quantity: z.string().optional() })).optional(),
@@ -116,19 +121,10 @@ export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "weekly_plan");
     const access = accessCheck.access;
-    if (!access.isPremium && !access.isAdmin) {
-      return Response.json(
-        {
-          error: "Weekly meal plans are a premium feature.",
-          access: accessPayload(access)
-        },
-        { status: 403 }
-      );
-    }
     const rl = applyRateLimit({
       uid: access.uid,
       feature: "meal_plan",
-      isPremium: access.isPremium,
+      isPremium: accessCheck.allowed,
       bypass: access.isAdmin
     });
     if (!rl.decision.allowed) {
@@ -146,14 +142,18 @@ export async function POST(request: Request) {
     if (!accessCheck.allowed) {
       return Response.json(
         {
-          error: "Your 3 free weekly meal plans are used. Upgrade to premium for more weekly planning.",
+          error: "Your 10 free AI credits are used. Upgrade to premium for more AI actions.",
           access: accessPayload(access)
         },
         { status: 402 }
       );
     }
 
-    const nextAccess = await consumeFreeAiCredit(access, "weekly_plan");
+    const aiAction = await consumeFreeAiAction(access, "weekly_plan", parsed.data.actionId ?? requestId);
+    const nextAccess = aiAction.access;
+    const actionGrantPayload = aiAction.actionGrantId
+      ? { aiActionGrantId: aiAction.actionGrantId }
+      : {};
     const pantryItems = parsed.data.pantryItems ?? [];
     const pantry = parsed.data.pantry ?? (pantryItems.length ? pantryItems.map((item) => item.name) : extractPantryFromPrompt(parsed.data.prompt ?? ""));
     // Server-side diet/allergen gate for meal-plan output. Any slot the AI
@@ -416,7 +416,11 @@ export async function POST(request: Request) {
         persistResult: parsed.data.persistResult,
         uid: access.uid
       });
-      return Response.json({ result: JSON.stringify({ ...outputMockPlan, preferenceSignature }), access: accessPayload(nextAccess) });
+      return Response.json({
+        ...actionGrantPayload,
+        result: JSON.stringify({ ...outputMockPlan, preferenceSignature }),
+        access: accessPayload(nextAccess)
+      });
     }
 
     const searchResult = await searchCatalogRecipes({
@@ -540,23 +544,28 @@ export async function POST(request: Request) {
           dietContext,
           promoteToSharedPool: true
         });
+        const linkedOutputMealPlan = attachSharedRecipeLinksToMealPlan(
+          outputMealPlan,
+          sharedPublication.recipeLinks
+        );
         await persistMealPlanResultForUser({
           historyEntryId: parsed.data.historyEntryId,
           historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
           historyTitle: parsed.data.historyTitle,
-          mealPlan: outputMealPlan,
+          mealPlan: linkedOutputMealPlan,
           preferenceSignature,
           persistResult: parsed.data.persistResult,
           uid: access.uid
         });
         logger.info("Meal plan served from Gemini fallback AI", {
-          days: outputMealPlan.plan.length,
-          shoppingItems: outputMealPlan.shoppingList.length,
+          days: linkedOutputMealPlan.plan.length,
+          shoppingItems: linkedOutputMealPlan.shoppingList.length,
           shoppingItemsBeforeReconcile: aiMealPlan.shoppingList.length
         });
         return Response.json({
+          ...actionGrantPayload,
           result: JSON.stringify({
-            ...outputMealPlan,
+            ...linkedOutputMealPlan,
             preferenceSignature,
             repeatFallback: repeatFallbackMetadata,
             servedFrom: "fallback_ai"
@@ -692,6 +701,7 @@ export async function POST(request: Request) {
       shoppingItems: outputEmergencyMealPlan.shoppingList.length
     });
     return Response.json({
+      ...actionGrantPayload,
       result: JSON.stringify({ ...outputEmergencyMealPlan, preferenceSignature, repeatFallback: repeatFallbackMetadata }),
       servedFrom: "shared_pool",
       repeatFallback: repeatFallbackMetadata,
@@ -1722,7 +1732,8 @@ async function queueMealPlanCachePersist(input: {
     promotedRecipeCount: 0,
     rejectedPromotionCount: 0,
     supersededRecipeCount: 0,
-    persistenceSucceeded: false
+    persistenceSucceeded: false,
+    recipeLinks: [] as MealPlanSharedRecipeLink[]
   };
 
   try {
@@ -1757,13 +1768,23 @@ async function queueMealPlanCachePersist(input: {
       reusedRecipeCount: promotion?.reused ?? 0,
       rejectedPromotionCount: promotion?.rejected ?? 0
     });
+    const recipeLinks: MealPlanSharedRecipeLink[] = (promotion?.documents ?? []).map((recipe) => ({
+      names: [
+        recipe.title,
+        recipe.localized?.English?.name,
+        recipe.localized?.Arabic?.name,
+        recipe.dishIntent?.dish_name
+      ].filter((value): value is string => Boolean(value?.trim())),
+      sourceRecipeId: recipe.id
+    }));
     return {
       generatedMealCount: generatedMeals.length,
       validatedRecipeCount: validatedRecipes.length,
       promotedRecipeCount: promotion?.available ?? promotion?.published ?? 0,
       rejectedPromotionCount: promotion?.rejected ?? 0,
       supersededRecipeCount: promotion?.superseded ?? 0,
-      persistenceSucceeded: true
+      persistenceSucceeded: true,
+      recipeLinks
     };
   } catch (error) {
     logger.warn("Meal-plan cache persistence failed", {

@@ -14,7 +14,7 @@ import {
   accessPayload,
   buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiCredit,
+  consumeFreeAiAction,
 } from "@/services/authService";
 import { applyRateLimit, rateLimitHeaders } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
@@ -81,6 +81,7 @@ import {
   canReuseRecipePhotoForDiet
 } from "@/services/recipePhotoReusePolicy";
 import { buildSharedRecipePhotoLinkSearchTokens } from "@/services/sharedRecipePhotoLinkService";
+import { SHARED_RECIPE_V2_COLLECTION } from "@/services/sharedRecipeV2PolicyService";
 import {
   adaptRecipeForDietRestrictions,
   findRecipeDietViolation,
@@ -161,6 +162,10 @@ import {
   type CompiledRecipeRequestPolicy
 } from "@/services/recipeRequestPolicyService";
 import { dedupeExactRecipeCandidates } from "@/services/recipeCandidateMergeService";
+import {
+  mergeSharedRecipeV2Results,
+  planSharedRecipeV2Fulfillment
+} from "@/services/sharedRecipeV2PolicyService";
 
 const DEFAULT_RECIPE_RESULT_COUNT = 5;
 const MIN_RECIPE_RESULT_COUNT = 1;
@@ -283,6 +288,7 @@ const MOCK_RECIPES = {
 };
 
 const requestSchema = z.object({
+  actionId: z.string().min(1).max(128).optional(),
   ingredients: z.array(z.string()).optional(),
   ingredientQuantities: z.array(z.string()).optional(),
   prompt: z.string().min(20).optional(),
@@ -307,6 +313,7 @@ export async function POST(request: Request) {
   const requestStartedAt = Date.now();
   const variationSeed = buildRecipeVariationSeed(requestId);
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
+  let responseAiActionGrantId: string | undefined;
   let lastValidSearchRecipes: Recipe[] = [];
   let pipelineDebug = process.env.PIPELINE_DEBUG === "true";
   let historyEntryId: string | undefined;
@@ -387,6 +394,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ...responsePayload,
+        ...(responseAiActionGrantId ? { aiActionGrantId: responseAiActionGrantId } : {}),
         requestId,
         search_candidates_found: validationReport.generationTrace.search.candidatesFound,
         request_trace: pipelineDebug ? validationReport.generationTrace : undefined,
@@ -408,7 +416,7 @@ export async function POST(request: Request) {
     const rl = applyRateLimit({
       uid: requestAccess.uid,
       feature: "recipe_generation",
-      isPremium: requestAccess.isPremium,
+      isPremium: accessCheck.allowed,
       bypass: requestAccess.isAdmin
     });
     if (!rl.decision.allowed) {
@@ -436,7 +444,7 @@ export async function POST(request: Request) {
     historyUid = requestAccess.uid;
     pipelineDebug ||= parsed.data.debug === true;
 
-    if (parsed.data.referenceImage && !requestAccess.isPremium && !requestAccess.isAdmin) {
+    if (parsed.data.referenceImage && !accessCheck.allowed) {
       return await respondWithValidationReport(
         {
           error: "Scan fridge recipe generation is a premium feature. Add ingredients manually to generate free recipe cards.",
@@ -452,19 +460,12 @@ export async function POST(request: Request) {
       .filter(Boolean);
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
-    const recipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
-    const recipeGenerationCandidateCount = Math.min(
-      MAX_RECIPE_GENERATION_CANDIDATES,
-      recipeCount + Math.max(2, Math.ceil(recipeCount * 0.6))
-    );
-    // Arabic source prose requires full cookbook localization, not token
-    // substitution. Free accounts already consume one trial generation credit
-    // on this path, so they use the same one-source-per-call editor and cache.
-    const sourceRecipeEditorEnabled =
-      shouldRunPremiumRecipeEditor(requestAccess, recipeCount) || (wantsArabic && accessCheck.allowed);
+    const requestedRecipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
+    let recipeCount = requestedRecipeCount;
+    let v2PrefillRecipes: Recipe[] = [];
     updateRecipeValidationFunnel(validationReport, {
-      requested: recipeCount,
-      requestedCount: recipeCount
+      requested: requestedRecipeCount,
+      requestedCount: requestedRecipeCount
     });
     validationReport.inputIngredients = ingredients;
     if (!ingredients.length && !parsed.data.referenceImage) {
@@ -473,6 +474,15 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    const aiAction = accessCheck.allowed
+      ? await consumeFreeAiAction(requestAccess, "recipe_generation", parsed.data.actionId ?? requestId)
+      : { access: requestAccess };
+    const nextAccess = aiAction.access;
+    responseAiActionGrantId = aiAction.actionGrantId;
+    const hasPremiumWorkflowAccess = requestAccess.isPremium || requestAccess.isAdmin || accessCheck.allowed;
+    const workflowAccess = hasPremiumWorkflowAccess
+      ? { ...requestAccess, isPremium: true }
+      : requestAccess;
     const ingredientNormalization = await normalizeIngredients(ingredients);
     const normalizedPromptIngredients = ingredientNormalization.resolved.length
       ? ingredientNormalization.resolved
@@ -488,6 +498,73 @@ export async function POST(request: Request) {
       ...expandIngredientFamilies(normalizedIngredientNames)
     ]));
     const scoringIngredients = expandedNormalizedIngredientNames;
+    const v2SearchResult = ingredients.length
+      ? await searchCatalogRecipes({
+          ingredients,
+          preferredCuisine: parsed.data.preferredCuisine,
+          calorieTarget: parsed.data.calorieTarget,
+          diets: parsed.data.diets,
+          conditions: parsed.data.conditions,
+          allergens: parsed.data.allergens,
+          maxResults: Math.max(requestedRecipeCount, Math.min(60, requestedRecipeCount * 6)),
+          recipeLanguage,
+          includeFirestoreReferences: false,
+          allowRemoteCaches: true,
+          forceSharedCacheRead: true,
+          skipStaticSources: true,
+          maxMissingIngredients: parsed.data.maxMissingIngredients
+        })
+      : null;
+    const v2ExcludedIngredientFilter = filterRecipesByExcludedIngredients(
+      v2SearchResult?.recipes ?? [],
+      parsed.data.excludedIngredients ?? []
+    );
+    const v2RestrictionSafe = v2ExcludedIngredientFilter.allowed
+      .filter((recipe) => !findRecipeHealthViolation(recipe, parsed.data.conditions ?? []));
+    const v2Plan = planSharedRecipeV2Fulfillment({
+      canGenerateDeficit: hasPremiumWorkflowAccess,
+      matches: v2RestrictionSafe,
+      requestedCount: requestedRecipeCount
+    });
+    v2PrefillRecipes = v2Plan.existing;
+
+    if (v2Plan.generationDeficit === 0) {
+      const generationStatus = v2Plan.unfilledCount
+        ? RecipeGenerationStatus.PARTIAL_RESULTS
+        : RecipeGenerationStatus.SUCCESS_DATASET;
+      const message = v2Plan.unfilledCount
+        ? `Showing ${v2Plan.existing.length} of ${requestedRecipeCount} validated shared recipes.`
+        : undefined;
+      await persistRecipeGenerationHistoryEntry({
+        historyEntryId,
+        recipes: v2Plan.existing,
+        status: v2Plan.existing.length ? "completed" : "failed",
+        errorMessage: v2Plan.existing.length ? undefined : buildRecipeUnavailableMessage(recipeLanguage),
+        uid: requestAccess.uid
+      });
+      return await respondWithValidationReport({
+        recipes: v2Plan.existing,
+        result: JSON.stringify(v2Plan.existing),
+        servedFrom: "shared_pool_v2",
+        generationStatus: v2Plan.existing.length ? generationStatus : RecipeGenerationStatus.NO_RESULTS,
+        message: message ?? (v2Plan.existing.length ? undefined : buildRecipeUnavailableMessage(recipeLanguage)),
+        requestedCount: requestedRecipeCount,
+        returnedCount: v2Plan.existing.length,
+        aiFillAttempted: false,
+        canLoadMore: Boolean(v2SearchResult?.canLoadMore),
+        access: accessPayload(nextAccess)
+      });
+    }
+
+    recipeCount = v2Plan.generationDeficit;
+    const recipeGenerationCandidateCount = Math.min(
+      MAX_RECIPE_GENERATION_CANDIDATES,
+      recipeCount + Math.max(2, Math.ceil(recipeCount * 0.6))
+    );
+    // V2 recipes are immutable inputs and never enter this editor. Only the
+    // premium deficit is sourced from references and sent to Gemini.
+    const sourceRecipeEditorEnabled =
+      shouldRunPremiumRecipeEditor(workflowAccess, recipeCount) || (wantsArabic && accessCheck.allowed);
     const requestPolicy = compileRecipeRequestPolicy({
       allergens: parsed.data.allergens,
       conditions: parsed.data.conditions,
@@ -649,7 +726,10 @@ export async function POST(request: Request) {
       ingredientCount: ingredients.length
     })
       ? findRecipeReferencesForGeneration({
-          avoidRecipeNames: Array.from(recentRecipeMemory.names),
+          avoidRecipeNames: Array.from(new Set([
+            ...recentRecipeMemory.names,
+            ...v2PrefillRecipes.map((recipe) => recipe.name)
+          ])),
           allergens: parsed.data.allergens,
           diets: parsed.data.diets,
           ingredients: scoringIngredients,
@@ -1267,7 +1347,11 @@ export async function POST(request: Request) {
       });
       return responseRecipes;
     };
-    const finalizeRecipeResponse = async (recipes: Recipe[]) => finalizeRecipes(recipes);
+    const finalizeRecipeResponse = async (recipes: Recipe[]) => mergeSharedRecipeV2Results(
+      v2PrefillRecipes,
+      await finalizeRecipes(recipes),
+      requestedRecipeCount
+    );
     const strictRankingOptions = {
       ...parsed.data,
       ingredients: scoringIngredients,
@@ -1283,9 +1367,10 @@ export async function POST(request: Request) {
     let responseReadySourceRecipes: Recipe[] = [];
     let recipeEditorSourceRecipes: Recipe[] = [];
     const finalizeSourceCandidatesBeforeEditor =
-      !sourceRecipeEditorEnabled && shouldFinalizeSourceCandidatesBeforeEditor(requestAccess);
+      !sourceRecipeEditorEnabled && shouldFinalizeSourceCandidatesBeforeEditor(workflowAccess);
     const rememberRecipeEditorSources = (recipes: Recipe[]) => {
       const authenticSources = recipes.filter((recipe) =>
+        recipe.recipe_source_type !== "local_database" &&
         isTrustedSourcedRecipe(recipe) &&
         !isMalformedRecipeTitle(recipe.name) &&
         (
@@ -1315,7 +1400,6 @@ export async function POST(request: Request) {
     };
 
     if (USE_MOCK && accessCheck.allowed) {
-      const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
       const exactScanMatch = parsed.data.referenceImage
         ? buildMockExactScanRecipe(availableIngredients)
         : null;
@@ -1339,7 +1423,7 @@ export async function POST(request: Request) {
         recipeLanguage,
         recipes: finalRecipes,
         dietContext,
-        promoteToSharedPool: requestAccess.isPremium
+        promoteToSharedPool: hasPremiumWorkflowAccess
       });
       await persistRecipeGenerationHistoryEntry({
         historyEntryId,
@@ -1510,7 +1594,7 @@ export async function POST(request: Request) {
               returnedCount: finalRecipes.length
             });
           } else if (shouldServeDatasetBeforeRecipeEditor({
-            access: requestAccess,
+            access: workflowAccess,
             availableRecipeCount: finalRecipes.length,
             requestedRecipeCount: recipeCount
           })) {
@@ -1519,7 +1603,7 @@ export async function POST(request: Request) {
               recipeLanguage,
               recipes: finalRecipes,
               dietContext,
-              promoteToSharedPool: requestAccess.isPremium
+              promoteToSharedPool: hasPremiumWorkflowAccess
             });
             await persistRecipeGenerationHistoryEntry({
               historyEntryId,
@@ -1540,7 +1624,7 @@ export async function POST(request: Request) {
               servedFrom: "recipe_reference",
               generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
               canLoadMore: recipeReferences.length > recipeCount,
-              access: accessPayload(requestAccess)
+              access: accessPayload(nextAccess)
             });
           }
         }
@@ -1643,7 +1727,7 @@ export async function POST(request: Request) {
 
         if (
           shouldServeDatasetBeforeRecipeEditor({
-            access: requestAccess,
+            access: workflowAccess,
             availableRecipeCount: validatedLocalSourceRecipes.length,
             requestedRecipeCount: recipeCount
           }) &&
@@ -1659,7 +1743,7 @@ export async function POST(request: Request) {
             recipeLanguage,
             recipes: validatedLocalSourceRecipes,
             dietContext,
-            promoteToSharedPool: requestAccess.isPremium
+            promoteToSharedPool: hasPremiumWorkflowAccess
           });
           await persistRecipeGenerationHistoryEntry({
             historyEntryId,
@@ -1680,7 +1764,7 @@ export async function POST(request: Request) {
             servedFrom: "local_recipe_sources",
             generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
             canLoadMore: recipeReferences.length + strictCatalogRecipes.length > recipeCount,
-            access: accessPayload(requestAccess)
+            access: accessPayload(nextAccess)
           });
         }
 
@@ -1768,7 +1852,7 @@ export async function POST(request: Request) {
       rememberValidSearchRecipes(finalDatasetRecipes, "recipe_dataset_validated");
 
       if (shouldServeDatasetBeforeRecipeEditor({
-        access: requestAccess,
+        access: workflowAccess,
         availableRecipeCount: finalDatasetRecipes.length,
         requestedRecipeCount: recipeCount
       })) {
@@ -1777,7 +1861,7 @@ export async function POST(request: Request) {
           recipeLanguage,
           recipes: finalDatasetRecipes,
           dietContext,
-          promoteToSharedPool: requestAccess.isPremium
+          promoteToSharedPool: hasPremiumWorkflowAccess
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -1796,7 +1880,7 @@ export async function POST(request: Request) {
           servedFrom: datasetSearchResult.servedFrom,
           generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,
           canLoadMore: datasetSearchResult.canLoadMore,
-          access: accessPayload(requestAccess)
+          access: accessPayload(nextAccess)
         });
       }
 
@@ -1818,7 +1902,7 @@ export async function POST(request: Request) {
           recipeLanguage,
           recipes: responseReadySourceRecipes,
           dietContext,
-          promoteToSharedPool: requestAccess.isPremium
+          promoteToSharedPool: hasPremiumWorkflowAccess
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -1837,7 +1921,7 @@ export async function POST(request: Request) {
           aiFillAttempted: false,
           aiFillUnavailableReason: accessCheck.reason,
           canLoadMore: false,
-          access: accessPayload(requestAccess)
+          access: accessPayload(nextAccess)
         });
       }
       const message = buildRecipeUnavailableMessage(recipeLanguage);
@@ -1863,11 +1947,9 @@ export async function POST(request: Request) {
         aiFillAttempted: false,
         aiFillUnavailableReason: accessCheck.reason,
         canLoadMore: false,
-        access: accessPayload(requestAccess)
+        access: accessPayload(nextAccess)
       });
     }
-
-    const nextAccess = await consumeFreeAiCredit(requestAccess, "recipe_generation");
 
     try {
       ensureAiAvailable();
@@ -2520,7 +2602,7 @@ export async function POST(request: Request) {
           recipeLanguage,
           recipes: finalRecipes,
           dietContext,
-          promoteToSharedPool: requestAccess.isPremium
+          promoteToSharedPool: hasPremiumWorkflowAccess
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -2592,7 +2674,7 @@ export async function POST(request: Request) {
           recipeLanguage,
           recipes: finalRecipes,
           dietContext,
-          promoteToSharedPool: requestAccess.isPremium
+          promoteToSharedPool: hasPremiumWorkflowAccess
         });
         await persistRecipeGenerationHistoryEntry({
           historyEntryId,
@@ -2633,7 +2715,7 @@ export async function POST(request: Request) {
       recipeLanguage,
       recipes: finalRecipes,
       dietContext,
-      promoteToSharedPool: requestAccess.isPremium
+      promoteToSharedPool: hasPremiumWorkflowAccess
     });
     await persistRecipeGenerationHistoryEntry({
       historyEntryId,
@@ -7338,18 +7420,13 @@ async function queueRecipeCachePersist(input: {
     const startedAt = Date.now();
     try {
       await persistGeneratedRecipeCache(input);
-      const promotionRecipes = input.promoteToSharedPool
-        ? await attachRecipePhotosPreservingOrder(input.recipes ?? [], {
-            allowProviderLookup: false,
-            diets: input.dietContext?.diets ?? []
-          })
-        : input.recipes;
       const promotion = input.promoteToSharedPool
         ? await persistPremiumValidatedRecipeCache({
             recipeLanguage: input.recipeLanguage,
-            recipes: promotionRecipes
+            recipes: input.recipes
           })
         : null;
+      attachSharedRecipeV2SourceIds(input.recipes ?? [], promotion?.documents ?? []);
       logger.info("Recipe cache persisted after response", {
         durationMs: Date.now() - startedAt,
         promotedRecipeCount: promotion?.available ?? promotion?.published ?? 0,
@@ -7376,6 +7453,25 @@ async function queueRecipeCachePersist(input: {
   }
 
   scheduleAfterResponse("recipe cache persistence", persist);
+}
+
+function attachSharedRecipeV2SourceIds(recipes: Recipe[], documents: RecipeCatalogDoc[]) {
+  const documentIdsByRecipe = new Map(
+    documents.map((document) => [
+      `${normalizeRecipeV2LookupText(document.title)}|${normalizeRecipeV2LookupText(document.cuisine)}`,
+      document.id
+    ])
+  );
+
+  recipes.forEach((recipe) => {
+    const key = `${normalizeRecipeV2LookupText(recipe.name)}|${normalizeRecipeV2LookupText(recipe.cuisine)}`;
+    const sourceRecipeId = documentIdsByRecipe.get(key);
+    if (sourceRecipeId) recipe.source_recipe_id = sourceRecipeId;
+  });
+}
+
+function normalizeRecipeV2LookupText(value?: string) {
+  return (value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
 function scheduleAfterResponse(label: string, task: () => Promise<void>) {
@@ -8794,46 +8890,6 @@ function selectPhotoRankingCandidates(recipes: Recipe[], recipeCount: number) {
   return recipes.slice(0, Math.max(recipeCount * 3, 30));
 }
 
-async function attachRecipePhotosPreservingOrder(
-  recipes: Recipe[],
-  options?: {
-    allowProviderLookup?: boolean;
-    diets?: string[];
-  }
-) {
-  const diets = options?.diets ?? [];
-  const settled = await mapSettledWithConcurrency(recipes, 10, async (recipe) => {
-    if (canReuseRecipePhotoForDiet(recipe, diets, true) && canKeepExistingRecipeImageUrl(recipe)) {
-      return attachValidatedRecipePhotoAsset(recipe, diets);
-    }
-
-    const resolvedPhoto = await resolveRecipePhotoCandidate(recipe, new Set(), {
-      allowProviderLookup: options?.allowProviderLookup
-    });
-    return attachValidatedRecipePhotoAsset({
-      ...recipe,
-      ...(resolvedPhoto.recipePatch ?? {})
-    }, diets);
-  });
-
-  const resolved = settled.map((result, index) => {
-    if (result.status === "fulfilled") return result.value;
-    logger.warn("Recipe bundled photo attachment failed", {
-      recipeName: recipes[index]?.name,
-      errorMessage: result.reason instanceof Error ? result.reason.message : String(result.reason)
-    });
-    return attachValidatedRecipePhotoAsset(recipes[index], diets);
-  });
-  const usedImageUrls = new Set<string>();
-  return resolved.map((recipe) => {
-    if (!recipe.image_url || usedImageUrls.has(recipe.image_url)) {
-      return attachValidatedRecipePhotoAsset({ ...recipe, image_url: undefined }, diets);
-    }
-    usedImageUrls.add(recipe.image_url);
-    return recipe;
-  });
-}
-
 async function ensureUniqueRecipePhotos(recipes: Recipe[]) {
   const usedImageUrls = new Set<string>();
   const uniqueRecipes: Recipe[] = [];
@@ -8958,11 +9014,11 @@ async function attachPhotosFromPublishedRecipeBundles(recipes: Recipe[], diets: 
     recipe.dish_intent?.dish_name
   ].filter((value): value is string => Boolean(value?.trim()))));
   const db = getAdminDb();
-  const sharedRecipeCollection = db.collection("sharedOfflineRecipeCache");
+  const sharedRecipeCollection = db.collection(SHARED_RECIPE_V2_COLLECTION);
   const [sourceDocuments, exactTitleSnapshot] = await Promise.all([
     sourceRecipeIds.length
       ? db.getAll(
-        ...sourceRecipeIds.map((id) => db.collection("sharedOfflineRecipeCache").doc(id))
+        ...sourceRecipeIds.map((id) => db.collection(SHARED_RECIPE_V2_COLLECTION).doc(id))
       ).catch((error) => {
         logger.warn("Bundled recipe photo source lookup failed", {
           errorMessage: error instanceof Error ? error.message : String(error),

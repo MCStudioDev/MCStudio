@@ -2,11 +2,26 @@ import { isDurableRecipeImageUrl, isReplicateGeneratedRecipeImageUrl } from "@/l
 import { toIdentityKey } from "@/lib/photoIdentityBuilders";
 import type { MealPlanMeal } from "@/lib/types";
 
+const MEAL_PLAN_RECIPE_PHOTO_CACHE_VERSION = "strict-v7";
+
 export function getMealPlanPhotoIdentityKey(meal: Pick<MealPlanMeal, "name" | "photo_identity">) {
   return toIdentityKey(meal.photo_identity?.dish_slug) ||
     toIdentityKey(meal.photo_identity?.english_name) ||
     toIdentityKey(meal.name) ||
     "unknown-meal";
+}
+
+export function getMealPlanPhotoCacheSignatures(
+  meal: Pick<MealPlanMeal, "name" | "photo_identity">
+) {
+  const identityKey = getMealPlanPhotoIdentityKey(meal);
+  const baseSignature = `generated:${MEAL_PLAN_RECIPE_PHOTO_CACHE_VERSION}:${identityKey}`;
+  const cuisineKey = toIdentityKey(meal.photo_identity?.cuisine_key);
+
+  return Array.from(new Set([
+    baseSignature,
+    ...(cuisineKey ? [`${baseSignature}|${cuisineKey}`] : [])
+  ]));
 }
 
 export function isMealPlanImageIdentityCompatible(
@@ -26,6 +41,18 @@ export function isMealPlanImageIdentityCompatible(
   ].filter((value): value is string => Boolean(value)));
 
   return expectedKeys.has(storedSlug);
+}
+
+export function isMealPlanRestorableImageUrl(imageUrl?: string | null): imageUrl is string {
+  if (isReplicateGeneratedRecipeImageUrl(imageUrl)) return true;
+  if (!isDurableRecipeImageUrl(imageUrl)) return false;
+
+  try {
+    const decodedPath = decodeURIComponent(new URL(imageUrl).pathname);
+    return /\/shared-recipes-v2\/shared-[^/]+\/photo\.(?:avif|jpe?g|png|webp)$/i.test(decodedPath);
+  } catch {
+    return false;
+  }
 }
 
 export function getGeneratedRecipePhotoSlug(imageUrl: string) {

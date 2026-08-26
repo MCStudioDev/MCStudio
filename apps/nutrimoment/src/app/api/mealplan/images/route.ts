@@ -1,12 +1,21 @@
 import { z } from "zod";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
-import { getMealPlanPhotoIdentityKey, isMealPlanImageIdentityCompatible } from "@/lib/mealPlanImageMatching";
-import { isReplicateGeneratedRecipeImageUrl } from "@/lib/recipeImageDurability";
+import {
+  getMealPlanPhotoCacheSignatures,
+  getMealPlanPhotoIdentityKey,
+  isMealPlanImageIdentityCompatible,
+  isMealPlanRestorableImageUrl
+} from "@/lib/mealPlanImageMatching";
+import { getSharedRecipePhotoBySignatures } from "@/lib/sharedRecipePhotoCache";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 import { getAdminDb } from "@/lib/firebaseAdmin";
-import { accessErrorResponse, hasGeneratedRecipeImageAccess, requireUser } from "@/services/authService";
-import { isRecipePhotoDietCompatible } from "@/services/recipePhotoDietCompatibility";
+import { accessErrorResponse, requireUser } from "@/services/authService";
+import {
+  isRecipePhotoDietCompatible,
+  scopeRecipePhotoAliasesForDiet
+} from "@/services/recipePhotoDietCompatibility";
 import { isSharedRecipePublishable } from "@/services/sharedRecipePoolQualityService";
+import { isSharedRecipeV2Searchable, SHARED_RECIPE_V2_COLLECTION } from "@/services/sharedRecipeV2PolicyService";
 import { listUserCachedRecipes } from "@/services/userRecipeCacheService";
 
 export const runtime = "nodejs";
@@ -31,9 +40,6 @@ interface MatchedMealImage {
 export async function POST(request: Request) {
   try {
     const access = await requireUser(request);
-    if (!hasGeneratedRecipeImageAccess(access)) {
-      return Response.json({ error: "Meal plan image restore requires recipe image access." }, { status: 403 });
-    }
 
     const parsed = requestSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
@@ -72,6 +78,12 @@ export async function POST(request: Request) {
     }
 
     const images: MatchedMealImage[] = [];
+    const unresolvedMeals: Array<{
+      dayIndex: number;
+      meal: (typeof mealPlan.plan)[number][MealType];
+      mealIdentityKey: string;
+      mealType: MealType;
+    }> = [];
     const imageIdentityByUrl = new Map<string, string>();
     mealPlan.plan.forEach((day, dayIndex) => {
       (["breakfast", "lunch", "dinner"] as const).forEach((mealType) => {
@@ -87,13 +99,67 @@ export async function POST(request: Request) {
             const existingIdentity = imageIdentityByUrl.get(candidate);
             return !existingIdentity || existingIdentity === mealIdentityKey;
           });
-        if (!imageUrl) return;
+        if (!imageUrl) {
+          unresolvedMeals.push({ dayIndex, meal, mealIdentityKey, mealType });
+          return;
+        }
         imageIdentityByUrl.set(imageUrl, mealIdentityKey);
 
         images.push({
           dayIndex,
           imageSource: "cache",
           imageUrl,
+          mealType
+        });
+      });
+    });
+
+    const unresolvedByIdentity = new Map<string, typeof unresolvedMeals>();
+    unresolvedMeals.forEach((entry) => {
+      unresolvedByIdentity.set(entry.mealIdentityKey, [
+        ...(unresolvedByIdentity.get(entry.mealIdentityKey) ?? []),
+        entry
+      ]);
+    });
+
+    const directCacheMatches = await Promise.all(
+      Array.from(unresolvedByIdentity.values()).map(async (entries) => {
+        const representative = entries[0];
+        const baseSignatures = getMealPlanPhotoCacheSignatures(representative.meal);
+        const scopedSignatures = scopeRecipePhotoAliasesForDiet(baseSignatures, parsed.data.diets ?? []);
+        const signatureGroups = scopedSignatures.some((signature, index) => signature !== baseSignatures[index])
+          ? [scopedSignatures, baseSignatures]
+          : [baseSignatures];
+        let candidate = null;
+
+        for (const signatures of signatureGroups) {
+          const cached = await getSharedRecipePhotoBySignatures(signatures);
+          if (!cached || !isRenderableImage(cached.imageUrl)) continue;
+          if (!isMealPlanImageIdentityCompatible(representative.meal, cached.imageUrl)) continue;
+          if (!isRecipePhotoDietCompatible(cached, { diets: parsed.data.diets ?? [] })) continue;
+          candidate = cached;
+          break;
+        }
+        if (!candidate) return null;
+
+        return { candidate, entries };
+      })
+    );
+
+    directCacheMatches.forEach((match) => {
+      if (!match) return;
+      const { candidate, entries } = match;
+      const existingIdentity = imageIdentityByUrl.get(candidate.imageUrl);
+      if (existingIdentity && existingIdentity !== entries[0].mealIdentityKey) return;
+      imageIdentityByUrl.set(candidate.imageUrl, entries[0].mealIdentityKey);
+
+      entries.forEach(({ dayIndex, mealType }) => {
+        images.push({
+          dayIndex,
+          imageAttributionName: candidate.imageAttributionName,
+          imageAttributionUrl: candidate.imageAttributionUrl,
+          imageSource: "cache",
+          imageUrl: candidate.imageUrl,
           mealType
         });
       });
@@ -140,7 +206,7 @@ function normalizeExactName(value: string) {
 }
 
 function isRenderableImage(value?: string): value is string {
-  return isReplicateGeneratedRecipeImageUrl(value);
+  return isMealPlanRestorableImageUrl(value);
 }
 
 async function listExactSharedMealRecipes(mealPlan: NonNullable<ReturnType<typeof normalizeMealPlanData>>) {
@@ -152,7 +218,10 @@ async function listExactSharedMealRecipes(mealPlan: NonNullable<ReturnType<typeo
   const slugs = Array.from(new Set(meals.map((meal) => meal.photo_identity?.dish_slug).filter(
     (value): value is string => Boolean(value?.trim())
   )));
-  const collection = getAdminDb().collection("sharedOfflineRecipeCache");
+  const sourceRecipeIds = Array.from(new Set(meals.map((meal) => meal.source_recipe_id).filter(
+    (value): value is string => typeof value === "string" && Boolean(value.trim()) && !value.includes("/")
+  )));
+  const collection = getAdminDb().collection(SHARED_RECIPE_V2_COLLECTION);
   const queries = [
     ...chunkValues(titles, 10).map((values) => collection.where("title", "in", values).get()),
     ...chunkValues(slugs, 10).map((values) => collection.where("slug", "in", values).get())
@@ -160,11 +229,22 @@ async function listExactSharedMealRecipes(mealPlan: NonNullable<ReturnType<typeo
   const snapshots = await Promise.allSettled(queries);
   const recipes = new Map<string, RecipeCatalogDoc>();
 
+  const directSnapshots = await Promise.allSettled(
+    sourceRecipeIds.map((sourceRecipeId) => collection.doc(sourceRecipeId).get())
+  );
+  directSnapshots.forEach((result) => {
+    if (result.status !== "fulfilled" || !result.value.exists) return;
+    const recipe = { ...result.value.data(), id: result.value.id } as RecipeCatalogDoc;
+    if (recipe.isActive && isSharedRecipePublishable(recipe) && isSharedRecipeV2Searchable(recipe)) {
+      recipes.set(recipe.id || result.value.id, recipe);
+    }
+  });
+
   snapshots.forEach((result) => {
     if (result.status !== "fulfilled") return;
     result.value.docs.forEach((document) => {
       const recipe = document.data() as RecipeCatalogDoc;
-      if (recipe.isActive && isSharedRecipePublishable(recipe)) {
+      if (recipe.isActive && isSharedRecipePublishable(recipe) && isSharedRecipeV2Searchable(recipe)) {
         recipes.set(recipe.id || document.id, recipe);
       }
     });

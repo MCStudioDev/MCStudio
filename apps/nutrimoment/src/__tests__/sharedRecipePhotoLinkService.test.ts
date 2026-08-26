@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeCatalogDoc } from "@/lib/domain";
+import { isReusableSharedRecipePhotoEntry, type SharedRecipePhotoEntry } from "@/lib/sharedRecipePhotoCache";
 import { auditSharedRecipePoolDocument } from "@/services/sharedRecipePoolQualityService";
 import { createPremiumRecipeValidationReceipt } from "@/services/recipeValidationContractService";
+import { mapCatalogRecipeToUiRecipe } from "@/services/recipeSearchService";
 import {
+  buildLinkedSharedRecipePhotoUpdate,
   buildSharedRecipePhotoLinkSearchTokens,
   canLinkGeneratedPhotoToSharedRecipe,
+  validateSharedRecipePhotoCandidate,
   type SharedRecipePhotoLinkInput
 } from "@/services/sharedRecipePhotoLinkService";
 
@@ -96,6 +100,12 @@ describe("shared recipe photo linking", () => {
     expect(canLinkGeneratedPhotoToSharedRecipe(validatedShrimpFriedRice(), generatedPhoto())).toBe(true);
   });
 
+  it("does not link a same-title photo to a different V2 recipe document", () => {
+    expect(canLinkGeneratedPhotoToSharedRecipe(validatedShrimpFriedRice(), generatedPhoto({
+      sourceRecipeId: "shared-another-shrimp-fried-rice"
+    }))).toBe(false);
+  });
+
   it("rejects a generated photo whose stored slug describes another dish", () => {
     expect(canLinkGeneratedPhotoToSharedRecipe(validatedShrimpFriedRice(), generatedPhoto({
       imageUrl: "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Agrilled-pigeon-with-rice.jpg?alt=media",
@@ -112,5 +122,42 @@ describe("shared recipe photo linking", () => {
 
   it("does not link a pescatarian recipe into a vegan photo scope", () => {
     expect(canLinkGeneratedPhotoToSharedRecipe(validatedShrimpFriedRice(), generatedPhoto({ diets: ["vegan"] }))).toBe(false);
+  });
+
+  it("does not treat provider-search photos as reusable cross-account assets", () => {
+    expect(isReusableSharedRecipePhotoEntry({
+      imageUrl: "https://images.pexels.com/photos/123/pexels-photo-123.jpeg",
+      query: "shrimp fried rice",
+      signature: "pexels:shrimp-fried-rice",
+      source: "pexels_search"
+    })).toBe(false);
+  });
+
+  it("builds a persistent shared-recipe link from a validated generated photo", () => {
+    const recipe = validatedShrimpFriedRice();
+    const uiRecipe = mapCatalogRecipeToUiRecipe(recipe, [], "good", 0, 0, [], "English");
+    const candidate: SharedRecipePhotoEntry = {
+      dietTags: ["pescatarian"],
+      imageUrl: generatedPhoto().imageUrl,
+      query: generatedPhoto().query,
+      signature: generatedPhoto().signature,
+      source: "generated"
+    };
+    const linked = validateSharedRecipePhotoCandidate(uiRecipe, candidate, ["pescatarian"]);
+
+    expect(linked?.photo_asset?.status).toBe("ready");
+    const update = buildLinkedSharedRecipePhotoUpdate(recipe, linked!, candidate);
+    expect(update.image).toMatchObject({
+      sharedCacheKey: candidate.signature,
+      source: "replicate",
+      sourceQuery: candidate.query,
+      status: "ready",
+      storagePath: candidate.imageUrl,
+      thumbPath: candidate.imageUrl
+    });
+    expect(update).toMatchObject({
+      poolVersion: 2,
+      publicationStatus: "published"
+    });
   });
 });

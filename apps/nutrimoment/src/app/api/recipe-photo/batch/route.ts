@@ -8,6 +8,7 @@ export const maxDuration = 60;
 const RECIPE_PHOTO_BATCH_CONCURRENCY = 10;
 
 const batchItemSchema = z.object({
+  actionGrant: z.string().min(1).max(128).optional(),
   alt: z.array(z.string()).optional(),
   cacheOnly: z.boolean().optional(),
   cuisine: z.string().optional(),
@@ -23,6 +24,7 @@ const batchItemSchema = z.object({
   photoMethod: z.string().optional(),
   query: z.string().min(3),
   queryKey: z.string().min(1).max(500),
+  sourceRecipeId: z.string().min(1).max(500).optional(),
   strictIdentity: z.boolean().optional()
 });
 
@@ -123,6 +125,7 @@ function dedupeBatchItems(items: BatchItem[]) {
 function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   const params = new URLSearchParams();
   params.set("query", item.query);
+  setIfPresent(params, "actionGrant", item.actionGrant);
   appendValues(params, "alt", item.alt, 4);
   appendValues(params, "ingredient", item.ingredient, 10);
   appendValues(params, "exact", item.exact, 8);
@@ -144,6 +147,7 @@ function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   setIfPresent(params, "photoStarch", item.photoStarch);
   setIfPresent(params, "photoSauce", item.photoSauce);
   setIfPresent(params, "photoMethod", item.photoMethod);
+  setIfPresent(params, "sourceRecipeId", item.sourceRecipeId);
 
   return `${origin}/api/recipe-photo?${params.toString()}`;
 }

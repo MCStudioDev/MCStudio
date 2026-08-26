@@ -19,6 +19,7 @@ import {
   translateCuisineLabelToArabic
 } from "@/lib/recipeDisplayTitles";
 import type { MealPlanMeal, Recipe } from "@/lib/types";
+import { rebuildIngredientLookupCanonicals } from "@/lib/ingredientFamilies";
 import {
   normalizeIngredients,
   prepareIngredientForCanonicalNormalization
@@ -31,8 +32,7 @@ import {
   canonicalizeSharedRecipeForPublication,
   deriveRecipeComplianceTags,
   isSharedRecipeDiscoverable,
-  isSharedRecipePublishable,
-  resolveSharedRecipeQualityMode
+  isSharedRecipePublishable
 } from "@/services/sharedRecipePoolQualityService";
 import {
   buildSharedRecipeIdentityKey,
@@ -41,11 +41,17 @@ import {
   hasCurrentPremiumValidationReceipt,
   shouldReplaceSharedRecipeVersion
 } from "@/services/recipeValidationContractService";
+import {
+  buildSharedRecipeV2Document,
+  isSharedRecipeV2Searchable,
+  SHARED_RECIPE_V2_COLLECTION,
+  type SharedRecipeV2Document
+} from "@/services/sharedRecipeV2PolicyService";
 
 type CacheRecipeLanguage = "English" | "Arabic";
 
 const USER_CACHE_COLLECTION = "offlineRecipeCache";
-const SHARED_CACHE_COLLECTION = "sharedOfflineRecipeCache";
+const SHARED_CACHE_COLLECTION = SHARED_RECIPE_V2_COLLECTION;
 const MAX_USER_CACHE_DOCS = 120;
 const MAX_SHARED_CACHE_DOCS = 250;
 const MAX_SHARED_CACHE_INGREDIENT_DOCS = 40;
@@ -58,8 +64,6 @@ const FULL_SHARED_CACHE_MAX_STALE_TTL_MS = 6 * 60 * 60 * 1000;
 const FULL_SHARED_CACHE_RETRY_COOLDOWN_MS = 60 * 1000;
 const USER_RECIPE_CACHE_DISABLED = process.env.DISABLE_USER_RECIPE_CACHE === "true";
 const SHARED_RECIPE_POOL_DISABLED = process.env.DISABLE_SHARED_RECIPE_POOL === "true";
-const SHARED_RECIPE_QUALITY_MODE = resolveSharedRecipeQualityMode(process.env.SHARED_RECIPE_QUALITY_ENFORCEMENT);
-
 let sharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
 let sharedRecipeCacheUpdatedAt = 0;
 let fullSharedRecipeCacheSnapshot: RecipeCatalogDoc[] = [];
@@ -194,7 +198,10 @@ export function primeFullSharedRecipeCache(options: { force?: boolean } = {}) {
     });
 }
 
-export async function listSharedCachedRecipesForIngredients(ingredients: string[]): Promise<RecipeCatalogDoc[]> {
+export async function listSharedCachedRecipesForIngredients(
+  ingredients: string[],
+  options: { forceFirestoreRead?: boolean } = {}
+): Promise<RecipeCatalogDoc[]> {
   if (SHARED_RECIPE_POOL_DISABLED) {
     logger.info("Shared recipe pool reads are disabled by environment flag");
     return [];
@@ -206,7 +213,10 @@ export async function listSharedCachedRecipesForIngredients(ingredients: string[
   if (!canonicalIngredients.length) return [];
 
   const warmRecipes = getWarmSharedRecipeCacheSnapshot({ allowStale: true });
-  if (warmRecipes.length) {
+  if (shouldUseWarmSharedRecipeSnapshot({
+    forceFirestoreRead: options.forceFirestoreRead === true,
+    warmRecipeCount: warmRecipes.length
+  })) {
     return selectSharedRecipesForIngredients(warmRecipes, canonicalIngredients);
   }
 
@@ -252,6 +262,13 @@ export async function listSharedCachedRecipesForIngredients(ingredients: string[
     });
     return loadPublishedSharedRecipesForIngredients(canonicalIngredients);
   }
+}
+
+export function shouldUseWarmSharedRecipeSnapshot(input: {
+  forceFirestoreRead: boolean;
+  warmRecipeCount: number;
+}) {
+  return !input.forceFirestoreRead && input.warmRecipeCount > 0;
 }
 
 async function loadPublishedSharedRecipesForIngredients(ingredients: string[]) {
@@ -404,7 +421,7 @@ export async function persistPremiumValidatedRecipeCache(input: {
   recipes?: Recipe[];
 }) {
   if (SHARED_RECIPE_POOL_DISABLED || !input.recipes?.length) {
-    return { available: 0, published: 0, rejected: input.recipes?.length ?? 0, reused: 0, superseded: 0 };
+    return { available: 0, documents: [] as SharedRecipeV2Document[], published: 0, rejected: input.recipes?.length ?? 0, reused: 0, superseded: 0 };
   }
 
   const sourceLanguage: CacheRecipeLanguage = isArabicRecipeLanguage(input.recipeLanguage) ? "Arabic" : "English";
@@ -422,7 +439,7 @@ export async function persistPremiumValidatedRecipeCache(input: {
       publicationRejections.push({ recipeName: recipe.name, ...result.rejection });
       return null;
     }))
-  ).filter((recipe): recipe is RecipeCatalogDoc => Boolean(recipe));
+  ).filter((recipe): recipe is SharedRecipeV2Document => Boolean(recipe));
 
   if (publicationRejections.length) {
     logger.warn("Premium recipes omitted from shared pool publication", {
@@ -432,46 +449,53 @@ export async function persistPremiumValidatedRecipeCache(input: {
   }
 
   if (!promoted.length) {
-    return { available: 0, published: 0, rejected: input.recipes.length, reused: 0, superseded: 0 };
+    return { available: 0, documents: [] as SharedRecipeV2Document[], published: 0, rejected: input.recipes.length, reused: 0, superseded: 0 };
   }
 
   const db = getAdminDb();
   const collection = db.collection(SHARED_CACHE_COLLECTION);
-  const published: RecipeCatalogDoc[] = [];
-  const reusable: RecipeCatalogDoc[] = [];
+  const published: SharedRecipeV2Document[] = [];
+  const reusable: SharedRecipeV2Document[] = [];
+  const resolvedDocuments: SharedRecipeV2Document[] = [];
   const supersededIds = new Set<string>();
 
-  for (const incoming of promoted) {
+  for (const candidate of promoted) {
     const [identitySnapshot, titleSnapshot, existingTarget] = await Promise.all([
-      collection.where("sharedIdentityKey", "==", incoming.sharedIdentityKey).limit(20).get(),
-      collection.where("title", "==", incoming.title).limit(20).get(),
-      collection.doc(incoming.id).get()
+      collection.where("sharedIdentityKey", "==", candidate.sharedIdentityKey).limit(20).get(),
+      collection.where("title", "==", candidate.title).limit(20).get(),
+      collection.doc(candidate.id).get()
     ]);
     const matchingDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
     [...identitySnapshot.docs, ...titleSnapshot.docs].forEach((docSnap) => {
       const existing = docSnap.data() as RecipeCatalogDoc;
-      if (existing.cuisine === incoming.cuisine && buildSharedRecipeIdentityKey(existing) === incoming.sharedIdentityKey) {
+      if (existing.cuisine === candidate.cuisine && buildSharedRecipeIdentityKey(existing) === candidate.sharedIdentityKey) {
         matchingDocs.set(docSnap.id, docSnap);
       }
     });
 
-    const currentTarget = existingTarget.exists ? existingTarget.data() as RecipeCatalogDoc : undefined;
+    const currentTarget = existingTarget.exists ? existingTarget.data() as SharedRecipeV2Document : undefined;
+    const incoming = buildSharedRecipeV2Document(candidate, currentTarget);
     const shouldWrite = shouldReplaceSharedRecipeVersion(currentTarget, incoming);
     const batch = db.batch();
     if (shouldWrite) {
       batch.set(collection.doc(incoming.id), buildSharedCacheWriteDoc(incoming));
       published.push(incoming);
-      reusable.push(incoming);
-    } else if (currentTarget?.isActive && isSharedRecipePublishable(currentTarget)) {
-      // A stronger stored version should remain immediately reusable. Without
-      // merging it, the warm snapshot exposes only newly written documents.
-      reusable.push(currentTarget);
+      resolvedDocuments.push(incoming);
+      if (isSharedRecipeV2Searchable(incoming)) reusable.push(incoming);
+    } else if (currentTarget) {
+      resolvedDocuments.push(currentTarget);
+      if (isSharedRecipeV2Searchable(currentTarget)) {
+        // A stronger stored version should remain immediately reusable. Without
+        // merging it, the warm snapshot exposes only newly written documents.
+        reusable.push(currentTarget);
+      }
     }
 
     matchingDocs.forEach((docSnap, id) => {
       if (id === incoming.id) return;
       batch.set(docSnap.ref, {
         isActive: false,
+        publicationStatus: "superseded",
         supersededBy: incoming.id,
         updatedAt: acceptedAt
       }, { merge: true });
@@ -489,6 +513,7 @@ export async function persistPremiumValidatedRecipeCache(input: {
 
   return {
     available: reusable.length,
+    documents: resolvedDocuments,
     published: published.length,
     rejected: input.recipes.length - promoted.length,
     reused: reusable.length - published.length,
@@ -559,7 +584,7 @@ export async function buildPremiumSharedRecipePublicationDocument(input: {
     };
   }
 
-  return { document: audited };
+  return { document: buildSharedRecipeV2Document(audited) };
 }
 
 export async function persistSharedRecipeCache(input: {
@@ -578,7 +603,8 @@ export async function persistSharedRecipeCache(input: {
 
   const publishableRecipes = cacheDocs
     .map((recipe) => auditSharedRecipePoolDocument(toSharedCacheDoc(recipe, input.sourceProvider)).document)
-    .filter(isSharedRecipePublishable);
+    .filter(isSharedRecipePublishable)
+    .map((recipe) => buildSharedRecipeV2Document(recipe));
   if (!publishableRecipes.length) return;
 
   const db = getAdminDb();
@@ -625,7 +651,8 @@ export function prepareSharedRecipeCatalogForPublication(recipes: RecipeCatalogD
   return recipes
     .map((recipe) => toSharedCacheDoc(recipe, recipe.source?.provider ?? "trusted-catalog"))
     .map((recipe) => auditSharedRecipePoolDocument(recipe).document)
-    .filter(isSharedRecipePublishable);
+    .filter(isSharedRecipePublishable)
+    .map((recipe) => buildSharedRecipeV2Document(recipe));
 }
 
 function createRecipeVariants(recipe: Recipe, sourceLanguage: CacheRecipeLanguage) {
@@ -1166,9 +1193,10 @@ function toSharedCacheDoc(recipe: RecipeCatalogDoc, provider = "shared-user-cach
     ...recipe,
     id: sharedId,
     sharedIdentityKey,
-    ingredientLookupCanonicals: recipe.ingredientLookupCanonicals?.length
-      ? recipe.ingredientLookupCanonicals
-      : recipe.ingredientCanonicals,
+    ingredientLookupCanonicals: rebuildIngredientLookupCanonicals(
+      recipe.ingredientCanonicals,
+      recipe.ingredientLookupCanonicals
+    ),
     image: {
       ...recipe.image,
       storagePath: durableImageUrl ?? "",
@@ -1322,7 +1350,7 @@ function isUsableSharedCachedRecipe(recipe: RecipeCatalogDoc) {
   }
 
   const hasUsableIdentity = !isWeakSharedCacheTitle(englishName) || Boolean(pickSpecificCacheIdentityFromDoc(recipe));
-  return hasUsableIdentity && isSharedRecipeDiscoverable(recipe, SHARED_RECIPE_QUALITY_MODE);
+  return hasUsableIdentity && isSharedRecipeV2Searchable(recipe);
 }
 
 function pickSpecificCacheIdentity(

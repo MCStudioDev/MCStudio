@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminAuth, getAdminDb } from "../src/lib/firebaseAdmin";
+import { buildDefaultEntitlementFeatures } from "../src/services/authService";
 
 config({ path: ".env.local" });
 
@@ -30,6 +31,7 @@ async function main() {
       role,
       tier,
       status: tier === "premium" ? "active" : "free",
+      features: buildDefaultEntitlementFeatures(tier),
       updatedAt: FieldValue.serverTimestamp()
     },
     { merge: true }

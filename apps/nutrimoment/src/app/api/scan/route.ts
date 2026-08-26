@@ -5,7 +5,7 @@ import {
   accessPayload,
   buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiCredit,
+  consumeFreeAiAction,
   isFirebaseTransientError
 } from "@/services/authService";
 import { extractPantryItemsFromImage } from "@/services/ingredientExtractionService";
@@ -19,6 +19,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const requestSchema = z.object({
+  actionId: z.string().min(1).max(128).optional(),
   image: z.string().min(10),
   language: z.string().optional(),
   isPantry: z.boolean().optional()
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
     const rl = applyRateLimit({
       uid: accessCheck.access.uid,
       feature: "image_scan",
-      isPremium: accessCheck.access.isPremium,
+      isPremium: accessCheck.allowed,
       bypass: accessCheck.access.isAdmin
     });
     if (!rl.decision.allowed) {
@@ -50,16 +51,6 @@ export async function POST(request: Request) {
     const language = normalizeRecipeLanguage(parsed.data.language, "English");
     const { image, isPantry = false } = parsed.data;
 
-    if (!isPantry && !accessCheck.access.isPremium && !accessCheck.access.isAdmin) {
-      return Response.json(
-        {
-          error: "Scan fridge is a premium feature.",
-          access: accessPayload(accessCheck.access)
-        },
-        { status: 403 }
-      );
-    }
-
     if (!accessCheck.allowed) {
       return Response.json({
         result: "[]",
@@ -69,7 +60,11 @@ export async function POST(request: Request) {
       });
     }
 
-    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "image_to_text");
+    const { access: nextAccess } = await consumeFreeAiAction(
+      accessCheck.access,
+      "image_to_text",
+      parsed.data.actionId ?? requestId
+    );
 
     if (USE_MOCK) {
       const items = isPantry ? MOCK_PANTRY : MOCK_INGREDIENTS;
@@ -149,6 +144,6 @@ function buildScanFallbackNotice(language: string, isPantry: boolean) {
   }
 
   return isPantry
-    ? "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. أضف عناصر المخزن يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور."
-    : "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. أضف المكونات يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور.";
+    ? "تم استهلاك 10 أرصدة الذكاء الاصطناعي المجانية. أضف عناصر المخزن يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور."
+    : "تم استهلاك 10 أرصدة الذكاء الاصطناعي المجانية. أضف المكونات يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور.";
 }

@@ -50,6 +50,7 @@ import {
 const PREMIUM_REPLICATE_IMAGE_CONCURRENCY = 2;
 const RECIPE_PHOTO_CACHE_BATCH_TIMEOUT_MS = 15 * 1000;
 const PREMIUM_RECIPE_IMAGE_REQUEST_TIMEOUT_MS = 70 * 1000;
+const V2_RECIPE_PHOTO_RECOVERY_DELAYS_MS = [0, 1500, 3500] as const;
 const SCAN_ACCESS_RETRY_ATTEMPTS = 3;
 const SCAN_ACCESS_RETRY_DELAY_MS = 700;
 
@@ -194,7 +195,8 @@ export function ScannerTab() {
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
-  const canUseFridgeScan = isPremiumFeatureUnlocked;
+  const canUseAiAction = isPremiumFeatureUnlocked || access.aiCreditsRemaining > 0;
+  const canUseFridgeScan = canUseAiAction;
   const { addEntry, items: historyItems, replaceEntryRecipes, updateEntryStatus, updateRecipeImage } = useHistory();
   const { addItems: addPantryItems, items: pantryItems } = usePantry();
   const scannerInputRef = useRef<HTMLInputElement | null>(null);
@@ -226,9 +228,15 @@ export function ScannerTab() {
   } | null>(null);
 
   const hydrateRecipePhotos = useCallback(
-    async (inputRecipes: Recipe[], historyEntryId: string | null, requestVersion: number, activeDiets: string[]) => {
+    async (
+      inputRecipes: Recipe[],
+      historyEntryId: string | null,
+      requestVersion: number,
+      activeDiets: string[],
+      actionGrantId?: string
+    ) => {
       if (requestVersion !== recipeRequestVersionRef.current) return;
-      const isPremium = hasGeneratedImageAccess;
+      const isPremium = hasGeneratedImageAccess || Boolean(actionGrantId);
       const recipeReuseKeys = inputRecipes.map(getRecipePhotoReuseKey);
       const reusableImageFlags = inputRecipes.map((recipe) =>
         canReuseRecipePhotoForDiet(recipe, activeDiets, isPremium)
@@ -293,7 +301,9 @@ export function ScannerTab() {
             cuisine: buildRecipePhotoCuisine(recipe),
             exactNames: buildRecipePhotoExactNames(recipe),
             photoIdentity: recipe.photo_identity,
-            diets: activeDiets
+            diets: activeDiets,
+            sourceRecipeId: getSharedSourceRecipeId(recipe),
+            actionGrantId
           }
         );
         response = await fetch(photoRequestUrl, {
@@ -313,6 +323,53 @@ export function ScannerTab() {
         }
 
         return { data, ok: false as const, response };
+      };
+
+      const recoverPersistedV2RecipePhoto = async (recipe: Recipe) => {
+        const sourceRecipeId = getSharedSourceRecipeId(recipe);
+        if (!sourceRecipeId) return null;
+
+        for (const delayMs of V2_RECIPE_PHOTO_RECOVERY_DELAYS_MS) {
+          if (requestVersion !== recipeRequestVersionRef.current) return null;
+          if (delayMs) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+
+          try {
+            const response = await fetch(
+              buildRecipePhotoRequestUrl(
+                buildRecipePhotoQuery(recipe),
+                buildRecipePhotoPromptIngredients(recipe),
+                [],
+                {
+                  cacheOnly: true,
+                  cuisine: buildRecipePhotoCuisine(recipe),
+                  diets: activeDiets,
+                  exactNames: buildRecipePhotoExactNames(recipe),
+                  photoIdentity: recipe.photo_identity,
+                  sourceRecipeId
+                }
+              ),
+              {
+                headers: await getAuthHeaders(),
+                signal: AbortSignal.timeout(RECIPE_PHOTO_CACHE_BATCH_TIMEOUT_MS)
+              }
+            );
+            const data = (await response.json().catch(() => null)) as ScannerRecipePhotoResponseData | null;
+            if (
+              response.ok &&
+              data &&
+              hasStrictRenderableImage(data.imageUrl, true) &&
+              isRecipePhotoResponseCompatibleWithDiet(data, recipe, activeDiets) &&
+              canUseImageUrlForReuseKey(usedImageUrls, data.imageUrl, getRecipePhotoReuseKey(recipe))
+            ) {
+              return data;
+            }
+          } catch {
+            // The next bounded cache-only attempt may observe a photo that was
+            // persisted after the original client request timed out.
+          }
+        }
+
+        return null;
       };
 
       const lookupCandidates = seeded
@@ -335,7 +392,8 @@ export function ScannerTab() {
           recipe,
           queryKey,
           activeDiets,
-          getUsedImageUrlsForDifferentReuseKey(usedImageUrls, getRecipePhotoReuseKey(recipe))
+          getUsedImageUrlsForDifferentReuseKey(usedImageUrls, getRecipePhotoReuseKey(recipe)),
+          actionGrantId
         );
       });
       const cachedBatch = batchItems.length
@@ -385,6 +443,7 @@ export function ScannerTab() {
 
         await runWithConcurrency(generationTasks, PREMIUM_REPLICATE_IMAGE_CONCURRENCY, async ({ index, recipe }) => {
           if (requestVersion !== recipeRequestVersionRef.current) return;
+          let resolvedPhotoData: ScannerRecipePhotoResponseData | null = null;
           try {
             const { data, ok } = await resolveRecipePhoto(recipe);
             if (
@@ -394,20 +453,26 @@ export function ScannerTab() {
               isRecipePhotoResponseCompatibleWithDiet(data, recipe, activeDiets) &&
               canUseImageUrlForReuseKey(usedImageUrls, data.imageUrl, getRecipePhotoReuseKey(recipe))
             ) {
-              usedImageUrls.set(data.imageUrl, getRecipePhotoReuseKey(recipe));
-              resolved[index] = {
-                ...recipe,
-                image_attribution_name: data.imageAttributionName,
-                image_attribution_url: data.imageAttributionUrl,
-                image_source: data.imageSource,
-                image_url: data.imageUrl,
-                image_loading: false,
-                image_error: false
-              };
-            } else {
-              resolved[index] = { ...recipe, image_loading: false, image_error: true };
+              resolvedPhotoData = data;
             }
           } catch {
+            // A timed-out request can still finish server-side and publish its
+            // recipe-scoped V2 image, so check V2 before surfacing an error.
+          }
+
+          resolvedPhotoData ??= await recoverPersistedV2RecipePhoto(recipe);
+          if (resolvedPhotoData?.imageUrl) {
+            usedImageUrls.set(resolvedPhotoData.imageUrl, getRecipePhotoReuseKey(recipe));
+            resolved[index] = {
+              ...recipe,
+              image_attribution_name: resolvedPhotoData.imageAttributionName,
+              image_attribution_url: resolvedPhotoData.imageAttributionUrl,
+              image_source: resolvedPhotoData.imageSource,
+              image_url: resolvedPhotoData.imageUrl,
+              image_loading: false,
+              image_error: false
+            };
+          } else {
             resolved[index] = { ...recipe, image_loading: false, image_error: true };
           }
           if (requestVersion === recipeRequestVersionRef.current) {
@@ -627,6 +692,7 @@ export function ScannerTab() {
       setLastScanImage(image);
       let response: Response | null = null;
       let data: ScanResponseData = {};
+      const scanActionId = crypto.randomUUID();
 
       for (let attempt = 1; attempt <= SCAN_ACCESS_RETRY_ATTEMPTS; attempt += 1) {
         response = await fetch("/api/scan", {
@@ -635,7 +701,8 @@ export function ScannerTab() {
           body: JSON.stringify({
             image,
             language: settings.uiLanguage,
-            isPantry: false
+            isPantry: false,
+            actionId: scanActionId
           })
         });
         data = await readScanJson(response);
@@ -751,6 +818,7 @@ export function ScannerTab() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
+          actionId: crypto.randomUUID(),
           ingredients: ingredientNames.length ? ingredientNames : undefined,
           debug: typeof window !== "undefined" && window.localStorage.getItem("nutrimoment:recipe-debug") === "true",
           historyEntryId: pendingEntryId ?? undefined,
@@ -779,6 +847,7 @@ export function ScannerTab() {
         requestedCount?: number;
         returnedCount?: number;
         aiFillUnavailableReason?: string;
+        aiActionGrantId?: string;
       };
       await refreshAccess();
       if (!response.ok) {
@@ -824,7 +893,13 @@ export function ScannerTab() {
         return;
       }
       setHistoryEntryId(pendingEntryId);
-      void hydrateRecipePhotos(displayRecipes, pendingEntryId, requestVersion, health.diets);
+      void hydrateRecipePhotos(
+        displayRecipes,
+        pendingEntryId,
+        requestVersion,
+        health.diets,
+        data.aiActionGrantId
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Recipe generation failed";
       if (pendingEntryId) {
@@ -862,7 +937,7 @@ export function ScannerTab() {
                   {rtl ? "ابدأ بسرعة" : "Quick start"}
                 </p>
                 <ol className="grid gap-2 text-sm font-medium leading-relaxed text-emerald-50/82 sm:grid-cols-3">
-                  <li>{isPremiumFeatureUnlocked ? (rtl ? "1. أضف أو امسح المكونات" : "1. Add or scan ingredients") : (rtl ? "1. أضف المكونات يدويًا" : "1. Add ingredients manually")}</li>
+                  <li>{canUseFridgeScan ? (rtl ? "1. أضف أو امسح المكونات" : "1. Add or scan ingredients") : (rtl ? "1. أضف المكونات يدويًا" : "1. Add ingredients manually")}</li>
                   <li>{rtl ? "2. ولّد وصفات مناسبة" : "2. Generate matched recipes"}</li>
                   <li>{rtl ? "3. افتح الوصفة واطبخ" : "3. Open the recipe and cook"}</li>
                 </ol>
@@ -973,7 +1048,7 @@ export function ScannerTab() {
                             {cameraStarting ? t("identifying") : t("takePhoto")}
                           </span>
                           <span className="mt-1 block text-xs leading-snug text-emerald-50/60">
-                            {canUseFridgeScan ? t("scanIng") : t("premiumRequired")}
+                            {canUseFridgeScan ? t("scanIng") : t("aiCreditsExhausted")}
                           </span>
                         </span>
                       </span>
@@ -1016,7 +1091,7 @@ export function ScannerTab() {
                             {scanLoading ? t("identifying") : t("uploadFridgePhoto")}
                           </span>
                           <span className="mt-1 block text-xs leading-snug text-emerald-50/60">
-                            {canUseFridgeScan ? t("scannerCompactActions") : t("premiumRequired")}
+                            {canUseFridgeScan ? t("scannerCompactActions") : t("aiCreditsExhausted")}
                           </span>
                         </span>
                       </span>
@@ -1516,7 +1591,8 @@ function buildRecipePhotoBatchItem(
   recipe: Recipe,
   queryKey: string,
   diets: string[],
-  excludeUrls: string[]
+  excludeUrls: string[],
+  actionGrantId?: string
 ) {
   const queries = buildRecipePhotoQuery(recipe);
   const identity = recipe.photo_identity;
@@ -1528,6 +1604,7 @@ function buildRecipePhotoBatchItem(
     ...(recipe.photo_asset?.dietTags ?? [])
   ]);
   return {
+    actionGrant: actionGrantId,
     alt: queries.slice(1, 5),
     cacheOnly: true,
     cuisine: buildRecipePhotoCuisine(recipe),
@@ -1542,7 +1619,8 @@ function buildRecipePhotoBatchItem(
     photoSlug: identity?.dish_slug,
     photoStarch: identity?.starch,
     query: queries[0] || recipe.name,
-    queryKey
+    queryKey,
+    sourceRecipeId: getSharedSourceRecipeId(recipe)
   };
 }
 
@@ -1569,9 +1647,14 @@ function buildRecipePhotoRequestUrl(
     diets?: string[];
     exactNames?: string[];
     photoIdentity?: Recipe["photo_identity"];
+    sourceRecipeId?: string;
+    actionGrantId?: string;
   } = {}
 ) {
   const params = new URLSearchParams();
+  if (exactContext.actionGrantId) {
+    params.set("actionGrant", exactContext.actionGrantId);
+  }
   queries.slice(0, 5).forEach((query, index) => {
     if (index === 0) {
       params.set("query", query);
@@ -1600,10 +1683,21 @@ function buildRecipePhotoRequestUrl(
   if (exactContext.cacheOnly) {
     params.set("cacheOnly", "1");
   }
+  const sourceRecipeId = normalizeRecipePhotoParam(exactContext.sourceRecipeId);
+  if (sourceRecipeId.startsWith("shared-") && !sourceRecipeId.includes("/")) {
+    params.set("sourceRecipeId", sourceRecipeId);
+  }
   appendPhotoIdentityParams(params, exactContext.photoIdentity);
   excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
 
   return `/api/recipe-photo?${params.toString()}`;
+}
+
+function getSharedSourceRecipeId(recipe: Recipe) {
+  const sourceRecipeId = normalizeRecipePhotoParam(recipe.source_recipe_id || recipe.id);
+  return sourceRecipeId.startsWith("shared-") && !sourceRecipeId.includes("/")
+    ? sourceRecipeId
+    : undefined;
 }
 
 function isRecipePhotoResponseCompatibleWithDiet(

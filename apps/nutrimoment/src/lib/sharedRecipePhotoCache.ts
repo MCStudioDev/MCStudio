@@ -19,6 +19,16 @@ export interface SharedRecipePhotoEntry {
   source: "generated" | "google_search" | "pexels_search" | "unsplash_search" | "wikimedia";
 }
 
+export interface SharedRecipePhotoLookupOptions {
+  excludeImageUrls?: string[];
+  reusableOnly?: boolean;
+}
+
+export interface PersistSharedRecipePhotoOptions {
+  objectPathPrefix?: string;
+  skipCacheDocument?: boolean;
+}
+
 type SharedRecipePhotoCandidate = {
   docId: string;
   entry: SharedRecipePhotoEntry;
@@ -88,7 +98,10 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
   };
 }
 
-export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
+export async function getSharedRecipePhotoBySignatures(
+  signatures: string[],
+  options: SharedRecipePhotoLookupOptions = {}
+) {
   if (!hasFirebaseAdminConfig()) return null;
 
   const db = getAdminDb();
@@ -115,11 +128,13 @@ export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
     })
     .filter((candidate): candidate is SharedRecipePhotoCandidate => Boolean(candidate));
 
-  return selectBestSharedRecipePhotoCandidate(candidates)?.entry ?? null;
+  return selectBestSharedRecipePhotoCandidate(filterSharedRecipePhotoCandidates(candidates, options))?.entry ?? null;
 }
 
 export async function getSharedRecipePhotoByQueryOrSignature(input: {
+  excludeImageUrls?: string[];
   queries?: string[];
+  reusableOnly?: boolean;
   signatures?: string[];
 }) {
   if (!hasFirebaseAdminConfig()) return null;
@@ -162,13 +177,16 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
     ...fieldMatches.filter((candidate): candidate is SharedRecipePhotoCandidate => Boolean(candidate))
   ];
 
-  const bestCandidate = selectBestSharedRecipePhotoCandidate(candidates);
+  const bestCandidate = selectBestSharedRecipePhotoCandidate(filterSharedRecipePhotoCandidates(candidates, input));
   if (bestCandidate) return bestCandidate.entry;
   return null;
 }
 
-export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
-  return getSharedRecipePhotoBySignatures(aliases);
+export async function getSharedRecipePhotoByExactAliases(
+  aliases: string[],
+  options: SharedRecipePhotoLookupOptions = {}
+) {
+  return getSharedRecipePhotoBySignatures(aliases, options);
 }
 
 export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) {
@@ -219,7 +237,9 @@ export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) 
     }
   }
 
-  return selectBestSharedRecipePhotoCandidate(candidates)?.entry ?? null;
+  return selectBestSharedRecipePhotoCandidate(
+    candidates.filter((candidate) => candidate.entry.source === "generated")
+  )?.entry ?? null;
 }
 
 export async function getSharedGeneratedRecipePhotoByCategory(input: {
@@ -652,6 +672,30 @@ function selectBestSharedRecipePhotoCandidate(candidates: SharedRecipePhotoCandi
   )[0] ?? null;
 }
 
+function filterSharedRecipePhotoCandidates(
+  candidates: SharedRecipePhotoCandidate[],
+  options: SharedRecipePhotoLookupOptions
+) {
+  const excluded = new Set((options.excludeImageUrls ?? []).filter(Boolean));
+  return candidates.filter((candidate) =>
+    !excluded.has(candidate.entry.imageUrl) &&
+    (!options.reusableOnly || isReusableSharedRecipePhotoEntry(candidate.entry))
+  );
+}
+
+export function isReusableSharedRecipePhotoEntry(entry: SharedRecipePhotoEntry) {
+  if (entry.source !== "generated" && entry.source !== "wikimedia") return false;
+  try {
+    const host = new URL(entry.imageUrl).hostname.toLowerCase();
+    return host !== "images.pexels.com" &&
+      !host.endsWith(".pexels.com") &&
+      host !== "images.unsplash.com" &&
+      !host.endsWith(".unsplash.com");
+  } catch {
+    return false;
+  }
+}
+
 function compareSharedRecipePhotoCandidateFreshness(
   left: Pick<SharedRecipePhotoCandidate, "docId" | "entry" | "raw">,
   right: Pick<SharedRecipePhotoCandidate, "docId" | "entry" | "raw">
@@ -885,7 +929,10 @@ export function buildRecipePhotoCacheCategoryFields(input: {
   };
 }
 
-export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
+export async function persistSharedRecipePhoto(
+  entry: SharedRecipePhotoEntry,
+  options: PersistSharedRecipePhotoOptions = {}
+) {
   if (!hasFirebaseAdminConfig()) return entry;
   if (entry.source !== "generated") {
     logger.info("Shared recipe photo cache skipped non-generated provider image", {
@@ -895,7 +942,7 @@ export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
     return entry;
   }
 
-  const persistedImageUrl = await persistSharedRecipeImageUrl(entry);
+  const persistedImageUrl = await persistSharedRecipeImageUrl(entry, options.objectPathPrefix);
   if (!isDurableRecipeImageUrl(persistedImageUrl)) {
     throw new Error("Generated recipe image persistence did not return a durable HTTP URL.");
   }
@@ -909,26 +956,28 @@ export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
     signature: nextEntry.signature
   });
 
-  await getAdminDb()
-    .collection(COLLECTION_NAME)
-    .doc(entry.signature)
-    .set(
-      {
-        imageUrl: nextEntry.imageUrl,
-        imageAttributionName: nextEntry.imageAttributionName ?? null,
-        imageAttributionUrl: nextEntry.imageAttributionUrl ?? null,
-        model: nextEntry.model ?? null,
-        dietTags: nextEntry.dietTags ?? [],
-        query: nextEntry.query,
-        queryKey: normalizeRecipePhotoCacheLookupKey(nextEntry.query),
-        signature: nextEntry.signature,
-        signatureKey: normalizeRecipePhotoCacheLookupKey(nextEntry.signature),
-        source: nextEntry.source,
-        ...categoryFields,
-        updatedAt: FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
+  if (!options.skipCacheDocument) {
+    await getAdminDb()
+      .collection(COLLECTION_NAME)
+      .doc(entry.signature)
+      .set(
+        {
+          imageUrl: nextEntry.imageUrl,
+          imageAttributionName: nextEntry.imageAttributionName ?? null,
+          imageAttributionUrl: nextEntry.imageAttributionUrl ?? null,
+          model: nextEntry.model ?? null,
+          dietTags: nextEntry.dietTags ?? [],
+          query: nextEntry.query,
+          queryKey: normalizeRecipePhotoCacheLookupKey(nextEntry.query),
+          signature: nextEntry.signature,
+          signatureKey: normalizeRecipePhotoCacheLookupKey(nextEntry.signature),
+          source: nextEntry.source,
+          ...categoryFields,
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+  }
 
   return nextEntry;
 }
@@ -983,24 +1032,31 @@ export async function persistSharedRecipePhotoExactAliases(entry: SharedRecipePh
   return persistSharedRecipePhotoAliases(entry, aliases);
 }
 
-async function persistSharedRecipeImageUrl(entry: SharedRecipePhotoEntry) {
+async function persistSharedRecipeImageUrl(entry: SharedRecipePhotoEntry, objectPathPrefix?: string) {
   if (/^data:/i.test(entry.imageUrl)) {
     const parsed = parseDataUrl(entry.imageUrl);
-    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
+    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType, objectPathPrefix);
   }
 
   if (entry.source === "generated" && isTransientRecipeImageUrl(entry.imageUrl)) {
     const parsed = await fetchRemoteImage(entry.imageUrl);
-    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
+    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType, objectPathPrefix);
   }
 
   return entry.imageUrl;
 }
 
-async function uploadSharedRecipeImage(signature: string, buffer: Buffer, mimeType: string) {
+async function uploadSharedRecipeImage(
+  signature: string,
+  buffer: Buffer,
+  mimeType: string,
+  objectPathPrefix?: string
+) {
   const bucket = getAdminStorageBucket();
   const extension = getImageExtension(mimeType);
-  const objectPath = `recipe-photo-cache/${signature}.${extension}`;
+  const objectPath = objectPathPrefix
+    ? `${objectPathPrefix}.${extension}`
+    : `recipe-photo-cache/${signature}.${extension}`;
   const downloadToken = randomUUID();
   const file = bucket.file(objectPath);
 

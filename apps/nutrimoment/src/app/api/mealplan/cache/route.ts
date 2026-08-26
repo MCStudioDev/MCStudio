@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
-import { accessErrorResponse, requireUser } from "@/services/authService";
+import { accessErrorResponse, hasFreeAiActionImageGrant, requireUser } from "@/services/authService";
 import { logger } from "@/lib/logger";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import type { DietEnforcementContext } from "@/lib/dietEnforcement";
@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const requestSchema = z.object({
+  actionGrantId: z.string().min(1).max(128).optional(),
   allergens: z.array(z.string()).optional(),
   conditions: z.array(z.string()).optional(),
   diets: z.array(z.string()).optional(),
@@ -23,13 +24,13 @@ const requestSchema = z.object({
 export async function POST(request: Request) {
   try {
     const access = await requireUser(request);
-    if (!access.isPremium) {
-      return Response.json({ error: "Meal plan recipe caching is a premium feature." }, { status: 403 });
-    }
-
     const parsed = requestSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
       return Response.json({ error: "Meal plan data is required." }, { status: 400 });
+    }
+    const hasActionGrant = await hasFreeAiActionImageGrant(access, parsed.data.actionGrantId);
+    if (!access.isPremium && !access.isAdmin && !hasActionGrant) {
+      return Response.json({ error: "Meal plan recipe caching is a premium feature." }, { status: 403 });
     }
 
     const mealPlan = normalizeMealPlanData(parsed.data.mealPlan);

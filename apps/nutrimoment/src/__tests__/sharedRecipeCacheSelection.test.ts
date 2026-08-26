@@ -3,12 +3,24 @@ import { CURATED_TRUSTED_RECIPE_CATALOG } from "../data/offline/curatedTrustedRe
 import {
   prepareCacheIngredientForNormalization,
   rebuildPremiumSharedRecipeCanonicalPayload,
-  selectSharedRecipesForIngredients
+  selectSharedRecipesForIngredients,
+  shouldUseWarmSharedRecipeSnapshot
 } from "../services/userRecipeCacheService";
 import { hasCurrentPremiumValidationReceipt } from "../services/recipeValidationContractService";
 import { normalizeIngredients } from "../services/ingredientNormalizationService";
 
 describe("shared recipe cache selection", () => {
+  it("bypasses a non-empty warm snapshot when a fresh shared-pool read is required", () => {
+    expect(shouldUseWarmSharedRecipeSnapshot({
+      forceFirestoreRead: true,
+      warmRecipeCount: 10
+    })).toBe(false);
+    expect(shouldUseWarmSharedRecipeSnapshot({
+      forceFirestoreRead: false,
+      warmRecipeCount: 10
+    })).toBe(true);
+  });
+
   it("selects published recipes by canonical ingredient without scanning unrelated entries", () => {
     const matches = selectSharedRecipesForIngredients(
       CURATED_TRUSTED_RECIPE_CATALOG,

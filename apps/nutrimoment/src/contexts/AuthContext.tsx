@@ -10,7 +10,7 @@ import {
   signOut as firebaseSignOut
 } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 export type EntitlementFeatureKey =
   | "mealPlan.weekly"
@@ -51,9 +51,9 @@ const DEFAULT_ACCESS: UserAccessState = {
   aiCreditsLimit: 10,
   aiCreditsUsed: 0,
   aiCreditsRemaining: 10,
-  weeklyPlanLimit: 3,
+  weeklyPlanLimit: 10,
   weeklyPlanUsed: 0,
-  weeklyPlanRemaining: 3,
+  weeklyPlanRemaining: 10,
   loading: true
 };
 const FIREBASE_CLIENT_RETRY_ATTEMPTS = 3;
@@ -114,28 +114,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading: false
     }));
 
-    const [usageResult, weeklyPlanUsageResult] = await Promise.allSettled([
-      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits"))),
-      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "weeklyPlans")))
-    ]);
+    const usageResult = await Promise.resolve(
+      withFirebaseClientRetry(() => getDoc(doc(db, "users", currentUser.uid, "usage", "aiCredits")))
+    ).then(
+      (value) => ({ status: "fulfilled", value }) as const,
+      (reason) => ({ status: "rejected", reason }) as const
+    );
     if (refreshSequence !== accessRefreshSequenceRef.current) return;
 
     const usage = usageResult.status === "fulfilled" ? usageResult.value.data() : undefined;
-    const weeklyPlanUsage = weeklyPlanUsageResult.status === "fulfilled" ? weeklyPlanUsageResult.value.data() : undefined;
     setAccess((current) => {
       const aiCreditsUsed = Number(usage?.lifetimeUsed ?? current.aiCreditsUsed);
       const aiCreditsLimit = Math.max(10, Number(usage?.lifetimeLimit ?? current.aiCreditsLimit));
-      const weeklyPlanUsed = Number(weeklyPlanUsage?.lifetimeUsed ?? current.weeklyPlanUsed);
-      const weeklyPlanLimit = Math.max(3, Number(weeklyPlanUsage?.lifetimeLimit ?? current.weeklyPlanLimit));
 
       return {
         ...current,
         aiCreditsLimit,
         aiCreditsUsed,
         aiCreditsRemaining: tier === "premium" ? aiCreditsLimit : Math.max(aiCreditsLimit - aiCreditsUsed, 0),
-        weeklyPlanLimit,
-        weeklyPlanUsed,
-        weeklyPlanRemaining: tier === "premium" ? weeklyPlanLimit : Math.max(weeklyPlanLimit - weeklyPlanUsed, 0)
+        weeklyPlanLimit: aiCreditsLimit,
+        weeklyPlanUsed: aiCreditsUsed,
+        weeklyPlanRemaining: tier === "premium" ? aiCreditsLimit : Math.max(aiCreditsLimit - aiCreditsUsed, 0)
       };
     });
   }, []);
@@ -145,15 +144,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(currentUser);
       if (currentUser) {
         try {
+          await ensureServerEnrollment(currentUser);
+        } catch (error) {
+          console.warn("Server-side user enrollment failed; access will retry on the next authenticated request.", error);
+        }
+
+        try {
           await refreshAccessForUser(currentUser);
         } catch (error) {
           console.warn("Access refresh failed; keeping previous access state.", error);
           setAccess((current) => ({ ...current, loading: false }));
         }
-
-        void ensureUserDocument(currentUser).catch((error) => {
-          console.warn("User profile initialization failed.", error);
-        });
       } else {
         await refreshAccessForUser(null);
       }
@@ -300,14 +301,17 @@ function isEntitlementFeatureKey(value: string): value is EntitlementFeatureKey 
   ].includes(value);
 }
 
-async function ensureUserDocument(currentUser: User) {
-  const userDocRef = doc(db, "users", currentUser.uid);
-  const userDoc = await withFirebaseClientRetry(() => getDoc(userDocRef));
-  if (userDoc.exists()) return;
+async function ensureServerEnrollment(currentUser: User) {
+  const token = await currentUser.getIdToken();
+  const response = await fetch("/api/auth/onboard", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
 
-  await withFirebaseClientRetry(() => setDoc(userDocRef, {
-    email: currentUser.email,
-    displayName: currentUser.displayName,
-    createdAt: new Date().toISOString()
-  }));
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Enrollment failed with status ${response.status}.`);
+  }
 }

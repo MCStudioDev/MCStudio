@@ -6,7 +6,7 @@ import {
   accessPayload,
   buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiCredit
+  consumeFreeAiAction
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 
@@ -18,28 +18,18 @@ export async function POST(request: Request) {
     const rl = applyRateLimit({
       uid: accessCheck.access.uid,
       feature: "image_scan",
-      isPremium: accessCheck.access.isPremium,
+      isPremium: accessCheck.allowed,
       bypass: accessCheck.access.isAdmin
     });
     if (!rl.decision.allowed) {
       return rateLimitedResponse(rl.decision, rl.config);
     }
-    const { image } = await request.json();
+    const { actionId, image } = await request.json();
 
     if (!image) {
       return Response.json(
         { error: "No image provided" },
         { status: 400 }
-      );
-    }
-
-    if (!accessCheck.access.isPremium && !accessCheck.access.isAdmin) {
-      return Response.json(
-        {
-          error: "Scan fridge is a premium feature.",
-          access: accessPayload(accessCheck.access)
-        },
-        { status: 403 }
       );
     }
 
@@ -51,7 +41,11 @@ export async function POST(request: Request) {
       });
     }
 
-    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "image_to_text");
+    const { access: nextAccess } = await consumeFreeAiAction(
+      accessCheck.access,
+      "image_to_text",
+      typeof actionId === "string" ? actionId : crypto.randomUUID()
+    );
 
     if (USE_MOCK) {
       const mockIngredients = ["chicken", "garlic", "onion", "tomato", "olive oil", "basil"];

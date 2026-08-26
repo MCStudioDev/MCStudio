@@ -56,5 +56,9 @@ describe("Premium shared recipe publication", () => {
     expect(result.document?.title).toBe("Kofta Patties");
     expect(result.document?.localized?.English?.name).toBe("Kofta Patties");
     expect(result.document?.sharedIdentityKey).toContain("kofta-patties");
+    expect(result.document).toMatchObject({
+      poolVersion: 2,
+      publicationStatus: "pending_photo"
+    });
   });
 });

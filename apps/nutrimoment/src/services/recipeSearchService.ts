@@ -19,7 +19,7 @@ import {
   normalizeEnglishCuisineLabel,
   translateCuisineLabelToArabic
 } from "@/lib/recipeDisplayTitles";
-import { expandIngredientFamilies } from "@/lib/ingredientFamilies";
+import { buildIngredientLookupCanonicals, expandIngredientFamilies } from "@/lib/ingredientFamilies";
 import {
   isArabicRecipeLanguage,
   ensureArabicRecipeLanguage,
@@ -105,7 +105,9 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     preferredCuisine
   });
   const culinaryDishFamilies = discoveryPlan.dishIntents.map((path) => path.dishFamily);
-  const cacheDiscoveryIngredients = expandSeafoodCacheDiscoveryIngredients(expandedNormalizedIngredients);
+  const cacheDiscoveryIngredients = expandSeafoodCacheDiscoveryIngredients(
+    buildIngredientLookupCanonicals(expandedNormalizedIngredients)
+  );
   const preferences = buildPreferenceProfile({
     preferredCuisine,
     calorieTarget: input.calorieTarget ?? 2000,
@@ -140,7 +142,9 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     readRemoteRecipeCaches ? listUserCachedRecipes(input.uid) : Promise.resolve([]),
     (warmSharedRecipeCache.length && !forceSharedCacheRead) || !readRemoteRecipeCaches
       ? Promise.resolve([])
-      : listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients)
+      : listSharedCachedRecipesForIngredients(cacheDiscoveryIngredients, {
+          forceFirestoreRead: forceSharedCacheRead
+        })
   ]);
   const sharedReadStrategy = selectSharedRecipeReadStrategy({
     targetedRecipeCount: ingredientSharedCachedRecipes.length,

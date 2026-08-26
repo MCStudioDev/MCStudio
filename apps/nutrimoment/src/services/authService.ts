@@ -19,7 +19,26 @@ export type EntitlementFeatureKey =
   | "shoppingList.quantities"
   | "pantry.manual";
 
-export const FREE_LIFETIME_WEEKLY_PLANS = 3;
+export function buildDefaultEntitlementFeatures(tier: AccessTier): Record<EntitlementFeatureKey, boolean> {
+  const isPremium = tier === "premium";
+  return {
+    "mealPlan.weekly": isPremium,
+    "pantry.imageScan": isPremium,
+    "recipes.api": isPremium,
+    "recipes.imageLookup": isPremium,
+    "recipes.offline": true,
+    "shoppingList.quantities": true,
+    "pantry.manual": true
+  };
+}
+
+// Backward-compatible UI fields now mirror the single shared AI action budget.
+export const FREE_LIFETIME_WEEKLY_PLANS = FREE_LIFETIME_AI_CREDITS;
+const AI_ACTION_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
+const AI_ACTION_IMAGE_LIMITS: Partial<Record<AiFeatureKey, number>> = {
+  recipe_generation: 10,
+  weekly_plan: 21
+};
 const FIREBASE_TRANSIENT_RETRY_ATTEMPTS = 5;
 const ACCESS_CACHE_TTL_MS = 10 * 60 * 1000;
 const accessCache = new Map<string, { access: RequestAccess; expiresAt: number }>();
@@ -70,6 +89,68 @@ export function getFirebaseAccessErrorMessage() {
   return "Firebase is temporarily busy, so AI access is unavailable right now. Please try again in a few minutes.";
 }
 
+interface AuthenticatedUserEnrollment {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+}
+
+async function ensureAuthenticatedUserEnrollment(
+  db: ReturnType<typeof getAdminDb>,
+  identity: AuthenticatedUserEnrollment
+): Promise<Record<string, unknown>> {
+  const userRef = db.doc(`users/${identity.uid}`);
+  const entitlementRef = db.doc(`entitlements/${identity.uid}`);
+  const [userSnapshot, entitlementSnapshot] = await withFirebaseTransientRetry(
+    () => db.getAll(userRef, entitlementRef),
+    "read user enrollment"
+  );
+
+  if (userSnapshot.exists && entitlementSnapshot.exists) {
+    return entitlementSnapshot.data() ?? {};
+  }
+
+  const defaultEntitlement = {
+    uid: identity.uid,
+    email: identity.email,
+    tier: "free" as const,
+    role: "user" as const,
+    status: "free",
+    features: buildDefaultEntitlementFeatures("free"),
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    source: "auto_onboarding"
+  };
+
+  return withFirebaseTransientRetry(
+    () => db.runTransaction(async (transaction) => {
+      const [currentUser, currentEntitlement] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(entitlementRef)
+      ]);
+
+      if (!currentUser.exists) {
+        transaction.set(userRef, {
+          uid: identity.uid,
+          email: identity.email,
+          displayName: identity.displayName,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          source: "auto_onboarding"
+        });
+      }
+
+      if (!currentEntitlement.exists) {
+        transaction.set(entitlementRef, defaultEntitlement);
+        return defaultEntitlement;
+      }
+
+      return currentEntitlement.data() ?? {};
+    }),
+    "ensure user enrollment"
+  );
+}
+
 export async function getRequestAccess(request: Request): Promise<RequestAccess> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
@@ -81,15 +162,15 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
   const db = getAdminDb();
   let entitlementData: Record<string, unknown> | undefined;
 
-  let entitlementExists = false;
-
   try {
-    const entitlementSnap = await withFirebaseTransientRetry(
-      () => db.doc(`entitlements/${decoded.uid}`).get(),
-      "read entitlement"
+    entitlementData = await ensureAuthenticatedUserEnrollment(
+      db,
+      {
+        uid: decoded.uid,
+        email: decoded.email ?? null,
+        displayName: decoded.name ?? null
+      }
     );
-    entitlementData = entitlementSnap.data();
-    entitlementExists = entitlementSnap.exists;
   } catch (error) {
     if (isFirebaseTransientError(error)) {
       const cached = getCachedAccess(decoded.uid);
@@ -123,33 +204,6 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
   const isAdmin = role === "admin";
   const isPremium = tier === "premium";
 
-  // First-touch onboarding: write a `tier: 'free'` entitlements stub so every
-  // authenticated user is auditable in one collection. Fire-and-forget so a
-  // Firestore hiccup never blocks the request — the next call will retry.
-  if (!entitlementExists) {
-    db.doc(`entitlements/${decoded.uid}`)
-      .set(
-        {
-          uid: decoded.uid,
-          email: decoded.email ?? null,
-          tier: "free",
-          role: "user",
-          status: "free",
-          features: {},
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-          source: "auto_onboarding"
-        },
-        { merge: true }
-      )
-      .catch((error) => {
-        logger.warn("Auto entitlements stub write failed", {
-          uid: decoded.uid,
-          errorMessage: error instanceof Error ? error.message : String(error)
-        });
-      });
-  }
-
   if (isAdmin || isPremium) {
     return cacheAccess({
       uid: decoded.uid,
@@ -169,13 +223,11 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
   }
 
   const usageRef = db.doc(`users/${decoded.uid}/usage/aiCredits`);
-  const weeklyPlanUsageRef = db.doc(`users/${decoded.uid}/usage/weeklyPlans`);
   let usageSnap;
-  let weeklyPlanUsageSnap;
 
   try {
-    [usageSnap, weeklyPlanUsageSnap] = await withFirebaseTransientRetry(
-      () => Promise.all([usageRef.get(), weeklyPlanUsageRef.get()]),
+    usageSnap = await withFirebaseTransientRetry(
+      () => usageRef.get(),
       "read free usage"
     );
   } catch (error) {
@@ -215,9 +267,7 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
   }
 
   const usageData = usageSnap.data();
-  const weeklyPlanUsageData = weeklyPlanUsageSnap.data();
   const aiCreditsUsed = Number(usageData?.lifetimeUsed ?? 0);
-  const weeklyPlanUsed = Number(weeklyPlanUsageData?.lifetimeUsed ?? 0);
 
   return cacheAccess({
     uid: decoded.uid,
@@ -230,9 +280,9 @@ export async function getRequestAccess(request: Request): Promise<RequestAccess>
     aiCreditsUsed,
     aiCreditsLimit: FREE_LIFETIME_AI_CREDITS,
     aiCreditsRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - aiCreditsUsed, 0),
-    weeklyPlanUsed,
+    weeklyPlanUsed: aiCreditsUsed,
     weeklyPlanLimit: FREE_LIFETIME_WEEKLY_PLANS,
-    weeklyPlanRemaining: Math.max(FREE_LIFETIME_WEEKLY_PLANS - weeklyPlanUsed, 0)
+    weeklyPlanRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - aiCreditsUsed, 0)
   });
 }
 
@@ -327,7 +377,7 @@ function readTimestampMs(value: unknown): number | undefined {
 
 export async function canUseApiFeature(request: Request, featureKey: AiFeatureKey) {
   const access = await getRequestAccess(request);
-  const featureRemaining = featureKey === "weekly_plan" ? access.weeklyPlanRemaining : access.aiCreditsRemaining;
+  const featureRemaining = access.aiCreditsRemaining;
   const hasFeatureAccess = hasAiFeatureAccess(access, featureKey);
   return {
     access,
@@ -335,45 +385,88 @@ export async function canUseApiFeature(request: Request, featureKey: AiFeatureKe
     allowed: hasFeatureAccess || featureRemaining > 0,
     reason: hasFeatureAccess || featureRemaining > 0
       ? null
-      : featureKey === "weekly_plan"
-        ? "free_weekly_plans_exhausted"
-        : "free_ai_credits_exhausted"
+      : "free_ai_credits_exhausted"
   };
 }
 
 export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiFeatureKey) {
+  if (featureKey === "recipe_image") return access;
+  const result = await consumeFreeAiAction(access, featureKey, crypto.randomUUID());
+  return result.access;
+}
+
+export interface FreeAiActionResult {
+  access: RequestAccess;
+  actionGrantId?: string;
+}
+
+export async function consumeFreeAiAction(
+  access: RequestAccess,
+  featureKey: Exclude<AiFeatureKey, "recipe_image">,
+  actionId: string
+): Promise<FreeAiActionResult> {
   if (hasAiFeatureAccess(access, featureKey)) {
-    return access;
+    return { access };
   }
 
-  const isWeeklyPlan = featureKey === "weekly_plan";
-  const remaining = isWeeklyPlan ? access.weeklyPlanRemaining : access.aiCreditsRemaining;
-  const limit = isWeeklyPlan ? FREE_LIFETIME_WEEKLY_PLANS : FREE_LIFETIME_AI_CREDITS;
+  const remaining = access.aiCreditsRemaining;
+  const limit = FREE_LIFETIME_AI_CREDITS;
 
   if (remaining <= 0) {
     throw new AccessError(
-      isWeeklyPlan
-        ? "Your 3 free weekly meal plans are used. Upgrade to premium for more weekly planning."
-        : "Your 10 free recipe generations are used. Continue manually with offline recipes or upgrade to premium.",
+      "Your 10 free AI credits are used. Shared recipes remain available, or upgrade to premium for more AI actions.",
       402
     );
   }
 
   const db = getAdminDb();
-  const usageRef = db.doc(`users/${access.uid}/usage/${isWeeklyPlan ? "weeklyPlans" : "aiCredits"}`);
+  const safeActionId = normalizeActionGrantId(actionId);
+  const usageRef = db.doc(`users/${access.uid}/usage/aiCredits`);
+  const grantRef = db.doc(`users/${access.uid}/aiActionGrants/${safeActionId}`);
+  let nextUsed = access.aiCreditsUsed + 1;
   try {
     await withFirebaseTransientRetry(
-      () =>
-        usageRef.set(
-          {
-            uid: access.uid,
-            lifetimeLimit: limit,
-            lifetimeUsed: FieldValue.increment(1),
-            lastFeature: featureKey,
-            updatedAt: FieldValue.serverTimestamp()
-          },
-          { merge: true }
-        ),
+      () => db.runTransaction(async (transaction) => {
+        const [usageSnapshot, grantSnapshot] = await Promise.all([
+          transaction.get(usageRef),
+          transaction.get(grantRef)
+        ]);
+        const existingGrant = grantSnapshot.data();
+        const existingExpiresAt = Number(existingGrant?.expiresAt ?? 0);
+        if (
+          grantSnapshot.exists &&
+          existingGrant?.feature === featureKey &&
+          existingExpiresAt > Date.now()
+        ) {
+          throw new AccessError("This AI action was already submitted.", 409);
+        }
+
+        const currentUsed = Number(usageSnapshot.data()?.lifetimeUsed ?? 0);
+        if (currentUsed >= limit) {
+          throw new AccessError(
+            "Your 10 free AI credits are used. Shared recipes remain available, or upgrade to premium for more AI actions.",
+            402
+          );
+        }
+        nextUsed = currentUsed + 1;
+        transaction.set(usageRef, {
+          uid: access.uid,
+          lifetimeLimit: limit,
+          lifetimeUsed: nextUsed,
+          lastActionId: safeActionId,
+          lastFeature: featureKey,
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+        transaction.set(grantRef, {
+          actionId: safeActionId,
+          createdAt: FieldValue.serverTimestamp(),
+          expiresAt: Date.now() + AI_ACTION_GRANT_TTL_MS,
+          feature: featureKey,
+          imageLimit: AI_ACTION_IMAGE_LIMITS[featureKey] ?? 0,
+          imagesUsed: 0,
+          uid: access.uid
+        });
+      }),
       "consume AI credit"
     );
   } catch (error) {
@@ -385,24 +478,70 @@ export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiF
       });
       const nextAccess = {
         ...access,
-        aiCreditsUsed: isWeeklyPlan ? access.aiCreditsUsed : access.aiCreditsUsed + 1,
-        aiCreditsRemaining: isWeeklyPlan ? access.aiCreditsRemaining : Math.max(access.aiCreditsRemaining - 1, 0),
-        weeklyPlanUsed: isWeeklyPlan ? access.weeklyPlanUsed + 1 : access.weeklyPlanUsed,
-        weeklyPlanRemaining: isWeeklyPlan ? Math.max(access.weeklyPlanRemaining - 1, 0) : access.weeklyPlanRemaining
+        aiCreditsUsed: access.aiCreditsUsed + 1,
+        aiCreditsRemaining: Math.max(access.aiCreditsRemaining - 1, 0),
+        weeklyPlanUsed: access.aiCreditsUsed + 1,
+        weeklyPlanRemaining: Math.max(access.aiCreditsRemaining - 1, 0)
       };
       cacheAccess(nextAccess);
-      return nextAccess;
+      return { access: nextAccess };
     }
     throw error;
   }
 
-  return cacheAccess({
+  const nextAccess = cacheAccess({
     ...access,
-    aiCreditsUsed: isWeeklyPlan ? access.aiCreditsUsed : access.aiCreditsUsed + 1,
-    aiCreditsRemaining: isWeeklyPlan ? access.aiCreditsRemaining : Math.max(access.aiCreditsRemaining - 1, 0),
-    weeklyPlanUsed: isWeeklyPlan ? access.weeklyPlanUsed + 1 : access.weeklyPlanUsed,
-    weeklyPlanRemaining: isWeeklyPlan ? Math.max(access.weeklyPlanRemaining - 1, 0) : access.weeklyPlanRemaining
+    aiCreditsUsed: nextUsed,
+    aiCreditsRemaining: Math.max(limit - nextUsed, 0),
+    weeklyPlanUsed: nextUsed,
+    weeklyPlanRemaining: Math.max(limit - nextUsed, 0)
   });
+  return {
+    access: nextAccess,
+    ...(AI_ACTION_IMAGE_LIMITS[featureKey] ? { actionGrantId: safeActionId } : {})
+  };
+}
+
+export async function hasFreeAiActionImageGrant(access: RequestAccess, actionGrantId?: string | null) {
+  if (!actionGrantId || access.isAdmin || access.isPremium) return false;
+  const snapshot = await getAdminDb().doc(
+    `users/${access.uid}/aiActionGrants/${normalizeActionGrantId(actionGrantId)}`
+  ).get();
+  const data = snapshot.data();
+  return snapshot.exists &&
+    (data?.feature === "recipe_generation" || data?.feature === "weekly_plan") &&
+    Number(data?.expiresAt ?? 0) > Date.now() &&
+    Number(data?.imagesUsed ?? 0) < Number(data?.imageLimit ?? 0);
+}
+
+export async function consumeFreeAiActionImageGrant(access: RequestAccess, actionGrantId?: string | null) {
+  if (access.isAdmin || access.isPremium) return true;
+  if (!actionGrantId) return false;
+  const grantRef = getAdminDb().doc(
+    `users/${access.uid}/aiActionGrants/${normalizeActionGrantId(actionGrantId)}`
+  );
+  return getAdminDb().runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(grantRef);
+    const data = snapshot.data();
+    const imagesUsed = Number(data?.imagesUsed ?? 0);
+    const imageLimit = Number(data?.imageLimit ?? 0);
+    const valid = snapshot.exists &&
+      (data?.feature === "recipe_generation" || data?.feature === "weekly_plan") &&
+      Number(data?.expiresAt ?? 0) > Date.now() &&
+      imagesUsed < imageLimit;
+    if (!valid) return false;
+    transaction.update(grantRef, {
+      imagesUsed: imagesUsed + 1,
+      lastImageAt: FieldValue.serverTimestamp()
+    });
+    return true;
+  });
+}
+
+function normalizeActionGrantId(value: string) {
+  const normalized = value.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 128);
+  if (!normalized) throw new AccessError("A valid AI action identifier is required.", 400);
+  return normalized;
 }
 
 export function accessPayload(access: RequestAccess) {

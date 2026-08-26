@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDefaultEntitlementFeatures,
   buildFreeAiCreditsExhaustedNotice,
   FREE_LIFETIME_AI_CREDITS,
   FREE_LIFETIME_WEEKLY_PLANS,
@@ -12,9 +13,31 @@ import {
 describe("auth service access tiers", () => {
   it("builds exhausted-credit copy from the configured ten-credit allowance", () => {
     expect(FREE_LIFETIME_AI_CREDITS).toBe(10);
+    expect(FREE_LIFETIME_WEEKLY_PLANS).toBe(FREE_LIFETIME_AI_CREDITS);
     expect(buildFreeAiCreditsExhaustedNotice("Use shared recipes or upgrade.")).toBe(
       "Your 10 free AI credits are used. Use shared recipes or upgrade."
     );
+  });
+
+  it("uses one shared allowance for recipe, scan, and weekly-plan actions", () => {
+    const access = buildAccess({ aiCreditsUsed: 4, aiCreditsRemaining: 6 });
+
+    expect(access.aiCreditsLimit).toBe(10);
+    expect(access.weeklyPlanLimit).toBe(10);
+  });
+
+  it("gives new free entitlements baseline features without bypassing AI credits", () => {
+    const freeFeatures = buildDefaultEntitlementFeatures("free");
+    const premiumFeatures = buildDefaultEntitlementFeatures("premium");
+
+    expect(freeFeatures["pantry.manual"]).toBe(true);
+    expect(freeFeatures["recipes.offline"]).toBe(true);
+    expect(freeFeatures["pantry.imageScan"]).toBe(false);
+    expect(freeFeatures["recipes.api"]).toBe(false);
+    expect(freeFeatures["mealPlan.weekly"]).toBe(false);
+    expect(premiumFeatures["pantry.imageScan"]).toBe(true);
+    expect(premiumFeatures["recipes.api"]).toBe(true);
+    expect(premiumFeatures["mealPlan.weekly"]).toBe(true);
   });
 
   it("keeps explicit free entitlements free even when status is active", () => {

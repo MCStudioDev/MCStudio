@@ -118,6 +118,34 @@ describe("approximate recipe photo cache compatibility", () => {
     )).toBe(false);
   });
 
+  it("does not reuse generic kofta imagery for a visibly stuffed kofta recipe", () => {
+    expect(isGeneratedRecipePhotoUrlCompatibleWithQueries(
+      "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v7%3Akafta.jpg?alt=media",
+      ["Stuffed Kofta"]
+    )).toBe(false);
+  });
+
+  it("does not let a generic fallback alias bypass a visible recipe form", () => {
+    expect(isGeneratedRecipePhotoUrlCompatibleWithQueries(
+      "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v7%3Akafta.jpg?alt=media",
+      ["Stuffed Kofta", "Kofta"]
+    )).toBe(false);
+  });
+
+  it("does not attach a visibly sauced image to a recipe without that sauce", () => {
+    expect(isGeneratedRecipePhotoUrlCompatibleWithQueries(
+      "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v5%3Afried-chicken-soy-garlic-plate.jpg?alt=media",
+      ["Oven Fried Chicken", "Fried Chicken"]
+    )).toBe(false);
+  });
+
+  it("keeps visible recipe forms compatible when both identities include them", () => {
+    expect(isGeneratedRecipePhotoUrlCompatibleWithQueries(
+      "https://firebasestorage.googleapis.com/v0/b/app/o/recipe-photo-cache%2Fgenerated%3Astrict-v7%3Astuffed-kofta.jpg?alt=media",
+      ["Egyptian Stuffed Kofta"]
+    )).toBe(true);
+  });
+
   it.each([
     ["chicken-rice-salad", "Aunt Mildred's Chicken And Dumplings"],
     ["green-curry-chicken-with-potatoes", "Pennsylvania Dutch Chicken And Dumplings"],

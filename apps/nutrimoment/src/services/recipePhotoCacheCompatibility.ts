@@ -26,10 +26,26 @@ export function isGeneratedRecipePhotoUrlCompatibleWithQueries(
   if (!storedQuery) return false;
   const storedIdentity = buildRecipePhotoIdentity(storedQuery);
   const storedTokens = collectFoodIdentityTokens(storedQuery);
+  const visibleFormQueries = requestQueries.filter((requestQuery) => collectVisibleRecipeForms(requestQuery).size > 0);
+  if (visibleFormQueries.some((requestQuery) => !haveCompatibleVisibleForms(storedQuery, requestQuery))) {
+    return false;
+  }
+  const requestedSauceKeys = new Set(
+    requestQueries
+      .map((requestQuery) => buildRecipePhotoIdentity(requestQuery).sauceKey)
+      .filter((value): value is string => Boolean(value))
+  );
+  if (
+    (storedIdentity.sauceKey && !requestedSauceKeys.has(storedIdentity.sauceKey)) ||
+    (!storedIdentity.sauceKey && requestedSauceKeys.size > 0)
+  ) {
+    return false;
+  }
 
   return requestQueries.some((requestQuery) => {
     const requestIdentity = buildRecipePhotoIdentity(requestQuery);
     if (!haveCompatibleNamedStarches(storedQuery, requestQuery)) return false;
+    if (!haveCompatibleVisibleForms(storedQuery, requestQuery)) return false;
     if (
       storedIdentity.mainIngredientKey &&
       requestIdentity.mainIngredientKey &&
@@ -52,6 +68,13 @@ export function isGeneratedRecipePhotoUrlCompatibleWithQueries(
       if (
         requestIdentity.starchKey &&
         !identityComponentMatches(storedIdentity.starchKey, requestIdentity.starchKey, storedTokens)
+      ) {
+        return false;
+      }
+      if (
+        storedIdentity.sauceKey &&
+        requestIdentity.sauceKey &&
+        storedIdentity.sauceKey !== requestIdentity.sauceKey
       ) {
         return false;
       }
@@ -109,9 +132,32 @@ export function isExactGeneratedRecipePhotoQueryMatch(
     return Boolean(
       cachedIdentity.canonicalDishKey &&
       requestIdentity.canonicalDishKey &&
-      cachedIdentity.canonicalDishKey === requestIdentity.canonicalDishKey
+      cachedIdentity.canonicalDishKey === requestIdentity.canonicalDishKey &&
+      haveCompatibleVisibleForms(normalizedCachedQuery, normalizedRequestQuery)
     );
   });
+}
+
+function haveCompatibleVisibleForms(storedQuery: string, requestQuery: string) {
+  const storedForms = collectVisibleRecipeForms(storedQuery);
+  const requestedForms = collectVisibleRecipeForms(requestQuery);
+  if (!storedForms.size && !requestedForms.size) return true;
+  if (storedForms.size !== requestedForms.size) return false;
+  return Array.from(requestedForms).every((form) => storedForms.has(form));
+}
+
+function collectVisibleRecipeForms(value: string) {
+  const text = normalize(value);
+  const forms = new Set<string>();
+  if (/\b(?:stuffed|mahshi|mahshy)\b/.test(text)) forms.add("stuffed");
+  if (/\b(?:patty|patties|burger|burgers)\b/.test(text)) forms.add("patty");
+  if (/\b(?:sandwich|sandwiches|wrap|wraps)\b/.test(text)) forms.add("sandwich");
+  if (/\b(?:skewer|skewers|kabob|kabobs|kebab|kebabs)\b/.test(text)) forms.add("skewer");
+  if (/\b(?:soup|broth|bisque)\b/.test(text)) forms.add("soup");
+  if (/\b(?:salad|slaw)\b/.test(text)) forms.add("salad");
+  if (/\b(?:fritter|fritters|croquette|croquettes)\b/.test(text)) forms.add("fritter");
+  if (/\b(?:meatball|meatballs)\b/.test(text)) forms.add("meatball");
+  return forms;
 }
 
 function haveCompatibleNamedStarches(storedQuery: string, requestQuery: string) {
@@ -180,6 +226,7 @@ function areApproximatePhotoIdentitiesCompatible(cacheQuery: string, requestQuer
   const requestMethod = requestIdentity.cookingMethodKey ?? detectVisibleMethod(requestQuery);
 
   if (cacheMethod && requestMethod && cacheMethod !== requestMethod) return false;
+  if (!haveCompatibleVisibleForms(cacheQuery, requestQuery)) return false;
   if (
     cacheIdentity.canonicalDishKey &&
     requestIdentity.canonicalDishKey

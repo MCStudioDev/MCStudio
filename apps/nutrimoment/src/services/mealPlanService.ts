@@ -35,14 +35,19 @@ interface PantryStockAmount {
   unit: string;
 }
 
-export function buildMealPlanData(recipes: RecipeCatalogDoc[], pantryIngredients: PantryStockItem[] = []): MealPlanData {
-  const slots = buildMealPlanFromCatalog(recipes);
+export function buildMealPlanData(
+  recipes: RecipeCatalogDoc[],
+  pantryIngredients: PantryStockItem[] = [],
+  options: { diets?: string[]; recipeLanguage?: string } = {}
+): MealPlanData {
   const pantryStock = buildPantryStockMap(pantryIngredients);
+  const pantryRankedRecipes = rankRecipesByPantryUsage(recipes, pantryStock);
+  const slots = buildMealPlanFromCatalog(pantryRankedRecipes);
   const plan: MealPlanDay[] = slots.map((slot, index) => ({
     day: DAYS[index],
-    breakfast: mapCatalogRecipeToMeal(slot.breakfast),
-    lunch: mapCatalogRecipeToMeal(slot.lunch),
-    dinner: mapCatalogRecipeToMeal(slot.dinner)
+    breakfast: mapCatalogRecipeToMeal(slot.breakfast, options),
+    lunch: mapCatalogRecipeToMeal(slot.lunch, options),
+    dinner: mapCatalogRecipeToMeal(slot.dinner, options)
   }));
 
   const shoppingList = buildShoppingList(slots, pantryStock);
@@ -138,4 +143,25 @@ function formatShoppingItem(item: PantryStockAmount) {
 
 export function reconcileShoppingListWithPantry(shoppingList: string[], pantryItems: PantryStockItem[]): string[] {
   return reconcileShoppingListWithPantryAndLanguage(shoppingList, pantryItems, "en");
+}
+
+export function rankRecipesByPantryUsage(
+  recipes: RecipeCatalogDoc[],
+  pantryStock: Map<string, PantryStockAmount>
+) {
+  return recipes
+    .map((recipe, index) => {
+      const ingredients = recipe.ingredientCanonicals.map(normalizePantryIngredientName).filter(Boolean);
+      const ownedCount = ingredients.filter((ingredient) => pantryStock.has(ingredient)).length;
+      const missingCount = Math.max(0, ingredients.length - ownedCount);
+      const coverage = ingredients.length ? ownedCount / ingredients.length : 0;
+      return { recipe, index, ownedCount, missingCount, coverage };
+    })
+    .sort((left, right) =>
+      right.ownedCount - left.ownedCount ||
+      right.coverage - left.coverage ||
+      left.missingCount - right.missingCount ||
+      left.index - right.index
+    )
+    .map(({ recipe }) => recipe);
 }

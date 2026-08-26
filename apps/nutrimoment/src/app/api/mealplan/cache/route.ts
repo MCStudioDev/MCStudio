@@ -1,32 +1,36 @@
 import { z } from "zod";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
-import { accessErrorResponse, requireUser } from "@/services/authService";
+import { accessErrorResponse, hasFreeAiActionGrant, requireUser } from "@/services/authService";
 import { logger } from "@/lib/logger";
 import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
 import type { DietEnforcementContext } from "@/lib/dietEnforcement";
 import { getAdminDb } from "@/lib/firebaseAdmin";
+import { validateMealPlanRecipeContracts } from "@/services/mealPlanRecipeContractService";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const requestSchema = z.object({
+  actionGrantId: z.string().min(1).max(128).optional(),
   allergens: z.array(z.string()).optional(),
+  conditions: z.array(z.string()).optional(),
   diets: z.array(z.string()).optional(),
   mealPlan: z.unknown(),
+  preferredCuisine: z.string().optional(),
   uiLanguage: z.string().optional()
 });
 
 export async function POST(request: Request) {
   try {
     const access = await requireUser(request);
-    if (!access.isPremium) {
-      return Response.json({ error: "Meal plan recipe caching is a premium feature." }, { status: 403 });
-    }
-
     const parsed = requestSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
       return Response.json({ error: "Meal plan data is required." }, { status: 400 });
+    }
+    const hasActionGrant = await hasFreeAiActionGrant(access, parsed.data.actionGrantId);
+    if (!access.isPremium && !access.isAdmin && !hasActionGrant) {
+      return Response.json({ error: "Meal plan recipe caching is a premium feature." }, { status: 403 });
     }
 
     const mealPlan = normalizeMealPlanData(parsed.data.mealPlan);
@@ -36,22 +40,38 @@ export async function POST(request: Request) {
 
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
     const meals = mealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]);
-    const dietContext = await loadDietContextForUser(access.uid, {
+    const profile = await loadMealPlanContractProfile(access.uid, {
       diets: parsed.data.diets ?? [],
       allergens: parsed.data.allergens ?? []
     });
+    const conditions = mergeStrings(parsed.data.conditions ?? [], profile.conditions);
+    const contractIssues = validateMealPlanRecipeContracts(mealPlan, {
+      conditions,
+      dietContext: profile.dietContext,
+      preferredCuisine: parsed.data.preferredCuisine,
+      recipeLanguage
+    });
+    if (contractIssues.length) {
+      logger.warn("Rejected noncompliant meal plan recipe cache write", {
+        uid: access.uid,
+        issueCount: contractIssues.length,
+        reasons: Array.from(new Set(contractIssues.flatMap((issue) => issue.reasons))).slice(0, 20)
+      });
+      return Response.json(
+        { error: "Meal plan recipes must pass recipe validation before caching." },
+        { status: 422 }
+      );
+    }
     await persistGeneratedRecipeCache({
       uid: access.uid,
       recipeLanguage,
       meals,
-      recipes: mealPlan.recommendedRecipes,
-      dietContext
+      dietContext: profile.dietContext
     });
 
     logger.info("Meal plan recipes persisted to recipe cache", {
       uid: access.uid,
-      mealCount: meals.length,
-      recipeCount: mealPlan.recommendedRecipes?.length ?? 0
+      mealCount: meals.length
     });
 
     return Response.json({ ok: true, mealCount: meals.length });
@@ -67,20 +87,26 @@ export async function POST(request: Request) {
   }
 }
 
-async function loadDietContextForUser(uid: string, requestContext: DietEnforcementContext): Promise<DietEnforcementContext> {
+async function loadMealPlanContractProfile(
+  uid: string,
+  requestContext: DietEnforcementContext
+): Promise<{ conditions: string[]; dietContext: DietEnforcementContext }> {
   try {
     const snapshot = await getAdminDb().doc(`users/${uid}/profile/health`).get();
     const data = snapshot.data();
     return {
-      diets: mergeStrings(requestContext.diets, readStringArray(data?.diets)),
-      allergens: mergeStrings(requestContext.allergens, readStringArray(data?.allergens))
+      conditions: readStringArray(data?.conditions),
+      dietContext: {
+        diets: mergeStrings(requestContext.diets, readStringArray(data?.diets)),
+        allergens: mergeStrings(requestContext.allergens, readStringArray(data?.allergens))
+      }
     };
   } catch (error) {
     logger.warn("Meal plan cache diet context read failed; using request context", {
       uid,
       errorMessage: error instanceof Error ? error.message : String(error)
     });
-    return requestContext;
+    return { conditions: [], dietContext: requestContext };
   }
 }
 

@@ -26,6 +26,56 @@ const validRecipe: Recipe = {
 };
 
 describe("recipe quality gate", () => {
+  it("rejects a lasagna with missing assembly, baking, and ingredient consistency", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      name: "Lasagna",
+      ingredients: ["1 lb ground chickpeas", "1 can tomatoes"],
+      missing_ingredients: ["8 oz lasagna noodles", "4 slices dairy-free cheese"],
+      steps: [
+        "Brown ground chickpeas in oil, stirring to crumble.",
+        "Drain off pan dripping.",
+        "Stir tomato paste and seasonings into the chickpeas.",
+        "Bring to a boil.",
+        "Reduce heat and simmer for 40 minutes."
+      ]
+    }, "English");
+
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      "step_ingredient_not_listed:tomato paste",
+      "required_ingredient_not_used:lasagna noodles",
+      "required_ingredient_not_used:dairy-free cheese",
+      "missing_dish_stage:lasagna_assembly",
+      "missing_dish_stage:lasagna_baking",
+      "plant_substitution_template_artifact"
+    ]));
+  });
+
+  it("rejects meat-template cooking semantics after plant substitutions", () => {
+    const gate = new RecipeQualityGate();
+    const bolognese = gate.validate({
+      ...validRecipe,
+      name: "Pasta Bolognese",
+      ingredients: ["1 lb ground chickpeas", "1 lb pasta", "2 cups tomatoes"],
+      steps: [
+        "Brown the ground chickpeas, breaking them up with a spoon, then drain off excess fat.",
+        "Simmer the chickpeas with tomatoes for 45 minutes and serve over pasta."
+      ]
+    }, "English");
+    const carbonara = gate.validate({
+      ...validRecipe,
+      name: "Spaghetti Carbonara",
+      ingredients: ["1 lb spaghetti", "2 tbsp ground flaxseed mixed with 5 tbsp water", "4 oz smoked mushrooms"],
+      steps: [
+        "Whisk the ground flaxseed slurry and temper it with hot pasta water.",
+        "Toss it over hot spaghetti so the slurry cooks into a creamy carbonara sauce."
+      ]
+    }, "English");
+
+    expect(bolognese.reasons).toContain("plant_substitution_template_artifact");
+    expect(carbonara.reasons).toContain("plant_substitution_template_artifact");
+  });
+
   it("exposes the same parsed ingredient identity used by validation", () => {
     expect(getRecipeIngredientValidationIdentity("1 medium onion, chopped")).toBe("onion chopped");
     expect(getRecipeIngredientValidationIdentity("2 cloves garlic, minced")).toBe("garlic minced");
@@ -48,6 +98,22 @@ describe("recipe quality gate", () => {
     expect(result.reasons).not.toContain("duplicate_ingredients");
     expect(result.reasons).not.toContain("ingredient_not_used:chopped");
     expect(result.reasons).not.toContain("ingredient_not_used:minced");
+  });
+
+  it("accepts compact metric quantities from generated recipes", () => {
+    const result = new RecipeQualityGate().validate({
+      ...validRecipe,
+      ingredients: ["500g ground beef", "400g macaroni pasta", "100ml milk"],
+      steps: [
+        "Brown the ground beef for 8 minutes, then fold in the cooked macaroni.",
+        "Add the milk and simmer the macaroni mixture for 12 minutes."
+      ]
+    }, "English");
+
+    expect(result.reasons).not.toContain("protein_missing_quantity:ground beef");
+    expect(result.reasons).not.toContain("ingredient_missing_quantity_or_unit:ground beef");
+    expect(result.reasons).not.toContain("ingredient_missing_quantity_or_unit:macaroni pasta");
+    expect(result.reasons).not.toContain("ingredient_missing_quantity_or_unit:milk");
   });
 
   it("rejects unused ingredients, duplicate steps, and Arabic English leakage", () => {

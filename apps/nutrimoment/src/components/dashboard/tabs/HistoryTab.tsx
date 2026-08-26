@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { History, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -11,7 +11,6 @@ import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
-import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { buildRecipeDisplayName } from "@/lib/recipeDisplayNames";
@@ -19,41 +18,19 @@ import { containerVariants, itemVariants } from "@/lib/animations";
 import { getCuisineDisplayLabel } from "@/lib/cuisines";
 import { formatDate } from "@/lib/utils";
 import type { Recipe } from "@/lib/types";
+import { canReuseRecipePhotoForDiet } from "@/services/recipePhotoReusePolicy";
 import { EmptyState, SectionHero } from "./shared";
 
 const HISTORY_INITIAL_ENTRY_COUNT = 6;
 const HISTORY_LOAD_MORE_COUNT = 6;
-const HISTORY_EAGER_IMAGE_COUNT = 3;
-const HISTORY_PREMIUM_IMAGE_REPAIR_DELAYS_MS = [18 * 1000, 60 * 1000, 5 * 60 * 1000] as const;
-const HISTORY_IMAGE_CACHE_REPAIR_BATCH_SIZE = 30;
-
-type HistoryPhotoBatchResult = {
-  error?: string;
-  imageAttributionName?: string;
-  imageAttributionUrl?: string;
-  imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
-  imageUrl?: string;
-  ok: boolean;
-  status: number;
-};
-
-type ReusableHistoryImage = {
-  imageAttributionName?: string;
-  imageAttributionUrl?: string;
-  imageSource?: Recipe["image_source"];
-  imageUrl: string;
-};
 
 export function HistoryTab() {
-  const { t, setError, settings } = useApp();
-  const { access, getAuthHeaders, user } = useAuth();
+  const { t, setError, settings, health } = useApp();
+  const { access, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items, clear, removeEntry, loading, error: historyError, updateRecipeImage } = useHistory();
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleEntryCount, setVisibleEntryCount] = useState(HISTORY_INITIAL_ENTRY_COUNT);
-  const [imageRepairVersion, setImageRepairVersion] = useState(0);
-  const [imageRepairAttempt, setImageRepairAttempt] = useState(0);
-  const cacheRepairKeysRef = useRef<Set<string>>(new Set());
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -111,138 +88,6 @@ export function HistoryTab() {
   useEffect(() => {
     setVisibleEntryCount(HISTORY_INITIAL_ENTRY_COUNT);
   }, [searchQuery]);
-
-  const visibleMissingPremiumImages = useMemo(() => {
-    if (!hasGeneratedImageAccess) return 0;
-    return visibleItems.reduce(
-      (count, entry) =>
-        count + entry.recipes.filter((recipe) => !hasStrictRenderableImage(recipe.image_url, true)).length,
-      0
-    );
-  }, [hasGeneratedImageAccess, visibleItems]);
-
-  useEffect(() => {
-    setImageRepairAttempt(0);
-  }, [visibleMissingPremiumImages]);
-
-  useEffect(() => {
-    if (!visibleMissingPremiumImages) return;
-    const delay = HISTORY_PREMIUM_IMAGE_REPAIR_DELAYS_MS[imageRepairAttempt];
-    if (delay == null) return;
-
-    const timeout = globalThis.setTimeout(() => {
-      setImageRepairVersion((value) => value + 1);
-      setImageRepairAttempt((value) => value + 1);
-    }, delay);
-    return () => globalThis.clearTimeout(timeout);
-  }, [imageRepairAttempt, visibleMissingPremiumImages]);
-
-  useEffect(() => {
-    if (!hasGeneratedImageAccess || !user || !visibleItems.length) return;
-
-    const reusableImagesByKey = buildReusableHistoryImageIndex(items, hasGeneratedImageAccess);
-    const reusableMatches: Array<{
-      entryId: string;
-      image: ReusableHistoryImage;
-      recipeIndex: number;
-    }> = [];
-    const candidates = visibleItems.flatMap((entry) =>
-      entry.recipes
-        .map((recipe, recipeIndex) => {
-          if (hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess)) return null;
-          const repairKey = buildHistoryPhotoRepairKey(entry.id, recipeIndex, recipe);
-          if (cacheRepairKeysRef.current.has(repairKey)) return null;
-          cacheRepairKeysRef.current.add(repairKey);
-
-          const reusableImage = findReusableHistoryImage(recipe, reusableImagesByKey);
-          if (reusableImage) {
-            reusableMatches.push({
-              entryId: entry.id,
-              image: reusableImage,
-              recipeIndex
-            });
-            return null;
-          }
-
-          const queries = buildRecipePhotoQuery(recipe);
-          return {
-            entryId: entry.id,
-            queryKey: repairKey,
-            recipe,
-            recipeIndex,
-            queries
-          };
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-    );
-
-    if (!candidates.length && !reusableMatches.length) return;
-
-    let cancelled = false;
-
-    const repairFromCache = async () => {
-      try {
-        for (const match of reusableMatches) {
-          if (cancelled) return;
-          await updateRecipeImage(
-            match.entryId,
-            match.recipeIndex,
-            match.image.imageUrl,
-            false,
-            match.image.imageSource,
-            { name: match.image.imageAttributionName, url: match.image.imageAttributionUrl }
-          );
-        }
-
-        for (let index = 0; index < candidates.length; index += HISTORY_IMAGE_CACHE_REPAIR_BATCH_SIZE) {
-          const chunk = candidates.slice(index, index + HISTORY_IMAGE_CACHE_REPAIR_BATCH_SIZE);
-          const response = await fetch("/api/recipe-photo/batch", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-            body: JSON.stringify({
-              items: chunk.map((candidate) => ({
-                alt: candidate.queries.slice(1),
-                cacheOnly: true,
-                cuisine: buildRecipePhotoCuisine(candidate.recipe),
-                exact: buildRecipePhotoExactNames(candidate.recipe),
-                ingredient: buildRecipePhotoPromptIngredients(candidate.recipe).slice(0, 10),
-                ...buildRecipePhotoIdentityBatchParams(candidate.recipe),
-                query: candidate.queries[0] ?? candidate.recipe.name,
-                queryKey: candidate.queryKey
-              }))
-            })
-          });
-
-          const payload = (await response.json().catch(() => ({ results: {} }))) as {
-            results?: Record<string, HistoryPhotoBatchResult>;
-          };
-          if (cancelled) return;
-
-          for (const candidate of chunk) {
-            const data = payload.results?.[candidate.queryKey];
-            if (data?.ok && hasStrictRenderableImage(data.imageUrl, true)) {
-              await updateRecipeImage(
-                candidate.entryId,
-                candidate.recipeIndex,
-                data.imageUrl,
-                false,
-                data.imageSource,
-                { name: data.imageAttributionName, url: data.imageAttributionUrl }
-              );
-            }
-          }
-        }
-      } catch {
-        candidates.forEach((candidate) => cacheRepairKeysRef.current.delete(candidate.queryKey));
-      }
-    };
-
-    void repairFromCache();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getAuthHeaders, hasGeneratedImageAccess, items, updateRecipeImage, user, visibleItems]);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -316,7 +161,7 @@ export function HistoryTab() {
           </div>
 
           <div className="grid gap-4">
-            {visibleItems.map((entry, entryIndex) => (
+            {visibleItems.map((entry) => (
               <Card key={entry.id} className="theme-history-entry rounded-[2rem] space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -359,19 +204,24 @@ export function HistoryTab() {
 
                 {entry.recipes.length ? (
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
-                    {entry.recipes.map((recipe, recipeIndex) => (
-                    <MealRevealCard
+                    {entry.recipes.map((recipe, recipeIndex) => {
+                      const entryHasGeneratedImageAccess = hasGeneratedImageAccess || Boolean(entry.imageActionGrantId);
+                      return (
+                      <MealRevealCard
                       key={`${entry.id}-${recipe.id ?? recipeIndex}`}
-                      deferImageLookup={entryIndex !== 0 || recipeIndex >= HISTORY_EAGER_IMAGE_COUNT}
-                      imageLookupVersion={imageRepairVersion}
+                      disableAutoImageLookup={!entryHasGeneratedImageAccess}
+                      trustProvidedImage
+                      imageActionGrantId={entry.imageActionGrantId}
                       eyebrow={getRecipeEyebrow(recipe, t)}
                       name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
                       visualMatchLabel={recipe.visual_match_label}
                       summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
                       previewLabel={getRecipePreviewLabel(recipe, t)}
                       previewItems={buildRecipePreviewItems(recipe)}
-                      imageUrl={getHistoryRecipeImageUrl(recipe, hasGeneratedImageAccess)}
+                      imageUrl={getHistoryRecipeImageUrl(recipe, entryHasGeneratedImageAccess, health.diets)}
                       imageSource={recipe.image_source}
+                      imageDiets={health.diets}
+                      imageError={!canReuseRecipePhotoForDiet(recipe, health.diets, entryHasGeneratedImageAccess)}
                       recipeSource={recipe.recipe_source_type}
                       recipeSourceUrl={recipe.source_url}
                       imageAttributionName={recipe.image_attribution_name}
@@ -385,7 +235,7 @@ export function HistoryTab() {
                         user
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                               const persistedImageUrl =
-                                hasGeneratedImageAccess
+                                entryHasGeneratedImageAccess
                                   ? null
                                   : await persistRecipeImageForUser({
                                       uid: user.uid,
@@ -406,7 +256,8 @@ export function HistoryTab() {
                       stats={buildRecipeStats(recipe)}
                       sections={buildRecipeSections(recipe, t)}
                     />
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : null}
               </Card>
@@ -477,74 +328,8 @@ function buildRecipePhotoQuery(recipe: Recipe) {
   });
 }
 
-function hasStrictRenderableImage(imageUrl: string | undefined, strictGeneratedOnly: boolean): imageUrl is string {
-  return isUsableRecipeImageForAccess(imageUrl, strictGeneratedOnly);
-}
-
-function getHistoryRecipeImageUrl(recipe: Recipe, strictGeneratedOnly: boolean) {
-  return hasStrictRenderableImage(recipe.image_url, strictGeneratedOnly) ? recipe.image_url : undefined;
-}
-
-function buildReusableHistoryImageIndex(items: Array<{ recipes: Recipe[] }>, strictGeneratedOnly: boolean) {
-  const imagesByKey = new Map<string, ReusableHistoryImage>();
-
-  for (const entry of items) {
-    for (const recipe of entry.recipes) {
-      if (!hasStrictRenderableImage(recipe.image_url, strictGeneratedOnly)) continue;
-      const image: ReusableHistoryImage = {
-        imageAttributionName: recipe.image_attribution_name,
-        imageAttributionUrl: recipe.image_attribution_url,
-        imageSource: recipe.image_source,
-        imageUrl: recipe.image_url
-      };
-
-      for (const key of buildReusableHistoryRecipeKeys(recipe)) {
-        if (!imagesByKey.has(key)) {
-          imagesByKey.set(key, image);
-        }
-      }
-    }
-  }
-
-  return imagesByKey;
-}
-
-function findReusableHistoryImage(recipe: Recipe, imagesByKey: Map<string, ReusableHistoryImage>) {
-  for (const key of buildReusableHistoryRecipeKeys(recipe)) {
-    const image = imagesByKey.get(key);
-    if (image) return image;
-  }
-  return null;
-}
-
-function buildReusableHistoryRecipeKeys(recipe: Recipe) {
-  return Array.from(
-    new Set(
-      buildRecipePhotoExactNames(recipe)
-        .map(normalizeHistoryRecipeImageKey)
-        .filter(Boolean)
-    )
-  );
-}
-
-function normalizeHistoryRecipeImageKey(value?: string) {
-  return (value ?? "")
-    .normalize("NFKC")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-function buildHistoryPhotoRepairKey(entryId: string, recipeIndex: number, recipe: Recipe) {
-  return [
-    entryId,
-    recipeIndex,
-    recipe.photo_identity?.dish_slug,
-    buildRecipePhotoExactNames(recipe).join("||"),
-    buildRecipePhotoQuery(recipe).join("||")
-  ]
-    .filter(Boolean)
-    .join("##");
+function getHistoryRecipeImageUrl(recipe: Recipe, strictGeneratedOnly: boolean, diets: string[]) {
+  return canReuseRecipePhotoForDiet(recipe, diets, strictGeneratedOnly) ? recipe.image_url : undefined;
 }
 
 function serializeRecipePhotoQuery(queries: string[]) {
@@ -577,20 +362,6 @@ function buildRecipePhotoExactNames(recipe: Recipe) {
 
 function buildRecipePhotoCuisine(recipe: Recipe) {
   return recipe.localized?.English?.cuisine ?? recipe.cuisine;
-}
-
-function buildRecipePhotoIdentityBatchParams(recipe: Recipe) {
-  const identity = recipe.photo_identity;
-  const photoSlug = normalizeHistoryRecipePhotoParam(identity?.dish_slug);
-  if (!photoSlug) return {};
-  return {
-    photoSlug,
-    photoCuisineKey: normalizeHistoryRecipePhotoParam(identity?.cuisine_key) || undefined,
-    photoProtein: normalizeHistoryRecipePhotoParam(identity?.protein) || undefined,
-    photoStarch: normalizeHistoryRecipePhotoParam(identity?.starch) || undefined,
-    photoSauce: normalizeHistoryRecipePhotoParam(identity?.sauce) || undefined,
-    photoMethod: normalizeHistoryRecipePhotoParam(identity?.method) || undefined
-  };
 }
 
 function normalizeHistoryRecipePhotoParam(value: unknown) {

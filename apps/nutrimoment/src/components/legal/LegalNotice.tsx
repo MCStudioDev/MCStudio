@@ -5,7 +5,7 @@ import { useState } from "react";
 import { AlertTriangle, ShieldAlert, X } from "lucide-react";
 import { useApp } from "@/contexts/AppContext";
 
-const DISMISS_KEY = "nutrimoment-legal-banner-dismissed-v1";
+const DISMISS_KEY = "nutrimoment-legal-banner-dismissed-v2";
 
 export function AppLegalBanner() {
   const { t } = useApp();

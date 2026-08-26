@@ -7,21 +7,25 @@ import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiCredit,
+  consumeFreeAiAction,
   isFirebaseTransientError
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 import { logger } from "@/lib/logger";
 import { buildMealPlanData, reconcileShoppingListWithPantry } from "@/services/mealPlanService";
 import { mapCatalogRecipeToMeal, searchCatalogRecipes } from "@/services/recipeSearchService";
-import { repairMealPlanWithGuard, summarizeMealPlanIssues, validateMealPlan } from "@/services/mealPlanGuardService";
+import { isSeafoodMeal, repairMealPlanWithGuard, summarizeMealPlanIssues, validateMealPlan } from "@/services/mealPlanGuardService";
 import { normalizeCuisineLabel } from "@/lib/cuisines";
-import { persistGeneratedRecipeCache } from "@/services/userRecipeCacheService";
+import {
+  persistGeneratedRecipeCache,
+  persistPremiumValidatedRecipeCache
+} from "@/services/userRecipeCacheService";
 import { isArabicRecipeLanguage, localizeMealPlanForArabic } from "@/lib/arabicRecipeLocalization";
 import { normalizePhotoIdentity, toIdentityKey } from "@/lib/photoIdentityBuilders";
 import { normalizePilotLanguage, recipeLanguageFromUiLanguage } from "@/lib/language";
 import { buildMealPlanPreferenceSignature } from "@/lib/mealPlanPreferenceSignature";
 import { ensureDetailedMealPlanSteps } from "@/lib/recipeStepDetails";
+import { buildShoppingListFromMealIngredients } from "@/lib/shoppingListNormalizer";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
@@ -31,11 +35,24 @@ import {
   type DietEnforcementContext
 } from "@/lib/dietEnforcement";
 import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
+import {
+  alignMealPlanWithRecipeContracts,
+  buildValidatedRepeatFallbackPlan,
+  evaluateMealPlanMealRecipeContract,
+  mealPlanMealToRecipe,
+  summarizeMealPlanRepeatUsage,
+  validateMealPlanRecipeContracts
+} from "@/services/mealPlanRecipeContractService";
+import {
+  attachSharedRecipeLinksToMealPlan,
+  type MealPlanSharedRecipeLink
+} from "@/services/mealPlanSharedRecipeLinkService";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
 const requestSchema = z.object({
+  actionId: z.string().min(1).max(128).optional(),
   prompt: z.string().min(20).optional(),
   pantry: z.array(z.string()).optional(),
   pantryItems: z.array(z.object({ name: z.string(), quantity: z.string().optional() })).optional(),
@@ -104,19 +121,10 @@ export async function POST(request: Request) {
   try {
     const accessCheck = await canUseApiFeature(request, "weekly_plan");
     const access = accessCheck.access;
-    if (!access.isPremium && !access.isAdmin) {
-      return Response.json(
-        {
-          error: "Weekly meal plans are a premium feature.",
-          access: accessPayload(access)
-        },
-        { status: 403 }
-      );
-    }
     const rl = applyRateLimit({
       uid: access.uid,
       feature: "meal_plan",
-      isPremium: access.isPremium,
+      isPremium: accessCheck.allowed,
       bypass: access.isAdmin
     });
     if (!rl.decision.allowed) {
@@ -134,14 +142,18 @@ export async function POST(request: Request) {
     if (!accessCheck.allowed) {
       return Response.json(
         {
-          error: "Your 3 free weekly meal plans are used. Upgrade to premium for more weekly planning.",
+          error: "Your 10 free AI credits are used. Upgrade to premium for more AI actions.",
           access: accessPayload(access)
         },
         { status: 402 }
       );
     }
 
-    const nextAccess = await consumeFreeAiCredit(access, "weekly_plan");
+    const aiAction = await consumeFreeAiAction(access, "weekly_plan", parsed.data.actionId ?? requestId);
+    const nextAccess = aiAction.access;
+    const actionGrantPayload = aiAction.actionGrantId
+      ? { aiActionGrantId: aiAction.actionGrantId }
+      : {};
     const pantryItems = parsed.data.pantryItems ?? [];
     const pantry = parsed.data.pantry ?? (pantryItems.length ? pantryItems.map((item) => item.name) : extractPantryFromPrompt(parsed.data.prompt ?? ""));
     // Server-side diet/allergen gate for meal-plan output. Any slot the AI
@@ -169,6 +181,7 @@ export async function POST(request: Request) {
       dietContext,
       conditions: parsed.data.conditions ?? [],
       preferredCuisine: parsed.data.preferredCuisine,
+      repairVariety: false,
       maxMealRepeatCount: 2,
       minUniqueMeals: 15,
       minPescatarianSeafoodSlots: 6
@@ -262,13 +275,69 @@ export async function POST(request: Request) {
 
       return result.mealPlan;
     };
-    const repairMealPlanWithAiIfNeeded = async (plan: MealPlanData): Promise<MealPlanData> => {
-      const issues = validateMealPlan(plan, mealPlanGuardPreferences);
+    const finalizeMealPlanAgainstRecipeContract = (
+      plan: MealPlanData,
+      stage: string,
+      replacementRecipes: RecipeCatalogDoc[] = []
+    ) => {
+      const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
+      const detailedPlan = ensureDetailedMealPlanSteps(
+        wantsArabic ? localizeMealPlanForArabic(plan) : plan,
+        wantsArabic ? "Arabic" : "English"
+      );
+      const replacementMeals = replacementRecipes.map((recipe) => mapCatalogRecipeToMeal(recipe, {
+        diets: dietContext.diets,
+        recipeLanguage
+      }));
+      const contractOptions = {
+        conditions: parsed.data.conditions ?? [],
+        dietContext,
+        maxMealReuse: 2,
+        maxSimilarMealSlots: 2,
+        preferredCuisine: parsed.data.preferredCuisine,
+        recipeLanguage,
+        replacementMeals
+      };
+      const alignment = alignMealPlanWithRecipeContracts(detailedPlan, contractOptions);
+      const withReplacementShopping = alignment.replacementMeals.length
+        ? {
+            ...alignment.mealPlan,
+            shoppingList: addMealIngredientsToShoppingList(
+              alignment.mealPlan.shoppingList,
+              alignment.replacementMeals
+            )
+          }
+        : alignment.mealPlan;
+      const guardedPlan = applyFinalMealPlanGuard(withReplacementShopping, `${stage}_post_recipe_contract`);
+      const issues = validateMealPlanRecipeContracts(guardedPlan, contractOptions);
+
+      if (alignment.issuesBefore.length || issues.length) {
+        logger.warn("Meal plan recipe contract evaluated generated plan", {
+          requestId,
+          stage,
+          initialIssueCount: alignment.issuesBefore.length,
+          replacedSlots: alignment.replacedSlots,
+          finalIssueCount: issues.length,
+          finalReasons: Array.from(new Set(issues.flatMap((issue) => issue.reasons))).slice(0, 20)
+        });
+      }
+
+      return { mealPlan: guardedPlan, issues };
+    };
+    const repairMealPlanWithAiIfNeeded = async (
+      plan: MealPlanData,
+      forcedIssues: unknown[] = []
+    ): Promise<MealPlanData> => {
+      const guardIssues = validateMealPlan(plan, mealPlanGuardPreferences);
+      const issues = forcedIssues.length ? forcedIssues : guardIssues;
       if (!issues.length) return plan;
+      const beforeIssueSummary = forcedIssues.length
+        ? summarizeForcedMealPlanRepairIssues(forcedIssues)
+        : summarizeMealPlanIssues(guardIssues);
 
       logger.info("Meal plan needs AI repair pass before fallback guard", {
         requestId,
-        issueSummary: summarizeMealPlanIssues(issues)
+        issueSummary: beforeIssueSummary
       });
 
       try {
@@ -304,16 +373,18 @@ export async function POST(request: Request) {
         const repairedIssues = validateMealPlan(repairedWithShoppingList, mealPlanGuardPreferences);
         logger.info("Meal plan AI repair pass completed", {
           requestId,
-          beforeIssueSummary: summarizeMealPlanIssues(issues),
+          beforeIssueSummary,
           afterIssueSummary: summarizeMealPlanIssues(repairedIssues)
         });
 
-        return repairedIssues.length <= issues.length ? repairedWithShoppingList : plan;
+        return forcedIssues.length || repairedIssues.length <= guardIssues.length
+          ? repairedWithShoppingList
+          : plan;
       } catch (repairError) {
         logger.warn("Meal plan AI repair pass failed; continuing to fallback guard", {
           requestId,
           errorMessage: repairError instanceof Error ? repairError.message : String(repairError),
-          issueSummary: summarizeMealPlanIssues(issues)
+          issueSummary: beforeIssueSummary
         });
         return plan;
       }
@@ -330,14 +401,14 @@ export async function POST(request: Request) {
         wantsArabic ? localizeMealPlanForArabic(guardedMockPlan) : guardedMockPlan,
         wantsArabic ? "Arabic" : "English"
       );
-      queueMealPlanCachePersist({
+      await queueMealPlanCachePersist({
         uid: access.uid,
         recipeLanguage,
         meals: outputMockPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
-        recipes: outputMockPlan.recommendedRecipes,
         dietContext
       });
       await persistMealPlanResultForUser({
+        actionGrantId: aiAction.actionGrantId,
         historyEntryId: parsed.data.historyEntryId,
         historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
         historyTitle: parsed.data.historyTitle,
@@ -346,7 +417,11 @@ export async function POST(request: Request) {
         persistResult: parsed.data.persistResult,
         uid: access.uid
       });
-      return Response.json({ result: JSON.stringify({ ...outputMockPlan, preferenceSignature }), access: accessPayload(nextAccess) });
+      return Response.json({
+        ...actionGrantPayload,
+        result: JSON.stringify({ ...outputMockPlan, preferenceSignature, imageActionGrantId: aiAction.actionGrantId }),
+        access: accessPayload(nextAccess)
+      });
     }
 
     const searchResult = await searchCatalogRecipes({
@@ -370,6 +445,7 @@ export async function POST(request: Request) {
       : searchResult.candidateRecipes;
     const cuisineAlignedCatalogRecipes = getCuisineAlignedRecipes(rankedCatalogRecipes, parsed.data.preferredCuisine);
     const catalogRecipes = cuisineAlignedCatalogRecipes.length ? cuisineAlignedCatalogRecipes : rankedCatalogRecipes;
+    let aiFallbackCandidates: MealPlanMeal[] = [];
 
     try {
       ensureAiAvailable();
@@ -391,45 +467,115 @@ export async function POST(request: Request) {
 
       if (aiMealPlan) {
         const reconciledShoppingList = reconcileShoppingListWithPantry(aiMealPlan.shoppingList, pantryStock);
-        const aiRepairedMealPlan = await repairMealPlanWithAiIfNeeded({
+        const reconciledAiMealPlan = {
           ...aiMealPlan,
           shoppingList: reconciledShoppingList
-        });
+        };
         const reconciledMealPlan = repairMealPlanSlots(
-          aiRepairedMealPlan,
+          reconciledAiMealPlan,
           "ai_mealplan",
           catalogRecipes
         );
         const guardedMealPlan = applyFinalMealPlanGuard(reconciledMealPlan, "ai_mealplan_final");
-        const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
-        const outputMealPlan = ensureDetailedMealPlanSteps(
-          wantsArabic ? localizeMealPlanForArabic(guardedMealPlan) : guardedMealPlan,
-          wantsArabic ? "Arabic" : "English"
+        let finalizedMealPlan = finalizeMealPlanAgainstRecipeContract(
+          guardedMealPlan,
+          "ai_mealplan_final",
+          catalogRecipes
         );
-        queueMealPlanCachePersist({
+        let remainingGuardIssues = validateMealPlan(finalizedMealPlan.mealPlan, mealPlanGuardPreferences);
+        aiFallbackCandidates = finalizedMealPlan.mealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]);
+        const blockingIssuesBeforeRepair = remainingGuardIssues.filter((issue) =>
+          !["ingredientCluster", "repeat", "unique"].includes(issue.kind)
+        );
+        if (finalizedMealPlan.issues.length || blockingIssuesBeforeRepair.length) {
+          const aiContractRepair = await repairMealPlanWithAiIfNeeded(
+            finalizedMealPlan.mealPlan,
+            [...finalizedMealPlan.issues, ...remainingGuardIssues]
+          );
+          const reconciledContractRepair = repairMealPlanSlots(
+            aiContractRepair,
+            "ai_mealplan_contract_repair",
+            catalogRecipes
+          );
+          const guardedContractRepair = applyFinalMealPlanGuard(
+            reconciledContractRepair,
+            "ai_mealplan_contract_repair_final"
+          );
+          finalizedMealPlan = finalizeMealPlanAgainstRecipeContract(
+            guardedContractRepair,
+            "ai_mealplan_contract_repair_final",
+            catalogRecipes
+          );
+          aiFallbackCandidates = [
+            ...aiFallbackCandidates,
+            ...finalizedMealPlan.mealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner])
+          ];
+          remainingGuardIssues = validateMealPlan(finalizedMealPlan.mealPlan, mealPlanGuardPreferences);
+        }
+        const blockingGuardIssues = remainingGuardIssues.filter((issue) =>
+          !["ingredientCluster", "repeat", "unique"].includes(issue.kind)
+        );
+        if (finalizedMealPlan.issues.length || blockingGuardIssues.length) {
+          throw new Error(
+            `AI meal plan failed final validation with ${finalizedMealPlan.issues.length} recipe-contract and ${blockingGuardIssues.length} blocking guard issue(s).`
+          );
+        }
+        if (remainingGuardIssues.length) {
+          logger.warn("Meal plan retained non-blocking variety caveats after the bounded AI repair pass", {
+            requestId,
+            issueSummary: summarizeMealPlanIssues(remainingGuardIssues)
+          });
+        }
+        const outputMealPlan = {
+          ...finalizedMealPlan.mealPlan,
+          shoppingList: buildShoppingListFromMealIngredients({
+            displayLanguage: isArabicRecipeLanguage(recipeLanguage) ? "ar" : "en",
+            mealPlan: finalizedMealPlan.mealPlan,
+            pantryItems: pantryStock
+          })
+        };
+        const aiRepeatUsage = summarizeMealPlanRepeatUsage(outputMealPlan);
+        const repeatFallbackMetadata = aiRepeatUsage.repeatedSlots
+          ? { maxRepeatedSlots: 2, ...aiRepeatUsage }
+          : undefined;
+        const sharedPublication = await queueMealPlanCachePersist({
           uid: access.uid,
           recipeLanguage,
           meals: outputMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
-          recipes: outputMealPlan.recommendedRecipes,
-          dietContext
+          dietContext,
+          promoteToSharedPool: true
         });
+        const linkedOutputMealPlan = attachSharedRecipeLinksToMealPlan(
+          outputMealPlan,
+          sharedPublication.recipeLinks
+        );
         await persistMealPlanResultForUser({
+          actionGrantId: aiAction.actionGrantId,
           historyEntryId: parsed.data.historyEntryId,
           historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
           historyTitle: parsed.data.historyTitle,
-          mealPlan: outputMealPlan,
+          mealPlan: linkedOutputMealPlan,
           preferenceSignature,
           persistResult: parsed.data.persistResult,
           uid: access.uid
         });
         logger.info("Meal plan served from Gemini fallback AI", {
-          days: outputMealPlan.plan.length,
-          shoppingItems: outputMealPlan.shoppingList.length,
+          days: linkedOutputMealPlan.plan.length,
+          shoppingItems: linkedOutputMealPlan.shoppingList.length,
           shoppingItemsBeforeReconcile: aiMealPlan.shoppingList.length
         });
         return Response.json({
-          result: JSON.stringify({ ...outputMealPlan, preferenceSignature, servedFrom: "fallback_ai" }),
+          ...actionGrantPayload,
+          result: JSON.stringify({
+            ...linkedOutputMealPlan,
+            imageActionGrantId: aiAction.actionGrantId,
+            preferenceSignature,
+            repeatFallback: repeatFallbackMetadata,
+            servedFrom: "fallback_ai"
+          }),
           servedFrom: "fallback_ai",
+          repeatFallback: repeatFallbackMetadata,
+          sharedPublication,
           access: accessPayload(nextAccess)
         });
       }
@@ -455,26 +601,97 @@ export async function POST(request: Request) {
 
     const emergencyMealPlan = repairMealPlanSlots(
       {
-        ...buildMealPlanData(catalogRecipes, pantryStock),
+        ...buildMealPlanData(catalogRecipes, pantryStock, {
+          diets: dietContext.diets,
+          recipeLanguage
+        }),
         servedFrom: "shared_pool" as const
       },
       "catalog_emergency",
       catalogRecipes
     );
     const guardedEmergencyMealPlan = applyFinalMealPlanGuard(emergencyMealPlan, "catalog_emergency_final");
-    const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
-    const outputEmergencyMealPlan = ensureDetailedMealPlanSteps(
-      wantsArabic ? localizeMealPlanForArabic(guardedEmergencyMealPlan) : guardedEmergencyMealPlan,
-      wantsArabic ? "Arabic" : "English"
+    const finalizedEmergencyMealPlan = finalizeMealPlanAgainstRecipeContract(
+      guardedEmergencyMealPlan,
+      "catalog_emergency_final",
+      catalogRecipes
     );
-    queueMealPlanCachePersist({
+    let repeatFallbackMetadata: { maxRepeatedSlots: number; repeatedSlots: number; uniqueMealCount: number } | undefined;
+    let completedEmergencyMealPlan = finalizedEmergencyMealPlan.mealPlan;
+    if (finalizedEmergencyMealPlan.issues.length) {
+      const catalogFallbackCandidates = catalogRecipes.map((recipe) => mapCatalogRecipeToMeal(recipe, {
+        diets: dietContext.diets,
+        recipeLanguage
+      }));
+      const candidateMeals = [...aiFallbackCandidates, ...catalogFallbackCandidates].sort((left, right) =>
+        dietContext.diets.some((diet) => diet.toLowerCase() === "pescatarian")
+          ? Number(isSeafoodMeal(right)) - Number(isSeafoodMeal(left))
+          : 0
+      );
+      const repeatFallback = buildValidatedRepeatFallbackPlan(finalizedEmergencyMealPlan.mealPlan, {
+        candidateMeals,
+        conditions: parsed.data.conditions ?? [],
+        dietContext,
+        maxSimilarMealSlots: 2,
+        preferredCuisine: parsed.data.preferredCuisine,
+        recipeLanguage
+      });
+      if (repeatFallback.mealPlan) {
+        const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
+        const detailedRepeatPlan = ensureDetailedMealPlanSteps(
+          wantsArabic ? localizeMealPlanForArabic(repeatFallback.mealPlan) : repeatFallback.mealPlan,
+          wantsArabic ? "Arabic" : "English"
+        );
+        const repeatContractIssues = validateMealPlanRecipeContracts(detailedRepeatPlan, {
+          conditions: parsed.data.conditions ?? [],
+          dietContext,
+          maxSimilarMealSlots: 2,
+          preferredCuisine: parsed.data.preferredCuisine,
+          recipeLanguage
+        });
+        const repeatGuardIssues = validateMealPlan(detailedRepeatPlan, mealPlanGuardPreferences);
+        const blockingRepeatGuardIssues = repeatGuardIssues.filter((issue) =>
+          !["ingredientCluster", "repeat", "unique"].includes(issue.kind)
+        );
+        if (!repeatContractIssues.length && !blockingRepeatGuardIssues.length) {
+          completedEmergencyMealPlan = detailedRepeatPlan;
+          repeatFallbackMetadata = {
+            maxRepeatedSlots: 2,
+            repeatedSlots: repeatFallback.repeatedSlots,
+            uniqueMealCount: repeatFallback.uniqueMealCount
+          };
+          logger.warn("Meal plan completed with validated repeat fallback", {
+            requestId,
+            ...repeatFallbackMetadata
+          });
+        }
+      }
+    }
+    if (finalizedEmergencyMealPlan.issues.length && !repeatFallbackMetadata) {
+      return Response.json(
+        {
+          error: "The shared recipe pool does not currently contain enough validated recipes for a safe weekly plan.",
+          access: accessPayload(nextAccess)
+        },
+        { status: 503 }
+      );
+    }
+    const outputEmergencyMealPlan = {
+      ...completedEmergencyMealPlan,
+      shoppingList: buildShoppingListFromMealIngredients({
+        displayLanguage: isArabicRecipeLanguage(recipeLanguage) ? "ar" : "en",
+        mealPlan: completedEmergencyMealPlan,
+        pantryItems: pantryStock
+      })
+    };
+    await queueMealPlanCachePersist({
       uid: access.uid,
       recipeLanguage,
       meals: outputEmergencyMealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]),
-      recipes: outputEmergencyMealPlan.recommendedRecipes,
       dietContext
     });
     await persistMealPlanResultForUser({
+      actionGrantId: aiAction.actionGrantId,
       historyEntryId: parsed.data.historyEntryId,
       historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
       historyTitle: parsed.data.historyTitle,
@@ -488,9 +705,18 @@ export async function POST(request: Request) {
       shoppingItems: outputEmergencyMealPlan.shoppingList.length
     });
     return Response.json({
-      result: JSON.stringify({ ...outputEmergencyMealPlan, preferenceSignature }),
+      ...actionGrantPayload,
+      result: JSON.stringify({
+        ...outputEmergencyMealPlan,
+        imageActionGrantId: aiAction.actionGrantId,
+        preferenceSignature,
+        repeatFallback: repeatFallbackMetadata
+      }),
       servedFrom: "shared_pool",
-      fallbackNotice: "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool.",
+      repeatFallback: repeatFallbackMetadata,
+      fallbackNotice: repeatFallbackMetadata
+        ? "We completed the week by repeating up to 10% of validated meals from the available recipe pool."
+        : "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool.",
       access: accessPayload(nextAccess)
     });
   } catch (err) {
@@ -568,7 +794,10 @@ function buildSafeMealReplacement({
   if (selectedRecipe) {
     usedReplacementNames.add(selectedRecipe.title.toLowerCase());
     return {
-      meal: mapCatalogRecipeToMeal(selectedRecipe),
+      meal: mapCatalogRecipeToMeal(selectedRecipe, {
+        diets: dietContext.diets,
+        recipeLanguage
+      }),
       source: "catalog"
     };
   }
@@ -1335,6 +1564,7 @@ function getShoppingListItemKey(value: string) {
 }
 
 async function persistMealPlanResultForUser({
+  actionGrantId,
   historyEntryId,
   historyIngredients,
   historyTitle,
@@ -1343,6 +1573,7 @@ async function persistMealPlanResultForUser({
   persistResult,
   uid
 }: {
+  actionGrantId?: string;
   historyEntryId?: string;
   historyIngredients: string[];
   historyTitle?: string;
@@ -1355,7 +1586,8 @@ async function persistMealPlanResultForUser({
 
   try {
     const db = getAdminDb();
-    const sanitized = sanitizeMealPlanForFirestore(mealPlan);
+    const authorizedMealPlan = actionGrantId ? { ...mealPlan, imageActionGrantId: actionGrantId } : mealPlan;
+    const sanitized = sanitizeMealPlanForFirestore(authorizedMealPlan);
     await db.doc(`users/${uid}/plans/currentWeekly`).set(
       {
         mealPlan: preferenceSignature ? { ...sanitized, preferenceSignature } : sanitized,
@@ -1371,6 +1603,7 @@ async function persistMealPlanResultForUser({
           completedAt: new Date().toISOString(),
           generationMessage: null,
           generationStatus: "completed",
+          ...(actionGrantId ? { imageActionGrantId: actionGrantId } : {}),
           ingredients: historyIngredients,
           recipes: stripUndefinedForFirestore(buildMealPlanHistoryRecipes(mealPlan)),
           sessionType: "weekly_meal_plan",
@@ -1440,20 +1673,24 @@ function buildMealPlanHistoryRecipe(
     name: meal.name,
     cuisine: meal.cuisine ?? "Weekly meal plan",
     ingredients,
-    missing_ingredients: ingredients,
+    missing_ingredients: [],
     steps: meal.steps ?? [],
     calories: meal.calories,
     protein: meal.protein,
     carbs: meal.carbs,
     fat: meal.fat,
-    cook_time: day,
-    difficulty: mealType,
+    cook_time: meal.cook_time ?? day,
+    difficulty: meal.difficulty ?? mealType,
+    recipe_source_type: meal.recipe_source_type,
+    source_recipe_id: meal.source_recipe_id,
     image_search_index: meal.image_search_index,
     image_search_indices: meal.image_search_indices,
     image_url: meal.image_url,
     image_source: meal.image_source,
     image_attribution_name: meal.image_attribution_name,
     image_attribution_url: meal.image_attribution_url,
+    photo_asset: meal.photo_asset,
+    photo_identity: meal.photo_identity,
     image_loading: false,
     image_error: false
   };
@@ -1473,19 +1710,101 @@ function stripUndefinedForFirestore<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function queueMealPlanCachePersist(input: {
+function summarizeForcedMealPlanRepairIssues(issues: unknown[]) {
+  const kinds = new Map<string, number>();
+  const reasons = new Set<string>();
+
+  issues.forEach((issue) => {
+    if (!issue || typeof issue !== "object") return;
+    const record = issue as { kind?: unknown; reasons?: unknown };
+    if (typeof record.kind === "string") {
+      kinds.set(record.kind, (kinds.get(record.kind) ?? 0) + 1);
+    }
+    if (Array.isArray(record.reasons)) {
+      record.reasons.filter((reason): reason is string => typeof reason === "string").forEach((reason) => reasons.add(reason));
+    }
+  });
+
+  return {
+    issueCount: issues.length,
+    kinds: Object.fromEntries(kinds),
+    reasons: Array.from(reasons).slice(0, 20)
+  };
+}
+
+async function queueMealPlanCachePersist(input: {
   recipeLanguage: string;
   meals?: MealPlanMeal[];
-  recipes?: Recipe[];
   uid?: string | null;
   dietContext?: DietEnforcementContext;
+  promoteToSharedPool?: boolean;
 }) {
-  void persistGeneratedRecipeCache(input).catch((error) => {
+  const emptySummary = {
+    generatedMealCount: 0,
+    validatedRecipeCount: 0,
+    promotedRecipeCount: 0,
+    rejectedPromotionCount: 0,
+    supersededRecipeCount: 0,
+    persistenceSucceeded: false,
+    recipeLinks: [] as MealPlanSharedRecipeLink[]
+  };
+
+  try {
+    const generatedMeals = (input.meals ?? []).filter((meal) =>
+      meal.recipe_source_type !== "local_database" && !meal.source_recipe_id
+    );
+    const validatedRecipes = generatedMeals.flatMap((meal) => {
+      const evaluation = evaluateMealPlanMealRecipeContract(meal, input.recipeLanguage);
+      if (!evaluation.accepted) return [];
+      return [{
+        ...mealPlanMealToRecipe(meal),
+        acceptance_reasons: evaluation.acceptance.reasons,
+        acceptance_score: evaluation.acceptance.score
+      } satisfies Recipe];
+    });
+    const [, promotion] = await Promise.all([
+      persistGeneratedRecipeCache(input),
+      input.promoteToSharedPool
+        ? persistPremiumValidatedRecipeCache({
+            recipeLanguage: input.recipeLanguage,
+            recipes: validatedRecipes
+          })
+        : Promise.resolve(null)
+    ]);
+
+    logger.info("Meal-plan cache persistence completed", {
+      uid: input.uid ?? null,
+      mealCount: input.meals?.length ?? 0,
+      generatedMealCount: generatedMeals.length,
+      promotedRecipeCount: promotion?.available ?? promotion?.published ?? 0,
+      publishedRecipeCount: promotion?.published ?? 0,
+      reusedRecipeCount: promotion?.reused ?? 0,
+      rejectedPromotionCount: promotion?.rejected ?? 0
+    });
+    const recipeLinks: MealPlanSharedRecipeLink[] = (promotion?.documents ?? []).map((recipe) => ({
+      names: [
+        recipe.title,
+        recipe.localized?.English?.name,
+        recipe.localized?.Arabic?.name,
+        recipe.dishIntent?.dish_name
+      ].filter((value): value is string => Boolean(value?.trim())),
+      sourceRecipeId: recipe.id
+    }));
+    return {
+      generatedMealCount: generatedMeals.length,
+      validatedRecipeCount: validatedRecipes.length,
+      promotedRecipeCount: promotion?.available ?? promotion?.published ?? 0,
+      rejectedPromotionCount: promotion?.rejected ?? 0,
+      supersededRecipeCount: promotion?.superseded ?? 0,
+      persistenceSucceeded: true,
+      recipeLinks
+    };
+  } catch (error) {
     logger.warn("Meal-plan cache persistence failed", {
       uid: input.uid ?? null,
       mealCount: input.meals?.length ?? 0,
-      recipeCount: input.recipes?.length ?? 0,
       errorMessage: error instanceof Error ? error.message : String(error)
     });
-  });
+    return emptySummary;
+  }
 }

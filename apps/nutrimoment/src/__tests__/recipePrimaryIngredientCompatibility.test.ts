@@ -398,6 +398,33 @@ describe("recipe primary ingredient compatibility", () => {
       .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
   });
 
+  it("allows ground and intact beef dishes when broad beef and ground beef are both requested", () => {
+    const fattah = recipe({
+      id: "egyptian-beef-fattah",
+      title: "Egyptian Beef Fattah",
+      requiredCanonicals: ["beef", "rice", "bread"]
+    });
+    const grilledBeef = recipe({
+      id: "egyptian-grilled-beef",
+      title: "Egyptian Grilled Beef Kebabs",
+      requiredCanonicals: ["beef", "onion", "bell pepper"]
+    });
+    const kofta = recipe({
+      id: "egyptian-ground-beef-kofta",
+      title: "Egyptian Ground Beef Kofta",
+      requiredCanonicals: ["ground beef", "onion", "parsley"]
+    });
+    const request = ["beef", "meat", "ground beef"];
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(fattah, request))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(grilledBeef, request))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(kofta, request))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(hasExclusiveRequestedProteinForm(request, "beef")).toBe(false);
+  });
+
   it("does not mistake minced garlic in a steak recipe for ground beef", () => {
     const koreanSteak = recipe({
       id: "korean-steak",

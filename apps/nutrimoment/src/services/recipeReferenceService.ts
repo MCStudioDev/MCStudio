@@ -82,6 +82,13 @@ export interface RecipeReferenceSearchInput {
   variationSeed?: string;
 }
 
+export function shouldLoadRecipeReferencesForGeneration(input: {
+  hasAiGenerationAccess: boolean;
+  ingredientCount: number;
+}) {
+  return input.hasAiGenerationAccess && input.ingredientCount > 0;
+}
+
 export async function findRecipeReferencesForGeneration(
   input: RecipeReferenceSearchInput
 ): Promise<RecipeReferencePromptRecipe[]> {

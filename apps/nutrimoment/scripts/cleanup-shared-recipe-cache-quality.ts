@@ -4,7 +4,10 @@ import { FieldPath } from "firebase-admin/firestore";
 import { normalizeCachedRecipeCatalogDoc } from "../src/data/offline/recipeMetadata";
 import type { RecipeCatalogDoc } from "../src/lib/domain";
 import { getAdminDb, hasFirebaseAdminConfig } from "../src/lib/firebaseAdmin";
-import { auditSharedRecipePoolDocument } from "../src/services/sharedRecipePoolQualityService";
+import {
+  auditSharedRecipePoolDocument,
+  SHARED_RECIPE_VALIDATOR_HASH
+} from "../src/services/sharedRecipePoolQualityService";
 
 loadEnv({ path: path.join(process.cwd(), ".env.local") });
 
@@ -12,12 +15,15 @@ const COLLECTION_NAME = "sharedOfflineRecipeCache";
 const DEFAULT_PAGE_SIZE = 150;
 const MAX_WRITE_ATTEMPTS = 6;
 const BASE_RETRY_DELAY_MS = 5_000;
-const WRITE_PACING_DELAY_MS = 150;
+const WRITE_BATCH_PACING_DELAY_MS = 250;
 const SAMPLE_LIMIT = 20;
 
 const DRY_RUN = hasFlag("--dry-run");
 const CONFIRMED = hasFlag("--confirm");
 const PAGE_SIZE = readNumberArg("--page-size") ?? DEFAULT_PAGE_SIZE;
+const MAX_DOCS = readNumberArg("--max");
+const START_AFTER_ID = readStringArg("--start-after");
+const QUALITY_STATUS = readStringArg("--quality-status");
 
 type CleanupDecision =
   | { action: "keep"; reason: string; normalized: RecipeCatalogDoc }
@@ -35,7 +41,8 @@ async function main() {
   }
 
   const db = getAdminDb();
-  let cursor: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentReference | null =
+    START_AFTER_ID ? db.collection(COLLECTION_NAME).doc(START_AFTER_ID) : null;
   let scanned = 0;
   let kept = 0;
   let updated = 0;
@@ -46,12 +53,19 @@ async function main() {
     `${DRY_RUN ? "Dry run" : "Cleanup"} for ${COLLECTION_NAME}. Page size: ${PAGE_SIZE}\n`
   );
 
-  while (true) {
-    let query = db.collection(COLLECTION_NAME).orderBy(FieldPath.documentId()).limit(PAGE_SIZE);
+  while (MAX_DOCS == null || scanned < MAX_DOCS) {
+    const limit = Math.min(PAGE_SIZE, MAX_DOCS == null ? PAGE_SIZE : MAX_DOCS - scanned);
+    let query = QUALITY_STATUS
+      ? db.collection(COLLECTION_NAME).where("qualityStatus", "==", QUALITY_STATUS).orderBy(FieldPath.documentId()).limit(limit)
+      : db.collection(COLLECTION_NAME).orderBy(FieldPath.documentId()).limit(limit);
     if (cursor) query = query.startAfter(cursor);
 
     const snapshot = await query.get();
     if (snapshot.empty) break;
+    const pendingUpdates: Array<{
+      data: FirebaseFirestore.DocumentData;
+      ref: FirebaseFirestore.DocumentReference;
+    }> = [];
 
     for (const docSnap of snapshot.docs) {
       scanned += 1;
@@ -66,12 +80,10 @@ async function main() {
         }
         if (samples.length < SAMPLE_LIMIT) samples.push(`UPDATE ${label}`);
         if (!DRY_RUN) {
-          await setDocWithRetry(
-            docSnap.ref,
-            stripUndefinedDeep(decision.normalized),
-            `${COLLECTION_NAME}/${docSnap.id}`
-          );
-          await sleep(WRITE_PACING_DELAY_MS);
+          pendingUpdates.push({
+            data: stripUndefinedDeep(decision.normalized),
+            ref: docSnap.ref
+          });
         }
         continue;
       }
@@ -79,12 +91,18 @@ async function main() {
       kept += 1;
     }
 
+    if (pendingUpdates.length) {
+      await commitUpdatesWithRetry(db, pendingUpdates);
+      await sleep(WRITE_BATCH_PACING_DELAY_MS);
+    }
+
     process.stdout.write(`Scanned ${scanned}, quarantined ${quarantined}, updated ${updated}, kept ${kept}\n`);
     cursor = snapshot.docs[snapshot.docs.length - 1];
+    if (snapshot.size < limit) break;
   }
 
   process.stdout.write(
-    `Done. scanned=${scanned}, quarantined=${quarantined}, updated=${updated}, kept=${kept}, deleted=0\n`
+    `Done. scanned=${scanned}, quarantined=${quarantined}, updated=${updated}, kept=${kept}, deleted=0, lastDocumentId=${cursor?.id ?? ""}\n`
   );
   if (samples.length) {
     process.stdout.write(`Samples:\n${samples.map((sample) => `- ${sample}`).join("\n")}\n`);
@@ -95,7 +113,26 @@ async function main() {
 }
 
 function decideCleanup(current: RecipeCatalogDoc): CleanupDecision {
-  const audit = auditSharedRecipePoolDocument(current);
+  if (
+    current.source?.provider === "recipenlg" &&
+    current.validatorHash !== SHARED_RECIPE_VALIDATOR_HASH
+  ) {
+    const normalized = stripUndefinedDeep({
+      ...current,
+      qualityReasons: Array.from(new Set([
+        ...(current.qualityReasons ?? []),
+        "stale_reference_projection"
+      ])),
+      qualityStatus: "probation" as const
+    });
+    return {
+      action: isSameRecipeDoc(current, normalized) ? "keep" : "update",
+      reason: "probation:stale_reference_projection",
+      normalized
+    };
+  }
+
+  const audit = auditSharedRecipePoolDocument(current, current.validatedAt ?? Date.now());
   const audited = stripUndefinedDeep(audit.document);
   const reason = [audited.qualityStatus, ...(audited.qualityReasons ?? [])].filter(Boolean).join(":");
 
@@ -295,20 +332,21 @@ function toTitleCase(value: string) {
     .join(" ");
 }
 
-async function setDocWithRetry(
-  ref: FirebaseFirestore.DocumentReference,
-  data: FirebaseFirestore.DocumentData,
-  label: string
+async function commitUpdatesWithRetry(
+  db: FirebaseFirestore.Firestore,
+  updates: Array<{ data: FirebaseFirestore.DocumentData; ref: FirebaseFirestore.DocumentReference }>
 ) {
   for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt += 1) {
     try {
-      await ref.set(data);
+      const batch = db.batch();
+      updates.forEach((update) => batch.set(update.ref, update.data));
+      await batch.commit();
       return;
     } catch (error) {
       if (!isRetryableWriteError(error) || attempt === MAX_WRITE_ATTEMPTS) throw error;
       const delayMs = BASE_RETRY_DELAY_MS * attempt;
       process.stdout.write(
-        `${label} hit a transient Firestore quota limit. Retrying in ${Math.round(delayMs / 1000)}s (attempt ${attempt + 1}/${MAX_WRITE_ATTEMPTS}).\n`
+        `Shared recipe cleanup batch hit a transient Firestore quota limit. Retrying in ${Math.round(delayMs / 1000)}s (attempt ${attempt + 1}/${MAX_WRITE_ATTEMPTS}).\n`
       );
       await sleep(delayMs);
     }

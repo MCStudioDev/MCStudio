@@ -1,7 +1,7 @@
 import { buildRecipePhotoIdentity, normalizeRecipePhotoQuery, type RecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 
 export function buildRecipePhotoReuseKeyFromIdentity(identity: RecipePhotoIdentity) {
-  return (
+  return normalizeRecipePhotoReuseKey(
     identity.canonicalDishKey ||
     identity.familyKey ||
     normalizeRecipePhotoQuery(identity.cleanQuery || identity.signature)
@@ -22,4 +22,8 @@ export function buildRecipePhotoReuseKeyCandidates(queries: Array<string | null 
         .filter(Boolean)
     )
   );
+}
+
+function normalizeRecipePhotoReuseKey(value: string) {
+  return value.replace(/-/g, " ").replace(/\s+/g, " ").trim();
 }

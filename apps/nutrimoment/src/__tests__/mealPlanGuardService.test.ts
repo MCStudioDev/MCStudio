@@ -122,6 +122,19 @@ describe("meal plan guard service", () => {
     expect(finalIssues.filter((issue) => issue.kind === "ingredientCluster")).toEqual([]);
   });
 
+  it("can leave soft variety issues for an AI repair without replacing safe meals", () => {
+    const source = buildRiceLegumeClusterPlan();
+    const result = repairMealPlanWithGuard(source, {
+      dietContext: { diets: ["vegan"], allergens: [] },
+      preferredCuisine: "Middle Eastern",
+      repairVariety: false
+    });
+
+    expect(result.repairedSlots).toBe(0);
+    expect(result.finalIssues.some((issue) => issue.kind === "ingredientCluster")).toBe(true);
+    expect(result.mealPlan.plan[0].breakfast.name).toBe("Lentil rice breakfast 1");
+  });
+
   it("repairs heart-health meal plans that contain rich repeated meals", () => {
     const preferences = {
       dietContext: {

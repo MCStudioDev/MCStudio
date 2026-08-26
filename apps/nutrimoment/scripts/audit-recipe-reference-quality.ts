@@ -11,6 +11,7 @@ const COLLECTION = getStringArg("--collection") ?? process.env.RECIPE_REFERENCE_
 const PAGE_SIZE = Math.min(500, getNumberArg("--page-size") ?? 250);
 const MAX_DOCS = getNumberArg("--max");
 const APPLY = process.argv.includes("--apply");
+const START_AFTER_ID = getStringArg("--start-after");
 
 async function main() {
   if (!hasFirebaseAdminConfig()) {
@@ -28,7 +29,8 @@ async function main() {
   const reasonCounts = new Map<string, number>();
   let scanned = 0;
   let updated = 0;
-  let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentReference | undefined =
+    START_AFTER_ID ? db.collection(COLLECTION).doc(START_AFTER_ID) : undefined;
 
   while (MAX_DOCS == null || scanned < MAX_DOCS) {
     const limit = Math.min(PAGE_SIZE, MAX_DOCS == null ? PAGE_SIZE : MAX_DOCS - scanned);
@@ -79,6 +81,7 @@ async function main() {
     discoverable: statusCounts.golden + statusCounts.verified,
     quarantined: statusCounts.blocked + statusCounts.dish_intent + statusCounts.probation,
     scanned,
+    startAfter: START_AFTER_ID,
     statusCounts,
     topReasons,
     updated

@@ -34,6 +34,7 @@ export async function normalizeIngredients(
   const ingredientNormalizer = new IngredientNormalizer();
   const cleaned = rawIngredients
     .flatMap(expandRawIngredientInput)
+    .map(prepareIngredientForCanonicalNormalization)
     .map(normalizeIngredientText)
     .filter(Boolean);
 
@@ -161,6 +162,31 @@ export async function normalizeIngredients(
   };
 }
 
+const LEADING_INGREDIENT_QUANTITY = /^(?:about\s+|approximately\s+)?(?:(?:\d+(?:\.\d+)?\s+)?\d+\s*\/\s*\d+|\d+(?:\.\d+)?|one|two|three|four|five|six|half|quarter|third)\s*/i;
+const LEADING_INGREDIENT_UNIT = /^(?:cups?|tablespoons?|tbsp|teaspoons?|tsp|grams?|g|kilograms?|kg|ounces?|oz|pounds?|lbs?|milliliters?|ml|liters?|l|cans?|jars?|packages?|packs?|bags?|bunches?|cloves?|fillets?|pieces?|slices?|whole|pinches?|dashes?|handfuls?|portions?|servings?)\.?\s+(?:of\s+)?/i;
+const LEADING_PREPARATION_DESCRIPTOR = /^(?:(?:finely|roughly|coarsely)\s+)?(?:chopped|minced|diced|sliced|crushed|grated|peeled|deveined|drained|rinsed)\s+/i;
+const LEADING_STORAGE_DESCRIPTOR = /^(?:(?:fresh|frozen|dried)\s+or\s+(?:fresh|frozen|dried)|fresh|frozen|dried)\s+/i;
+const INFORMAL_INGREDIENT_MEASURE = /^(?:a\s+)?(?:pinch|dash|handful)\s+of\s+/i;
+const NON_INGREDIENT_SECTION_LABEL = /^(?:for\s+the\s+)?(?:sauce|marinade|garnish|assembly|serving)\s*:?$/i;
+const TRAILING_USAGE_DESCRIPTOR = /\s+for\s+(?:cooking|garnish|serving|assembly)\s*$/i;
+
+export function prepareIngredientForCanonicalNormalization(value: string) {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (NON_INGREDIENT_SECTION_LABEL.test(trimmed)) return "";
+  const withoutInformalMeasure = trimmed.replace(INFORMAL_INGREDIENT_MEASURE, "");
+  const withoutQuantity = withoutInformalMeasure.replace(LEADING_INGREDIENT_QUANTITY, "");
+  const withoutUnit = withoutQuantity === trimmed
+    ? withoutQuantity
+    : withoutQuantity.replace(LEADING_INGREDIENT_UNIT, "");
+
+  return withoutUnit
+    .replace(LEADING_PREPARATION_DESCRIPTOR, "")
+    .replace(LEADING_STORAGE_DESCRIPTOR, "")
+    .replace(TRAILING_USAGE_DESCRIPTOR, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function shouldQueryRemoteIngredientAliases(input: {
   allowRemoteAliases: boolean;
   cleanedTermCount: number;
@@ -200,7 +226,8 @@ function isArabicGroundMeat(value: string) {
 }
 
 function expandRawIngredientInput(value: string) {
-  const normalizedSeparators = value
+  const fractionProtected = value.replace(/(\d)\s*\/\s*(\d)/g, "$1__fraction_slash__$2");
+  const normalizedSeparators = fractionProtected
     .replace(/\u060C/g, ",")
     .replace(/\s+\u0627\u0648\s+/giu, ",")
     .replace(/\s+\u0623\u0648\s+/giu, ",")
@@ -208,7 +235,7 @@ function expandRawIngredientInput(value: string) {
 
   return normalizedSeparators
     .split(/\s*(?:,|;|\/|\||\+|&|\band\b|\bor\b|\bwith\b|،|\s+او\s+|\s+أو\s+)\s*/giu)
-    .map((part) => part.trim())
+    .map((part) => part.replace(/__fraction_slash__/g, "/").trim())
     .filter(Boolean);
 }
 

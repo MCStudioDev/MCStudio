@@ -564,6 +564,38 @@ export const CURATED_TRUSTED_RECIPE_CATALOG: RecipeCatalogDoc[] = [
     fat: 17,
     allergenTags: ["dairy"],
     aliases: ["Italian tomato mozzarella chicken", "pollo alla pizzaiola"]
+  }),
+  createEgyptianVeganRecipe({
+    id: "classic-koshary",
+    title: "Classic Egyptian Koshary",
+    description: "Egyptian rice, brown lentils, pasta, chickpeas, tomato sauce, and crisp onion assembled into a filling street-food bowl.",
+    ingredients: [
+      ingredient("rice", 1, "cup"),
+      ingredient("brown lentils", 1, "cup"),
+      ingredient("pasta", 1, "cup", false),
+      ingredient("tomato sauce", 2, "cups", false),
+      ingredient("chickpeas", 1, "cup", false),
+      ingredient("onion", 2, "large onions", false)
+    ],
+    steps: [
+      "Rinse the brown lentils, put them in a medium pot with plenty of water, bring to a boil over high heat, and simmer for 15 to 20 minutes until just tender; drain well.",
+      "Rinse the rice until the water runs mostly clear. Return the drained lentils to the pot with the rice and 2 cups of water, cover, and simmer over low heat for 15 minutes until the rice is tender.",
+      "Bring a separate saucepan of salted water to a rolling boil, add the pasta, and cook according to its package timing until al dente; drain without rinsing.",
+      "Slice the onions very thinly and pat them dry. Fry them in a wide skillet over medium heat, stirring often, for 12 to 15 minutes until deeply golden and crisp, then drain them on a plate.",
+      "Pour the tomato sauce into the emptied skillet and simmer over medium-low heat for 8 to 10 minutes, stirring occasionally, until hot and slightly thickened.",
+      "Drain and rinse the chickpeas, add them to a small saucepan with a splash of water, and warm over medium heat for 3 to 4 minutes; drain before serving.",
+      "Fluff the lentil rice with a fork and spread it on a serving platter. Layer over the pasta, spoon on the tomato sauce, and scatter the warm chickpeas across the top.",
+      "Finish the Koshary with the crisp onions and serve immediately while the onions remain crunchy and the rice, lentils, pasta, sauce, and chickpeas are hot."
+    ],
+    sourceUrl: "https://www.foodnetwork.com/recipes/food-network-kitchen/koshari-18819208",
+    totalMinutes: 60,
+    cookingMethod: "boil, simmer, and layer",
+    calories: 520,
+    protein: 19,
+    carbs: 96,
+    fat: 8,
+    allergenTags: ["gluten"],
+    aliases: ["Koshari", "Kushari", "Egyptian lentil rice and pasta"]
   })
 ];
 
@@ -821,6 +853,71 @@ function createItalianChickenRecipe(input: CuratedRecipeInput): RecipeCatalogDoc
     searchTokens: [input.title, input.description, ...input.aliases, ...ingredientCanonicals],
     popularityScore: 93,
     qualityScore: 97,
+    isActive: true,
+    createdAt: 0,
+    updatedAt: 0
+  };
+}
+
+function createEgyptianVeganRecipe(input: CuratedRecipeInput): RecipeCatalogDoc {
+  const requiredCanonicals = input.ingredients
+    .filter((item) => item.required)
+    .map((item) => item.canonical);
+  const optionalCanonicals = input.ingredients
+    .filter((item) => !item.required)
+    .map((item) => item.canonical);
+  const ingredientCanonicals = input.ingredients.map((item) => item.canonical);
+  const prepMinutes = 20;
+  const cookMinutes = input.totalMinutes - prepMinutes;
+
+  return {
+    id: `trusted-source-egyptian-${input.id}`,
+    title: input.title,
+    slug: input.id,
+    description: input.description,
+    ingredients: input.ingredients,
+    ingredientCanonicals,
+    requiredCanonicals,
+    optionalCanonicals,
+    dietTags: ["vegan", "vegetarian", "dairy-free"],
+    allergenTags: input.allergenTags,
+    mealType: "dinner",
+    cuisine: "Egyptian",
+    prepMinutes,
+    cookMinutes,
+    totalMinutes: input.totalMinutes,
+    difficulty: "medium",
+    calories: input.calories,
+    protein: input.protein,
+    carbs: input.carbs,
+    fat: input.fat,
+    fiber: 15,
+    sugar: 10,
+    sodium: 540,
+    calorieBand: "501_700",
+    servings: 4,
+    steps: input.steps,
+    image: {
+      storagePath: "",
+      sourceQuery: `${input.title} Egyptian finished plate`
+    },
+    source: {
+      provider: "food-network",
+      url: input.sourceUrl
+    },
+    dishIntent: {
+      dish_name: input.title,
+      cuisine: "Egyptian",
+      meal_type: "dinner",
+      cooking_method: input.cookingMethod,
+      visual_keywords: [input.title, ...input.aliases],
+      exclude_keywords: ["raw ingredients", "preparation"]
+    },
+    regionalCuisines: ["Egyptian", "North African", "Arab"],
+    styleTags: [input.cookingMethod, "authentic", "street food", "plant-based"],
+    searchTokens: [input.title, input.description, ...input.aliases, ...ingredientCanonicals],
+    popularityScore: 96,
+    qualityScore: 98,
     isActive: true,
     createdAt: 0,
     updatedAt: 0

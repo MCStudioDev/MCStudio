@@ -1,0 +1,97 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "sharedOfflineRecipeCache",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "qualityStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "arrayConfig": "CONTAINS",
+          "fieldPath": "ingredientCanonicals"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "sharedOfflineRecipeCache",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "qualityStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "arrayConfig": "CONTAINS",
+          "fieldPath": "ingredientLookupCanonicals"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "sharedOfflineRecipeCache",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "qualityStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ingredientLookupCanonicals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "sharedRecipesV2",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "qualityStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "arrayConfig": "CONTAINS",
+          "fieldPath": "ingredientCanonicals"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "sharedRecipesV2",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "qualityStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "arrayConfig": "CONTAINS",
+          "fieldPath": "ingredientLookupCanonicals"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "sharedRecipesV2",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "qualityStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ingredientLookupCanonicals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

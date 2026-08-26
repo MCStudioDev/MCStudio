@@ -1,15 +1,18 @@
 import { z } from "zod";
 import { GET as lookupRecipePhoto } from "../route";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
+import type { RecipeImageSource } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-const RECIPE_PHOTO_BATCH_CONCURRENCY = 3;
+const RECIPE_PHOTO_BATCH_CONCURRENCY = 10;
 
 const batchItemSchema = z.object({
+  actionGrant: z.string().min(1).max(128).optional(),
   alt: z.array(z.string()).optional(),
   cacheOnly: z.boolean().optional(),
   cuisine: z.string().optional(),
+  diet: z.array(z.string()).optional(),
   exact: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
   ingredient: z.array(z.string()).optional(),
@@ -20,7 +23,9 @@ const batchItemSchema = z.object({
   photoSauce: z.string().optional(),
   photoMethod: z.string().optional(),
   query: z.string().min(3),
-  queryKey: z.string().min(1).max(500)
+  queryKey: z.string().min(1).max(500),
+  sourceRecipeId: z.string().min(1).max(500).optional(),
+  strictIdentity: z.boolean().optional()
 });
 
 const batchSchema = z.object({
@@ -33,10 +38,12 @@ type BatchRecipePhotoResult = {
   error?: string;
   imageAttributionName?: string;
   imageAttributionUrl?: string;
-  imageSource?: "api" | "cache" | "search" | "unsplash" | "wikimedia";
+  imageSource?: RecipeImageSource;
   imageUrl?: string;
   ok: boolean;
+  query?: string;
   retryAfterSeconds?: number;
+  signature?: string;
   source?: "generated" | "google_search" | "pexels_search" | "unsplash_search" | "wikimedia" | "unavailable";
   status: number;
 };
@@ -69,7 +76,9 @@ export async function POST(request: Request) {
         imageSource: data?.imageSource,
         imageUrl,
         ok: response.ok && Boolean(imageUrl),
+        query: data?.query,
         retryAfterSeconds,
+        signature: data?.signature,
         source: data?.source,
         status: response.status
       } satisfies BatchRecipePhotoResult
@@ -116,12 +125,17 @@ function dedupeBatchItems(items: BatchItem[]) {
 function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   const params = new URLSearchParams();
   params.set("query", item.query);
+  setIfPresent(params, "actionGrant", item.actionGrant);
   appendValues(params, "alt", item.alt, 4);
   appendValues(params, "ingredient", item.ingredient, 10);
   appendValues(params, "exact", item.exact, 8);
+  appendValues(params, "diet", item.diet, 8);
   appendValues(params, "exclude", item.exclude, 8);
   if (item.cacheOnly) {
     params.set("cacheOnly", "1");
+  }
+  if (item.strictIdentity) {
+    params.set("strictIdentity", "1");
   }
   const cuisine = normalizeBatchRecipePhotoParam(item.cuisine);
   if (cuisine) {
@@ -133,6 +147,7 @@ function buildRecipePhotoLookupUrl(origin: string, item: BatchItem) {
   setIfPresent(params, "photoStarch", item.photoStarch);
   setIfPresent(params, "photoSauce", item.photoSauce);
   setIfPresent(params, "photoMethod", item.photoMethod);
+  setIfPresent(params, "sourceRecipeId", item.sourceRecipeId);
 
   return `${origin}/api/recipe-photo?${params.toString()}`;
 }

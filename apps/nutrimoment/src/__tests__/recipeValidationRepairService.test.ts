@@ -32,6 +32,24 @@ const brokenSourceRecipe: Recipe = {
 };
 
 describe("recipe validation repair service", () => {
+  it("preserves compact metric quantities instead of inventing replacements", () => {
+    const repair = repairRecipeForValidation({
+      ...brokenSourceRecipe,
+      name: "Egyptian Beef Kofta",
+      ingredients: ["500g ground beef", "100ml tomato sauce"],
+      steps: [
+        "Shape and brown the ground beef kofta for 8 minutes.",
+        "Add the tomato sauce and simmer the kofta for 20 minutes."
+      ]
+    }, {
+      recipeLanguage: "English",
+      scoringIngredients: ["ground beef"]
+    });
+
+    expect(repair.recipe.ingredients).toEqual(["500 g ground beef", "100 ml tomato sauce"]);
+    expect(repair.recipe.ingredients.join(" ")).not.toContain("1 lb 500g");
+  });
+
   it("repairs source recipes before quality rejection", () => {
     const repair = repairRecipeForValidation(brokenSourceRecipe, {
       recipeLanguage: "English",

@@ -17,6 +17,8 @@ import { translateIngredientToEnglish, translateRecipeTitleToEnglish } from "@/l
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
 import { normalizeMealPlanData } from "@/lib/mealPlan";
+import { getMealPlanPhotoIdentityKey, isMealPlanImageIdentityCompatible } from "@/lib/mealPlanImageMatching";
+import { classifyPendingMealPlanEntries } from "@/lib/mealPlanPendingRecovery";
 import { buildMealPlanPreferenceSignatureFromProfile } from "@/lib/mealPlanPreferenceSignature";
 import { normalizePantryIngredientName } from "@/lib/pantryQuantity";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
@@ -27,17 +29,16 @@ import type { TranslationKey } from "@/lib/translations";
 import type { MealPlanMeal, RecipeImageSource } from "@/lib/types";
 import { EmptyState, SectionHero } from "./shared";
 
-const PREMIUM_REPLICATE_LOOKUP_DELAY_MS = 1200;
-const PREMIUM_REPLICATE_REQUEUE_DELAY_MS = 5000;
-const PREMIUM_REPLICATE_REQUEUE_ROUNDS = 6;
-const MEAL_PLAN_PREMIUM_IMAGE_REPAIR_INTERVAL_MS = 18 * 1000;
 const MEAL_PLAN_HISTORY_ENTRY_STORAGE_KEY = "nutrimoment-meal-plan-history-entry";
 const PENDING_MEAL_PLAN_GENERATION_STORAGE_KEY = "nutrimoment.pendingMealPlanGenerationIds";
 const MEAL_PLAN_GENERATION_TIMEOUT_MS = 180_000;
-const MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS = 3 * 60 * 1000;
+const MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS = 15 * 60 * 1000;
 const MEAL_PLAN_HISTORY_ENTRY_TIMEOUT_MS = 8_000;
 const MEAL_PLAN_IMAGE_APPLY_CONCURRENCY = 4;
-const MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY = 2;
+const MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY = 3;
+const MEAL_PLAN_IMAGE_RESTORE_TIMEOUT_MS = 8_000;
+const MEAL_PLAN_IMAGE_CACHE_TIMEOUT_MS = 12_000;
+const MEAL_PLAN_IMAGE_GENERATION_TIMEOUT_MS = 45_000;
 type MealSlotType = "breakfast" | "lunch" | "dinner";
 type MealPhotoLookupResponse = {
   error?: string;
@@ -86,11 +87,14 @@ function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 export function MealPlanTab() {
   const { t, settings, health, setError } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
-  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
+  const hasNativeGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
+  const [aiActionGrantId, setAiActionGrantId] = useState<string | undefined>();
+  const hasGeneratedImageAccess = hasNativeGeneratedImageAccess || Boolean(aiActionGrantId);
   const { items } = usePantry();
   const {
     items: historyItems,
+    loading: historyLoading,
     addEntry: addHistoryEntry,
     updateEntryStatus,
     updateRecipeImage: updateHistoryRecipeImage
@@ -108,9 +112,14 @@ export function MealPlanTab() {
   const imageErrorSlotsRef = useRef(imageErrorSlots);
   const mealPlanHistoryEntryIdRef = useRef<string | null>(null);
   const updateMealImageRef = useRef(updateMealImage);
-  const updateEntryStatusRef = useRef(updateEntryStatus);
   const updateHistoryRecipeImageRef = useRef(updateHistoryRecipeImage);
-  const canGenerateMealPlan = isPremiumFeatureUnlocked;
+  const canGenerateMealPlan = isPremiumFeatureUnlocked || access.aiCreditsRemaining > 0;
+
+  useEffect(() => {
+    if (mealPlan?.imageActionGrantId) {
+      setAiActionGrantId(mealPlan.imageActionGrantId);
+    }
+  }, [mealPlan?.imageActionGrantId]);
 
   useEffect(() => {
     if (mealPlanError) {
@@ -151,9 +160,11 @@ export function MealPlanTab() {
       const timeoutId = window.setTimeout(() => controller.abort(), MEAL_PLAN_GENERATION_TIMEOUT_MS);
       const response = await fetch("/api/mealplan", {
         method: "POST",
+        keepalive: true,
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         signal: controller.signal,
         body: JSON.stringify({
+          actionId: crypto.randomUUID(),
           pantry: historyIngredients,
           pantryItems: items.map((item) => ({ name: item.name, quantity: item.quantity })),
           uiLanguage: settings.uiLanguage,
@@ -168,13 +179,21 @@ export function MealPlanTab() {
           persistResult: true
         })
       }).finally(() => window.clearTimeout(timeoutId));
-      const data = (await response.json()) as { result?: string; error?: string; fallbackNotice?: string };
+      const data = (await response.json()) as {
+        aiActionGrantId?: string;
+        result?: string;
+        error?: string;
+        fallbackNotice?: string;
+      };
       await refreshAccess();
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to generate meal plan");
       }
       if (data.fallbackNotice) {
         setError(data.fallbackNotice);
+      }
+      if (data.aiActionGrantId) {
+        setAiActionGrantId(data.aiActionGrantId);
       }
 
       const nextMealPlan = normalizeMealPlanData(safeJsonParse<unknown>(data.result ?? "null", null));
@@ -257,38 +276,40 @@ export function MealPlanTab() {
   }, [updateMealImage]);
 
   useEffect(() => {
-    updateEntryStatusRef.current = updateEntryStatus;
-  }, [updateEntryStatus]);
-
-  useEffect(() => {
     updateHistoryRecipeImageRef.current = updateHistoryRecipeImage;
   }, [updateHistoryRecipeImage]);
 
   useEffect(() => {
     if (!user || !readPendingMealPlanGenerationIds().length) return;
+    if (historyLoading) {
+      setLoading(true);
+      return;
+    }
     let lastReloadAt = 0;
 
     const recoverPendingMealPlan = () => {
       const pendingEntries = readPendingMealPlanGenerationEntries();
-      const pendingIds = pendingEntries.map((entry) => entry.id);
-      if (!pendingIds.length) {
+      if (!pendingEntries.length) {
         setLoading(false);
         return;
       }
       const now = Date.now();
-      const expiredIds = pendingEntries
-        .filter((entry) => now - entry.startedAt > MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS)
-        .map((entry) => entry.id);
-      if (expiredIds.length) {
-        expiredIds.forEach((id) => {
-          void updateEntryStatusRef.current(
-            id,
-            "failed",
-            "Meal plan generation timed out before it finished. Please try again."
-          ).catch(() => undefined);
-          forgetPendingMealPlanGeneration(id);
-        });
+      const recovery = classifyPendingMealPlanEntries({
+        history: historyItems,
+        now,
+        pending: pendingEntries,
+        staleAfterMs: MEAL_PLAN_PENDING_RECOVERY_TIMEOUT_MS
+      });
+      [...recovery.completedIds, ...recovery.failedIds].forEach(forgetPendingMealPlanGeneration);
+      if (recovery.completedIds.length) {
         void reloadMealPlan();
+      }
+      if (recovery.staleUnconfirmedIds.length) {
+        recovery.staleUnconfirmedIds.forEach(forgetPendingMealPlanGeneration);
+        setError("Meal plan completion could not be confirmed. Reopen this tab to load any server-saved result.");
+        void reloadMealPlan();
+      }
+      if (recovery.completedIds.length || recovery.failedIds.length || recovery.staleUnconfirmedIds.length) {
         setLoading(readPendingMealPlanGenerationIds().length > 0);
         return;
       }
@@ -312,7 +333,7 @@ export function MealPlanTab() {
       window.removeEventListener("focus", recoverPendingMealPlan);
       document.removeEventListener("visibilitychange", recoverPendingMealPlan);
     };
-  }, [reloadMealPlan, user]);
+  }, [historyItems, historyLoading, reloadMealPlan, setError, user]);
 
   useEffect(() => {
     const pendingIds = readPendingMealPlanGenerationIds();
@@ -333,7 +354,8 @@ export function MealPlanTab() {
   }, [historyItems, reloadMealPlan]);
 
   const persistMealPlanRecipes = useCallback(async (nextMealPlan: NonNullable<typeof mealPlan>) => {
-    if (!user || !hasGeneratedImageAccess) return;
+    const effectiveActionGrantId = nextMealPlan.imageActionGrantId ?? aiActionGrantId;
+    if (!user || (!hasNativeGeneratedImageAccess && !effectiveActionGrantId)) return;
 
     try {
       await fetch("/api/mealplan/cache", {
@@ -341,15 +363,28 @@ export function MealPlanTab() {
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
         body: JSON.stringify({
           allergens: health.allergens ?? [],
+          actionGrantId: effectiveActionGrantId,
+          conditions: health.conditions,
           diets: health.diets,
           mealPlan: nextMealPlan,
+          preferredCuisine: settings.preferredCuisine,
           uiLanguage: settings.uiLanguage
         })
       });
     } catch {
       // Recipe-cache persistence is a background convenience; the user plan is already saved.
     }
-  }, [getAuthHeaders, hasGeneratedImageAccess, health.allergens, health.diets, settings.uiLanguage, user]);
+  }, [
+    getAuthHeaders,
+    aiActionGrantId,
+    hasNativeGeneratedImageAccess,
+    health.allergens,
+    health.conditions,
+    health.diets,
+    settings.preferredCuisine,
+    settings.uiLanguage,
+    user
+  ]);
 
   const resolveMealPlanImages = useCallback(async () => {
     void mealPlanImagePlanKey;
@@ -364,19 +399,36 @@ export function MealPlanTab() {
     const slots = buildMealPlanImageSlots(currentMealPlan.plan);
     const recoverableFailedKeys = imageErrorSlotsRef.current;
     const slotsNeedingLookup = slots.filter(
-      (slot) => !hasStrictRenderableImage(slot.meal.image_url, hasGeneratedImageAccess) && !recoverableFailedKeys.has(slot.key)
+      (slot) =>
+        (!hasStrictRenderableImage(slot.meal.image_url, hasGeneratedImageAccess) ||
+          !isMealPlanImageIdentityCompatible(slot.meal, slot.meal.image_url)) &&
+        !recoverableFailedKeys.has(slot.key)
     );
     if (!slotsNeedingLookup.length) {
       setImageLoadingSlots(new Set());
       return;
     }
 
-    const usedImageUrls = new Set(
-      slots
-        .map((slot) => slot.meal.image_url)
-        .filter((imageUrl): imageUrl is string => hasStrictRenderableImage(imageUrl, hasGeneratedImageAccess))
-    );
+    const imageIdentityByUrl = new Map<string, string>();
+    slots.forEach((slot) => {
+      if (hasStrictRenderableImage(slot.meal.image_url, hasGeneratedImageAccess) &&
+          isMealPlanImageIdentityCompatible(slot.meal, slot.meal.image_url)) {
+        imageIdentityByUrl.set(slot.meal.image_url, getMealPlanPhotoIdentityKey(slot.meal));
+      }
+    });
+    const usedImageUrls = new Set(imageIdentityByUrl.keys());
+    const canAssignImage = (slot: MealPlanImageSlot, imageUrl: string) => {
+      if (!isMealPlanImageIdentityCompatible(slot.meal, imageUrl)) return false;
+      const existingIdentity = imageIdentityByUrl.get(imageUrl);
+      return !existingIdentity || existingIdentity === getMealPlanPhotoIdentityKey(slot.meal);
+    };
     const pendingPremiumKeys = new Set(slotsNeedingLookup.map((slot) => slot.key));
+    setImageLoadingSlots(new Set(pendingPremiumKeys));
+    setImageErrorSlots((current) => {
+      const next = new Set(current);
+      pendingPremiumKeys.forEach((key) => next.delete(key));
+      return next;
+    });
     let latestMealPlanForRecipeCache = currentMealPlan;
     let resolvedImageCount = 0;
     const slotByKey = new Map(slotsNeedingLookup.map((slot) => [slot.key, slot]));
@@ -385,19 +437,24 @@ export function MealPlanTab() {
       const response = await fetch("/api/recipe-photo/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+        signal: AbortSignal.timeout(MEAL_PLAN_IMAGE_CACHE_TIMEOUT_MS),
         body: JSON.stringify({
           items: lookupSlots.map((slot) => {
             const queries = buildMealPlanPhotoQuery(slot.meal);
             const identityParams = buildMealPlanPhotoIdentityParams(slot.meal);
             return {
               alt: queries.slice(1),
+              actionGrant: aiActionGrantId,
               cacheOnly: true,
               cuisine: slot.meal.cuisine,
+              diet: health.diets,
               exact: buildMealPlanPhotoExactNames(slot.meal),
               exclude: Array.from(usedImageUrls),
               ingredient: buildEnglishMealIngredients(slot.meal.ingredients).slice(0, 10),
               query: queries[0] ?? slot.meal.name,
               queryKey: slot.key,
+              sourceRecipeId: slot.meal.source_recipe_id,
+              strictIdentity: true,
               ...identityParams
             };
           })
@@ -416,12 +473,16 @@ export function MealPlanTab() {
           Array.from(usedImageUrls),
           {
             cuisine: slot.meal.cuisine,
+            diets: health.diets,
             exactNames: buildMealPlanPhotoExactNames(slot.meal),
-            identity: buildMealPlanPhotoIdentityParams(slot.meal)
+            identity: buildMealPlanPhotoIdentityParams(slot.meal),
+            sourceRecipeId: slot.meal.source_recipe_id,
+            actionGrantId: aiActionGrantId
           }
         ),
         {
-          headers: await getAuthHeaders()
+          headers: await getAuthHeaders(),
+          signal: AbortSignal.timeout(MEAL_PLAN_IMAGE_GENERATION_TIMEOUT_MS)
         }
       );
       const data = (await response.json().catch(() => null)) as MealPhotoLookupResponse | null;
@@ -442,7 +503,9 @@ export function MealPlanTab() {
         imageUrl: string;
       }
     ) => {
+      if (!canAssignImage(slot, data.imageUrl)) return;
       usedImageUrls.add(data.imageUrl);
+      imageIdentityByUrl.set(data.imageUrl, getMealPlanPhotoIdentityKey(slot.meal));
       latestMealPlanForRecipeCache = applyMealImageToMealPlan(latestMealPlanForRecipeCache, slot, data);
       resolvedImageCount += 1;
       await updateMealImageRef.current(slot.dayIndex, slot.mealType, data.imageUrl, data.imageSource, {
@@ -477,7 +540,8 @@ export function MealPlanTab() {
       const response = await fetch("/api/mealplan/images", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-        body: JSON.stringify({ mealPlan: currentMealPlan })
+        signal: AbortSignal.timeout(MEAL_PLAN_IMAGE_RESTORE_TIMEOUT_MS),
+        body: JSON.stringify({ diets: health.diets, mealPlan: currentMealPlan })
       });
       const restore = (await response.json().catch(() => ({ images: [] }))) as MealPhotoRestoreResponse;
       const restoredMatches = [];
@@ -485,7 +549,8 @@ export function MealPlanTab() {
       for (const image of restore.images ?? []) {
         const key = buildMealPlanImageSlotKey(image.dayIndex, image.mealType);
         const slot = slotByKey.get(key);
-        if (!slot || !pendingPremiumKeys.has(key) || !hasStrictRenderableImage(image.imageUrl, true)) continue;
+        if (!slot || !pendingPremiumKeys.has(key) || !hasStrictRenderableImage(image.imageUrl, true) ||
+            !canAssignImage(slot, image.imageUrl)) continue;
 
         pendingPremiumKeys.delete(key);
         restoredMatches.push({ image, slot });
@@ -511,130 +576,74 @@ export function MealPlanTab() {
     setImageErrorSlots(new Set());
     setImageLoadingSlots(new Set(Array.from(pendingPremiumKeys)));
 
-    for (let round = 0; round <= PREMIUM_REPLICATE_REQUEUE_ROUNDS && pendingPremiumKeys.size > 0; round += 1) {
-      if (round > 0) {
-        await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_REQUEUE_DELAY_MS));
+    const lookupSlots = slotsNeedingLookup.filter((entry) => pendingPremiumKeys.has(entry.key));
+    const batch: MealPhotoBatchResponse = await resolveCachedMealPhotosBatch(lookupSlots).catch(
+      (): MealPhotoBatchResponse => ({ results: {} })
+    );
+    const batchResults: Record<string, MealPhotoLookupResponse> = batch.results ?? {};
+    const resolvedMatches: Array<{ data: MealPhotoLookupResponse & { imageUrl: string }; slot: MealPlanImageSlot }> = [];
+
+    for (const slot of lookupSlots) {
+      const data = batchResults[slot.key];
+      if (data?.ok && hasStrictRenderableImage(data.imageUrl, true) && canAssignImage(slot, data.imageUrl)) {
+        pendingPremiumKeys.delete(slot.key);
+        resolvedMatches.push({ data: { ...data, imageUrl: data.imageUrl }, slot });
       }
-      if (requestVersion !== mealPlanImageRequestVersionRef.current) return;
+    }
 
-      const lookupSlots = slotsNeedingLookup.filter((entry) => pendingPremiumKeys.has(entry.key));
-      const isLastRound = round === PREMIUM_REPLICATE_REQUEUE_ROUNDS;
-      const batch: MealPhotoBatchResponse = round === 0
-        ? await resolveCachedMealPhotosBatch(lookupSlots).catch(
-            (): MealPhotoBatchResponse => ({ results: {} })
-          )
-        : { results: {} };
-      const batchResults: Record<string, MealPhotoLookupResponse> = batch.results ?? {};
+    await runWithConcurrency(resolvedMatches, MEAL_PLAN_IMAGE_APPLY_CONCURRENCY, async ({ data, slot }) => {
+      await applyResolvedMealImage(slot, data);
+    });
 
-      const resolvedMatches: Array<{ data: MealPhotoLookupResponse & { imageUrl: string }; slot: MealPlanImageSlot }> = [];
-      for (const slot of lookupSlots) {
-        const data = batchResults[slot.key];
-        if (data?.ok && hasStrictRenderableImage(data.imageUrl, true) && !usedImageUrls.has(data.imageUrl)) {
-          pendingPremiumKeys.delete(slot.key);
-          resolvedMatches.push({ data: { ...data, imageUrl: data.imageUrl }, slot });
-        }
-      }
+    const unresolvedGroups = new Map<string, MealPlanImageSlot[]>();
+    lookupSlots.filter((slot) => pendingPremiumKeys.has(slot.key)).forEach((slot) => {
+      const identityKey = getMealPlanPhotoIdentityKey(slot.meal);
+      unresolvedGroups.set(identityKey, [...(unresolvedGroups.get(identityKey) ?? []), slot]);
+    });
 
-      await runWithConcurrency(resolvedMatches, MEAL_PLAN_IMAGE_APPLY_CONCURRENCY, async ({ data, slot }) => {
-        await applyResolvedMealImage(slot, data);
-      });
-
-      const generationSlots = lookupSlots.filter((slot) => pendingPremiumKeys.has(slot.key));
-      await runWithConcurrency(generationSlots, MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY, async (slot) => {
+    await runWithConcurrency(
+      Array.from(unresolvedGroups.values()),
+      MEAL_PLAN_REPLICATE_IMAGE_CONCURRENCY,
+      async (identitySlots) => {
         if (requestVersion !== mealPlanImageRequestVersionRef.current) return;
-        const result = await resolveGeneratedMealPhoto(slot).catch(() => ({
+        const representative = identitySlots[0];
+        const result = await resolveGeneratedMealPhoto(representative).catch(() => ({
           data: null,
           ok: false,
           retryAfterSeconds: 0,
           status: 503
         }));
-        if (
-          result.ok &&
-          result.data &&
-          hasStrictRenderableImage(result.data.imageUrl, true) &&
-          !usedImageUrls.has(result.data.imageUrl)
-        ) {
-          pendingPremiumKeys.delete(slot.key);
-          await applyResolvedMealImage(slot, { ...result.data, imageUrl: result.data.imageUrl });
+        const imageUrl = result.data?.imageUrl;
+        if (result.ok && result.data && hasStrictRenderableImage(imageUrl, true) && canAssignImage(representative, imageUrl)) {
+          for (const slot of identitySlots) {
+            pendingPremiumKeys.delete(slot.key);
+            await applyResolvedMealImage(slot, { ...result.data, imageUrl });
+          }
           return;
         }
 
-        if (isLastRound) {
-          setImageLoadingSlots((current) => new Set([...Array.from(current), slot.key]));
-          setImageErrorSlots((current) => {
-            const next = new Set(current);
-            next.delete(slot.key);
-            return next;
-          });
-        }
-      });
-
-      if (requestVersion !== mealPlanImageRequestVersionRef.current) return;
-      await new Promise((resolve) => setTimeout(resolve, PREMIUM_REPLICATE_LOOKUP_DELAY_MS));
-    }
+        identitySlots.forEach((slot) => pendingPremiumKeys.delete(slot.key));
+        setImageLoadingSlots((current) => {
+          const next = new Set(current);
+          identitySlots.forEach((slot) => next.delete(slot.key));
+          return next;
+        });
+        setImageErrorSlots((current) => {
+          const next = new Set(current);
+          identitySlots.forEach((slot) => next.add(slot.key));
+          return next;
+        });
+      }
+    );
 
     if (resolvedImageCount > 0) {
       void persistMealPlanRecipes(latestMealPlanForRecipeCache);
     }
-  }, [getAuthHeaders, hasGeneratedImageAccess, mealPlanImagePlanKey, persistMealPlanRecipes, user]);
+  }, [aiActionGrantId, getAuthHeaders, hasGeneratedImageAccess, health.diets, mealPlanImagePlanKey, persistMealPlanRecipes, user]);
 
   useEffect(() => {
     void resolveMealPlanImages();
   }, [resolveMealPlanImages]);
-
-  const missingPremiumMealImages = useMemo(() => {
-    if (!mealPlan) return 0;
-    return buildMealPlanImageSlots(mealPlan.plan).filter(
-      (slot) => !hasStrictRenderableImage(slot.meal.image_url, hasGeneratedImageAccess)
-    ).length;
-  }, [hasGeneratedImageAccess, mealPlan]);
-
-  useEffect(() => {
-    if (!hasGeneratedImageAccess || savedPlanLoading || !missingPremiumMealImages) return;
-    const interval = globalThis.setInterval(() => {
-      void resolveMealPlanImages();
-    }, MEAL_PLAN_PREMIUM_IMAGE_REPAIR_INTERVAL_MS);
-    return () => globalThis.clearInterval(interval);
-  }, [hasGeneratedImageAccess, missingPremiumMealImages, resolveMealPlanImages, savedPlanLoading]);
-
-  if (!isPremiumFeatureUnlocked) {
-    return (
-      <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
-        <SectionHero
-          title={t("mealPlanTitle")}
-          description={t("mealPlanDesc")}
-          eyebrow={t("weeklyNutritionRhythm")}
-          chips={[t("balancedChip"), t("pantryAwareChip"), t("visualChip")]}
-          icon={<CalendarDays className="h-6 w-6" />}
-          stats={[
-            { label: t("planStatus"), value: t("premiumRequired") },
-            { label: t("shoppingStat"), value: t("premiumRequired") },
-            { label: t("accessStat"), value: t("premiumRequired") }
-          ]}
-          aside={
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{t("planningLane")}</p>
-              <p className="text-sm leading-relaxed text-emerald-50/72">{t("mealPlanAside")}</p>
-            </div>
-          }
-        />
-        <motion.div variants={itemVariants}>
-          <Card className="rounded-[1.6rem] border-amber-200/18 bg-amber-400/10 p-5 sm:rounded-[2rem] sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="max-w-2xl space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">{t("premiumRequired")}</p>
-                <h2 className="font-display text-2xl font-bold text-white">{t("mealPlanTitle")}</h2>
-                <p className="text-sm leading-relaxed text-amber-50/86">{t("freeMealPlanNotice")}</p>
-              </div>
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-amber-100/20 bg-amber-200/12 text-amber-100">
-                <Lock className="h-5 w-5" aria-hidden="true" />
-              </div>
-            </div>
-          </Card>
-        </motion.div>
-      </motion.div>
-    );
-  }
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6">
@@ -651,7 +660,7 @@ export function MealPlanTab() {
             label: t("accessStat"),
             value: access.tier === "premium"
               ? t("premiumStatus")
-              : t("premiumRequired")
+              : `${access.aiCreditsRemaining}/${access.aiCreditsLimit}`
           }
         ]}
         aside={
@@ -731,7 +740,7 @@ export function MealPlanTab() {
             {access.tier !== "premium" ? (
               <div className="flex gap-3 rounded-[1.35rem] border border-amber-200/16 bg-amber-400/10 px-4 py-3 text-sm text-amber-50/88">
                 <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-100" aria-hidden="true" />
-                <span>{t("freeMealPlanNotice")}</span>
+                <span>{t("freeMealPlanNotice")} {access.aiCreditsRemaining}/{access.aiCreditsLimit}</span>
               </div>
             ) : (
               <div className="rounded-[1.35rem] border border-emerald-200/16 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50/88">
@@ -739,7 +748,7 @@ export function MealPlanTab() {
               </div>
             )}
             <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan}>
-              {!canGenerateMealPlan ? t("premiumRequired") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+              {!canGenerateMealPlan ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
             </Button>
           </div>
         </Card>
@@ -776,6 +785,7 @@ export function MealPlanTab() {
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
+                    imageDiets={health.diets}
                     pantryKeys={pantryKeys}
                     strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
@@ -816,6 +826,7 @@ export function MealPlanTab() {
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
+                    imageDiets={health.diets}
                     pantryKeys={pantryKeys}
                     strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
@@ -856,6 +867,7 @@ export function MealPlanTab() {
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
                     imageLoading={imageLoadingSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
+                    imageDiets={health.diets}
                     pantryKeys={pantryKeys}
                     strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
@@ -923,6 +935,7 @@ export function MealPlanTab() {
 function MealPlanRevealCard({
   deferImageLookup,
   disableAutoImageLookup,
+  imageDiets,
   imageError,
   imageLoading,
   title,
@@ -934,6 +947,7 @@ function MealPlanRevealCard({
 }: {
   deferImageLookup?: boolean;
   disableAutoImageLookup?: boolean;
+  imageDiets?: string[];
   imageError?: boolean;
   imageLoading?: boolean;
   title: string;
@@ -970,8 +984,10 @@ function MealPlanRevealCard({
       summary={buildMealSummary(ingredients, haveIngredients, needIngredients, t)}
       previewLabel={t("pantryNutritionPreview")}
       previewItems={[...haveIngredients, ...needIngredients].slice(0, 5)}
-      imageUrl={hasStrictRenderableImage(meal.image_url, Boolean(strictGeneratedImages)) ? meal.image_url : undefined}
-      imageSource={meal.image_source}
+      imageUrl={hasStrictRenderableImage(meal.image_url, Boolean(strictGeneratedImages)) &&
+        isMealPlanImageIdentityCompatible(meal, meal.image_url) ? meal.image_url : undefined}
+      imageSource={isMealPlanImageIdentityCompatible(meal, meal.image_url) ? meal.image_source : undefined}
+      trustProvidedImage
       imageAttributionName={meal.image_attribution_name}
       imageAttributionUrl={meal.image_attribution_url}
       imageError={imageError}
@@ -979,10 +995,13 @@ function MealPlanRevealCard({
       imageQuery={buildMealPlanPhotoQuery(meal)}
       imageExactNames={buildMealPlanPhotoExactNames(meal)}
       imageCuisine={meal.cuisine}
+      imageDiets={imageDiets}
+      imagePhotoIdentity={meal.photo_identity}
       imagePromptIngredients={buildEnglishMealIngredients(meal.ingredients).slice(0, 10)}
       deferImageLookup={deferImageLookup}
       disableAutoImageLookup={disableAutoImageLookup}
       onImageResolved={onImageResolved}
+      recipeSource={meal.recipe_source_type ?? (meal.source_recipe_id ? "local_database" : "generated")}
       stats={[
         { label: "kcal", value: meal.calories },
         { label: "protein", value: meal.protein },
@@ -1214,8 +1233,7 @@ function buildMealPlanPhotoExactNames(meal: MealPlanMeal) {
         meal.name,
         identityEnglishName,
         englishMealName,
-        meal.image_search_index,
-        ...(meal.image_search_indices ?? [])
+        meal.photo_identity?.dish_slug
       ]
         .map(normalizeMealPlanPhotoParam)
         .filter((value): value is string => Boolean(value))
@@ -1254,9 +1272,20 @@ function buildMealPlanRecipePhotoRequestUrl(
   queries: string[],
   ingredients: string[] = [],
   excludeUrls: string[] = [],
-  exactContext: { cuisine?: string; exactNames?: string[]; identity?: MealPlanPhotoIdentityParams } = {}
+  exactContext: {
+    cuisine?: string;
+    diets?: string[];
+    exactNames?: string[];
+    identity?: MealPlanPhotoIdentityParams;
+    sourceRecipeId?: string;
+    actionGrantId?: string;
+  } = {}
 ) {
   const params = new URLSearchParams();
+  params.set("strictIdentity", "1");
+  if (exactContext.actionGrantId) {
+    params.set("actionGrant", exactContext.actionGrantId);
+  }
   queries.forEach((query, index) => {
     if (index === 0) {
       params.set("query", query);
@@ -1274,6 +1303,11 @@ function buildMealPlanRecipePhotoRequestUrl(
     .filter(Boolean)
     .slice(0, 8)
     .forEach((name) => params.append("exact", name));
+  exactContext.diets
+    ?.map(normalizeMealPlanPhotoParam)
+    .filter(Boolean)
+    .slice(0, 8)
+    .forEach((diet) => params.append("diet", diet));
   const cuisine = normalizeMealPlanPhotoParam(exactContext.cuisine);
   if (cuisine) {
     params.set("cuisine", cuisine);
@@ -1287,6 +1321,8 @@ function buildMealPlanRecipePhotoRequestUrl(
     if (photoSauce) params.set("photoSauce", photoSauce);
     if (photoMethod) params.set("photoMethod", photoMethod);
   }
+  const sourceRecipeId = normalizeMealPlanPhotoParam(exactContext.sourceRecipeId);
+  if (sourceRecipeId) params.set("sourceRecipeId", sourceRecipeId);
   excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));
   return `/api/recipe-photo?${params.toString()}`;
 }

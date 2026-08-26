@@ -5,7 +5,10 @@ import {
   classifyRecipeContentQuality,
   selectDiscoverableRecipeCatalog
 } from "../services/recipeContentQualityService";
-import { isDiscoverableRecipeReferenceDoc } from "../data/offline/firestoreRecipeReferenceCatalog";
+import {
+  isDiscoverableRecipeReferenceDoc,
+  mapReferenceDocToCatalogDoc
+} from "../data/offline/firestoreRecipeReferenceCatalog";
 import type { RecipeReferenceDoc } from "../lib/recipeReferenceTypes";
 
 function recipe(overrides: Partial<RecipeCatalogDoc> = {}): RecipeCatalogDoc {
@@ -75,6 +78,13 @@ describe("recipe content quality policy", () => {
 
     expect(result.status).toBe("golden");
     expect(result.eligibleForDiscovery).toBe(true);
+  });
+
+  it("blocks source-backed non-food formulas", () => {
+    const result = classifyRecipeContentQuality(recipe({ title: "Play Doh" }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.reasons).toContain("non_food_recipe");
   });
 
   it("keeps cuisine catalog dish definitions out of recipe discovery", () => {
@@ -211,5 +221,66 @@ describe("recipe content quality policy", () => {
       id: "recipenlg-missing-amounts",
       ingredients: ["chicken breast", "yogurt", "onion", "bell pepper", "garlic"]
     })).toBe(false);
+  });
+
+  it("does not turn reference aliases into extra recipe ingredients", () => {
+    const reference = {
+      id: "recipenlg-pasta-salad",
+      title: "Greek-Style Pasta Salad",
+      ingredients: [
+        "8 oz. penne or other tubular pasta",
+        "3 medium tomatoes, diced",
+        "1 cucumber, chopped"
+      ],
+      ingredientCanonicals: [
+        "penne or other tubular pasta",
+        "pasta",
+        "macaroni",
+        "spaghetti",
+        "tomato",
+        "tomatos",
+        "cucumber",
+        "cucumbers"
+      ],
+      mainIngredients: ["pasta", "macaroni", "spaghetti", "tomato"],
+      directions: [
+        "Boil the pasta in a large pot for 10 minutes until tender, then drain it well.",
+        "Dice the tomatoes and chop the cucumber into even bite-size pieces.",
+        "Mix the pasta, tomatoes, and cucumber in a bowl and serve chilled."
+      ],
+      cuisine: "Mediterranean",
+      mealType: "lunch",
+      cookingMethod: "boiled",
+      difficulty: "easy",
+      techniques: ["boiling"],
+      tags: ["salad"],
+      commonAllergens: ["wheat"],
+      publishStatus: "ready",
+      searchTokens: ["pasta", "macaroni", "spaghetti", "tomato"],
+      source: { provider: "recipenlg", url: "https://example.com/pasta-salad" },
+      qualityScore: 90,
+      createdAt: 0,
+      updatedAt: 0
+    } as RecipeReferenceDoc;
+
+    const mapped = mapReferenceDocToCatalogDoc(reference);
+
+    expect(mapped.ingredientCanonicals).toEqual([
+      "penne or other tubular pasta",
+      "tomato",
+      "cucumber"
+    ]);
+    expect(mapped.ingredientLookupCanonicals).toEqual(expect.arrayContaining([
+      "penne or other tubular pasta",
+      "pasta",
+      "macaroni",
+      "spaghetti",
+      "tomato",
+      "cucumber"
+    ]));
+    expect(mapped.requiredCanonicals).toEqual([
+      "penne or other tubular pasta",
+      "tomato"
+    ]);
   });
 });

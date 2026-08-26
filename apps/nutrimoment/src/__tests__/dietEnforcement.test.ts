@@ -286,6 +286,46 @@ describe("diet enforcement", () => {
     expect(findRecipeDietViolation(adapted, ctx)).toBeNull();
   });
 
+  it("does not duplicate or leave broken named-cheese fragments in vegan substitutions", () => {
+    const ctx = { diets: ["vegan"], allergens: [] };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Pasta alla Norma",
+      ingredients: ["1/2 cup parmesan cheese", "1/2 cup ricotta salata"],
+      steps: ["Top with parmesan cheese and ricotta salata before serving."]
+    }, ctx);
+
+    expect(adapted.ingredients).toEqual([
+      "1/2 cup dairy-free cheese",
+      "1/2 cup plant-based ricotta alternative"
+    ]);
+    expect(adapted.steps[0]).not.toMatch(/dairy-free cheese dairy-free cheese|dairy-free cheese salata/i);
+  });
+
+  it("converts counted eggs into a measurable flax slurry without egg grammar", () => {
+    const ctx = { diets: ["vegan"], allergens: [] };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Breaded Eggplant",
+      ingredients: ["2 large eggs, beaten"],
+      steps: ["Dip each slice into 2 beaten eggs before breading."]
+    }, ctx);
+
+    expect(adapted.ingredients).toEqual(["2 tbsp ground flaxseed mixed with 5 tbsp water"]);
+    expect(adapted.steps[0]).toContain("2 tbsp ground flaxseed mixed with 5 tbsp water");
+    expect(adapted.steps[0]).not.toMatch(/egg|beaten ground flaxseed/i);
+  });
+
+  it("removes cured pork and pecorino from vegan source text", () => {
+    const ctx = { diets: ["vegan"], allergens: [] };
+    const adapted = adaptRecipeForDietRestrictions({
+      name: "Spaghetti Carbonara",
+      ingredients: ["4 oz guanciale or pancetta", "1/2 cup Pecorino Romano"],
+      steps: ["Crisp the guanciale or pancetta, then add Pecorino Romano."]
+    }, ctx);
+
+    expect(adapted.ingredients.join(" ")).not.toMatch(/guanciale|pancetta|pecorino/i);
+    expect(findRecipeDietViolation(adapted, ctx)).toBeNull();
+  });
+
   it("preserves a named dairy dish identity while veganizing its ingredients", () => {
     const ctx = { diets: ["vegan"], allergens: [] };
     const adapted = adaptRecipeForDietRestrictions({

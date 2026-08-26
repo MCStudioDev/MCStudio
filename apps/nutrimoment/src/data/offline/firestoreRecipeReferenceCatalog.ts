@@ -2,7 +2,10 @@ import { getAdminDb, hasFirebaseAdminConfig } from "@/lib/firebaseAdmin";
 import type { CalorieBand, Difficulty, MealType, RecipeCatalogDoc } from "@/lib/domain";
 import { logger } from "@/lib/logger";
 import type { RecipeReferenceDoc } from "@/lib/recipeReferenceTypes";
-import { normalizeRecipeReferenceIngredient } from "@/lib/recipeReferenceNormalization";
+import {
+  expandRecipeReferenceIngredient,
+  normalizeRecipeReferenceIngredient
+} from "@/lib/recipeReferenceNormalization";
 import { withTimeout } from "@/lib/utils";
 import type { IngredientNormalizationResult } from "@/services/ingredientNormalizationService";
 import {
@@ -86,8 +89,25 @@ function buildReferenceDatasetQueryTerms(normalized: IngredientNormalizationResu
 }
 
 export function mapReferenceDocToCatalogDoc(recipe: RecipeReferenceDoc): RecipeCatalogDoc {
-  const ingredientCanonicals = normalizeCanonicals(recipe.ingredientCanonicals?.length ? recipe.ingredientCanonicals : recipe.ingredients);
-  const requiredCanonicals = normalizeCanonicals(recipe.mainIngredients?.length ? recipe.mainIngredients : ingredientCanonicals.slice(0, 3));
+  // Reference lookup fields intentionally contain aliases. A recipe card must
+  // keep one canonical per authored ingredient instead of treating every alias
+  // as another ingredient the user needs.
+  const ingredientCanonicals = normalizeCanonicals(
+    recipe.ingredients?.length ? recipe.ingredients : recipe.ingredientCanonicals
+  );
+  const ingredientLookupCanonicals = normalizeCanonicals([
+    ...ingredientCanonicals,
+    ...(recipe.ingredientCanonicals ?? [])
+  ]);
+  const mainIngredientSignals = new Set(
+    (recipe.mainIngredients ?? []).flatMap(expandRecipeReferenceIngredient)
+  );
+  const matchedRequiredCanonicals = ingredientCanonicals.filter((canonical) =>
+    expandRecipeReferenceIngredient(canonical).some((signal) => mainIngredientSignals.has(signal))
+  );
+  const requiredCanonicals = matchedRequiredCanonicals.length
+    ? matchedRequiredCanonicals
+    : ingredientCanonicals.slice(0, 3);
   const optionalCanonicals = ingredientCanonicals.filter((ingredient) => !requiredCanonicals.includes(ingredient));
   const steps = recipe.directions.map((step) => step.trim()).filter(Boolean).slice(0, 12);
   const title = recipe.title.trim();
@@ -106,6 +126,7 @@ export function mapReferenceDocToCatalogDoc(recipe: RecipeReferenceDoc): RecipeC
       required: requiredCanonicals.includes(canonical)
     })),
     ingredientCanonicals,
+    ingredientLookupCanonicals,
     requiredCanonicals,
     optionalCanonicals,
     dietTags: inferDietTags(ingredientCanonicals),

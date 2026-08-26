@@ -22,7 +22,6 @@ export interface KnownDishDefinition {
   aliases: RegExp[];
   canonicalName: string;
   cuisineKey?: string;
-  imageUrl?: string;
   key: string;
 }
 
@@ -53,6 +52,8 @@ const TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bkposhary\b/gi, "koshary"],
   [/\bkoshari\b/gi, "koshary"],
   [/\bkushari\b/gi, "koshary"],
+  [/\bfrakh\b/gi, "farakh"],
+  [/\bfarkh\b/gi, "farakh"],
   [/\bborghol\b/gi, "bulgur"],
   [/\bburghul\b/gi, "bulgur"],
   [/\bburghol\b/gi, "bulgur"],
@@ -206,8 +207,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     aliases: [/\b(kafta|kofta|kofte|kefta|kufta)\b/i, /\u0643\u0641\u062a(?:\u0629|\u0647)/iu],
     canonicalName: "kafta kebab",
     cuisineKey: "middle-eastern",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/Oriental_food_including_beef_kabab%2C_shish_tawoook%2C_and_kafta_kabab_%28Orlando%29_May_2023.jpg/960px-Oriental_food_including_beef_kabab%2C_shish_tawoook%2C_and_kafta_kabab_%28Orlando%29_May_2023.jpg",
     key: "kafta"
   },
   {
@@ -358,16 +357,22 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     key: "roast-chicken"
   },
   {
-    aliases: [/\bbutter chicken\b/i],
-    canonicalName: "butter chicken",
-    cuisineKey: "indian",
-    key: "butter-chicken"
-  },
-  {
     aliases: [/\b(garlic butter chicken|garlic-butter chicken|lemon garlic butter chicken)\b/i],
     canonicalName: "garlic butter chicken",
     cuisineKey: "american",
     key: "garlic-butter-chicken"
+  },
+  {
+    aliases: [/\b(lemon butter chicken|lemon-butter chicken)\b/i],
+    canonicalName: "lemon butter chicken",
+    cuisineKey: "american",
+    key: "lemon-butter-chicken"
+  },
+  {
+    aliases: [/\bbutter chicken\b/i],
+    canonicalName: "butter chicken",
+    cuisineKey: "indian",
+    key: "butter-chicken"
   },
   {
     aliases: [/\bkung pao chicken\b/i],
@@ -1087,24 +1092,18 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     aliases: [/\b(koshary|koshari|kushari)\b/i],
     canonicalName: "koshary",
     cuisineKey: "egyptian",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
     key: "koshary"
   },
   {
     aliases: [/\b(roz bel ads|ruz bel ads|rice with lentils|lentils and rice)\b/i],
     canonicalName: "mujadara",
     cuisineKey: "middle-eastern",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Mujaddara.jpg/960px-Mujaddara.jpg",
     key: "mujadara"
   },
   {
     aliases: [/\b(macarona bel ads|macarona bel adas|pasta and lentils)\b/i],
     canonicalName: "koshary",
     cuisineKey: "egyptian",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Egyptian_food_Koshary.jpg/960px-Egyptian_food_Koshary.jpg",
     key: "koshary"
   },
   {
@@ -1981,7 +1980,6 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     ],
     canonicalName: "ful medames",
     cuisineKey: "egyptian",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Ful_medames_%28arabic_meal%29.jpg",
     key: "ful-medames"
   },
   {
@@ -2076,15 +2074,12 @@ export const KNOWN_DISHES: KnownDishDefinition[] = [
     aliases: [/\bmujadara\b/i, /\bmujaddara\b/i],
     canonicalName: "mujadara",
     cuisineKey: "middle-eastern",
-    imageUrl:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Mujaddara.jpg/960px-Mujaddara.jpg",
     key: "mujadara"
   },
   {
     aliases: [/\bshakshuka\b/i, new RegExp(ARABIC.shakshuka, "iu")],
     canonicalName: "shakshuka",
     cuisineKey: "middle-eastern",
-    imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Shakshuka%202025.jpg",
     key: "shakshuka"
   },
   {
@@ -2347,6 +2342,19 @@ export function normalizeRecipePhotoQuery(query: string) {
     .toLowerCase();
 
   return clean || "food";
+}
+
+export function buildGeneratedRecipePhotoCacheQuery(exactRecipeName: string | undefined, generationQuery: string) {
+  return exactRecipeName?.trim()
+    ? normalizeRecipePhotoQuery(exactRecipeName)
+    : normalizeRecipePhotoQuery(generationQuery);
+}
+
+export function buildGeneratedRecipePhotoStorageSlug(exactRecipeName: string | undefined, fallbackQuery: string) {
+  return buildGeneratedRecipePhotoCacheQuery(exactRecipeName, fallbackQuery)
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, "-")
+    .slice(0, 96);
 }
 
 function findCatalogKnownDish(normalizedQuery: string): KnownDishDefinition | null {

@@ -4,9 +4,9 @@ import { isUsableRealSourceRecipeDoc } from "../data/offline/realSourceRecipeArt
 
 describe("curated trusted recipe catalog", () => {
   it("bundles usable source-linked recipes for production fallback", () => {
-    expect(CURATED_TRUSTED_RECIPE_CATALOG).toHaveLength(15);
+    expect(CURATED_TRUSTED_RECIPE_CATALOG).toHaveLength(16);
     expect(CURATED_TRUSTED_RECIPE_CATALOG.every(isUsableRealSourceRecipeDoc)).toBe(true);
-    expect(new Set(CURATED_TRUSTED_RECIPE_CATALOG.map((recipe) => recipe.title)).size).toBe(15);
+    expect(new Set(CURATED_TRUSTED_RECIPE_CATALOG.map((recipe) => recipe.title)).size).toBe(16);
   });
 
   it("keeps cuisine-specific providers and source URLs", () => {
@@ -14,11 +14,13 @@ describe("curated trusted recipe catalog", () => {
     const turkish = CURATED_TRUSTED_RECIPE_CATALOG.filter((recipe) => recipe.cuisine === "Turkish");
     const middleEastern = CURATED_TRUSTED_RECIPE_CATALOG.filter((recipe) => recipe.cuisine === "Middle Eastern");
     const italian = CURATED_TRUSTED_RECIPE_CATALOG.filter((recipe) => recipe.cuisine === "Italian");
+    const egyptian = CURATED_TRUSTED_RECIPE_CATALOG.filter((recipe) => recipe.cuisine === "Egyptian");
 
     expect(thai).toHaveLength(4);
     expect(turkish).toHaveLength(4);
     expect(middleEastern).toHaveLength(4);
     expect(italian).toHaveLength(3);
+    expect(egyptian).toHaveLength(1);
     expect(thai.every((recipe) =>
       recipe.source?.provider === "hot-thai-kitchen" &&
       recipe.source.url?.startsWith("https://hot-thai-kitchen.com/")
@@ -35,5 +37,12 @@ describe("curated trusted recipe catalog", () => {
       recipe.source?.url?.startsWith("https://") &&
       ["food-network", "giallo-zafferano"].includes(recipe.source.provider)
     )).toBe(true);
+    expect(egyptian[0]).toMatchObject({
+      dietTags: ["vegan", "vegetarian", "dairy-free"],
+      source: {
+        provider: "food-network",
+        url: "https://www.foodnetwork.com/recipes/food-network-kitchen/koshari-18819208"
+      }
+    });
   });
 });

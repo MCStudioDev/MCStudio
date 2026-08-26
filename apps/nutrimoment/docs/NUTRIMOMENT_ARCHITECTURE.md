@@ -17,7 +17,7 @@ Core priorities:
 
 ## 2. Runtime Architecture
 
-The application is a Next.js App Router application hosted on Vercel. Firebase Authentication identifies users; Cloud Firestore stores profiles, entitlements, usage, history, caches, and operational data. Firebase Admin is used only on the server. Gemini edits recipes and performs image-to-text extraction. Replicate supplies premium generated food images. Firestore recipe-photo cache, Pexels, Unsplash, and allow-listed Wikimedia records supply reusable images according to the active image policy.
+The application is a Next.js App Router application hosted on Vercel. Firebase Authentication identifies users; Cloud Firestore stores profiles, entitlements, usage, history, caches, and operational data. Firebase Admin is used only on the server. Gemini edits recipes and performs image-to-text extraction. Replicate supplies generated food images. Validated Replicate images are persisted to Firebase Storage and reused through the V2 shared recipe pool; external photo-search fallbacks are not used.
 
 Main boundaries:
 

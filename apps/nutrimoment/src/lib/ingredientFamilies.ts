@@ -49,6 +49,42 @@ export function expandIngredientFamilies(ingredients: string[]) {
   return Array.from(expanded);
 }
 
+export function buildIngredientLookupCanonicals(ingredients: string[]) {
+  const lookup = new Set(expandIngredientFamilies(ingredients));
+
+  for (const ingredient of ingredients) {
+    const normalized = normalizeFamilyText(ingredient);
+    if (!normalized) continue;
+
+    const protein = extractLandProtein(normalized);
+    const isGenericGroundMeat = normalized === "ground meat" || normalized === "minced meat";
+    const isGroundProtein = Boolean(protein) && /\b(?:ground|minced)\b/.test(normalized);
+    if (isGenericGroundMeat || isGroundProtein) lookup.add("ground meat");
+    if (protein) {
+      lookup.add(protein);
+      lookup.add("meat");
+    } else if (isGenericGroundMeat || normalized === "meat") {
+      lookup.add("meat");
+    }
+  }
+
+  return Array.from(lookup);
+}
+
+export function rebuildIngredientLookupCanonicals(
+  ingredientCanonicals: string[],
+  existingLookupCanonicals: string[] = []
+) {
+  const retainedAliases = existingLookupCanonicals.filter((ingredient) => {
+    const normalized = normalizeFamilyText(ingredient);
+    return normalized !== "meat" && normalized !== "ground meat";
+  });
+  return buildIngredientLookupCanonicals([
+    ...ingredientCanonicals,
+    ...retainedAliases
+  ]);
+}
+
 export function buildRecipeDishFamilyKey(recipe: Pick<Recipe, "name" | "dish_intent" | "image_search_index">) {
   return normalizeFamilyText(
     recipe.dish_intent?.dish_name ||
@@ -95,6 +131,10 @@ function normalizeFamilyText(value: string) {
     .trim();
 
   return isArabicGroundMeat(normalized) ? "ground meat" : normalized;
+}
+
+function extractLandProtein(value: string) {
+  return value.match(/\b(beef|veal|lamb|mutton|goat|pork|chicken|turkey|duck)\b/)?.[1];
 }
 
 function isArabicGroundMeat(value: string) {

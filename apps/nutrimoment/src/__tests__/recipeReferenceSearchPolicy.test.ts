@@ -10,10 +10,26 @@ import {
   recipeMatchesCoreProteinAnchors,
   selectRecipeReferenceCuisineRankingPool,
   shouldContinueRecipeReferenceCandidateSearch,
+  shouldLoadRecipeReferencesForGeneration,
   shouldLoadRecipeReferenceTaxonomyMatches
 } from "../services/recipeReferenceService";
 
 describe("recipe reference search policy", () => {
+  it("keeps exhausted Free requests on the published shared pool", () => {
+    expect(shouldLoadRecipeReferencesForGeneration({
+      hasAiGenerationAccess: false,
+      ingredientCount: 3
+    })).toBe(false);
+    expect(shouldLoadRecipeReferencesForGeneration({
+      hasAiGenerationAccess: true,
+      ingredientCount: 3
+    })).toBe(true);
+    expect(shouldLoadRecipeReferencesForGeneration({
+      hasAiGenerationAccess: true,
+      ingredientCount: 0
+    })).toBe(false);
+  });
+
   it("removes low-signal pantry terms before Firestore queries", () => {
     expect(filterMeaningfulRecipeReferenceQueryTerms([
       "bell pepper",

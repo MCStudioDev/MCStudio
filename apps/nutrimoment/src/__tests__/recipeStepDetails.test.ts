@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ensureDetailedRecipeSteps } from "../lib/recipeStepDetails";
-import type { Recipe } from "../lib/types";
+import { ensureDetailedMealSteps, ensureDetailedRecipeSteps } from "../lib/recipeStepDetails";
+import type { MealPlanMeal, Recipe } from "../lib/types";
 
 describe("recipe step details", () => {
   it("uses long simmer timing for beef stew instead of generic skillet timing", () => {
@@ -60,6 +60,30 @@ describe("recipe step details", () => {
 
     expect(recipe.steps).toEqual(sourceSteps);
     expect(recipe.steps.join(" ")).not.toMatch(/Warm the main pan|2 tbsp water|Add chicken first/i);
+  });
+
+  it("expands short meal-plan instructions to the seven-step recipe contract", () => {
+    const meal = ensureDetailedMealSteps({
+      name: "Chickpea Tomato Stew",
+      cuisine: "Mediterranean",
+      calories: 460,
+      protein: "18g",
+      carbs: "62g",
+      fat: "14g",
+      ingredients: ["1 cup chickpeas", "1 cup tomato", "1 tbsp olive oil"],
+      steps: [
+        "Warm 1 tbsp olive oil for 2 minutes.",
+        "Simmer 1 cup tomato for 8 minutes.",
+        "Add 1 cup chickpeas and cook for 12 minutes."
+      ]
+    } satisfies MealPlanMeal);
+
+    expect(meal.steps).toHaveLength(7);
+    expect(meal.steps?.slice(0, 3)).toEqual([
+      "Warm 1 tbsp olive oil for 2 minutes.",
+      "Simmer 1 cup tomato for 8 minutes.",
+      "Add 1 cup chickpeas and cook for 12 minutes."
+    ]);
   });
 });
 

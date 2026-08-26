@@ -17,6 +17,7 @@ type HistoryDocData = {
   createdAt?: TimestampLike | null;
   generationMessage?: string;
   generationStatus?: HistoryItem["generationStatus"];
+  imageActionGrantId?: string;
   ingredients?: string[];
   recipes?: Recipe[];
   sessionType?: HistoryItem["sessionType"];
@@ -59,6 +60,7 @@ function mapHistoryDoc(id: string, data: HistoryDocData): HistoryItem & { create
     recipes: Array.isArray(data.recipes) ? data.recipes : [],
     generationStatus: data.generationStatus,
     generationMessage: data.generationMessage,
+    imageActionGrantId: data.imageActionGrantId,
     completedAt: data.completedAt,
     createdAt: data.createdAt
   };
@@ -97,6 +99,7 @@ export async function GET(request: Request) {
           recipes: item.recipes,
           generationStatus: item.generationStatus,
           generationMessage: item.generationMessage,
+          imageActionGrantId: item.imageActionGrantId,
           completedAt: item.completedAt
         })
       );

@@ -6,13 +6,27 @@ import { buildRecipePhotoIdentity } from "@/lib/recipePhotoIdentity";
 import { isDurableRecipeImageUrl, isTransientRecipeImageUrl } from "@/lib/recipeImageDurability";
 
 export interface SharedRecipePhotoEntry {
+  canonicalDishKey?: string;
+  dietTags?: string[];
+  familyKey?: string;
   imageAttributionName?: string;
   imageAttributionUrl?: string;
   imageUrl: string;
+  mainIngredientKey?: string;
   model?: string;
   query: string;
   signature: string;
   source: "generated" | "google_search" | "pexels_search" | "unsplash_search" | "wikimedia";
+}
+
+export interface SharedRecipePhotoLookupOptions {
+  excludeImageUrls?: string[];
+  reusableOnly?: boolean;
+}
+
+export interface PersistSharedRecipePhotoOptions {
+  objectPathPrefix?: string;
+  skipCacheDocument?: boolean;
 }
 
 type SharedRecipePhotoCandidate = {
@@ -24,13 +38,8 @@ type SharedRecipePhotoCandidate = {
 
 const COLLECTION_NAME = "recipePhotoCache";
 const CATEGORY_VERSION = 2;
-const APPROXIMATE_CATEGORY_SCAN_LIMIT = 500;
 const SHARED_RECIPE_PHOTO_SOURCES = new Set<SharedRecipePhotoEntry["source"]>([
-  "generated",
-  "google_search",
-  "pexels_search",
-  "unsplash_search",
-  "wikimedia"
+  "generated"
 ]);
 
 export async function getSharedRecipePhoto(signature: string): Promise<SharedRecipePhotoEntry | null> {
@@ -52,8 +61,7 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
     });
     return null;
   }
-  const rawImageUrl = String(data.imageUrl);
-  const imageUrl = normalizeSharedRecipePhotoImageUrl(rawImageUrl);
+  const imageUrl = String(data.imageUrl);
   if (!isRenderableSharedRecipePhotoUrl(imageUrl)) {
     return null;
   }
@@ -72,8 +80,12 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
 
   return {
     imageAttributionName: typeof data.imageAttributionName === "string" ? data.imageAttributionName : undefined,
-    imageAttributionUrl: typeof data.imageAttributionUrl === "string" ? data.imageAttributionUrl : getPexelsPhotoPageUrl(rawImageUrl),
+    imageAttributionUrl: typeof data.imageAttributionUrl === "string" ? data.imageAttributionUrl : undefined,
     imageUrl,
+    canonicalDishKey: typeof data.canonicalDishKey === "string" ? data.canonicalDishKey : undefined,
+    dietTags: Array.isArray(data.dietTags) ? data.dietTags.filter((value: unknown): value is string => typeof value === "string") : undefined,
+    familyKey: typeof data.familyKey === "string" ? data.familyKey : undefined,
+    mainIngredientKey: typeof data.mainIngredientKey === "string" ? data.mainIngredientKey : undefined,
     model: typeof data.model === "string" ? data.model : undefined,
     query: typeof data.query === "string" ? data.query : "",
     signature,
@@ -81,16 +93,25 @@ function mapSharedRecipePhotoData(data: FirebaseFirestore.DocumentData | undefin
   };
 }
 
-export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
+export async function getSharedRecipePhotoBySignatures(
+  signatures: string[],
+  options: SharedRecipePhotoLookupOptions = {}
+) {
   if (!hasFirebaseAdminConfig()) return null;
 
-  const candidates = (
-    await Promise.all(signatures.map(async (signature, index) => {
-      const snapshot = await getAdminDb().collection(COLLECTION_NAME).doc(signature).get();
+  const db = getAdminDb();
+  const lookupSignatures = normalizeCacheLookupCandidates(signatures).slice(0, 16);
+  if (!lookupSignatures.length) return null;
+
+  const snapshots = await db.getAll(
+    ...lookupSignatures.map((signature) => db.collection(COLLECTION_NAME).doc(signature))
+  );
+  const candidates = snapshots
+    .map((snapshot, index) => {
       if (!snapshot.exists) return null;
 
       const raw = snapshot.data() ?? {};
-      const entry = mapSharedRecipePhotoData(raw, signature);
+      const entry = mapSharedRecipePhotoData(raw, snapshot.id);
       if (!entry) return null;
 
       return {
@@ -99,14 +120,16 @@ export async function getSharedRecipePhotoBySignatures(signatures: string[]) {
         lookupIndex: index,
         raw
       } satisfies SharedRecipePhotoCandidate;
-    }))
-  ).filter((candidate): candidate is SharedRecipePhotoCandidate => Boolean(candidate));
+    })
+    .filter((candidate): candidate is SharedRecipePhotoCandidate => Boolean(candidate));
 
-  return selectBestSharedRecipePhotoCandidate(candidates)?.entry ?? null;
+  return selectBestSharedRecipePhotoCandidate(filterSharedRecipePhotoCandidates(candidates, options))?.entry ?? null;
 }
 
 export async function getSharedRecipePhotoByQueryOrSignature(input: {
+  excludeImageUrls?: string[];
   queries?: string[];
+  reusableOnly?: boolean;
   signatures?: string[];
 }) {
   if (!hasFirebaseAdminConfig()) return null;
@@ -115,7 +138,9 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
   const queries = normalizeCacheLookupCandidates(input.queries ?? []);
   const db = getAdminDb();
 
-  const directDocCandidates = Array.from(new Set([...signatures, ...queries])).slice(0, 40);
+  const directDocCandidates = Array.from(new Set([...signatures, ...queries]))
+    .filter(isValidFirestoreDocumentIdSegment)
+    .slice(0, 16);
   const directCandidates = (
     await Promise.all(
       directDocCandidates.map(async (candidate, index) => {
@@ -147,60 +172,16 @@ export async function getSharedRecipePhotoByQueryOrSignature(input: {
     ...fieldMatches.filter((candidate): candidate is SharedRecipePhotoCandidate => Boolean(candidate))
   ];
 
-  const bestCandidate = selectBestSharedRecipePhotoCandidate(candidates);
+  const bestCandidate = selectBestSharedRecipePhotoCandidate(filterSharedRecipePhotoCandidates(candidates, input));
   if (bestCandidate) return bestCandidate.entry;
-
-  // Backward-compatible scan for very old docs whose query/signature
-  // fields contain stray whitespace or casing differences and do not yet have
-  // normalized lookup keys. Keep this bounded so a photo request never walks the
-  // full collection.
-  const snapshot = await db
-    .collection(COLLECTION_NAME)
-    .limit(250)
-    .get()
-    .catch((error) => {
-      logger.warn("Shared recipe photo normalized lookup scan failed", {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return null;
-    });
-
-  if (!snapshot) return null;
-
-  const queryKeys = new Set(queries.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
-  const signatureKeys = new Set(signatures.map(normalizeRecipePhotoCacheLookupKey).filter(Boolean));
-  const scanCandidates: SharedRecipePhotoCandidate[] = [];
-  for (const [index, docSnap] of snapshot.docs.entries()) {
-    const data = docSnap.data();
-    const docKeys = [
-      docSnap.id,
-      data.query,
-      data.signature,
-      data.queryKey,
-      data.signatureKey
-    ]
-      .filter((value): value is string => typeof value === "string")
-      .map(normalizeRecipePhotoCacheLookupKey)
-      .filter(Boolean);
-
-    if (docKeys.some((key) => queryKeys.has(key) || signatureKeys.has(key))) {
-      const entry = mapSharedRecipePhotoData(data, docSnap.id);
-      if (entry) {
-        scanCandidates.push({
-          docId: docSnap.id,
-          entry,
-          lookupIndex: index,
-          raw: data
-        });
-      }
-    }
-  }
-
-  return selectBestSharedRecipePhotoCandidate(scanCandidates)?.entry ?? null;
+  return null;
 }
 
-export async function getSharedRecipePhotoByExactAliases(aliases: string[]) {
-  return getSharedRecipePhotoBySignatures(aliases);
+export async function getSharedRecipePhotoByExactAliases(
+  aliases: string[],
+  options: SharedRecipePhotoLookupOptions = {}
+) {
+  return getSharedRecipePhotoBySignatures(aliases, options);
 }
 
 export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) {
@@ -251,7 +232,9 @@ export async function getSharedGeneratedRecipePhotoByQueries(queries: string[]) 
     }
   }
 
-  return selectBestSharedRecipePhotoCandidate(candidates)?.entry ?? null;
+  return selectBestSharedRecipePhotoCandidate(
+    candidates.filter((candidate) => candidate.entry.source === "generated")
+  )?.entry ?? null;
 }
 
 export async function getSharedGeneratedRecipePhotoByCategory(input: {
@@ -336,16 +319,13 @@ export async function getSharedRecipePhotoByApproximateCategory(input: {
     ...mealTypeKeys.map((key) => ({ field: "mealTypeKey", key }))
   ];
   const snapshots = await Promise.all(
-    lookupPairs.slice(0, 36).map(({ field, key }) => getRecipePhotoCacheCategorySnapshot(field, key))
+    lookupPairs.slice(0, 8).map(({ field, key }) => getRecipePhotoCacheCategorySnapshot(field, key))
   );
   const docsById = new Map<string, FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>>();
   snapshots.forEach((snapshot) => {
     snapshot?.docs.forEach((docSnap) => docsById.set(docSnap.id, docSnap));
   });
-  if (docsById.size === 0 || !lookupPairs.length) {
-    const scanSnapshot = await getRecipePhotoCacheApproximateScanSnapshot();
-    scanSnapshot?.docs.forEach((docSnap) => docsById.set(docSnap.id, docSnap));
-  }
+  if (docsById.size === 0 || !lookupPairs.length) return null;
 
   const candidates = Array.from(docsById.values())
     .map((docSnap) => ({
@@ -443,18 +423,15 @@ function stableRecipePhotoCacheHash(value: string) {
   return hash >>> 0;
 }
 
-async function getRecipePhotoCacheApproximateScanSnapshot() {
-  try {
-    return await getAdminDb()
-      .collection(COLLECTION_NAME)
-      .limit(APPROXIMATE_CATEGORY_SCAN_LIMIT)
-      .get();
-  } catch (error) {
-    logger.warn("Shared recipe photo approximate scan failed", {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return null;
-  }
+function isValidFirestoreDocumentIdSegment(value: string) {
+  const normalized = value.trim();
+  return Boolean(
+    normalized &&
+    normalized !== "." &&
+    normalized !== ".." &&
+    !normalized.includes("/") &&
+    normalized.length <= 500
+  );
 }
 
 async function getRecipePhotoCacheCategorySnapshot(field: string, mainIngredientKey: string) {
@@ -611,15 +588,8 @@ function hasGeneratedLiverQueryWithNonLiverSignature(data: FirebaseFirestore.Doc
 function normalizeSharedRecipePhotoSource(source: unknown): SharedRecipePhotoEntry["source"] | null {
   if (typeof source !== "string") return null;
   const normalized = source.trim().toLowerCase();
-  const aliased = normalized === "pexels"
-    ? "pexels_search"
-    : normalized === "unsplash"
-      ? "unsplash_search"
-      : normalized === "google"
-        ? "google_search"
-        : normalized;
-  return SHARED_RECIPE_PHOTO_SOURCES.has(aliased as SharedRecipePhotoEntry["source"])
-    ? aliased as SharedRecipePhotoEntry["source"]
+  return SHARED_RECIPE_PHOTO_SOURCES.has(normalized as SharedRecipePhotoEntry["source"])
+    ? normalized as SharedRecipePhotoEntry["source"]
     : null;
 }
 
@@ -690,6 +660,21 @@ function selectBestSharedRecipePhotoCandidate(candidates: SharedRecipePhotoCandi
   )[0] ?? null;
 }
 
+function filterSharedRecipePhotoCandidates(
+  candidates: SharedRecipePhotoCandidate[],
+  options: SharedRecipePhotoLookupOptions
+) {
+  const excluded = new Set((options.excludeImageUrls ?? []).filter(Boolean));
+  return candidates.filter((candidate) =>
+    !excluded.has(candidate.entry.imageUrl) &&
+    (!options.reusableOnly || isReusableSharedRecipePhotoEntry(candidate.entry))
+  );
+}
+
+export function isReusableSharedRecipePhotoEntry(entry: SharedRecipePhotoEntry) {
+  return entry.source === "generated" && isStoredRecipePhotoUrl(entry.imageUrl);
+}
+
 function compareSharedRecipePhotoCandidateFreshness(
   left: Pick<SharedRecipePhotoCandidate, "docId" | "entry" | "raw">,
   right: Pick<SharedRecipePhotoCandidate, "docId" | "entry" | "raw">
@@ -706,7 +691,6 @@ function compareSharedRecipePhotoCandidateFreshness(
 function getSharedRecipePhotoUpdatedUrlScore(data: FirebaseFirestore.DocumentData, entry: SharedRecipePhotoEntry) {
   let score = getSharedRecipePhotoCacheSourcePriority(entry) * 12;
   if (getSharedRecipePhotoUpdatedAtMillis(data) > 0) score += 18;
-  if (isSharedRecipePhotoDirectPexelsImageUrl(entry.imageUrl)) score += 16;
   if (isSharedRecipePhotoCacheStorageUrl(entry.imageUrl)) score += 14;
   return score;
 }
@@ -714,26 +698,12 @@ function getSharedRecipePhotoUpdatedUrlScore(data: FirebaseFirestore.DocumentDat
 function getSharedRecipePhotoUpdatedUrlPriority(data: FirebaseFirestore.DocumentData, entry: SharedRecipePhotoEntry) {
   let priority = getSharedRecipePhotoCacheSourcePriority(entry);
   if (getSharedRecipePhotoUpdatedAtMillis(data) > 0) priority += 2;
-  if (isSharedRecipePhotoDirectPexelsImageUrl(entry.imageUrl)) priority += 2;
   if (isSharedRecipePhotoCacheStorageUrl(entry.imageUrl)) priority += 1;
   return priority;
 }
 
 function getSharedRecipePhotoCacheSourcePriority(entry: Pick<SharedRecipePhotoEntry, "source">) {
-  switch (entry.source) {
-    case "pexels_search":
-      return 5;
-    case "generated":
-      return 4;
-    case "google_search":
-      return 3;
-    case "unsplash_search":
-      return 2;
-    case "wikimedia":
-      return 1;
-    default:
-      return 0;
-  }
+  return entry.source === "generated" ? 1 : 0;
 }
 
 function getSharedRecipePhotoUpdatedAtMillis(data: FirebaseFirestore.DocumentData) {
@@ -788,66 +758,16 @@ function isSharedRecipePhotoCacheStorageUrl(imageUrl: string) {
   }
 }
 
-function isSharedRecipePhotoDirectPexelsImageUrl(imageUrl: string) {
+function isRenderableSharedRecipePhotoUrl(imageUrl: string) {
+  return isDurableRecipeImageUrl(imageUrl) && isStoredRecipePhotoUrl(imageUrl);
+}
+
+function isStoredRecipePhotoUrl(imageUrl: string) {
   try {
-    return new URL(imageUrl).hostname.toLowerCase() === "images.pexels.com";
+    const host = new URL(imageUrl).hostname.toLowerCase();
+    return host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com";
   } catch {
     return false;
-  }
-}
-
-function normalizeSharedRecipePhotoImageUrl(imageUrl: string) {
-  return convertPexelsPhotoPageUrlToImageUrl(imageUrl) ?? imageUrl;
-}
-
-function convertPexelsPhotoPageUrlToImageUrl(imageUrl: string) {
-  const photoId = getPexelsPhotoPageId(imageUrl);
-  if (!photoId) return null;
-  return `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=1200&h=900&fit=crop`;
-}
-
-function getPexelsPhotoPageId(imageUrl: string) {
-  try {
-    const url = new URL(imageUrl);
-    const host = url.hostname.toLowerCase();
-    if (host !== "www.pexels.com" && host !== "pexels.com") return null;
-
-    const pathParts = url.pathname.split("/").filter(Boolean);
-    if (pathParts[0] !== "photo") return null;
-
-    const slug = pathParts[pathParts.length - 1] ?? "";
-    const match = slug.match(/(\d+)$/);
-    return match?.[1] ?? null;
-  } catch {
-    const match = imageUrl.match(/pexels\.com\/photo\/[^/?#]*?(\d+)(?:[/?#]|$)/i);
-    return match?.[1] ?? null;
-  }
-}
-
-function getPexelsPhotoPageUrl(imageUrl: string) {
-  return getPexelsPhotoPageId(imageUrl) ? imageUrl : undefined;
-}
-
-function isRenderableSharedRecipePhotoUrl(imageUrl: string) {
-  if (!isDurableRecipeImageUrl(imageUrl)) return false;
-
-  try {
-    const url = new URL(imageUrl);
-    const host = url.hostname.toLowerCase();
-    const path = url.pathname.toLowerCase();
-
-    if (host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com") return true;
-    if (host === "images.pexels.com" || host === "images.unsplash.com" || host === "upload.wikimedia.org") return true;
-
-    // Provider landing pages like https://www.pexels.com/photo/... are HTML,
-    // not image bytes. They cause card backgrounds to stay blank even though a
-    // cache row was found.
-    if ((host === "www.pexels.com" || host === "pexels.com") && path.startsWith("/photo/")) return false;
-    if ((host === "www.unsplash.com" || host === "unsplash.com") && path.startsWith("/photos/")) return false;
-
-    return /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(url.href);
-  } catch {
-    return /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(imageUrl);
   }
 }
 
@@ -923,7 +843,10 @@ export function buildRecipePhotoCacheCategoryFields(input: {
   };
 }
 
-export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
+export async function persistSharedRecipePhoto(
+  entry: SharedRecipePhotoEntry,
+  options: PersistSharedRecipePhotoOptions = {}
+) {
   if (!hasFirebaseAdminConfig()) return entry;
   if (entry.source !== "generated") {
     logger.info("Shared recipe photo cache skipped non-generated provider image", {
@@ -933,7 +856,7 @@ export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
     return entry;
   }
 
-  const persistedImageUrl = await persistSharedRecipeImageUrl(entry);
+  const persistedImageUrl = await persistSharedRecipeImageUrl(entry, options.objectPathPrefix);
   if (!isDurableRecipeImageUrl(persistedImageUrl)) {
     throw new Error("Generated recipe image persistence did not return a durable HTTP URL.");
   }
@@ -947,25 +870,28 @@ export async function persistSharedRecipePhoto(entry: SharedRecipePhotoEntry) {
     signature: nextEntry.signature
   });
 
-  await getAdminDb()
-    .collection(COLLECTION_NAME)
-    .doc(entry.signature)
-    .set(
-      {
-        imageUrl: nextEntry.imageUrl,
-        imageAttributionName: nextEntry.imageAttributionName ?? null,
-        imageAttributionUrl: nextEntry.imageAttributionUrl ?? null,
-        model: nextEntry.model ?? null,
-        query: nextEntry.query,
-        queryKey: normalizeRecipePhotoCacheLookupKey(nextEntry.query),
-        signature: nextEntry.signature,
-        signatureKey: normalizeRecipePhotoCacheLookupKey(nextEntry.signature),
-        source: nextEntry.source,
-        ...categoryFields,
-        updatedAt: FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
+  if (!options.skipCacheDocument) {
+    await getAdminDb()
+      .collection(COLLECTION_NAME)
+      .doc(entry.signature)
+      .set(
+        {
+          imageUrl: nextEntry.imageUrl,
+          imageAttributionName: nextEntry.imageAttributionName ?? null,
+          imageAttributionUrl: nextEntry.imageAttributionUrl ?? null,
+          model: nextEntry.model ?? null,
+          dietTags: nextEntry.dietTags ?? [],
+          query: nextEntry.query,
+          queryKey: normalizeRecipePhotoCacheLookupKey(nextEntry.query),
+          signature: nextEntry.signature,
+          signatureKey: normalizeRecipePhotoCacheLookupKey(nextEntry.signature),
+          source: nextEntry.source,
+          ...categoryFields,
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+  }
 
   return nextEntry;
 }
@@ -998,6 +924,7 @@ export async function persistSharedRecipePhotoAliases(entry: SharedRecipePhotoEn
             imageAttributionName: persisted.imageAttributionName ?? null,
             imageAttributionUrl: persisted.imageAttributionUrl ?? null,
             model: persisted.model ?? null,
+            dietTags: persisted.dietTags ?? [],
             query: persisted.query,
             queryKey: normalizeRecipePhotoCacheLookupKey(persisted.query),
             signature: alias,
@@ -1019,24 +946,31 @@ export async function persistSharedRecipePhotoExactAliases(entry: SharedRecipePh
   return persistSharedRecipePhotoAliases(entry, aliases);
 }
 
-async function persistSharedRecipeImageUrl(entry: SharedRecipePhotoEntry) {
+async function persistSharedRecipeImageUrl(entry: SharedRecipePhotoEntry, objectPathPrefix?: string) {
   if (/^data:/i.test(entry.imageUrl)) {
     const parsed = parseDataUrl(entry.imageUrl);
-    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
+    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType, objectPathPrefix);
   }
 
   if (entry.source === "generated" && isTransientRecipeImageUrl(entry.imageUrl)) {
     const parsed = await fetchRemoteImage(entry.imageUrl);
-    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType);
+    return uploadSharedRecipeImage(entry.signature, parsed.buffer, parsed.mimeType, objectPathPrefix);
   }
 
   return entry.imageUrl;
 }
 
-async function uploadSharedRecipeImage(signature: string, buffer: Buffer, mimeType: string) {
+async function uploadSharedRecipeImage(
+  signature: string,
+  buffer: Buffer,
+  mimeType: string,
+  objectPathPrefix?: string
+) {
   const bucket = getAdminStorageBucket();
   const extension = getImageExtension(mimeType);
-  const objectPath = `recipe-photo-cache/${signature}.${extension}`;
+  const objectPath = objectPathPrefix
+    ? `${objectPathPrefix}.${extension}`
+    : `recipe-photo-cache/${signature}.${extension}`;
   const downloadToken = randomUUID();
   const file = bucket.file(objectPath);
 

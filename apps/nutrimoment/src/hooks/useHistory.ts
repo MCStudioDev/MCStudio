@@ -6,9 +6,13 @@ import {
   collection,
   deleteDoc,
   getDoc,
+  getCountFromServer,
   doc,
   getDocs,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   serverTimestamp,
   updateDoc,
   writeBatch
@@ -20,6 +24,7 @@ import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import type { HistoryItem, Recipe, RecipeImageSource } from "@/lib/types";
 
 const MAX_HISTORY_ITEMS = 50;
+const historyMemoryCache = new Map<string, HistoryItem[]>();
 
 type FirestoreTimestampLike = {
   seconds?: number;
@@ -32,6 +37,7 @@ type HistoryDocData = {
   createdAt?: FirestoreTimestampLike | null;
   generationMessage?: string;
   generationStatus?: HistoryItem["generationStatus"];
+  imageActionGrantId?: string;
   ingredients?: string[];
   recipes?: Recipe[];
   sessionType?: HistoryItem["sessionType"];
@@ -122,6 +128,7 @@ function mapHistoryDoc(id: string, data: HistoryDocData): HistoryItem & { create
     recipes: Array.isArray(data.recipes) ? sanitizeHistoryRecipes(data.recipes) : [],
     generationStatus: data.generationStatus,
     generationMessage: data.generationMessage,
+    imageActionGrantId: data.imageActionGrantId,
     completedAt: data.completedAt,
     createdAt: data.createdAt
   };
@@ -322,13 +329,11 @@ export function useHistory(): UseHistoryResult {
       return;
     }
 
-    dispatch({ type: "loading", payload: true });
-    void pruneHistoryToLatestLimit(user.uid).catch((error) => {
-      logger.warn("History pruning failed during initialization", {
-        uid: user.uid,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      });
-    });
+    const cachedItems = historyMemoryCache.get(user.uid);
+    if (cachedItems) {
+      dispatch({ type: "items", payload: cachedItems });
+    }
+    dispatch({ type: "loading", payload: !cachedItems });
     let cancelled = false;
     const loadHistoryViaApi = async (listenerError: Error) => {
       try {
@@ -344,6 +349,7 @@ export function useHistory(): UseHistoryResult {
           throw new Error(payload.error || listenerError.message);
         }
         const next = Array.isArray(payload.items) ? sanitizeHistoryItems(payload.items) : [];
+        historyMemoryCache.set(user.uid, next);
         dispatch({ type: "items", payload: next });
       } catch (fallbackError) {
         if (cancelled) return;
@@ -359,7 +365,11 @@ export function useHistory(): UseHistoryResult {
     };
 
     const unsub = onSnapshot(
-      collection(db, `users/${user.uid}/history`),
+      query(
+        collection(db, `users/${user.uid}/history`),
+        orderBy("createdAt", "desc"),
+        limit(MAX_HISTORY_ITEMS)
+      ),
       (snap) => {
         if (cancelled) return;
         const next: HistoryItem[] = snap.docs
@@ -376,10 +386,12 @@ export function useHistory(): UseHistoryResult {
               recipes: item.recipes,
               generationStatus: item.generationStatus,
               generationMessage: item.generationMessage,
+              imageActionGrantId: item.imageActionGrantId,
               completedAt: item.completedAt
             };
             return stripUndefined(historyItem);
           });
+        historyMemoryCache.set(user.uid, next);
         dispatch({ type: "items", payload: next });
         dispatch({ type: "loading", payload: false });
       },
@@ -407,10 +419,16 @@ export function useHistory(): UseHistoryResult {
       recipes: sanitizeHistoryRecipes(entry.recipes),
       generationStatus: entry.generationStatus,
       generationMessage: entry.generationMessage,
+      imageActionGrantId: entry.imageActionGrantId,
       completedAt: entry.completedAt,
       createdAt: serverTimestamp()
     }));
-    await pruneHistoryToLatestLimit(user.uid);
+    void pruneHistoryToLatestLimit(user.uid).catch((error) => {
+      logger.warn("History pruning failed after adding an entry", {
+        uid: user.uid,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    });
     return ref.id;
   };
 
@@ -549,19 +567,15 @@ export function useHistory(): UseHistoryResult {
 }
 
 async function pruneHistoryToLatestLimit(uid: string) {
-  const snap = await getDocs(collection(db, `users/${uid}/history`));
-  const sortedDocs = snap.docs
-    .map((entry) => ({
-      entry,
-      sortTime: getHistorySortTime(mapHistoryDoc(entry.id, entry.data() as HistoryDocData))
-    }))
-    .sort((left, right) => right.sortTime - left.sortTime);
+  const historyCollection = collection(db, `users/${uid}/history`);
+  const countSnapshot = await getCountFromServer(historyCollection);
+  const overflowCount = countSnapshot.data().count - MAX_HISTORY_ITEMS;
+  if (overflowCount <= 0) return;
 
-  if (sortedDocs.length <= MAX_HISTORY_ITEMS) {
-    return;
-  }
-
-  const overflowDocs = sortedDocs.slice(MAX_HISTORY_ITEMS).map(({ entry }) => entry);
+  const overflowSnapshot = await getDocs(
+    query(historyCollection, orderBy("createdAt", "asc"), limit(overflowCount))
+  );
+  const overflowDocs = overflowSnapshot.docs;
   const batches = chunkArray(overflowDocs, 400);
 
   for (const docs of batches) {

@@ -32,6 +32,7 @@ export interface MealPlanGuardPreferences {
   maxPlantBasedRiceSlots?: number;
   maxPlantBasedLegumeSlots?: number;
   maxSimilarMealFamilySlots?: number;
+  repairVariety?: boolean;
 }
 
 interface MealSlotEntry {
@@ -290,9 +291,11 @@ export function repairMealPlanWithGuard(
   repairedSlots += replaceInvalidSlots(nextPlan, preferences, fallbackBank, usedFallbackNames);
   repairedSlots += repairSeafoodQuota(nextPlan, preferences, fallbackBank, usedFallbackNames);
   repairedSlots += repairCuisineQuota(nextPlan, preferences, fallbackBank, usedFallbackNames);
-  repairedSlots += repairRepeatedMeals(nextPlan, preferences, fallbackBank, usedFallbackNames);
-  repairedSlots += repairRepeatedMealFamilies(nextPlan, preferences, fallbackBank, usedFallbackNames);
-  repairedSlots += repairPlantBasedIngredientClusters(nextPlan, preferences, fallbackBank, usedFallbackNames);
+  if (preferences.repairVariety !== false) {
+    repairedSlots += repairRepeatedMeals(nextPlan, preferences, fallbackBank, usedFallbackNames);
+    repairedSlots += repairRepeatedMealFamilies(nextPlan, preferences, fallbackBank, usedFallbackNames);
+    repairedSlots += repairPlantBasedIngredientClusters(nextPlan, preferences, fallbackBank, usedFallbackNames);
+  }
   nextPlan.shoppingList = sanitizeShoppingListForDiet(
     mergeShoppingList(nextPlan.shoppingList, flattenMealPlanSlots(nextPlan).map((entry) => entry.meal)),
     preferences.dietContext

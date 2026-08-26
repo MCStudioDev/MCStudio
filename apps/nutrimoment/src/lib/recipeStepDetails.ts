@@ -27,14 +27,14 @@ type CookingProfile = {
 export function ensureDetailedRecipeSteps(recipe: Recipe, language: StepLanguage = "English"): Recipe {
   return {
     ...recipe,
-    steps: buildDetailedSteps(recipe, language)
+    steps: buildDetailedSteps(recipe, language, 1)
   };
 }
 
 export function ensureDetailedMealSteps(meal: MealPlanMeal, language: StepLanguage = "English"): MealPlanMeal {
   return {
     ...meal,
-    steps: buildDetailedSteps(meal, language)
+    steps: buildDetailedSteps(meal, language, 7)
   };
 }
 
@@ -51,7 +51,7 @@ export function ensureDetailedMealPlanSteps(mealPlan: MealPlanData, language: St
   };
 }
 
-function buildDetailedSteps(source: StepSource, language: StepLanguage) {
+function buildDetailedSteps(source: StepSource, language: StepLanguage, minimumSteps: number) {
   const rawExisting = Array.isArray(source.steps)
     ? source.steps.map((step) => step.trim()).filter(Boolean)
     : [];
@@ -60,7 +60,7 @@ function buildDetailedSteps(source: StepSource, language: StepLanguage) {
       ? []
       : rawExisting;
 
-  if (existing.length > 0) {
+  if (existing.length >= minimumSteps) {
     return existing;
   }
 
@@ -74,7 +74,7 @@ function buildDetailedSteps(source: StepSource, language: StepLanguage) {
     ? buildArabicFallbackSteps(source.name, primary, secondary, finishing, allIngredients)
     : buildEnglishFallbackSteps(source.name, primary, secondary, finishing, allIngredients);
 
-  return [...existing, ...finalSteps].slice(0, Math.max(7, existing.length));
+  return [...existing, ...finalSteps].slice(0, Math.max(7, minimumSteps, existing.length));
 }
 
 function buildEnglishFallbackSteps(name: string, primary: string, secondary: string, finishing: string, ingredients: string[]) {

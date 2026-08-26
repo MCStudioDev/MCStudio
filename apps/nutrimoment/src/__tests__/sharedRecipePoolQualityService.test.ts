@@ -3,6 +3,8 @@ import type { RecipeCatalogDoc } from "../lib/domain";
 import {
   auditSharedRecipePoolDocument,
   isSharedRecipeDiscoverable,
+  isSharedRecipePublishable,
+  resolveSharedRecipeQualityMode,
   SHARED_RECIPE_VALIDATOR_HASH
 } from "../services/sharedRecipePoolQualityService";
 import { RECIPE_CONTENT_VERSION } from "../services/recipeContentQualityService";
@@ -78,6 +80,47 @@ describe("shared recipe pool quality migration", () => {
     expect(result.document.allergenTags).toContain("dairy");
   });
 
+  it("does not label processed-meat recipes vegetarian or vegan", () => {
+    const result = auditSharedRecipePoolDocument(recipe({
+      ingredients: [
+        { name: "4 strips bacon", canonical: "bacon", quantity: 4, unit: "strips", required: true },
+        { name: "2 cups beans", canonical: "beans", quantity: 2, unit: "cups", required: true }
+      ],
+      ingredientCanonicals: ["bacon", "beans"],
+      requiredCanonicals: ["bacon", "beans"],
+      optionalCanonicals: [],
+      steps: [
+        "Slice the bacon into small pieces and rinse and drain the beans before heating the skillet.",
+        "Brown the bacon in a skillet over medium heat for 6 to 8 minutes until crisp, then drain excess fat.",
+        "Stir in the beans and simmer over low heat for 10 minutes until hot, then serve immediately."
+      ]
+    }), 123456);
+
+    expect(result.document.dietTags).not.toContain("vegetarian");
+    expect(result.document.dietTags).not.toContain("vegan");
+  });
+
+  it("uses title and step evidence when imported ingredient metadata omits meat", () => {
+    const result = auditSharedRecipePoolDocument(recipe({
+      title: "Sausage and Tomato Pasta",
+      ingredients: [
+        { name: "2 cups pasta", canonical: "pasta", quantity: 2, unit: "cups", required: true },
+        { name: "1 cup tomato", canonical: "tomato", quantity: 1, unit: "cup", required: true }
+      ],
+      ingredientCanonicals: ["pasta", "tomato"],
+      requiredCanonicals: ["pasta", "tomato"],
+      optionalCanonicals: [],
+      steps: [
+        "Slice the sausage and dice the tomato while a large pot of water comes to a boil.",
+        "Boil the pasta for 9 minutes until al dente, then drain it and reserve a little cooking water.",
+        "Brown the sausage in a skillet over medium heat for 8 minutes, add the tomato, and toss with the pasta until hot."
+      ]
+    }), 123456);
+
+    expect(result.document.dietTags).not.toContain("vegetarian");
+    expect(result.document.dietTags).not.toContain("vegan");
+  });
+
   it("quarantines unsafe content without deleting or deactivating the document", () => {
     const unsafe = recipe({
       steps: [
@@ -149,5 +192,32 @@ describe("shared recipe pool quality migration", () => {
     expect(isSharedRecipeDiscoverable(blocked, "observe")).toBe(false);
     expect(isSharedRecipeDiscoverable(probation, "gate")).toBe(false);
     expect(isSharedRecipeDiscoverable(verified, "strict")).toBe(true);
+  });
+
+  it("uses strict reads by default while preserving explicit rollout overrides", () => {
+    expect(resolveSharedRecipeQualityMode(undefined)).toBe("strict");
+    expect(resolveSharedRecipeQualityMode("observe")).toBe("observe");
+    expect(resolveSharedRecipeQualityMode("gate")).toBe("gate");
+  });
+
+  it("quarantines legacy user-history provenance from the global pool", () => {
+    const result = auditSharedRecipePoolDocument(recipe({
+      source: {
+        provider: "shared-backfill",
+        url: "https://example.com/shawarma"
+      }
+    }), 123456);
+
+    expect(result.document.qualityStatus).toBe("probation");
+    expect(result.document.qualityReasons).toContain("untrusted_shared_pool_provenance");
+    expect(isSharedRecipePublishable(result.document)).toBe(false);
+  });
+
+  it("publishes only strictly validated source recipes", () => {
+    const verified = auditSharedRecipePoolDocument(recipe(), 123456).document;
+    const legacy = recipe();
+
+    expect(isSharedRecipePublishable(verified)).toBe(true);
+    expect(isSharedRecipePublishable(legacy)).toBe(false);
   });
 });

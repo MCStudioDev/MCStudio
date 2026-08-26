@@ -181,9 +181,22 @@ export function hasExclusiveRequestedProteinForm(ingredients: string[], family: 
 type BeefForm = "ground" | "steak";
 
 function detectRequestedBeefForm(ingredients: string[]): BeefForm | null {
-  const source = ingredients.map(normalizeIngredientText).join(" ");
-  if (/\b(?:ground|minced|mince|hamburger)\s+(?:beef|meat)\b|\bbeef\s+mince\b/.test(source)) return "ground";
-  if (/\b(?:steak|sirloin|ribeye|rib eye|strip steak|tenderloin|filet mignon|flank steak|skirt steak)\b/.test(source)) return "steak";
+  const normalizedIngredients = ingredients.map(normalizeIngredientText).filter(Boolean);
+  const groundPattern = /\b(?:ground|minced|mince|hamburger)\s+(?:beef|meat)\b|\bbeef\s+(?:mince|minced|ground)\b/;
+  const steakPattern = /\b(?:steak|sirloin|ribeye|rib eye|strip steak|tenderloin|filet mignon|flank steak|skirt steak)\b/;
+  const hasGroundRequest = normalizedIngredients.some((ingredient) => groundPattern.test(ingredient));
+  const hasSteakRequest = normalizedIngredients.some((ingredient) => steakPattern.test(ingredient));
+  const hasBroadBeefRequest = normalizedIngredients.some((ingredient) =>
+    /\b(?:beef|meat|veal)\b/.test(ingredient) &&
+    !groundPattern.test(ingredient) &&
+    !steakPattern.test(ingredient)
+  );
+
+  // A broad beef item alongside a specific form means the pantry can support
+  // both forms. Only an exclusive form request should filter the other form.
+  if (hasBroadBeefRequest || (hasGroundRequest && hasSteakRequest)) return null;
+  if (hasGroundRequest) return "ground";
+  if (hasSteakRequest) return "steak";
   return null;
 }
 

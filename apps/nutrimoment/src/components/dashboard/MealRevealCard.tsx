@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent } from "react";
-import { ChefHat, ChevronDown, Plus, RotateCcw, Sparkles } from "lucide-react";
+import { ChevronDown, Plus, RotateCcw } from "lucide-react";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
@@ -31,6 +31,9 @@ const recentRecipePhotoSelections = new Map<string, { expiresAt: number; queryKe
 const DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS = 10 * 60 * 1000;
 const RECENT_RECIPE_PHOTO_SELECTION_TTL_MS = 10 * 60 * 1000;
 const PREMIUM_RECIPE_PHOTO_MAX_RETRY_DELAY_MS = 18 * 1000;
+const PREMIUM_RECIPE_PHOTO_MAX_RETRIES = 1;
+const FREE_RECIPE_PHOTO_REQUEST_TIMEOUT_MS = 6 * 1000;
+const PREMIUM_RECIPE_PHOTO_REQUEST_TIMEOUT_MS = 65 * 1000;
 
 export interface MealRevealSection {
   title: string;
@@ -44,6 +47,7 @@ interface MealRevealStat {
 }
 
 interface MealRevealCardProps {
+  imageActionGrantId?: string;
   disableAutoImageLookup?: boolean;
   deferImageLookup?: boolean;
   trustProvidedImage?: boolean;
@@ -63,6 +67,7 @@ interface MealRevealCardProps {
   imageExactNames?: string[];
   imageCuisine?: string;
   imagePhotoIdentity?: PhotoIdentity;
+  imageDiets?: string[];
   imagePromptIngredients?: string[];
   recipeSource?: "external_source" | "generated" | "local_database";
   recipeSourceUrl?: string;
@@ -83,6 +88,7 @@ interface MealRevealCardProps {
 }
 
 export function MealRevealCard({
+  imageActionGrantId,
   disableAutoImageLookup = false,
   deferImageLookup = false,
   trustProvidedImage = false,
@@ -97,6 +103,7 @@ export function MealRevealCard({
   imageExactNames,
   imageCuisine,
   imagePhotoIdentity,
+  imageDiets = [],
   imagePromptIngredients,
   recipeSource,
   recipeSourceUrl,
@@ -112,8 +119,8 @@ export function MealRevealCard({
 }: MealRevealCardProps) {
   const { t, rtl } = useApp();
   const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
-  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
-  const bypassClientCache = false;
+  const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access) || Boolean(imageActionGrantId);
+  const bypassClientCache = disableAutoImageLookup;
   const cardRef = useRef<HTMLElement | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const premiumRetryCountsRef = useRef<Map<string, number>>(new Map());
@@ -153,7 +160,8 @@ export function MealRevealCard({
     queryCandidates.join(" || "),
     exactNamesForLookup.join(" || "),
     normalizeRecipePhotoParam(imageCuisine),
-    normalizeRecipePhotoParam(imagePhotoIdentity?.dish_slug)
+    normalizeRecipePhotoParam(imagePhotoIdentity?.dish_slug),
+    imageDiets.map(normalizeRecipePhotoParam).filter(Boolean).sort().join(" || ")
   ]
     .filter(Boolean)
     .join(" ## ");
@@ -372,17 +380,26 @@ export function MealRevealCard({
         retrying: false
       });
     }, 0);
-    const existingRequest = inFlightRecipePhotoRequests.get(queryKey);
+    const requestKey = `${queryKey}|${hasGeneratedImageAccess ? "generate" : "cache"}`;
+    const existingRequest = inFlightRecipePhotoRequests.get(requestKey);
     const request =
       existingRequest ??
       getAuthHeaders()
         .then((headers) =>
           fetch(buildRecipePhotoRequestUrl(queryCandidates, imagePromptIngredients ?? [], excludedImageUrls, {
+            actionGrantId: imageActionGrantId,
+            cacheOnly: !hasGeneratedImageAccess,
             cuisine: imageCuisine,
             exactNames: exactNamesForLookup,
-            photoIdentity: imagePhotoIdentity
+            photoIdentity: imagePhotoIdentity,
+            diets: imageDiets
           }), {
-            headers
+            headers,
+            signal: AbortSignal.timeout(
+              hasGeneratedImageAccess
+                ? PREMIUM_RECIPE_PHOTO_REQUEST_TIMEOUT_MS
+                : FREE_RECIPE_PHOTO_REQUEST_TIMEOUT_MS
+            )
           })
         )
         .then(async (response) => {
@@ -409,10 +426,10 @@ export function MealRevealCard({
           throw new Error(String(retryAfterSeconds ?? 0));
         })
         .finally(() => {
-          inFlightRecipePhotoRequests.delete(queryKey);
+          inFlightRecipePhotoRequests.delete(requestKey);
         });
 
-    inFlightRecipePhotoRequests.set(queryKey, request);
+    inFlightRecipePhotoRequests.set(requestKey, request);
 
     request
       .then((data) => {
@@ -455,7 +472,22 @@ export function MealRevealCard({
         const retryUntil = now + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : DEFAULT_RECIPE_PHOTO_FAILURE_TTL_MS);
         const premiumRetryCount = premiumRetryCountsRef.current.get(queryKey) ?? 0;
         if (hasGeneratedImageAccess) {
-          premiumRetryCountsRef.current.set(queryKey, premiumRetryCount + 1);
+          const nextRetryCount = premiumRetryCount + 1;
+          premiumRetryCountsRef.current.set(queryKey, nextRetryCount);
+          if (nextRetryCount > PREMIUM_RECIPE_PHOTO_MAX_RETRIES) {
+            setLookupState({
+              failed: true,
+              imageAttributionName: undefined,
+              imageAttributionUrl: undefined,
+              image: "",
+              imageSource: undefined,
+              loading: false,
+              queryKey,
+              retrying: false
+            });
+            setManualImageLookupRequested(false);
+            return;
+          }
           setLookupState({
             failed: false,
             imageAttributionName: undefined,
@@ -500,6 +532,7 @@ export function MealRevealCard({
     };
   }, [
     hasGeneratedImageAccess,
+    imageActionGrantId,
     authLoading,
     bypassClientCache,
     cachedImage,
@@ -508,6 +541,7 @@ export function MealRevealCard({
     getAuthHeaders,
     imageLoading,
     imageCuisine,
+    imageDiets,
     imagePhotoIdentity,
     exactNamesForLookup,
     imagePromptIngredients,
@@ -599,7 +633,6 @@ export function MealRevealCard({
                 headlineStats={headlineStats}
                 resolvedImage={resolvedImage}
                 imageLoading={effectiveImageLoading}
-                hasGeneratedImageAccess={hasGeneratedImageAccess}
                 showNoExactPhoto={showNoExactPhoto}
                 placeholderStyle={placeholderStyle}
                 onImageLoadError={handleImageLoadError}
@@ -691,7 +724,6 @@ function RecipeFrontFace({
   headlineStats,
   resolvedImage,
   imageLoading,
-  hasGeneratedImageAccess,
   showNoExactPhoto,
   placeholderStyle,
   onImageLoadError,
@@ -706,7 +738,6 @@ function RecipeFrontFace({
   headlineStats: MealRevealStat[];
   resolvedImage?: string;
   imageLoading?: boolean;
-  hasGeneratedImageAccess: boolean;
   showNoExactPhoto: boolean;
   placeholderStyle: CSSProperties;
   onImageLoadError: (failedUrl: string) => void;
@@ -720,8 +751,6 @@ function RecipeFrontFace({
 }) {
   const { t, rtl } = useApp();
   const noImageState = !resolvedImage;
-  const loadingTitle = hasGeneratedImageAccess ? t("generatingRecipeImage") : t("findingPhoto");
-  const loadingHint = hasGeneratedImageAccess ? t("recipeImageLoadingHint") : t("hideWeakMatches");
 
   return (
     <div className="relative h-full overflow-hidden">
@@ -748,35 +777,21 @@ function RecipeFrontFace({
 
       {noImageState ? (
         <div className="absolute inset-0 z-10 flex flex-col justify-between gap-3 px-4 pb-3 pt-12 sm:px-5 sm:pb-4 sm:pt-14">
-          <div className="flex justify-center">
-            <div className="w-full max-w-[13rem] rounded-[1.6rem] border border-white/12 bg-[#f5fffc]/8 p-3 text-center text-white/86 backdrop-blur-md sm:max-w-[14rem] sm:p-4">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-white/10 text-cyan-100 shadow-[0_18px_40px_rgba(3,18,16,0.28)] sm:h-14 sm:w-14">
-                <ChefHat className="h-6 w-6 sm:h-7 sm:w-7" />
-              </div>
-              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-cyan-200/18 bg-cyan-300/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
-                <Sparkles className="h-3.5 w-3.5" />
-                {imageLoading ? t("findingPhoto") : t("curatedFallback")}
-              </div>
-              <p className="mt-2 text-xs font-semibold text-white sm:text-sm">
-                {imageLoading ? loadingTitle : t("awaitingPlatedMatch")}
-              </p>
-              <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-white/62 sm:text-xs">
-                {imageLoading ? loadingHint : t("hideWeakMatches")}
-              </p>
-              {showNoExactPhoto && !imageLoading ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onRetryImageLookup();
-                  }}
-                  className="focus-ring mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-white/14 bg-white/12 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/[0.18]"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t("retryPhoto")}
-                </button>
-              ) : null}
-            </div>
+          <div className="flex justify-end">
+            {showNoExactPhoto && !imageLoading ? (
+              <button
+                type="button"
+                title={t("retryPhoto")}
+                aria-label={t("retryPhoto")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRetryImageLookup();
+                }}
+                className="focus-ring flex h-9 w-9 items-center justify-center rounded-full border border-white/14 bg-[#061b17]/72 text-white/78 backdrop-blur-md transition hover:bg-[#061b17]/92 hover:text-white"
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
 
           <div className="rounded-[1.35rem] border border-white/10 bg-[rgba(4,12,10,0.82)] p-3 backdrop-blur-md sm:p-4">
@@ -826,15 +841,6 @@ function RecipeFrontFace({
       {visualMatchLabel ? (
           <div className="theme-recipe-match-pill absolute right-4 top-4 max-w-[11rem] rounded-full border border-cyan-200/35 bg-cyan-300/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#06201b] shadow-[0_12px_30px_rgba(60,255,230,0.2)] backdrop-blur-md">
           {visualMatchLabel}
-        </div>
-      ) : null}
-
-      {showNoExactPhoto ? (
-        <div className={cn(
-          "absolute rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800",
-          visualMatchLabel ? "right-4 top-14" : "right-4 top-4"
-        )}>
-          {t("noExactPhoto")}
         </div>
       ) : null}
 
@@ -909,15 +915,15 @@ function RecipeProvenanceBadge({
 
   const imageLabels: Record<RecipeImageSource, string> = {
     api: rtl ? "الصورة: مزود الصور" : "Photo: Image service",
-    cache: rtl ? "الصورة: الذاكرة المشتركة" : "Photo: Shared cache",
+    cache: rtl ? "الصورة: الذاكرة المشتركة" : "Photo: Cache",
     pexels: "Photo: Pexels",
     replicate: "Photo: Replicate",
     search: rtl ? "الصورة: بحث الصور" : "Photo: Image search",
-    shared_pool: rtl ? "الصورة: الذاكرة المشتركة" : "Photo: Shared pool",
+    shared_pool: rtl ? "الصورة: الذاكرة المشتركة" : "Photo: Cache",
     unsplash: "Photo: Unsplash",
     wikimedia: "Photo: Wikimedia"
   };
-  const imageLabel = imageSource ? imageLabels[imageSource] : (rtl ? "الصورة: قيد المطابقة" : "Photo: Matching");
+  const imageLabel = imageSource ? imageLabels[imageSource] : "";
   const hasExternalRecipeSource = recipeSource === "external_source" && Boolean(recipeSourceUrl);
   const displayImageLabel = rtl && imageSource
     ? {
@@ -930,16 +936,16 @@ function RecipeProvenanceBadge({
         unsplash: "الصورة: Unsplash",
         wikimedia: "الصورة: Wikimedia"
       }[imageSource]
-    : rtl
-      ? "الصورة: قيد المطابقة"
-      : imageSource === "api"
+    : imageSource === "api"
         ? "Photo: Replicate"
         : imageLabel;
 
   return (
     <div className="theme-recipe-source-pill absolute left-4 top-4 z-20 max-w-[11rem] rounded-md border border-white/15 bg-[#061b17]/85 px-2.5 py-2 text-[9px] font-semibold leading-tight text-white/88 shadow-lg backdrop-blur-md">
       <p className="truncate">{rtl ? getArabicRecipeSourceLabel(recipeSource) : recipeLabel}</p>
-      <p className="theme-recipe-source-photo mt-1 truncate text-cyan-100/90">{rtl ? getArabicImageSourceLabel(imageSource) : displayImageLabel}</p>
+      {imageSource ? (
+        <p className="theme-recipe-source-photo mt-1 truncate text-cyan-100/90">{rtl ? getArabicImageSourceLabel(imageSource) : displayImageLabel}</p>
+      ) : null}
       {hasExternalRecipeSource ? <span className="sr-only">{recipeSourceUrl}</span> : null}
     </div>
   );
@@ -1054,9 +1060,19 @@ function buildRecipePhotoRequestUrl(
   queries: string[],
   ingredients: string[] = [],
   excludeUrls: string[] = [],
-  exactContext: { cuisine?: string; exactNames?: string[]; photoIdentity?: PhotoIdentity } = {}
+  exactContext: {
+    actionGrantId?: string;
+    cacheOnly?: boolean;
+    cuisine?: string;
+    diets?: string[];
+    exactNames?: string[];
+    photoIdentity?: PhotoIdentity;
+  } = {}
 ) {
   const params = new URLSearchParams();
+  if (exactContext.actionGrantId) {
+    params.set("actionGrant", exactContext.actionGrantId);
+  }
   queries.forEach((query, index) => {
     if (index === 0) {
       params.set("query", query);
@@ -1077,6 +1093,13 @@ function buildRecipePhotoRequestUrl(
   const cuisine = normalizeRecipePhotoParam(exactContext.cuisine);
   if (cuisine) {
     params.set("cuisine", cuisine);
+  }
+  exactContext.diets
+    ?.map(normalizeRecipePhotoParam)
+    .filter(Boolean)
+    .forEach((diet) => params.append("diet", diet));
+  if (exactContext.cacheOnly) {
+    params.set("cacheOnly", "1");
   }
   appendPhotoIdentityParams(params, exactContext.photoIdentity);
   excludeUrls.slice(0, 20).forEach((url) => params.append("exclude", url));

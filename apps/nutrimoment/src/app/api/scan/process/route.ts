@@ -3,8 +3,9 @@ import { getClientFacingAiErrorMessage, isTransientModelError } from "@/lib/open
 import {
   accessErrorResponse,
   accessPayload,
+  buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiCredit,
+  consumeFreeAiAction,
   isFirebaseTransientError
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
@@ -17,6 +18,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const requestSchema = z.object({
+  actionId: z.string().min(1).max(128).optional(),
   image: z.string().min(10),
   imagePath: z.string().optional(),
   language: z.string().optional(),
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
     const rl = applyRateLimit({
       uid: accessCheck.access.uid,
       feature: "image_scan",
-      isPremium: accessCheck.access.isPremium,
+      isPremium: accessCheck.allowed,
       bypass: accessCheck.access.isAdmin
     });
     if (!rl.decision.allowed) {
@@ -50,16 +52,6 @@ export async function POST(request: Request) {
     }
     const language = normalizeRecipeLanguage(parsed.data.language, "English");
 
-    if (!parsed.data.isPantry && !accessCheck.access.isPremium && !accessCheck.access.isAdmin) {
-      return Response.json(
-        {
-          error: "Scan fridge is a premium feature.",
-          access: accessPayload(accessCheck.access)
-        },
-        { status: 403 }
-      );
-    }
-
     if (!accessCheck.allowed) {
       return Response.json({
         ingredients: [],
@@ -70,7 +62,11 @@ export async function POST(request: Request) {
       });
     }
 
-    const nextAccess = await consumeFreeAiCredit(accessCheck.access, "image_to_text");
+    const { access: nextAccess } = await consumeFreeAiAction(
+      accessCheck.access,
+      "image_to_text",
+      parsed.data.actionId ?? requestId
+    );
     const result = await processScan({
       uid: accessCheck.access.uid,
       image: parsed.data.image,
@@ -109,8 +105,8 @@ export async function POST(request: Request) {
 
 function buildScanProcessFallbackNotice(language?: string) {
   if (!isArabicRecipeLanguage(language ?? "English")) {
-    return "Your 5 free AI credits are used. Add ingredients manually or upgrade to premium for image scans.";
+    return buildFreeAiCreditsExhaustedNotice("Add ingredients manually or upgrade to premium for image scans.");
   }
 
-  return "تم استهلاك 5 أرصدة الذكاء الاصطناعي المجانية. أضف المكونات يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور.";
+  return "تم استهلاك 10 أرصدة الذكاء الاصطناعي المجانية. أضف المكونات يدويًا أو قم بالترقية إلى الخطة المميزة لمسح الصور.";
 }

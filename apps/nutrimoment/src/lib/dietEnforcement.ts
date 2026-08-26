@@ -44,6 +44,8 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
       "salami",
       "chorizo",
       "prosciutto",
+      "guanciale",
+      "pancetta",
       "pepperoni",
       "chicken",
       "turkey",
@@ -98,6 +100,7 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
       "ricotta",
       "mozzarella",
       "parmesan",
+      "pecorino",
       "paneer",
       "kunafa cheese",
       "honey",
@@ -183,6 +186,8 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
       "salami",
       "chorizo",
       "prosciutto",
+      "guanciale",
+      "pancetta",
       "pepperoni",
       "chicken",
       "turkey",
@@ -272,6 +277,7 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
       "ricotta",
       "mozzarella",
       "parmesan",
+      "pecorino",
       "cheddar",
       "paneer",
       "kunafa cheese",
@@ -1160,7 +1166,8 @@ function makeDairySourcesExplicitlySafe(value: string): string {
     .replace(/\b(?:heavy|whipping|sour)\s+cream\b/gi, "dairynewcreamtoken")
     .replace(/\b(?:buttermilk|milk\s+powder|milk\s+solids)\b/gi, "dairynewmilktoken")
     .replace(/\b(?:yogurt|yoghurt|labneh|kashk)\b/gi, "dairynewyogurttoken")
-    .replace(/\b(?:feta|halloumi|ricotta|mozzarella|parmesan|cheddar|paneer|cheese)\b/gi, "dairynewcheesetoken")
+    .replace(/\bricotta\s+salata\b/gi, "dairynewricottatoken")
+    .replace(/\b(?:feta|halloumi|ricotta|mozzarella|parmesan|pecorino(?:\s+romano)?|cheddar|paneer)(?:\s+cheese)?\b|\bcheese\b/gi, "dairynewcheesetoken")
     .replace(/\b(?:butter|ghee|smen)\b/gi, "olive oil")
     .replace(/\bmilk\b/gi, "dairynewmilktoken")
     .replace(/\bcream\b/gi, "dairynewcreamtoken")
@@ -1175,6 +1182,7 @@ function makeDairySourcesExplicitlySafe(value: string): string {
     .replace(/dairynewcreamtoken/g, "unsweetened coconut cream")
     .replace(/dairynewyogurttoken/g, "dairy-free unsweetened yogurt")
     .replace(/dairynewcheesetoken/g, "dairy-free cheese")
+    .replace(/dairynewricottatoken/g, "plant-based ricotta alternative")
     .replace(/dairyalternativetoken(\d+)/g, (_, index: string) => protectedTerms[Number(index)] ?? "");
 }
 
@@ -1196,8 +1204,12 @@ function makeAnimalSourcesExplicitlyVegan(value: string, protein: string): strin
   return value
     .replace(/\b(?:fish|oyster)\s+sauce\b/gi, "soy sauce")
     .replace(/\b(?:beef|chicken|pork|lamb|mutton|turkey|duck|fish)\s+(?:broth|bouillon|stock)\b/gi, "low-sodium vegetable stock")
-    .replace(/\b(?:bacon|ham|prosciutto|pepperoni|salami|sausage|chorizo)\b/gi, "smoked mushrooms")
+    .replace(/\b(?:guanciale(?:\s+or\s+pancetta)?|pancetta|bacon|ham|prosciutto|pepperoni|salami|sausage|chorizo)\b/gi, "smoked mushrooms")
     .replace(/\b(?:beef|veal|chicken|pork|lamb|mutton|turkey|duck|goose|rabbit|fish|salmon|tuna|shrimp|prawn|crab|lobster|seafood|meat)\b/gi, protein)
+    .replace(
+      /\b(\d+)\s+(?:(?:large|medium|small|beaten)\s+)*eggs?(?:,\s*beaten)?\b/gi,
+      (_, count: string) => buildFlaxEggReplacement(count)
+    )
     .replace(/\b(?:egg|eggs)\b/gi, "ground flaxseed slurry")
     .replace(/\b(?:honey)\b/gi, "maple syrup")
     .replace(/\b(?:gelatin)\b/gi, "agar agar")
@@ -1206,6 +1218,12 @@ function makeAnimalSourcesExplicitlyVegan(value: string, protein: string): strin
     .replace(/\u0628\u064a\u0636(?:\u0629|\u0627\u062a)?/gu, "\u062e\u0644\u064a\u0637 \u0628\u0630\u0648\u0631 \u0643\u062a\u0627\u0646 \u0645\u0637\u062d\u0648\u0646\u0629")
     .replace(/\u0639\u0633\u0644/gu, "\u0634\u0631\u0627\u0628 \u0642\u064a\u0642\u0628")
     .replace(/\u062c\u064a\u0644\u0627\u062a\u064a\u0646/gu, "\u0623\u062c\u0627\u0631 \u0623\u062c\u0627\u0631");
+}
+
+function buildFlaxEggReplacement(rawCount: string) {
+  const count = Math.max(1, Number.parseInt(rawCount, 10) || 1);
+  const waterTablespoons = count * 2.5;
+  return `${count} tbsp ground flaxseed mixed with ${Number.isInteger(waterTablespoons) ? waterTablespoons : waterTablespoons.toFixed(1)} tbsp water`;
 }
 
 function makeKetoCarriersExplicitlySafe(value: string): string {

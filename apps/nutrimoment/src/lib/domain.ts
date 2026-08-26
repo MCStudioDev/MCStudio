@@ -1,4 +1,5 @@
 import type { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
+import type { RecipeImageSource } from "@/lib/types";
 
 export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 
@@ -139,6 +140,15 @@ export interface RecipeCanonicalStagingDoc {
 
 export type RecipeQualityStatus = "blocked" | "dish_intent" | "golden" | "probation" | "verified";
 
+export interface RecipeValidationReceipt {
+  profile: "premium";
+  acceptanceScore: number;
+  acceptanceReasons: string[];
+  acceptedAt: number;
+  contentFingerprint: string;
+  validatorHash: string;
+}
+
 export interface RecipeCatalogDoc {
   id: string;
   title: string;
@@ -146,6 +156,7 @@ export interface RecipeCatalogDoc {
   description: string;
   ingredients: RecipeIngredient[];
   ingredientCanonicals: string[];
+  ingredientLookupCanonicals?: string[];
   requiredCanonicals: string[];
   optionalCanonicals: string[];
   dietTags: string[];
@@ -172,6 +183,13 @@ export interface RecipeCatalogDoc {
     signature?: string;
     sharedCacheKey?: string;
     sourceQuery?: string;
+    source?: RecipeImageSource;
+    attributionName?: string;
+    attributionUrl?: string;
+    dietTags?: string[];
+    status?: "pending" | "ready";
+    validatedAt?: number;
+    validatorHash?: string;
   };
   source?: {
     provider: string;
@@ -190,9 +208,13 @@ export interface RecipeCatalogDoc {
   qualityScore: number;
   qualityStatus?: RecipeQualityStatus;
   qualityReasons?: string[];
+  publicationWarnings?: string[];
   contentVersion?: string;
   validatedAt?: number;
   validatorHash?: string;
+  sharedIdentityKey?: string;
+  validationReceipt?: RecipeValidationReceipt;
+  supersededBy?: string;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;

@@ -347,7 +347,7 @@ export function selectRecipeSearchCuisinePool(
     normalizeCuisineLabel(recipe.cuisine) === normalizedPreferred ||
     hasSpecificCuisineDishSignal(recipe, preferredCuisine)
   );
-  return focused.length ? focused : recipes;
+  return focused;
 }
 
 function getStaticLocalRecipeSources() {

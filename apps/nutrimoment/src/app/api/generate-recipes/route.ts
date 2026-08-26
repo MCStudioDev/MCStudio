@@ -49,7 +49,12 @@ import {
 } from "@/lib/localization/LocalizationService";
 import { getAllDishes, getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { scoreCuisineFit } from "@/lib/cuisineScoring";
-import { cuisineMatchesPreference, normalizeCuisineLabel } from "@/lib/cuisines";
+import {
+  buildCuisineUnderfillMessage,
+  cuisineMatchesPreference,
+  filterRecipesByCuisinePreference,
+  normalizeCuisineLabel
+} from "@/lib/cuisines";
 import {
   enforceAuthenticCuisineRecipeSet,
   resolveAuthenticCuisineDishes
@@ -318,6 +323,8 @@ export async function POST(request: Request) {
   let pipelineDebug = process.env.PIPELINE_DEBUG === "true";
   let historyEntryId: string | undefined;
   let historyUid: string | undefined;
+  let responsePreferredCuisine = "Any";
+  let responseRequestedRecipeCount = 0;
   const validationReport = createRecipeValidationReport({
     inputIngredients: [],
     requestedCount: 0,
@@ -344,13 +351,17 @@ export async function POST(request: Request) {
       failOpenPayload.generationStatus === RecipeGenerationStatus.NO_RESULTS &&
       hasSearchCandidates &&
       (!Array.isArray(failOpenPayload.recipes) || failOpenPayload.recipes.length === 0);
-    const responsePayload = preserveSearchTruth
+    const truthPreservedPayload = preserveSearchTruth
       ? {
           ...failOpenPayload,
           generationStatus: RecipeGenerationStatus.PARTIAL_RESULTS,
           message: "Compatible recipes were found, but none completed final validation. See the pipeline report for rejected candidates."
         }
       : failOpenPayload;
+    const responsePayload = enforceExplicitCuisineResponsePolicy(truthPreservedPayload, {
+      preferredCuisine: responsePreferredCuisine,
+      requestedCount: responseRequestedRecipeCount
+    });
     const recipes = responsePayload.recipes;
     const returned = Array.isArray(recipes) ? recipes.length : 0;
     if (historyUid && Array.isArray(recipes) && recipes.length) {
@@ -461,6 +472,8 @@ export async function POST(request: Request) {
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const requestedRecipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
+    responsePreferredCuisine = parsed.data.preferredCuisine ?? "Any";
+    responseRequestedRecipeCount = requestedRecipeCount;
     let recipeCount = requestedRecipeCount;
     let v2PrefillRecipes: Recipe[] = [];
     updateRecipeValidationFunnel(validationReport, {
@@ -828,11 +841,27 @@ export async function POST(request: Request) {
                 parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
                 preValidationCandidateCount
               );
+      const cuisineCoverageCandidates =
+        !parsed.data.preferredCuisine || parsed.data.preferredCuisine === "Any"
+          ? sourceBackedRecipes
+          : preserveTrustedSources
+            ? selectTrustedSourceCuisineRecipes(
+                sourceBackedRecipes,
+                parsed.data.preferredCuisine,
+                scoringIngredients,
+                sourceBackedRecipes.length
+              )
+            : enforcePreferredCuisineRecipes(
+                sourceBackedRecipes,
+                parsed.data.preferredCuisine,
+                parsed.data.referenceImage ? "preserve_exact_scan_match" : "strict",
+                sourceBackedRecipes.length
+              );
       const cuisineSelected = doesRecipeSetMeetInputCoverage(cuisinePreferred, inputCoveragePlan)
         ? cuisinePreferred
         : selectRecipesForInputCoverage(
             Array.from(new Map(
-              [...cuisinePreferred, ...sourceBackedRecipes].map((recipe) => [
+              [...cuisinePreferred, ...cuisineCoverageCandidates].map((recipe) => [
                 recipe.id ?? `${recipe.name}|${recipe.cuisine}`,
                 recipe
               ])
@@ -977,7 +1006,11 @@ export async function POST(request: Request) {
         reason: "final_ranking_limit",
         stage: "final_ranking"
       });
-      const responseCandidates = finalCountRepaired.length ? finalCountRepaired : sourceBackedRecipes;
+      const responseCandidates = finalCountRepaired.length
+        ? finalCountRepaired
+        : parsed.data.preferredCuisine && parsed.data.preferredCuisine !== "Any"
+          ? cuisineSelected
+          : sourceBackedRecipes;
 
       const displayCandidates = enforceDistinctPreparedRecipeDisplay(filterRecipesByInputMainProtein(
           prepareRecipes(responseCandidates),
@@ -7223,6 +7256,41 @@ function clampRecipeCount(value?: number, maxRecipeCount = MAX_SHARED_POOL_RECIP
   return Math.min(maxRecipeCount, Math.max(MIN_RECIPE_RESULT_COUNT, Number(value)));
 }
 
+export function enforceExplicitCuisineResponsePolicy(
+  payload: Record<string, unknown>,
+  context: { preferredCuisine: string; requestedCount: number }
+) {
+  if (!Array.isArray(payload.recipes) || !context.preferredCuisine || context.preferredCuisine === "Any") {
+    return payload;
+  }
+
+  const recipes = payload.recipes as Recipe[];
+  const cuisineEligible = filterRecipesByCuisinePreference(recipes, context.preferredCuisine);
+  const requestedCount = Math.max(
+    1,
+    Number(payload.requestedCount ?? context.requestedCount ?? recipes.length)
+  );
+  const removedCount = recipes.length - cuisineEligible.length;
+  const isUnderfilled = cuisineEligible.length < requestedCount;
+  if (removedCount === 0 && !isUnderfilled) return payload;
+
+  return {
+    ...payload,
+    recipes: cuisineEligible,
+    result: JSON.stringify(cuisineEligible),
+    requestedCount,
+    returnedCount: cuisineEligible.length,
+    generationStatus: cuisineEligible.length
+      ? RecipeGenerationStatus.PARTIAL_RESULTS
+      : RecipeGenerationStatus.NO_RESULTS,
+    message: buildCuisineUnderfillMessage({
+      preferredCuisine: context.preferredCuisine,
+      requestedCount,
+      returnedCount: cuisineEligible.length
+    })
+  };
+}
+
 function buildRecipeUnavailableMessage(recipeLanguage: string) {
   if (!isArabicRecipeLanguage(recipeLanguage)) {
     return "We could not find a good recipe match for those ingredients right now. Try adding one more ingredient or changing the cuisine.";
@@ -7651,7 +7719,7 @@ function enforcePreferredCuisineRecipes(
   const cuisineMatchedRecipes = recipes.filter((recipe) => cuisineMatchesPreference(recipe.cuisine, preferredCuisine));
 
   if (!cuisineMatchedRecipes.length) {
-    return recipes.slice(0, recipeCount);
+    return preservedExactMatches.slice(0, recipeCount);
   }
 
   const filtered = [...preservedExactMatches];
@@ -7668,18 +7736,6 @@ function enforcePreferredCuisineRecipes(
     filtered.push(recipe);
     if (filtered.length >= recipeCount) {
       break;
-    }
-  }
-
-  if (filtered.length < recipeCount) {
-    for (const recipe of recipes) {
-      const key = getRecipeSelectionKey(recipe);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      filtered.push(recipe);
-      if (filtered.length >= recipeCount) {
-        break;
-      }
     }
   }
 

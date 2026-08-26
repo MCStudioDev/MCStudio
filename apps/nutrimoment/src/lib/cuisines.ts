@@ -105,6 +105,26 @@ export function cuisineMatchesPreference(recipeCuisine: string, preferredCuisine
   return acceptedKeys.includes(recipeKey);
 }
 
+export function filterRecipesByCuisinePreference<T extends { cuisine?: string }>(
+  recipes: T[],
+  preferredCuisine?: string
+) {
+  if (!preferredCuisine || preferredCuisine === "Any") return recipes;
+  return recipes.filter((recipe) => cuisineMatchesPreference(recipe.cuisine ?? "", preferredCuisine));
+}
+
+export function buildCuisineUnderfillMessage(input: {
+  preferredCuisine: string;
+  requestedCount: number;
+  returnedCount: number;
+}) {
+  if (input.returnedCount <= 0) {
+    return `No validated ${input.preferredCuisine} recipes were available for these ingredients. Other cuisines were not substituted.`;
+  }
+
+  return `Showing ${input.returnedCount} of ${input.requestedCount} validated ${input.preferredCuisine} recipes. Other cuisines were excluded because there were not enough compliant matches.`;
+}
+
 export function normalizeCuisineLabel(value: string) {
   if (!value) return "Any";
   const normalized = normalizeCuisineKey(value);

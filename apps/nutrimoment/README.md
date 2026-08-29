@@ -46,6 +46,14 @@ From the monorepo root, the same check is available as:
 npm run predeploy:nutrimoment
 ```
 
+### Vercel environment
+
+Create the Vercel project with `apps/nutrimoment` as its Root Directory. Add only the variables listed in `.env.example`; do not import `.env.local` wholesale and do not upload a Firebase service-account JSON file.
+
+The production-required server secrets are `GEMINI_API_KEY`, `REPLICATE_API_TOKEN`, `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, and `FIREBASE_ADMIN_PRIVATE_KEY`. Firebase browser configuration uses the documented `NEXT_PUBLIC_FIREBASE_*` variables. Set `NEXT_PUBLIC_APP_URL` to the final HTTPS production domain.
+
+Model names, retry settings, cache kill switches, and Replicate input overrides already have application defaults. Add an optional override to Vercel only when production intentionally differs from those defaults.
+
 ## Firestore Security Rule Tests
 
 Run the security-rule test suite against the Firebase Local Emulator Suite:

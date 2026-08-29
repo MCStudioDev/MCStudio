@@ -1,5 +1,5 @@
 import type { Recipe, MealPlanMeal } from "@/lib/types";
-import { cuisineMatchesPreference, normalizeCuisineLabel } from "@/lib/cuisines";
+import { cuisineMatchesPreference, normalizeCuisineLabel, selectRecipesWithCuisineFallback } from "@/lib/cuisines";
 import { getCompleteCuisineCatalog } from "@/lib/cuisineCatalogs/completeCatalogs";
 import { OFFLINE_RECIPES } from "@/data/offline/recipes";
 import { getCuisineCatalogV2RecipeDocs } from "@/data/offline/cuisineCatalogV2Recipes";
@@ -54,6 +54,10 @@ import {
 } from "@/services/recipeContentQualityService";
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { attachValidatedRecipePhotoAsset } from "@/services/recipePhotoReusePolicy";
+import {
+  applyRecipeSearchFreshness,
+  getSeededRecipeVariation
+} from "@/services/recipeSearchFreshnessService";
 
 const recipeDiversityEngine = new RecipeDiversityEngine();
 const ingredientGraph = new IngredientGraph();
@@ -80,6 +84,8 @@ export interface CatalogRecipeSearchInput {
   forceSharedCacheRead?: boolean;
   skipStaticSources?: boolean;
   maxMissingIngredients?: number;
+  freshnessSeed?: string;
+  recentRecipeIds?: string[];
 }
 
 export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
@@ -223,13 +229,18 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     primaryCompatibleRanked
   ).filter((result) => countNonPantryMissingIngredients(result, normalized.raw.length) <= missingIngredientLimit);
   const ingredientPrioritized = prioritizeIngredientMatches(safeSharedPoolRanked, ingredientMatchedRanked);
-  const rankedResults = cuisineSearchOrder.length
+  const relevanceRankedResults = cuisineSearchOrder.length
     ? ingredientPrioritized
     : prioritizeRankedResultsForSpecificCuisine(
         ingredientPrioritized,
         cuisineFocusedRecipePool,
         preferences.preferredCuisine
       );
+  const rankedResults = applyRecipeSearchFreshness(relevanceRankedResults, {
+    explorationLimit: limit,
+    recentRecipeIds: input.recentRecipeIds,
+    seed: input.freshnessSeed
+  });
   const rankedRecipePool = cuisineFocusedRecipePool;
 
   const wantsArabic = isArabicRecipeLanguage(input.recipeLanguage ?? "English");
@@ -237,7 +248,11 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
     rankedResults,
     recipeMap,
     wantsArabic ? Math.max(limit * 3, limit) : limit,
-    preferences.preferredCuisine
+    preferences.preferredCuisine,
+    {
+      recentRecipeIds: new Set((input.recentRecipeIds ?? []).map((id) => id.trim().toLowerCase())),
+      seed: input.freshnessSeed
+    }
   );
   const mappedResults = rankedCandidates
     .map((result) => {
@@ -341,12 +356,17 @@ export function selectRecipeSearchCuisinePool(
   preferredCuisine: string
 ) {
   if (!preferredCuisine || preferredCuisine === "Any") return recipes;
-  const normalizedPreferred = normalizeCuisineLabel(preferredCuisine);
-  const focused = recipes.filter((recipe) =>
-    normalizeCuisineLabel(recipe.cuisine) === normalizedPreferred ||
+  const preferred = recipes.filter((recipe) =>
+    normalizeCuisineLabel(recipe.cuisine) === normalizeCuisineLabel(preferredCuisine) ||
     hasSpecificCuisineDishSignal(recipe, preferredCuisine)
   );
-  return focused;
+  const preferredIds = new Set(preferred.map((recipe) => recipe.id));
+  const alternatives = recipes.filter((recipe) => !preferredIds.has(recipe.id));
+  return selectRecipesWithCuisineFallback(
+    [...preferred, ...alternatives],
+    preferredCuisine,
+    recipes.length
+  ).recipes;
 }
 
 function getStaticLocalRecipeSources() {
@@ -904,7 +924,8 @@ function selectDistinctRankedResults(
   rankedResults: RankedRecipeResult[],
   recipeMap: Map<string, RecipeCatalogDoc>,
   limit: number,
-  preferredCuisine: string
+  preferredCuisine: string,
+  freshness: RecipeDiversityFreshnessOptions = {}
 ) {
   const selected = recipeDiversityEngine.select(
     rankedResults.flatMap((result) => {
@@ -912,7 +933,7 @@ function selectDistinctRankedResults(
       if (!recipe) return [];
       return [{
         value: result,
-        score: getRecipeDiversitySelectionScore(result, recipe, preferredCuisine),
+        score: getRecipeDiversitySelectionScore(result, recipe, preferredCuisine, freshness),
         cuisine: recipe.cuisine,
         dishFamily: normalizeRecipeDishFamily(recipe),
         cookingMethod: recipe.dishIntent?.cooking_method ?? recipe.styleTags?.find((tag) => /grill|bake|stew|fry|roast|soup|pasta/i.test(tag))
@@ -976,7 +997,8 @@ function selectDistinctRankedResults(
 export function getRecipeDiversitySelectionScore(
   result: RankedRecipeResult,
   recipe: RecipeCatalogDoc,
-  preferredCuisine: string
+  preferredCuisine: string,
+  freshness: RecipeDiversityFreshnessOptions = {}
 ) {
   const trustedCuisineSource = Boolean(
     preferredCuisine &&
@@ -994,8 +1016,30 @@ export function getRecipeDiversitySelectionScore(
   // RecipeDiversityEngine sorts candidates independently. Carry source
   // authority into its score so a generic import cannot displace a trusted
   // authentic source within the same dish family.
-  return result.score + (trustedCuisineSource ? 1_000 : 0) + (namedCuisineDish ? 250 : 0);
+  const authorityScore = result.score + (trustedCuisineSource ? 1_000 : 0) + (namedCuisineDish ? 250 : 0);
+  if (!freshness.seed && !freshness.recentRecipeIds?.size) return authorityScore;
+
+  const qualityScore = RECIPE_MATCH_QUALITY_FRESHNESS_RANK[result.matchQuality] * 10_000;
+  const recentPenalty = freshness.recentRecipeIds?.has(result.recipeId.trim().toLowerCase())
+    ? 100_000
+    : 0;
+  const variationScore = freshness.seed
+    ? getSeededRecipeVariation(freshness.seed, result.recipeId) * 200
+    : 0;
+  return qualityScore + authorityScore + variationScore - recentPenalty;
 }
+
+interface RecipeDiversityFreshnessOptions {
+  recentRecipeIds?: ReadonlySet<string>;
+  seed?: string;
+}
+
+const RECIPE_MATCH_QUALITY_FRESHNESS_RANK: Record<RankedRecipeResult["matchQuality"], number> = {
+  great: 4,
+  good: 3,
+  possible: 2,
+  stretch: 1
+};
 
 function prioritizeRankedResultsForSpecificCuisine(
   rankedResults: RankedRecipeResult[],

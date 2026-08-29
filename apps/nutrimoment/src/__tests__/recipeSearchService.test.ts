@@ -237,23 +237,34 @@ describe("recipe search service", () => {
     }
   });
 
-  it("returns trusted coverage and falls back to compatible shared-pool recipes", async () => {
+  it("returns trusted coverage without substituting a different protein form", async () => {
     const { searchCatalogRecipes } = await import("../services/recipeSearchService");
 
-    for (const ingredient of ["chicken", "beef"]) {
-      const result = await searchCatalogRecipes({
-        ingredients: [ingredient],
-        preferredCuisine: "Any",
-        calorieTarget: 1650,
-        maxResults: 5,
-        recipeLanguage: "English",
-        uid: "test-user"
-      });
+    const chickenResult = await searchCatalogRecipes({
+      ingredients: ["chicken"],
+      preferredCuisine: "Any",
+      calorieTarget: 1650,
+      maxResults: 5,
+      recipeLanguage: "English",
+      uid: "test-user"
+    });
+    expect(chickenResult.generationStatus).toBe(RecipeGenerationStatus.SUCCESS_DATASET);
+    expect(chickenResult.recipes.length).toBeGreaterThan(0);
+    expect(chickenResult.recipes.some((recipe) => recipe.matched_required_count > 0)).toBe(true);
 
-      expect(result.generationStatus, ingredient).toBe(RecipeGenerationStatus.SUCCESS_DATASET);
-      expect(result.recipes.length, ingredient).toBeGreaterThan(0);
-      expect(result.recipes.some((recipe) => recipe.matched_required_count > 0), ingredient).toBe(true);
-    }
+    const plainBeefResult = await searchCatalogRecipes({
+      ingredients: ["beef"],
+      preferredCuisine: "Any",
+      calorieTarget: 1650,
+      maxResults: 5,
+      recipeLanguage: "English",
+      uid: "test-user"
+    });
+    const plainBeefText = plainBeefResult.recipes
+      .flatMap((recipe) => [recipe.name, ...recipe.ingredients])
+      .join(" ")
+      .toLowerCase();
+    expect(plainBeefText).not.toMatch(/\b(?:ground|minced)\s+beef\b|\b(?:kofta|kofte|meatballs?|burger)\b/);
 
     const sharedPoolFallback = await searchCatalogRecipes({
       ingredients: ["rice"],

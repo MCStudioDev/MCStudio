@@ -261,6 +261,8 @@ export const translations = {
     readyToCookDesc: "Scan a photo or add ingredients manually, then generate recipe ideas ranked by ingredient fit and preferences. Always verify allergens, nutrition, and food safety before cooking.",
     exactScannedDish: "Exact scanned dish",
     similarIngredients: "Similar ingredients",
+    backfilledRecipe: "Backfilled",
+    otherCuisineMatch: "Other cuisine - ingredient match",
     exactRecipePreview: "Closest recreation of the plated dish from your scan",
     similarRecipePreview: "Related recipe built from similar scanned ingredients",
     previewIngredientsMacros: "Preview ingredients and macros",

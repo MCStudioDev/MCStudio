@@ -6,13 +6,17 @@ import {
   accessPayload,
   buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiAction
+  completeFreeAiAction,
+  releaseFreeAiAction,
+  reserveFreeAiAction
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
 
 // Deprecated compatibility route. New image ingredient extraction should use
 // POST /api/scan or POST /api/scan/process.
 export async function POST(request: Request) {
+  let pendingAccess: Awaited<ReturnType<typeof canUseApiFeature>>["access"] | undefined;
+  let pendingActionId: string | undefined;
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
     const rl = applyRateLimit({
@@ -41,14 +45,18 @@ export async function POST(request: Request) {
       });
     }
 
-    const { access: nextAccess } = await consumeFreeAiAction(
+    const aiAction = await reserveFreeAiAction(
       accessCheck.access,
       "image_to_text",
       typeof actionId === "string" ? actionId : crypto.randomUUID()
     );
+    pendingAccess = accessCheck.access;
+    pendingActionId = aiAction.actionId;
 
     if (USE_MOCK) {
       const mockIngredients = ["chicken", "garlic", "onion", "tomato", "olive oil", "basil"];
+      const nextAccess = await completeFreeAiAction(accessCheck.access, pendingActionId);
+      pendingActionId = undefined;
       return Response.json({ ingredients: mockIngredients, access: accessPayload(nextAccess) });
     }
 
@@ -57,9 +65,18 @@ export async function POST(request: Request) {
     const json = extractJson(text);
     const parsedResult = JSON.parse(json) as { ingredients?: string[] } | string[];
     const ingredients = Array.isArray(parsedResult) ? parsedResult : parsedResult.ingredients ?? [];
+    const nextAccess = ingredients.length
+      ? await completeFreeAiAction(accessCheck.access, pendingActionId)
+      : accessCheck.access;
+    if (!ingredients.length) await releaseFreeAiAction(accessCheck.access, pendingActionId);
+    pendingActionId = undefined;
 
     return Response.json({ ingredients, access: accessPayload(nextAccess) });
   } catch (error) {
+    if (pendingAccess && pendingActionId) {
+      await releaseFreeAiAction(pendingAccess, pendingActionId);
+      pendingActionId = undefined;
+    }
     if (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials"))) {
       return accessErrorResponse(error);
     }

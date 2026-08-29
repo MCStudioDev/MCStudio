@@ -475,6 +475,11 @@ function buildRecipeSections(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) 
 }
 
 function getRecipeEyebrow(recipe: Recipe, t: ReturnType<typeof useApp>["t"]) {
+  if (recipe.freshness_origin === "backfilled_recent" && recipe.cuisine_match_origin === "ingredient_fallback") {
+    return `${t("backfilledRecipe")} / ${t("otherCuisineMatch")}`;
+  }
+  if (recipe.freshness_origin === "backfilled_recent") return t("backfilledRecipe");
+  if (recipe.cuisine_match_origin === "ingredient_fallback") return t("otherCuisineMatch");
   if (recipe.recipe_origin === "exact_scan_match") return t("exactScannedDish");
   if (recipe.recipe_origin === "similar_ingredients") return t("similarIngredients");
   return undefined;

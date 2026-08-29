@@ -14,11 +14,18 @@ import {
   accessPayload,
   buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiAction,
+  completeFreeAiAction,
+  releaseFreeAiAction,
+  reserveFreeAiAction,
 } from "@/services/authService";
 import { applyRateLimit, rateLimitHeaders } from "@/services/rateLimitService";
 import { generateFallbackRecipes } from "@/services/fallbackAiService";
 import { searchCatalogRecipes } from "@/services/recipeSearchService";
+import {
+  filterPreviouslyShownRecipes,
+  normalizeRecipeIngredientContextKey,
+  selectRecipeFreshnessBackfill
+} from "@/services/recipeSearchFreshnessService";
 import {
   getWarmSharedRecipeCacheSnapshot,
   persistGeneratedRecipeCache,
@@ -52,8 +59,8 @@ import { scoreCuisineFit } from "@/lib/cuisineScoring";
 import {
   buildCuisineUnderfillMessage,
   cuisineMatchesPreference,
-  filterRecipesByCuisinePreference,
-  normalizeCuisineLabel
+  normalizeCuisineLabel,
+  selectRecipesWithCuisineFallback
 } from "@/lib/cuisines";
 import {
   enforceAuthenticCuisineRecipeSet,
@@ -130,7 +137,8 @@ import {
 import { RecipeGenerationStatus } from "@/lib/RecipeGenerationStatus";
 import {
   createRecipeIngredientCompatibilityEvaluator,
-  hasExclusiveRequestedProteinForm
+  hasExclusiveRequestedProteinForm,
+  hasRequestedProteinForm
 } from "@/services/recipePrimaryIngredientCompatibility";
 import {
   analyzeRecipeInputCoverage,
@@ -167,7 +175,7 @@ import { dedupeExactRecipeCandidates } from "@/services/recipeCandidateMergeServ
 import {
   isSharedRecipeV2Searchable,
   mergeSharedRecipeV2Results,
-  planSharedRecipeV2Fulfillment
+  planSharedRecipeV2CuisineFulfillment
 } from "@/services/sharedRecipeV2PolicyService";
 import { DEFAULT_USER_SETTINGS } from "@/lib/userDefaults";
 
@@ -297,14 +305,20 @@ const requestSchema = z.object({
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   const requestStartedAt = Date.now();
-  const variationSeed = buildRecipeVariationSeed(requestId);
+  let variationSeed = buildRecipeVariationSeed(requestId);
   let accessCheck: Awaited<ReturnType<typeof canUseApiFeature>> | null = null;
+  let responseAiActionReservationId: string | undefined;
   let responseAiActionGrantId: string | undefined;
   let lastValidSearchRecipes: Recipe[] = [];
   let pipelineDebug = process.env.PIPELINE_DEBUG === "true";
   let historyEntryId: string | undefined;
+  let historyIngredientContextKey = "";
   let historyUid: string | undefined;
   let responsePreferredCuisine = "Any";
+  let responseRequiresDailyFreshness = false;
+  let responseRecentRecipeMemory = EMPTY_RECENT_RECIPE_MEMORY;
+  let responseEligibleCuisineFallbackRecipes: Recipe[] = [];
+  let responseEligibleBackfillRecipes: Recipe[] = [];
   let responseRequestedRecipeCount = 0;
   const validationReport = createRecipeValidationReport({
     inputIngredients: [],
@@ -339,14 +353,103 @@ export async function POST(request: Request) {
           message: "Compatible recipes were found, but none completed final validation. See the pipeline report for rejected candidates."
         }
       : failOpenPayload;
-    const responsePayload = enforceExplicitCuisineResponsePolicy(truthPreservedPayload, {
+    const cuisineEligiblePayload = enforceExplicitCuisineResponsePolicy(truthPreservedPayload, {
       preferredCuisine: responsePreferredCuisine,
       requestedCount: responseRequestedRecipeCount
     });
+    const payloadRecipes = Array.isArray(cuisineEligiblePayload.recipes)
+      ? cuisineEligiblePayload.recipes as Recipe[]
+      : [];
+    const freshPayloadRecipes = responseRequiresDailyFreshness
+      ? filterPreviouslyShownRecipes(payloadRecipes, responseRecentRecipeMemory.recipes)
+      : payloadRecipes;
+    const cuisineFallbackSelection = responseRequiresDailyFreshness
+      ? selectRecipeFreshnessBackfill(
+          freshPayloadRecipes,
+          responseEligibleCuisineFallbackRecipes,
+          responseRequestedRecipeCount
+        )
+      : { backfilled: [] as Recipe[], recipes: freshPayloadRecipes };
+    const newCuisineFallbackCount = cuisineFallbackSelection.backfilled.length;
+    const freshnessSelection = responseRequiresDailyFreshness
+      ? selectRecipeFreshnessBackfill(
+          cuisineFallbackSelection.recipes,
+          responseEligibleBackfillRecipes,
+          responseRequestedRecipeCount
+        )
+      : { backfilled: [] as Recipe[], recipes: cuisineFallbackSelection.recipes };
+    const backfilledCount = freshnessSelection.backfilled.length;
+    const freshnessRecipes = freshnessSelection.recipes.map((recipe) => ({
+      ...recipe,
+      cuisine_match_origin:
+        responsePreferredCuisine !== "Any" &&
+        !cuisineMatchesPreference(recipe.cuisine, responsePreferredCuisine)
+          ? "ingredient_fallback" as const
+          : "preferred" as const,
+      freshness_origin: freshnessSelection.backfilled.includes(recipe)
+        ? "backfilled_recent" as const
+        : "fresh" as const
+    }));
+    const otherCuisineCount = freshnessRecipes.filter(
+      (recipe) => recipe.cuisine_match_origin === "ingredient_fallback"
+    ).length;
+    const cuisineFallbackNotice = otherCuisineCount
+      ? ` ${otherCuisineCount} recipe${otherCuisineCount === 1 ? " is" : "s are"} from other cuisines because there were not enough validated ${responsePreferredCuisine} matches; they still match your ingredients and restrictions.`
+      : "";
+    const recentExcludedCount = Math.max(0, payloadRecipes.length - freshPayloadRecipes.length);
+    const freshnessChanged =
+      freshnessRecipes.length !== payloadRecipes.length ||
+      newCuisineFallbackCount > 0 ||
+      backfilledCount > 0;
+    const freshnessPayload = !freshnessChanged
+      ? cuisineEligiblePayload
+      : {
+          ...cuisineEligiblePayload,
+          recipes: freshnessRecipes,
+          result: JSON.stringify(freshnessRecipes),
+          returnedCount: freshnessRecipes.length,
+          freshCount: freshnessRecipes.length - backfilledCount,
+          backfilledCount,
+          generationStatus: freshnessRecipes.length >= responseRequestedRecipeCount
+            ? RecipeGenerationStatus.PARTIAL_RESULTS
+            : freshnessRecipes.length
+              ? RecipeGenerationStatus.PARTIAL_RESULTS
+              : RecipeGenerationStatus.NO_RESULTS,
+          message: backfilledCount
+            ? `Showing ${freshnessRecipes.length - backfilledCount} new recipes and ${backfilledCount} backfilled recipe${backfilledCount === 1 ? "" : "s"} from the last 24 hours ${freshnessRecipes.length >= responseRequestedRecipeCount ? "to reach" : "toward"} your requested ${responseRequestedRecipeCount}. Backfilled recipes still match your current ingredients and restrictions.${cuisineFallbackNotice}`
+            : newCuisineFallbackCount > 0
+              ? `Gemini and the preferred ${responsePreferredCuisine} pool did not fill all ${responseRequestedRecipeCount} spots, so ${newCuisineFallbackCount} new ingredient-matched recipe${newCuisineFallbackCount === 1 ? " was" : "s were"} added from other cuisines.${cuisineFallbackNotice}`
+            : freshnessRecipes.length && recentExcludedCount > 0
+              ? `Showing ${freshnessRecipes.length} of ${responseRequestedRecipeCount} new recipes; recipes shown for these ingredients in the last 24 hours were excluded.${cuisineFallbackNotice}`
+              : freshnessRecipes.length
+                ? cuisineEligiblePayload.message
+                : "No new validated recipes are available for these ingredients yet. Recipes shown in the last 24 hours were excluded."
+        };
+    const responsePayload = freshnessPayload;
     const recipes = responsePayload.recipes;
     const returned = Array.isArray(recipes) ? recipes.length : 0;
-    if (historyUid && Array.isArray(recipes) && recipes.length) {
-      rememberInProcessRecentRecipes(historyUid, recipes as Recipe[]);
+    const responseStatus = init?.status ?? 200;
+    const actionSucceeded = responseStatus >= 200 && responseStatus < 300 && returned > 0;
+    let finalizedAccess = accessCheck?.access;
+    let completedActionGrantId: string | undefined;
+    if (responseAiActionReservationId && accessCheck) {
+      const reservationId = responseAiActionReservationId;
+      responseAiActionReservationId = undefined;
+      if (actionSucceeded) {
+        try {
+          finalizedAccess = await completeFreeAiAction(accessCheck.access, reservationId);
+          completedActionGrantId = responseAiActionGrantId;
+        } catch (error) {
+          await releaseFreeAiAction(accessCheck.access, reservationId);
+          throw error;
+        }
+      } else {
+        await releaseFreeAiAction(accessCheck.access, reservationId);
+      }
+      responseAiActionGrantId = undefined;
+    }
+    if (historyUid && historyIngredientContextKey && Array.isArray(recipes) && recipes.length) {
+      rememberInProcessRecentRecipes(historyUid, historyIngredientContextKey, recipes as Recipe[]);
     }
     recordRecipeGenerationTrace(validationReport, {
       type: "response",
@@ -386,7 +489,8 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ...responsePayload,
-        ...(responseAiActionGrantId ? { aiActionGrantId: responseAiActionGrantId } : {}),
+        ...(completedActionGrantId ? { aiActionGrantId: completedActionGrantId } : {}),
+        ...(finalizedAccess ? { access: accessPayload(finalizedAccess) } : {}),
         requestId,
         search_candidates_found: validationReport.generationTrace.search.candidatesFound,
         request_trace: pipelineDebug ? validationReport.generationTrace : undefined,
@@ -435,6 +539,7 @@ export async function POST(request: Request) {
     historyEntryId = parsed.data.historyEntryId;
     historyUid = requestAccess.uid;
     pipelineDebug ||= parsed.data.debug === true;
+    variationSeed = buildRecipeVariationSeed(parsed.data.actionId ?? requestId);
 
     if (parsed.data.referenceImage && !accessCheck.allowed) {
       return await respondWithValidationReport(
@@ -450,6 +555,7 @@ export async function POST(request: Request) {
     const ingredients = (parsed.data.ingredients ?? extractIngredientsFromPrompt(parsed.data.prompt ?? ""))
       .map((ingredient) => ingredient.trim())
       .filter(Boolean);
+    historyIngredientContextKey = normalizeRecipeIngredientContextKey(ingredients);
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
     const wantsArabic = isArabicRecipeLanguage(recipeLanguage);
     const requestedRecipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
@@ -469,11 +575,13 @@ export async function POST(request: Request) {
       );
     }
     const aiAction = accessCheck.allowed
-      ? await consumeFreeAiAction(requestAccess, "recipe_generation", parsed.data.actionId ?? requestId)
+      ? await reserveFreeAiAction(requestAccess, "recipe_generation", parsed.data.actionId ?? requestId)
       : { access: requestAccess };
     const nextAccess = aiAction.access;
+    responseAiActionReservationId = aiAction.actionId;
     responseAiActionGrantId = aiAction.actionGrantId;
     const hasPremiumWorkflowAccess = requestAccess.isPremium || requestAccess.isAdmin || accessCheck.allowed;
+    responseRequiresDailyFreshness = hasPremiumWorkflowAccess;
     const workflowAccess = hasPremiumWorkflowAccess
       ? { ...requestAccess, isPremium: true }
       : requestAccess;
@@ -492,6 +600,21 @@ export async function POST(request: Request) {
       ...expandIngredientFamilies(normalizedIngredientNames)
     ]));
     const scoringIngredients = expandedNormalizedIngredientNames;
+    // A retry of the same click keeps the same seed, while a new actionId
+    // rotates equivalent validated matches and avoids recently shown dishes.
+    const availableIngredients = buildPantryOwnershipSet(
+      { inputIngredients: ingredients, normalizedIngredients: normalizedIngredientNames },
+      normalizeIngredientForStrictMatch
+    );
+    const recentRecipeMemory = await loadRecentRecipeMemory({
+      inputIngredients: ingredients,
+      requestId,
+      uid: requestAccess.uid
+    });
+    responseRecentRecipeMemory = recentRecipeMemory;
+    const recentRecipeIds = recentRecipeMemory.recipes.flatMap((recipe) =>
+      [recipe.id, recipe.source_recipe_id].filter((value): value is string => Boolean(value?.trim()))
+    );
     const v2SearchResult = ingredients.length
       ? await searchCatalogRecipes({
           ingredients,
@@ -506,7 +629,9 @@ export async function POST(request: Request) {
           allowRemoteCaches: true,
           forceSharedCacheRead: true,
           skipStaticSources: true,
-          maxMissingIngredients: parsed.data.maxMissingIngredients
+          maxMissingIngredients: parsed.data.maxMissingIngredients,
+          freshnessSeed: variationSeed,
+          recentRecipeIds
         })
       : null;
     const v2ExcludedIngredientFilter = filterRecipesByExcludedIngredients(
@@ -515,12 +640,29 @@ export async function POST(request: Request) {
     );
     const v2RestrictionSafe = v2ExcludedIngredientFilter.allowed
       .filter((recipe) => !findRecipeHealthViolation(recipe, parsed.data.conditions ?? []));
-    const v2Plan = planSharedRecipeV2Fulfillment({
+    const v2FreshRecipes = hasPremiumWorkflowAccess
+      ? filterPreviouslyShownRecipes(v2RestrictionSafe, recentRecipeMemory.recipes)
+      : v2RestrictionSafe;
+    // An account with AI access first gives Gemini the complete preferred-
+    // cuisine deficit. Other cuisines are held for the response-boundary
+    // fallback. Accounts without AI access can still use those V2 matches.
+    const v2Plan = planSharedRecipeV2CuisineFulfillment({
       canGenerateDeficit: hasPremiumWorkflowAccess,
-      matches: v2RestrictionSafe,
+      matches: v2FreshRecipes,
+      preferredCuisine: parsed.data.preferredCuisine,
       requestedCount: requestedRecipeCount
     });
+    responseEligibleCuisineFallbackRecipes = v2Plan.alternativeCuisineMatches;
     v2PrefillRecipes = v2Plan.existing;
+    logger.info("Shared V2 freshness fulfillment planned", {
+      requestId,
+      freshMatchCount: v2FreshRecipes.length,
+      preferredFreshMatchCount: v2Plan.preferredCuisineMatches.length,
+      alternativeFreshMatchCount: v2Plan.alternativeCuisineMatches.length,
+      recentExcludedCount: Math.max(0, v2RestrictionSafe.length - v2FreshRecipes.length),
+      generationDeficit: v2Plan.generationDeficit,
+      requestedCount: requestedRecipeCount
+    });
 
     if (v2Plan.generationDeficit === 0) {
       const generationStatus = v2Plan.unfilledCount
@@ -647,17 +789,26 @@ export async function POST(request: Request) {
     // Search expansion may include related products such as chicken stock.
     // Ownership must reflect only what the user actually entered and its
     // canonical normalization.
-    const availableIngredients = buildPantryOwnershipSet(
-      { inputIngredients: ingredients, normalizedIngredients: normalizedIngredientNames },
-      normalizeIngredientForStrictMatch
-    );
     const recipeCompatibilityEvaluator = createRecipeIngredientCompatibilityEvaluator(ingredients);
-    const recentRecipeMemory = await loadRecentRecipeMemory({
-      availableIngredients,
-      inputIngredients: ingredients,
-      requestId,
-      uid: requestAccess.uid
-    });
+    const dietSafeRecentRecipes = enforceDietOnRecipes(
+      responseRecentRecipeMemory.recipes,
+      "daily_freshness_backfill"
+    );
+    const exclusionSafeRecentRecipes = filterRecipesByExcludedIngredients(
+      dietSafeRecentRecipes,
+      parsed.data.excludedIngredients ?? []
+    ).allowed;
+    responseEligibleBackfillRecipes = selectRecipesByRequestPolicy(
+      exclusionSafeRecentRecipes
+        .filter((recipe) => recipeCompatibilityEvaluator.evaluatePrimary(recipe).compatible)
+        .filter((recipe) =>
+          (recipe.missing_ingredients?.length ?? 0) <=
+          (parsed.data.maxMissingIngredients ?? DEFAULT_USER_SETTINGS.maxMissingIngredients)
+        )
+        .filter((recipe) => isCustomerFacingRecipeContractAcceptable(recipe, recipeLanguage)),
+      requestPolicy,
+      requestedRecipeCount
+    );
     const aiTraceSummary = {
       requestId,
       hadReferenceImage: Boolean(parsed.data.referenceImage),
@@ -715,22 +866,31 @@ export async function POST(request: Request) {
       diets: parsed.data.diets,
       preferredCuisine: parsed.data.preferredCuisine
     });
+    const recipeNamesToAvoid = Array.from(new Set([
+      ...recentRecipeMemory.recipes.flatMap((recipe) => [recipe.dish_identity, recipe.dish_intent?.dish_name, recipe.name]),
+      ...v2PrefillRecipes
+        .flatMap((recipe) => [recipe.dish_identity, recipe.dish_intent?.dish_name, recipe.name])
+    ].map((name) => name?.trim()).filter((name): name is string => Boolean(name))));
     const recipeReferencesPromise = shouldLoadRecipeReferencesForGeneration({
       hasAiGenerationAccess,
       ingredientCount: ingredients.length
     })
       ? findRecipeReferencesForGeneration({
-          avoidRecipeNames: Array.from(new Set([
-            ...recentRecipeMemory.names,
-            ...v2PrefillRecipes.map((recipe) => recipe.name)
-          ])),
+          avoidRecipeNames: recipeNamesToAvoid,
           allergens: parsed.data.allergens,
           diets: parsed.data.diets,
           ingredients: scoringIngredients,
           preferredCuisine: parsed.data.preferredCuisine ?? "Any",
           maxReferences: Math.min(60, Math.max(20, recipeCount * 6)),
           variationSeed
-        })
+        }).then((references) => references.filter((reference) => {
+          const mappedReference = mapRecipeReferencesToRecipes([reference], {
+            calorieTarget: parsed.data.calorieTarget ?? DEFAULT_USER_SETTINGS.calorieTarget,
+            recipeLanguage
+          })[0];
+          return Boolean(mappedReference) &&
+            recipeCompatibilityEvaluator.evaluatePrimary(mappedReference).compatible;
+        }))
       : Promise.resolve([]);
     const requestRestriction = buildHardRequestRestrictionContext(candidateDishes, parsed.data.preferredCuisine, ingredients.length);
     let referenceLibraryNeedsGroundedSearch = ingredients.length > 0;
@@ -1325,9 +1485,8 @@ export async function POST(request: Request) {
         stage: "localization"
       });
 
-      // Recent scans already lower a candidate's ranking. They never exclude a
-      // recipe outright, because repeated testing or a small cuisine catalog
-      // must still return the best available recipes.
+      // Fresh recipes remain first. Eligible recent recipes are reintroduced
+      // only at the response boundary when the fresh set cannot fill the request.
       const activeDiets = parsed.data.diets ?? [];
       const policySelected = selectRecipesByRequestPolicy(localizedSelected, requestPolicy, recipeCount);
       const photoReadySelected = isFreeTier
@@ -1361,11 +1520,17 @@ export async function POST(request: Request) {
       });
       return responseRecipes;
     };
-    const finalizeRecipeResponse = async (recipes: Recipe[]) => mergeSharedRecipeV2Results(
-      v2PrefillRecipes,
-      await finalizeRecipes(recipes),
-      requestedRecipeCount
-    );
+    const finalizeRecipeResponse = async (recipes: Recipe[]) => {
+      const finalizedGenerated = await finalizeRecipes(recipes);
+      const freshGenerated = hasPremiumWorkflowAccess
+        ? filterPreviouslyShownRecipes(finalizedGenerated, recentRecipeMemory.recipes)
+        : finalizedGenerated;
+      return mergeSharedRecipeV2Results(
+        v2PrefillRecipes,
+        freshGenerated,
+        requestedRecipeCount
+      );
+    };
     const strictRankingOptions = {
       ...parsed.data,
       ingredients: scoringIngredients,
@@ -1492,7 +1657,9 @@ export async function POST(request: Request) {
           // for every account. Free users still read the shared pool, but a
           // noisy or incomplete remote index must not hide canonical dishes.
           skipStaticSources: false,
-          maxMissingIngredients: parsed.data.maxMissingIngredients
+          maxMissingIngredients: parsed.data.maxMissingIngredients,
+          freshnessSeed: variationSeed,
+          recentRecipeIds
         });
       }
       return sharedRecipeSearchPromise;
@@ -2176,9 +2343,10 @@ export async function POST(request: Request) {
           return [];
         });
         const unique = new Map<string, Recipe>();
+        const avoidedNames = new Set(initialAvoidNames.map(normalizeCuisineIdentityText).filter(Boolean));
         discovered.forEach((recipe) => {
           const key = normalizeCuisineIdentityText(recipe.name ?? "");
-          if (key && !unique.has(key)) unique.set(key, recipe);
+          if (key && !avoidedNames.has(key) && !unique.has(key)) unique.set(key, recipe);
         });
         return [...unique.values()].slice(0, input.requestedCount);
       };
@@ -2467,6 +2635,7 @@ export async function POST(request: Request) {
       } else {
         if (ingredients.length && shouldUseGroundedRecipeSearch) {
           const groundedRecipes = await generateRecipeBatch({
+            avoidRecipeNames: recipeNamesToAvoid,
             phase: "primary_grounded_discovery",
             requestedCount: recipeGenerationCandidateCount
           });
@@ -2485,7 +2654,9 @@ export async function POST(request: Request) {
                 diets: parsed.data.diets ?? [],
                 conditions: parsed.data.conditions ?? [],
                 allergens: parsed.data.allergens ?? [],
-                excludedIngredients: parsed.data.excludedIngredients ?? []
+                excludedIngredients: parsed.data.excludedIngredients ?? [],
+                recentRecipeAvoidance: recipeNamesToAvoid.join(" | "),
+                variationSeed
               })
             : PromptBuilder.promptOnlyRecipeGeneration(parsed.data.prompt ?? "", recipeLanguage, recipeCount);
           recipeGeminiCallBudget.claim("primary_generation");
@@ -2833,12 +3004,13 @@ async function persistRecipeGenerationHistoryEntry(input: {
 }
 
 async function loadRecentRecipeMemory(input: {
-  availableIngredients: Set<string>;
   inputIngredients: string[];
   requestId: string;
   uid: string;
 }): Promise<RecentRecipeMemory> {
-  const inProcessRecipes = getInProcessRecentRecipes(input.uid);
+  const ingredientContextKey = normalizeRecipeIngredientContextKey(input.inputIngredients);
+  if (!ingredientContextKey) return EMPTY_RECENT_RECIPE_MEMORY;
+  const inProcessRecipes = getInProcessRecentRecipes(input.uid, ingredientContextKey);
   try {
     const historyRef = getAdminDb()
       .collection("users")
@@ -2846,22 +3018,30 @@ async function loadRecentRecipeMemory(input: {
       .collection("history");
     let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
     try {
-      snapshot = await historyRef.orderBy("createdAt", "desc").limit(30).get();
+      snapshot = await historyRef.orderBy("createdAt", "desc").limit(100).get();
     } catch {
-      snapshot = await historyRef.limit(30).get();
+      snapshot = await historyRef.limit(100).get();
     }
 
+    const freshnessCutoff = Date.now() - IN_PROCESS_RECENT_RECIPE_TTL_MS;
     const recentScanRecipes = snapshot.docs
       .map((docSnap) => {
-        const data = docSnap.data() as { recipes?: Recipe[] };
-        return Array.isArray(data.recipes) && data.recipes.length ? data.recipes : [];
+        const data = docSnap.data() as {
+          createdAt?: unknown;
+          ingredients?: string[];
+          recipes?: Recipe[];
+          timestamp?: string;
+        };
+        const createdAt = getHistoryEntryCreatedAtMs(data.createdAt, data.timestamp);
+        const sameIngredientContext = normalizeRecipeIngredientContextKey(data.ingredients ?? []) === ingredientContextKey;
+        return sameIngredientContext && createdAt >= freshnessCutoff && Array.isArray(data.recipes)
+          ? data.recipes
+          : [];
       })
       .filter((recipes) => recipes.length > 0)
-      .slice(0, 10)
       .flat();
     const recipes = dedupeRecentRecipes([...inProcessRecipes, ...recentScanRecipes])
-      .filter((recipe) => recipeMatchesRecentIngredientContext(recipe, input.inputIngredients, input.availableIngredients))
-      .slice(0, 50);
+      .slice(0, MAX_IN_PROCESS_RECIPES_PER_USER);
 
     const memory = buildRecentRecipeMemory(recipes);
     if (memory.recipes.length) {
@@ -2879,15 +3059,15 @@ async function loadRecentRecipeMemory(input: {
       errorMessage: error instanceof Error ? error.message : String(error)
     });
     const recipes = inProcessRecipes
-      .filter((recipe) => recipeMatchesRecentIngredientContext(recipe, input.inputIngredients, input.availableIngredients))
-      .slice(0, 50);
+      .slice(0, MAX_IN_PROCESS_RECIPES_PER_USER);
     return recipes.length ? buildRecentRecipeMemory(recipes) : EMPTY_RECENT_RECIPE_MEMORY;
   }
 }
 
-function rememberInProcessRecentRecipes(uid: string, recipes: Recipe[]) {
-  const existing = getInProcessRecentRecipes(uid);
-  inProcessRecentRecipes.set(uid, {
+function rememberInProcessRecentRecipes(uid: string, ingredientContextKey: string, recipes: Recipe[]) {
+  const memoryKey = buildInProcessRecentRecipeKey(uid, ingredientContextKey);
+  const existing = getInProcessRecentRecipes(uid, ingredientContextKey);
+  inProcessRecentRecipes.set(memoryKey, {
     expiresAt: Date.now() + IN_PROCESS_RECENT_RECIPE_TTL_MS,
     recipes: dedupeRecentRecipes([...recipes, ...existing]).slice(0, MAX_IN_PROCESS_RECIPES_PER_USER)
   });
@@ -2898,14 +3078,29 @@ function rememberInProcessRecentRecipes(uid: string, recipes: Recipe[]) {
   }
 }
 
-function getInProcessRecentRecipes(uid: string) {
-  const entry = inProcessRecentRecipes.get(uid);
+function getInProcessRecentRecipes(uid: string, ingredientContextKey: string) {
+  const memoryKey = buildInProcessRecentRecipeKey(uid, ingredientContextKey);
+  const entry = inProcessRecentRecipes.get(memoryKey);
   if (!entry) return [];
   if (entry.expiresAt <= Date.now()) {
-    inProcessRecentRecipes.delete(uid);
+    inProcessRecentRecipes.delete(memoryKey);
     return [];
   }
   return entry.recipes;
+}
+
+function buildInProcessRecentRecipeKey(uid: string, ingredientContextKey: string) {
+  return `${uid}|${ingredientContextKey}`;
+}
+
+function getHistoryEntryCreatedAtMs(createdAt: unknown, timestamp?: string) {
+  if (createdAt && typeof createdAt === "object") {
+    const firestoreTimestamp = createdAt as { toDate?: () => Date; toMillis?: () => number };
+    if (typeof firestoreTimestamp.toMillis === "function") return firestoreTimestamp.toMillis();
+    if (typeof firestoreTimestamp.toDate === "function") return firestoreTimestamp.toDate().getTime();
+  }
+  const parsedTimestamp = timestamp ? Date.parse(timestamp) : Number.NaN;
+  return Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0;
 }
 
 function dedupeRecentRecipes(recipes: Recipe[]) {
@@ -2942,43 +3137,6 @@ function buildRecentRecipeMemory(recipes: Recipe[]): RecentRecipeMemory {
   }
 
   return memory;
-}
-
-function recipeMatchesRecentIngredientContext(recipe: Recipe, inputIngredients: string[], availableIngredients: Set<string>) {
-  if (!inputIngredients.length) return true;
-  const inputKeys = new Set(
-    inputIngredients
-      .flatMap((ingredient) => expandIngredientFamilies([ingredient]))
-      .map(normalizeIngredientForStrictMatch)
-      .filter(Boolean)
-  );
-  if (!inputKeys.size) return true;
-
-  const recipeText = [
-    recipe.name,
-    recipe.cuisine,
-    recipe.image_search_index,
-    recipe.dish_intent?.dish_name,
-    ...(recipe.image_search_indices ?? []),
-    ...(recipe.ingredients ?? []),
-    ...(recipe.missing_ingredients ?? [])
-  ].join(" ");
-  const recipeKeys = new Set(
-    expandIngredientFamilies(
-      recipeText
-        .split(/[,;/|]+|\s+with\s+|\s+and\s+/i)
-        .map((value) => value.trim())
-        .filter(Boolean)
-    )
-      .map(normalizeIngredientForStrictMatch)
-      .filter(Boolean)
-  );
-
-  for (const key of inputKeys) {
-    if (recipeKeys.has(key)) return true;
-  }
-
-  return (recipe.ingredients ?? []).some((ingredient) => isIngredientAvailable(ingredient, availableIngredients));
 }
 
 function stripUndefinedDeep<T>(value: T): T {
@@ -3645,7 +3803,7 @@ function choosePrimarySparseIngredient(rawIngredients: string[], scoringIngredie
 }
 
 function preserveRequestedIngredientForm(rawIngredient: string, normalizedIngredient: string) {
-  return isExplicitSteakIngredient(rawIngredient) ? rawIngredient.trim() : normalizedIngredient;
+  return hasRequestedProteinForm(rawIngredient) ? rawIngredient.trim() : normalizedIngredient;
 }
 
 function isExplicitSteakIngredient(value: string) {
@@ -7246,29 +7404,42 @@ export function enforceExplicitCuisineResponsePolicy(
   }
 
   const recipes = payload.recipes as Recipe[];
-  const cuisineEligible = filterRecipesByCuisinePreference(recipes, context.preferredCuisine);
   const requestedCount = Math.max(
     1,
     Number(payload.requestedCount ?? context.requestedCount ?? recipes.length)
   );
-  const removedCount = recipes.length - cuisineEligible.length;
-  const isUnderfilled = cuisineEligible.length < requestedCount;
-  if (removedCount === 0 && !isUnderfilled) return payload;
+  const selection = selectRecipesWithCuisineFallback(recipes, context.preferredCuisine, requestedCount);
+  const selectedRecipes = selection.recipes.map((recipe) => ({
+    ...recipe,
+    cuisine_match_origin: cuisineMatchesPreference(recipe.cuisine, context.preferredCuisine)
+      ? "preferred" as const
+      : "ingredient_fallback" as const
+  }));
+  const isUnderfilled = selectedRecipes.length < requestedCount;
+  if (selection.fallbackCount === 0 && !isUnderfilled && selectedRecipes.length === recipes.length) return payload;
+
+  const message = selection.fallbackCount
+    ? `Showing ${selection.preferredCount} validated ${context.preferredCuisine} recipe${selection.preferredCount === 1 ? "" : "s"} and ${selection.fallbackCount} ingredient-matched recipe${selection.fallbackCount === 1 ? "" : "s"} from other cuisines because the preferred cuisine did not fill all ${requestedCount} spots.`
+    : buildCuisineUnderfillMessage({
+        preferredCuisine: context.preferredCuisine,
+        requestedCount,
+        returnedCount: selectedRecipes.length
+      });
 
   return {
     ...payload,
-    recipes: cuisineEligible,
-    result: JSON.stringify(cuisineEligible),
+    recipes: selectedRecipes,
+    result: JSON.stringify(selectedRecipes),
+    preferredCuisineCount: selection.preferredCount,
+    fallbackCuisineCount: selection.fallbackCount,
     requestedCount,
-    returnedCount: cuisineEligible.length,
-    generationStatus: cuisineEligible.length
+    returnedCount: selectedRecipes.length,
+    generationStatus: selectedRecipes.length && !selection.fallbackCount && !isUnderfilled
+      ? payload.generationStatus
+      : selectedRecipes.length
       ? RecipeGenerationStatus.PARTIAL_RESULTS
       : RecipeGenerationStatus.NO_RESULTS,
-    message: buildCuisineUnderfillMessage({
-      preferredCuisine: context.preferredCuisine,
-      requestedCount,
-      returnedCount: cuisineEligible.length
-    })
+    message
   };
 }
 

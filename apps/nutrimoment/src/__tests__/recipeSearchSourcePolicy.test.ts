@@ -71,4 +71,31 @@ describe("recipe search source policy", () => {
     expect(getRecipeDiversitySelectionScore({ score: 1 } as RankedRecipeResult, namedDish, "Italian"))
       .toBeGreaterThan(getRecipeDiversitySelectionScore({ score: 100 } as RankedRecipeResult, genericDish, "Italian"));
   });
+
+  it("keeps recent candidates behind fresh candidates in final diversity scoring", () => {
+    const recent = {
+      id: "recent",
+      title: "Recent Chicken",
+      cuisine: "Any"
+    } as RecipeCatalogDoc;
+    const fresh = {
+      id: "fresh",
+      title: "Fresh Chicken",
+      cuisine: "Any"
+    } as RecipeCatalogDoc;
+    const recentResult = {
+      recipeId: "recent",
+      score: 100,
+      matchQuality: "great"
+    } as RankedRecipeResult;
+    const freshResult = {
+      recipeId: "fresh",
+      score: 80,
+      matchQuality: "great"
+    } as RankedRecipeResult;
+    const freshness = { recentRecipeIds: new Set(["recent"]), seed: "next-click" };
+
+    expect(getRecipeDiversitySelectionScore(freshResult, fresh, "Any", freshness))
+      .toBeGreaterThan(getRecipeDiversitySelectionScore(recentResult, recent, "Any", freshness));
+  });
 });

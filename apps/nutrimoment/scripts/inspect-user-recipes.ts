@@ -90,17 +90,43 @@ function analyzeHistoryEntry(
   const repeatedImages = Array.from(imageCounts.entries())
     .filter(([, count]) => count > 1)
     .map(([url, count]) => ({ url, count }));
+  const recipesWithPhotos = recipes.filter((recipe) => Boolean(recipe.image_url)).length;
+  const incompleteRecipeContracts = recipes.filter((recipe) =>
+    !recipe.name ||
+    !Array.isArray(recipe.ingredients) ||
+    recipe.ingredients.length === 0 ||
+    !Array.isArray((recipe as RecipeShape & { steps?: string[] }).steps) ||
+    ((recipe as RecipeShape & { steps?: string[] }).steps?.length ?? 0) < 2
+  ).map((recipe) => recipe.name ?? "(no name)");
 
   return {
+    createdAt: toIsoTimestamp(entry.data.createdAt) ?? entry.data.timestamp,
+    completedAt: entry.data.completedAt,
+    generationMessage: entry.data.generationMessage,
+    generationStatus: entry.data.generationStatus,
     id: entry.id,
     title: entry.data.title,
     sessionType: entry.data.sessionType,
     ingredientsRequested: entry.data.ingredients,
     recipeCount: recipes.length,
     recipeNames: recipes.map((recipe) => recipe.name ?? "(no name)"),
+    photoCoverage: {
+      missing: recipes.length - recipesWithPhotos,
+      ready: recipesWithPhotos,
+      total: recipes.length
+    },
+    incompleteRecipeContracts,
     dietHits,
     repeatedImages
   };
+}
+
+function toIsoTimestamp(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const timestamp = value as { toDate?: () => Date; toMillis?: () => number };
+  if (typeof timestamp.toDate === "function") return timestamp.toDate().toISOString();
+  if (typeof timestamp.toMillis === "function") return new Date(timestamp.toMillis()).toISOString();
+  return null;
 }
 
 function analyzeMealPlan(mealPlan: Record<string, unknown> | null, dietCtx: DietEnforcementContext) {
@@ -162,7 +188,9 @@ async function main() {
     (settings?.preferredCuisine as string | undefined) ?? (profile?.preferredCuisine as string | undefined) ?? "Any";
   const dietCtx: DietEnforcementContext = { diets, allergens };
 
-  const analyzedHistory = history.map((entry) => analyzeHistoryEntry(entry, dietCtx));
+  const analyzedHistory = history
+    .map((entry) => analyzeHistoryEntry(entry, dietCtx))
+    .sort((left, right) => String(right.createdAt ?? "").localeCompare(String(left.createdAt ?? "")));
   const totalRecipes = analyzedHistory.reduce((sum, entry) => sum + entry.recipeCount, 0);
   const totalDietHits = analyzedHistory.reduce((sum, entry) => sum + entry.dietHits.length, 0);
   const totalRepeatedImageGroups = analyzedHistory.reduce((sum, entry) => sum + entry.repeatedImages.length, 0);

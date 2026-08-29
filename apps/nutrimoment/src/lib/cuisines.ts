@@ -113,16 +113,48 @@ export function filterRecipesByCuisinePreference<T extends { cuisine?: string }>
   return recipes.filter((recipe) => cuisineMatchesPreference(recipe.cuisine ?? "", preferredCuisine));
 }
 
+export function selectRecipesWithCuisineFallback<T extends { cuisine?: string }>(
+  recipes: T[],
+  preferredCuisine: string | undefined,
+  requestedCount: number
+) {
+  const limit = Math.max(0, Math.floor(requestedCount));
+  if (!preferredCuisine || preferredCuisine === "Any") {
+    return {
+      fallbackCount: 0,
+      preferredCount: Math.min(recipes.length, limit),
+      recipes: recipes.slice(0, limit)
+    };
+  }
+
+  const preferred = recipes.filter((recipe) =>
+    cuisineMatchesPreference(recipe.cuisine ?? "", preferredCuisine)
+  );
+  const alternatives = recipes.filter((recipe) =>
+    !cuisineMatchesPreference(recipe.cuisine ?? "", preferredCuisine)
+  );
+  const selected = [...preferred, ...alternatives].slice(0, limit);
+  const preferredCount = selected.filter((recipe) =>
+    cuisineMatchesPreference(recipe.cuisine ?? "", preferredCuisine)
+  ).length;
+
+  return {
+    fallbackCount: selected.length - preferredCount,
+    preferredCount,
+    recipes: selected
+  };
+}
+
 export function buildCuisineUnderfillMessage(input: {
   preferredCuisine: string;
   requestedCount: number;
   returnedCount: number;
 }) {
   if (input.returnedCount <= 0) {
-    return `No validated ${input.preferredCuisine} recipes were available for these ingredients. Other cuisines were not substituted.`;
+    return `No validated ${input.preferredCuisine} recipes were available for these ingredients.`;
   }
 
-  return `Showing ${input.returnedCount} of ${input.requestedCount} validated ${input.preferredCuisine} recipes. Other cuisines were excluded because there were not enough compliant matches.`;
+  return `Showing ${input.returnedCount} of ${input.requestedCount} validated ${input.preferredCuisine} recipes. No additional safe ingredient matches were available from other cuisines.`;
 }
 
 export function normalizeCuisineLabel(value: string) {

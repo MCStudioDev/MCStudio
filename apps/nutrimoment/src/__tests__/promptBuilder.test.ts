@@ -91,6 +91,7 @@ describe("PromptBuilder", () => {
     expect(prompt).toContain("positive quantity and a clear unit");
     expect(prompt).toContain("at least two specific, ordered cooking steps");
     expect(prompt).toContain("total whole minutes in the exact format '<number> minutes'");
+    expect(prompt).toContain("same protein family is not an acceptable substitute");
     expect(prompt).not.toContain("arrays copied from the source recipe");
   });
 
@@ -106,6 +107,28 @@ describe("PromptBuilder", () => {
     expect("maxItems" in schema).toBe(false);
     expect(schema.items.required).not.toContain("source_url");
     expect(schema.items.properties.recipe_source_type.enum).toEqual(["generated"]);
+  });
+
+  it("sends requested protein cuts to Gemini as hard structured requirements", () => {
+    const context = JSON.parse(PromptBuilder.recipeGeneration(
+      [{ name: "chicken thigh" }, { name: "tomato" }],
+      {
+        recipeLanguage: "English",
+        preferredCuisine: "Any",
+        calorieTarget: 1650,
+        maxMissingIngredients: 3,
+        recipeCount: 5,
+        diets: [],
+        conditions: []
+      }
+    ));
+
+    expect(context.availableIngredients[0].name).toBe("chicken thigh");
+    expect(context.proteinFormRequirements).toEqual([
+      expect.objectContaining({ family: "chicken", form: "thigh" })
+    ]);
+    expect(PromptBuilder.recipeBatchGenerationSystemPrompt("English"))
+      .toContain("proteinFormRequirements");
   });
 
   it("builds Flash-Lite-compatible per-anchor arrays for one-call batch coverage", () => {
@@ -157,5 +180,20 @@ describe("PromptBuilder", () => {
     expect(prompt).toContain('"difficulty":"Easy"');
     expect(prompt).toContain("maximize use of compatible pantry ingredients before adding groceries");
     expect(prompt).toContain("Never invent pantry ownership");
+  });
+
+  it("applies the same protein-cut requirements to meal-plan generation", () => {
+    const prompt = PromptBuilder.mealPlan({
+      pantry: ["chicken thigh", "tomato"],
+      diets: [],
+      conditions: [],
+      recipeLanguage: "English",
+      preferredCuisine: "Any",
+      calorieTarget: 1800
+    });
+
+    expect(prompt).toContain('"family":"chicken"');
+    expect(prompt).toContain('"form":"thigh"');
+    expect(prompt).toContain("Do not substitute chicken breast");
   });
 });

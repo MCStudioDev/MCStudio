@@ -36,6 +36,7 @@ export function buildDefaultEntitlementFeatures(tier: AccessTier): Record<Entitl
 // Backward-compatible UI fields now mirror the single shared AI action budget.
 export const FREE_LIFETIME_WEEKLY_PLANS = FREE_LIFETIME_AI_CREDITS;
 const AI_ACTION_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
+const AI_ACTION_RESERVATION_TTL_MS = 60 * 60 * 1000;
 const AI_ACTION_IMAGE_LIMITS: Partial<Record<AiFeatureKey, number>> = {
   recipe_generation: 10,
   weekly_plan: 21
@@ -416,18 +417,44 @@ export async function canUseApiFeature(request: Request, featureKey: AiFeatureKe
   };
 }
 
+// Recipe photos are authorized by the completed parent action grant and do not
+// consume a second lifetime credit. Kept for the photo response compatibility path.
 export async function consumeFreeAiCredit(access: RequestAccess, featureKey: AiFeatureKey) {
-  if (featureKey === "recipe_image") return access;
-  const result = await consumeFreeAiAction(access, featureKey, crypto.randomUUID());
-  return result.access;
+  if (featureKey !== "recipe_image") {
+    throw new Error("AI action credits must be reserved and completed around the successful workflow.");
+  }
+  return access;
 }
 
 export interface FreeAiActionResult {
   access: RequestAccess;
+  actionId?: string;
   actionGrantId?: string;
 }
 
-export async function consumeFreeAiAction(
+export interface PendingFreeAiAction {
+  actionId: string;
+  expiresAt: number;
+}
+
+export function readActiveFreeAiActionReservations(value: unknown, now = Date.now()): PendingFreeAiAction[] {
+  if (!Array.isArray(value)) return [];
+
+  const reservations = new Map<string, PendingFreeAiAction>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const actionId = String((entry as { actionId?: unknown }).actionId ?? "")
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, "")
+      .slice(0, 128);
+    const expiresAt = Number((entry as { expiresAt?: unknown }).expiresAt ?? 0);
+    if (!actionId || !Number.isFinite(expiresAt) || expiresAt <= now) continue;
+    reservations.set(actionId, { actionId, expiresAt });
+  }
+  return Array.from(reservations.values()).slice(0, FREE_LIFETIME_AI_CREDITS);
+}
+
+export async function reserveFreeAiAction(
   access: RequestAccess,
   featureKey: Exclude<AiFeatureKey, "recipe_image">,
   actionId: string
@@ -450,83 +477,182 @@ export async function consumeFreeAiAction(
   const safeActionId = normalizeActionGrantId(actionId);
   const usageRef = db.doc(`users/${access.uid}/usage/aiCredits`);
   const grantRef = db.doc(`users/${access.uid}/aiActionGrants/${safeActionId}`);
-  let nextUsed = access.aiCreditsUsed + 1;
+  await withFirebaseTransientRetry(
+    () => db.runTransaction(async (transaction) => {
+      const [usageSnapshot, grantSnapshot] = await Promise.all([
+        transaction.get(usageRef),
+        transaction.get(grantRef)
+      ]);
+      const now = Date.now();
+      const usage = usageSnapshot.data();
+      const existingGrant = grantSnapshot.data();
+      const existingStatus = String(existingGrant?.status ?? "completed");
+      const existingExpiresAt = Number(
+        existingStatus === "pending"
+          ? existingGrant?.reservationExpiresAt ?? existingGrant?.expiresAt ?? 0
+          : existingGrant?.expiresAt ?? 0
+      );
+      if (
+        grantSnapshot.exists &&
+        existingGrant?.feature === featureKey &&
+        existingStatus !== "released" &&
+        existingExpiresAt > now
+      ) {
+        throw new AccessError("This AI action was already submitted.", 409);
+      }
+
+      const currentUsed = Number(usage?.lifetimeUsed ?? 0);
+      const activeReservations = readActiveFreeAiActionReservations(usage?.pendingActions, now)
+        .filter((reservation) => reservation.actionId !== safeActionId);
+      if (currentUsed + activeReservations.length >= limit) {
+        throw new AccessError(
+          currentUsed >= limit
+            ? "Your 10 free AI credits are used. Shared recipes remain available, or upgrade to premium for more AI actions."
+            : "All remaining free AI credits are currently in use. Wait for the active actions to finish and try again.",
+          currentUsed >= limit ? 402 : 409
+        );
+      }
+
+      const reservationExpiresAt = now + AI_ACTION_RESERVATION_TTL_MS;
+      transaction.set(usageRef, {
+        uid: access.uid,
+        lifetimeLimit: limit,
+        pendingActions: [...activeReservations, { actionId: safeActionId, expiresAt: reservationExpiresAt }],
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      transaction.set(grantRef, {
+        actionId: safeActionId,
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAt: reservationExpiresAt,
+        feature: featureKey,
+        imageLimit: AI_ACTION_IMAGE_LIMITS[featureKey] ?? 0,
+        imagesUsed: 0,
+        reservationExpiresAt,
+        status: "pending",
+        uid: access.uid
+      });
+    }),
+    "reserve AI credit"
+  );
+
+  return {
+    access,
+    actionId: safeActionId,
+    ...(AI_ACTION_IMAGE_LIMITS[featureKey] ? { actionGrantId: safeActionId } : {})
+  };
+}
+
+export async function completeFreeAiAction(access: RequestAccess, actionId?: string | null) {
+  if (!actionId || access.isAdmin || access.isPremium) return access;
+
+  const db = getAdminDb();
+  const safeActionId = normalizeActionGrantId(actionId);
+  const usageRef = db.doc(`users/${access.uid}/usage/aiCredits`);
+  const grantRef = db.doc(`users/${access.uid}/aiActionGrants/${safeActionId}`);
+  let nextUsed = access.aiCreditsUsed;
+
+  await withFirebaseTransientRetry(
+    () => db.runTransaction(async (transaction) => {
+      const [usageSnapshot, grantSnapshot] = await Promise.all([
+        transaction.get(usageRef),
+        transaction.get(grantRef)
+      ]);
+      const now = Date.now();
+      const usage = usageSnapshot.data();
+      const grant = grantSnapshot.data();
+      const currentUsed = Number(usage?.lifetimeUsed ?? 0);
+      const status = String(grant?.status ?? "");
+
+      if (grantSnapshot.exists && status === "completed") {
+        nextUsed = currentUsed;
+        return;
+      }
+      if (!grantSnapshot.exists || status !== "pending") {
+        throw new AccessError("This AI action is no longer pending.", 409);
+      }
+      if (Number(grant?.reservationExpiresAt ?? 0) <= now) {
+        throw new AccessError("This AI action expired before it could complete. Please try again.", 409);
+      }
+      if (currentUsed >= FREE_LIFETIME_AI_CREDITS) {
+        throw new AccessError(
+          "Your 10 free AI credits are used. Shared recipes remain available, or upgrade to premium for more AI actions.",
+          402
+        );
+      }
+
+      nextUsed = currentUsed + 1;
+      const activeReservations = readActiveFreeAiActionReservations(usage?.pendingActions, now)
+        .filter((reservation) => reservation.actionId !== safeActionId);
+      transaction.set(usageRef, {
+        uid: access.uid,
+        lifetimeLimit: FREE_LIFETIME_AI_CREDITS,
+        lifetimeUsed: nextUsed,
+        lastActionId: safeActionId,
+        lastFeature: grant?.feature,
+        pendingActions: activeReservations,
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      transaction.set(grantRef, {
+        completedAt: FieldValue.serverTimestamp(),
+        expiresAt: now + AI_ACTION_GRANT_TTL_MS,
+        reservationExpiresAt: FieldValue.delete(),
+        status: "completed"
+      }, { merge: true });
+    }),
+    "complete AI credit"
+  );
+
+  return cacheAccess({
+    ...access,
+    aiCreditsUsed: nextUsed,
+    aiCreditsRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - nextUsed, 0),
+    weeklyPlanUsed: nextUsed,
+    weeklyPlanRemaining: Math.max(FREE_LIFETIME_AI_CREDITS - nextUsed, 0)
+  });
+}
+
+export async function releaseFreeAiAction(access: RequestAccess, actionId?: string | null) {
+  if (!actionId || access.isAdmin || access.isPremium) return false;
+
+  const db = getAdminDb();
+  const safeActionId = normalizeActionGrantId(actionId);
+  const usageRef = db.doc(`users/${access.uid}/usage/aiCredits`);
+  const grantRef = db.doc(`users/${access.uid}/aiActionGrants/${safeActionId}`);
   try {
-    await withFirebaseTransientRetry(
+    return await withFirebaseTransientRetry(
       () => db.runTransaction(async (transaction) => {
         const [usageSnapshot, grantSnapshot] = await Promise.all([
           transaction.get(usageRef),
           transaction.get(grantRef)
         ]);
-        const existingGrant = grantSnapshot.data();
-        const existingExpiresAt = Number(existingGrant?.expiresAt ?? 0);
-        if (
-          grantSnapshot.exists &&
-          existingGrant?.feature === featureKey &&
-          existingExpiresAt > Date.now()
-        ) {
-          throw new AccessError("This AI action was already submitted.", 409);
-        }
-
-        const currentUsed = Number(usageSnapshot.data()?.lifetimeUsed ?? 0);
-        if (currentUsed >= limit) {
-          throw new AccessError(
-            "Your 10 free AI credits are used. Shared recipes remain available, or upgrade to premium for more AI actions.",
-            402
-          );
-        }
-        nextUsed = currentUsed + 1;
+        const now = Date.now();
+        const usage = usageSnapshot.data();
+        const grant = grantSnapshot.data();
+        const activeReservations = readActiveFreeAiActionReservations(usage?.pendingActions, now)
+          .filter((reservation) => reservation.actionId !== safeActionId);
         transaction.set(usageRef, {
-          uid: access.uid,
-          lifetimeLimit: limit,
-          lifetimeUsed: nextUsed,
-          lastActionId: safeActionId,
-          lastFeature: featureKey,
+          pendingActions: activeReservations,
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
+        if (!grantSnapshot.exists || grant?.status !== "pending") return false;
         transaction.set(grantRef, {
-          actionId: safeActionId,
-          createdAt: FieldValue.serverTimestamp(),
-          expiresAt: Date.now() + AI_ACTION_GRANT_TTL_MS,
-          feature: featureKey,
-          imageLimit: AI_ACTION_IMAGE_LIMITS[featureKey] ?? 0,
-          imagesUsed: 0,
-          uid: access.uid
-        });
+          expiresAt: now + AI_ACTION_RESERVATION_TTL_MS,
+          releasedAt: FieldValue.serverTimestamp(),
+          reservationExpiresAt: FieldValue.delete(),
+          status: "released"
+        }, { merge: true });
+        return true;
       }),
-      "consume AI credit"
+      "release AI credit reservation"
     );
   } catch (error) {
-    if (isFirebaseTransientError(error)) {
-      logger.warn("Continuing after transient Firebase credit write failure", {
-        uid: access.uid,
-        featureKey,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      });
-      const nextAccess = {
-        ...access,
-        aiCreditsUsed: access.aiCreditsUsed + 1,
-        aiCreditsRemaining: Math.max(access.aiCreditsRemaining - 1, 0),
-        weeklyPlanUsed: access.aiCreditsUsed + 1,
-        weeklyPlanRemaining: Math.max(access.aiCreditsRemaining - 1, 0)
-      };
-      cacheAccess(nextAccess);
-      return { access: nextAccess };
-    }
-    throw error;
+    logger.warn("Unable to release AI credit reservation", {
+      uid: access.uid,
+      actionId: safeActionId,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+    return false;
   }
-
-  const nextAccess = cacheAccess({
-    ...access,
-    aiCreditsUsed: nextUsed,
-    aiCreditsRemaining: Math.max(limit - nextUsed, 0),
-    weeklyPlanUsed: nextUsed,
-    weeklyPlanRemaining: Math.max(limit - nextUsed, 0)
-  });
-  return {
-    access: nextAccess,
-    ...(AI_ACTION_IMAGE_LIMITS[featureKey] ? { actionGrantId: safeActionId } : {})
-  };
 }
 
 export async function hasFreeAiActionImageGrant(access: RequestAccess, actionGrantId?: string | null) {
@@ -540,6 +666,7 @@ export async function hasFreeAiActionGrant(access: RequestAccess, actionGrantId?
   ).get();
   const data = snapshot.data();
   return snapshot.exists &&
+    (!data?.status || data.status === "completed") &&
     (data?.feature === "recipe_generation" || data?.feature === "weekly_plan") &&
     Number(data?.expiresAt ?? 0) > Date.now();
 }
@@ -593,6 +720,7 @@ export function canUseFreeAiActionImageGrant(
   const normalizedImageKey = normalizeActionGrantImageKey(imageKey);
   const imageKeys = readActionGrantImageKeys(data?.imageKeys);
   return Boolean(data) &&
+    (!data?.status || data.status === "completed") &&
     (data?.feature === "recipe_generation" || data?.feature === "weekly_plan") &&
     Number(data?.expiresAt ?? 0) > now &&
     (Boolean(normalizedImageKey && imageKeys.includes(normalizedImageKey)) ||

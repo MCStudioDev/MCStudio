@@ -5,8 +5,10 @@ import {
   accessPayload,
   buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiAction,
-  isFirebaseTransientError
+  completeFreeAiAction,
+  isFirebaseTransientError,
+  releaseFreeAiAction,
+  reserveFreeAiAction
 } from "@/services/authService";
 import { extractPantryItemsFromImage } from "@/services/ingredientExtractionService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
@@ -30,6 +32,8 @@ const MOCK_PANTRY = ["rice", "pasta", "canned beans", "olive oil", "salt", "blac
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
+  let pendingAccess: Awaited<ReturnType<typeof canUseApiFeature>>["access"] | undefined;
+  let pendingActionId: string | undefined;
   logger.info("Image scan HTTP request received", { requestId });
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
@@ -60,14 +64,18 @@ export async function POST(request: Request) {
       });
     }
 
-    const { access: nextAccess } = await consumeFreeAiAction(
+    const aiAction = await reserveFreeAiAction(
       accessCheck.access,
       "image_to_text",
       parsed.data.actionId ?? requestId
     );
+    pendingAccess = accessCheck.access;
+    pendingActionId = aiAction.actionId;
 
     if (USE_MOCK) {
       const items = isPantry ? MOCK_PANTRY : MOCK_INGREDIENTS;
+      const nextAccess = await completeFreeAiAction(accessCheck.access, pendingActionId);
+      pendingActionId = undefined;
       return Response.json({ result: JSON.stringify(items), access: accessPayload(nextAccess) });
     }
 
@@ -77,6 +85,11 @@ export async function POST(request: Request) {
         language,
         isPantry: true
       });
+      const nextAccess = pantryItems.length
+        ? await completeFreeAiAction(accessCheck.access, pendingActionId)
+        : accessCheck.access;
+      if (!pantryItems.length) await releaseFreeAiAction(accessCheck.access, pendingActionId);
+      pendingActionId = undefined;
 
       return Response.json({
         result: JSON.stringify(pantryItems.map((item) => item.name)),
@@ -92,6 +105,11 @@ export async function POST(request: Request) {
       filters: { dietTags: [] }
     });
     const displayIngredients = localizeScannedIngredients(result.ingredientsRaw, result.ingredientsNormalized, language);
+    const nextAccess = displayIngredients.length
+      ? await completeFreeAiAction(accessCheck.access, pendingActionId)
+      : accessCheck.access;
+    if (!displayIngredients.length) await releaseFreeAiAction(accessCheck.access, pendingActionId);
+    pendingActionId = undefined;
     return Response.json({
       ingredients: displayIngredients,
       canonicalIngredients: result.ingredientsNormalized,
@@ -100,6 +118,10 @@ export async function POST(request: Request) {
       access: accessPayload(nextAccess)
     });
   } catch (err) {
+    if (pendingAccess && pendingActionId) {
+      await releaseFreeAiAction(pendingAccess, pendingActionId);
+      pendingActionId = undefined;
+    }
     if (
       isFirebaseTransientError(err) ||
       (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials")))

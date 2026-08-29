@@ -9,6 +9,7 @@ import {
   buildSharedRecipeV2Document,
   isSharedRecipeV2Searchable,
   mergeSharedRecipeV2Results,
+  planSharedRecipeV2CuisineFulfillment,
   planSharedRecipeV2Fulfillment
 } from "@/services/sharedRecipeV2PolicyService";
 
@@ -75,6 +76,41 @@ function withReadyPhoto(source: RecipeCatalogDoc): RecipeCatalogDoc {
 }
 
 describe("shared recipe V2 policy", () => {
+  it("reserves other cuisines until after the AI preferred-cuisine deficit", () => {
+    const matches = [
+      { name: "Chicken Piccata", cuisine: "Italian" },
+      { name: "Chicken Soup", cuisine: "Global" },
+      { name: "Chicken Curry", cuisine: "Indian" }
+    ];
+
+    expect(planSharedRecipeV2CuisineFulfillment({
+      canGenerateDeficit: true,
+      matches,
+      preferredCuisine: "Italian",
+      requestedCount: 3
+    })).toEqual({
+      alternativeCuisineMatches: [matches[1], matches[2]],
+      existing: [matches[0]],
+      generationDeficit: 2,
+      preferredCuisineMatches: [matches[0]],
+      unfilledCount: 2
+    });
+  });
+
+  it("uses other-cuisine V2 matches directly when AI access is unavailable", () => {
+    const matches = [
+      { name: "Chicken Piccata", cuisine: "Italian" },
+      { name: "Chicken Soup", cuisine: "Global" }
+    ];
+
+    expect(planSharedRecipeV2CuisineFulfillment({
+      canGenerateDeficit: false,
+      matches,
+      preferredCuisine: "Italian",
+      requestedCount: 2
+    }).existing).toEqual(matches);
+  });
+
   it("keeps a recipe out of search until its exact photo is ready", () => {
     const pending = buildSharedRecipeV2Document(recipe("recipe-1", "Koshary"));
     const published = buildSharedRecipeV2Document(withReadyPhoto(recipe("recipe-1", "Koshary")));
@@ -219,6 +255,24 @@ describe("shared recipe V2 policy", () => {
       existing[1],
       generated[1]
     ]);
+  });
+
+  it("deduplicates when an existing document ID matches a generated source ID", () => {
+    const existing = [{ id: "shared-premium-one", name: "Chicken Cacciatore" }];
+    const generated = [{
+      id: "generated-copy",
+      source_recipe_id: "SHARED-PREMIUM-ONE",
+      name: "Generated Chicken Cacciatore"
+    }];
+
+    expect(mergeSharedRecipeV2Results(existing, generated, 2)).toEqual(existing);
+  });
+
+  it("deduplicates generated title copies even when their IDs differ", () => {
+    const existing = [{ id: "shared-one", name: "Balsamic Chicken" }];
+    const generated = [{ id: "generated-two", name: "  balsamic chicken  " }];
+
+    expect(mergeSharedRecipeV2Results(existing, generated, 2)).toEqual(existing);
   });
 
   it("increments the V2 version only when corrected recipe content changes", () => {

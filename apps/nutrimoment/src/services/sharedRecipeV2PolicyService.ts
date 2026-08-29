@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { RecipeCatalogDoc } from "@/lib/domain";
+import { cuisineMatchesPreference } from "@/lib/cuisines";
 import { rebuildIngredientLookupCanonicals } from "@/lib/ingredientFamilies";
 import { isDurableRecipeImageUrl } from "@/lib/recipeImageDurability";
 import { RECIPE_PHOTO_ASSET_VALIDATOR_HASH } from "@/services/recipePhotoReusePolicy";
@@ -24,6 +25,43 @@ export interface SharedRecipeV2FulfillmentPlan<T> {
   unfilledCount: number;
 }
 
+export interface SharedRecipeV2CuisineFulfillmentPlan<T> extends SharedRecipeV2FulfillmentPlan<T> {
+  alternativeCuisineMatches: T[];
+  preferredCuisineMatches: T[];
+}
+
+export function planSharedRecipeV2CuisineFulfillment<T extends { cuisine?: string }>(input: {
+  canGenerateDeficit: boolean;
+  matches: T[];
+  preferredCuisine?: string;
+  requestedCount: number;
+}): SharedRecipeV2CuisineFulfillmentPlan<T> {
+  const hasExplicitCuisine = Boolean(input.preferredCuisine && input.preferredCuisine !== "Any");
+  const preferredCuisineMatches = hasExplicitCuisine
+    ? input.matches.filter((recipe) =>
+        cuisineMatchesPreference(recipe.cuisine ?? "", input.preferredCuisine ?? "Any")
+      )
+    : input.matches;
+  const alternativeCuisineMatches = hasExplicitCuisine
+    ? input.matches.filter((recipe) =>
+        !cuisineMatchesPreference(recipe.cuisine ?? "", input.preferredCuisine ?? "Any")
+      )
+    : [];
+  const planningMatches = input.canGenerateDeficit
+    ? preferredCuisineMatches
+    : [...preferredCuisineMatches, ...alternativeCuisineMatches];
+
+  return {
+    ...planSharedRecipeV2Fulfillment({
+      canGenerateDeficit: input.canGenerateDeficit,
+      matches: planningMatches,
+      requestedCount: input.requestedCount
+    }),
+    alternativeCuisineMatches,
+    preferredCuisineMatches
+  };
+}
+
 export function planSharedRecipeV2Fulfillment<T>(input: {
   canGenerateDeficit: boolean;
   matches: T[];
@@ -42,12 +80,23 @@ export function planSharedRecipeV2Fulfillment<T>(input: {
 export function mergeSharedRecipeV2Results<
   T extends { id?: string; name?: string; source_recipe_id?: string }
 >(existing: T[], generated: T[], requestedCount: number): T[] {
-  const merged = new Map<string, T>();
-  [...existing, ...generated].forEach((recipe, index) => {
-    const key = recipe.source_recipe_id?.trim() || recipe.id?.trim() || normalizeTitle(recipe.name) || `recipe-${index}`;
-    if (!merged.has(key)) merged.set(key, recipe);
-  });
-  return Array.from(merged.values()).slice(0, Math.max(0, Math.floor(requestedCount)));
+  const merged: T[] = [];
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+
+  for (const recipe of [...existing, ...generated]) {
+    const ids = [recipe.source_recipe_id, recipe.id]
+      .map(normalizeIdentity)
+      .filter(Boolean);
+    const title = normalizeTitle(recipe.name);
+    if (ids.some((id) => seenIds.has(id)) || (title && seenTitles.has(title))) continue;
+
+    merged.push(recipe);
+    ids.forEach((id) => seenIds.add(id));
+    if (title) seenTitles.add(title);
+  }
+
+  return merged.slice(0, Math.max(0, Math.floor(requestedCount)));
 }
 
 export function buildSharedRecipeV2Document(
@@ -153,6 +202,10 @@ function normalizeTitle(value?: string | null) {
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeIdentity(value?: string | null) {
+  return (value ?? "").trim().toLocaleLowerCase();
 }
 
 function sha256(value: string) {

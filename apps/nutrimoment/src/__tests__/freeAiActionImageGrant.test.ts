@@ -33,4 +33,22 @@ describe("free AI action image grants", () => {
       imagesUsed: 21
     }, now, "menemen-signature")).toBe(false);
   });
+
+  it("does not authorize images until the parent action completes", () => {
+    expect(canUseFreeAiActionImageGrant({
+      expiresAt: now + 60_000,
+      feature: "recipe_generation",
+      imageLimit: 10,
+      imagesUsed: 0,
+      status: "pending"
+    }, now, "koshary-signature")).toBe(false);
+
+    expect(canUseFreeAiActionImageGrant({
+      expiresAt: now + 60_000,
+      feature: "recipe_generation",
+      imageLimit: 10,
+      imagesUsed: 0,
+      status: "completed"
+    }, now, "koshary-signature")).toBe(true);
+  });
 });

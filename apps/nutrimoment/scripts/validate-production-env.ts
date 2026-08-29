@@ -53,6 +53,45 @@ const optionalEnv = [
   }
 ];
 
+const retiredEnv = [
+  {
+    name: "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",
+    replacement: "Remove it; Firebase Analytics is not initialized by this app."
+  },
+  {
+    name: "FIREBASE_ADMIN_CLIENT_ID",
+    replacement: "Remove it; Firebase Admin uses only project ID, client email, and private key."
+  },
+  {
+    name: "private_key_id",
+    replacement: "Remove raw service-account JSON fields and use FIREBASE_ADMIN_PRIVATE_KEY instead."
+  },
+  {
+    name: "GOOGLE_IMAGEN_ENABLED",
+    replacement: "Remove it; recipe photos use Replicate."
+  },
+  {
+    name: "SHARED_RECIPE_QUALITY_ENFORCEMENT",
+    replacement: "Remove it; V2 publication validation is always enforced."
+  },
+  {
+    name: "GOOGLE_API_KEY",
+    replacement: "Remove it; Gemini uses GEMINI_API_KEY exclusively."
+  },
+  {
+    name: "OPENAI_API_KEY",
+    replacement: "Remove it; OpenAI is not a NutriMoment runtime provider."
+  },
+  {
+    name: "PEXELS_API_KEY",
+    replacement: "Remove it; external photo-search fallbacks are retired."
+  },
+  {
+    name: "UNSPLASH_ACCESS_KEY",
+    replacement: "Remove it; external photo-search fallbacks are retired."
+  }
+];
+
 function cleanEnvValue(value: string | undefined) {
   return value?.trim().replace(/^"/, "").replace(/"$/, "");
 }
@@ -72,6 +111,12 @@ const failures: string[] = [];
 
 if (cleanEnvValue(process.env.USE_MOCK_API) === "true") {
   failures.push("USE_MOCK_API=true is set; production deploys must use real providers, not mocks.");
+}
+
+for (const item of retiredEnv) {
+  if (cleanEnvValue(process.env[item.name])) {
+    failures.push(`${item.name} is retired. ${item.replacement}`);
+  }
 }
 
 for (const item of requiredEnv) {

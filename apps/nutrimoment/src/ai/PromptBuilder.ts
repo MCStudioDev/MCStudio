@@ -15,6 +15,7 @@ import {
 import type { RecipeReferencePromptRecipe } from "@/lib/recipeReferenceTypes";
 import type { MealPlanData } from "@/lib/types";
 import type { RecipeInputCoveragePrompt } from "@/services/recipeInputCoverageService";
+import { getRequestedProteinFormRequirements } from "@/services/recipePrimaryIngredientCompatibility";
 
 export interface RecipePromptIngredient {
   name: string;
@@ -98,6 +99,7 @@ const RECIPE_DISCOVERY_SYSTEM_PROMPT = [
   "Return recipe facts supported by the discovered source; do not invent a dish, cuisine, ingredients, method, timing, temperature, nutrition, or URL.",
   "Choose distinct canonical dishes that match the requested ingredients and cuisine.",
   "Every recipe must feature the supplied primaryIngredient as a central ingredient; never substitute another protein or return a side dish that omits it.",
+  "When primaryIngredient names a protein cut or form, such as chicken thigh, chicken breast, ground beef, or steak, every discovered source must use that exact cut or form; the same protein family is not an acceptable substitute.",
   "Every title must be an established dish name from its source, never a generic ingredient list or a health-condition label.",
   "Set dish_identity to the recognized canonical dish identity supported by the source; it must never contain a health label or a newly invented title.",
   "Apply only supplied dietary, allergen, and exclusion constraints without changing each dish's identity; medical adaptation is handled after discovery.",
@@ -125,6 +127,7 @@ const RECIPE_BATCH_GENERATION_SYSTEM_PROMPT = [
   "When preferredCuisine is Any, distribute every anchor group across the world and use at least four distinct cuisine labels across the complete batch; do not default vegetable groups to only Italian and Mediterranean dishes.",
   "Before returning JSON, audit every output position against recipeSlots and replace any nonmatching recipe while keeping the exact requested array length.",
   "Choose distinct, established, recognizable dish identities and preserve every anchor's physical form; use primaryIngredient only when the request has one anchor.",
+  "When proteinFormRequirements is supplied, treat every entry as a hard eligibility constraint. Use the requested species and physical cut or form explicitly in the title, ingredients, and steps; never substitute another cut or form from the same protein family.",
   "Do not introduce an animal protein that is absent from ingredientCoverage as a dominant ingredient or as a substitute for a requested anchor.",
   "A species label inside an organ ingredient, such as chicken liver or beef liver, does not permit adding that species' muscle meat or another animal ingredient; never add bacon, ham, sausage, or another unrequested protein to complete a slot.",
   "Meeting coverage never permits generic titles such as Roasted Vegetables, Vegetable Stew, Pan-Seared Vegetables, Pasta Bake, or Protein Bowl; choose established named dish families.",
@@ -390,6 +393,9 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
   const dishDiscoveryHints = sourceRecipe
     ? ""
     : buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
+  const proteinFormRequirements = getRequestedProteinFormRequirements(
+    ingredients.map((ingredient) => ingredient.name)
+  );
 
   return JSON.stringify({
     task: sourceRecipe ? "edit_validated_recipe" : "discover_grounded_recipes",
@@ -410,6 +416,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
       name: ingredient.name,
       ...(ingredient.quantity ? { quantity: ingredient.quantity } : {})
     })),
+    ...(proteinFormRequirements.length ? { proteinFormRequirements } : {}),
     restrictions,
     ...(requiredChanges.length ? { requiredChanges } : {}),
     sourceRecipe
@@ -1559,6 +1566,10 @@ export function buildMealPlanPrompt({
     .map((item) => [item.name, item.quantity].filter(Boolean).join(" - "))
     .filter(Boolean);
   const pantryIngredients = safePantryIngredients;
+  const proteinFormRequirements = getRequestedProteinFormRequirements(safePantry);
+  const proteinFormRequirementLine = proteinFormRequirements.length
+    ? `Hard protein form requirements: ${JSON.stringify(proteinFormRequirements)} Every meal that uses one of these protein families must follow its instruction exactly.`
+    : "";
   const cuisineSpecificGuidance = buildCuisineSpecificGuidance(preferredCuisine);
   const cuisineKnowledgeGuidance = buildCuisineKnowledgeGuidance(preferredCuisine);
   const cuisineDishCatalogGuidance = buildCuisineDishCatalogGuidance(preferredCuisine);
@@ -1649,6 +1660,7 @@ export function buildMealPlanPrompt({
     "Generate a 7-day meal plan.",
     "Priority order: first satisfy diet rules and health-condition nutrition targets, second stay near the daily calorie target, third maximize use of compatible pantry ingredients before adding groceries and minimize extra shopping.",
     "Pantry utilization rule: among equally safe and cuisine-correct meal choices, prefer the meal that uses more distinct pantry ingredients and requires fewer missing ingredients. Never invent pantry ownership; every ingredient not actually available belongs in shoppingList.",
+    proteinFormRequirementLine,
     "Use clear, searchable meal names. Prefer canonical dish or meal-family names over creative titles.",
     "Cuisine must be structurally authentic. Do not assign a cuisine label unless the meal's core ingredients, cooking method, starch, sauce, and dish family genuinely fit that cuisine.",
     deepMealPlanCuisineGuidance,

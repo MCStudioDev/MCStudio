@@ -398,6 +398,125 @@ describe("recipe primary ingredient compatibility", () => {
       .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
   });
 
+  it("does not substitute ground beef when the user entered plain beef", () => {
+    const beefStew = recipe({
+      id: "plain-beef-stew",
+      title: "Classic Beef Stew",
+      requiredCanonicals: ["beef", "potato", "carrot"]
+    });
+    const groundBeefKofta = recipe({
+      id: "ground-beef-kofta",
+      title: "Ground Beef Kofta",
+      requiredCanonicals: ["ground beef", "onion", "parsley"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(beefStew, ["beef"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(groundBeefKofta, ["beef"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("keeps requested chicken thighs separate from breast and generic chicken recipes", () => {
+    const thigh = recipe({
+      id: "roasted-chicken-thighs",
+      title: "Roasted Chicken Thighs",
+      requiredCanonicals: ["chicken thighs", "garlic"]
+    });
+    const breast = recipe({
+      id: "grilled-chicken-breast",
+      title: "Grilled Chicken Breast",
+      requiredCanonicals: ["chicken breast", "garlic"]
+    });
+    const genericChicken = recipe({
+      id: "chicken-soup",
+      title: "Chicken Soup",
+      requiredCanonicals: ["chicken", "carrot"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(thigh, ["chicken thigh"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(breast, ["chicken thigh"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(genericChicken, ["chicken thigh"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("keeps requested chicken breast separate from thigh recipes", () => {
+    const cutlet = recipe({
+      id: "chicken-cutlet",
+      title: "Breaded Chicken Cutlets",
+      requiredCanonicals: ["chicken breast", "breadcrumbs"]
+    });
+    const thigh = recipe({
+      id: "braised-chicken-thighs",
+      title: "Braised Chicken Thighs",
+      requiredCanonicals: ["chicken thighs", "tomato"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(cutlet, ["chicken breast"]))
+      .toMatchObject({ compatible: true, reason: "compatible" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(thigh, ["chicken breast"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("recognizes ground chicken dishes without treating them as breast or thigh", () => {
+    const chickenKofta = recipe({
+      id: "ground-chicken-kofta",
+      title: "Chicken Kofta",
+      requiredCanonicals: ["chicken", "onion", "parsley"]
+    });
+    const chickenBreast = recipe({
+      id: "ground-request-chicken-breast",
+      title: "Grilled Chicken Breast",
+      requiredCanonicals: ["chicken breast", "lemon"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(chickenKofta, ["ground chicken"]).compatible).toBe(true);
+    expect(evaluateRecipePrimaryIngredientCompatibility(chickenBreast, ["ground chicken"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("keeps chicken wings, drumsticks, and whole chicken as distinct requested forms", () => {
+    const wings = recipe({
+      id: "baked-chicken-wings",
+      title: "Baked Chicken Wings",
+      requiredCanonicals: ["chicken wings", "paprika"]
+    });
+    const drumsticks = recipe({
+      id: "roasted-drumsticks",
+      title: "Roasted Chicken Drumsticks",
+      requiredCanonicals: ["chicken drumsticks", "paprika"]
+    });
+    const wholeChicken = recipe({
+      id: "whole-roast-chicken",
+      title: "Whole Roast Chicken",
+      requiredCanonicals: ["whole chicken", "lemon"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(wings, ["chicken wings"]).compatible).toBe(true);
+    expect(evaluateRecipePrimaryIngredientCompatibility(drumsticks, ["chicken wings"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+    expect(evaluateRecipePrimaryIngredientCompatibility(wholeChicken, ["whole chicken"]).compatible).toBe(true);
+    expect(evaluateRecipePrimaryIngredientCompatibility(wings, ["whole chicken"]))
+      .toMatchObject({ compatible: false, reason: "requested_protein_form_mismatch" });
+  });
+
+  it("keeps a broad chicken request intentionally form-agnostic", () => {
+    const breast = recipe({
+      id: "broad-chicken-breast",
+      title: "Grilled Chicken Breast",
+      requiredCanonicals: ["chicken breast", "lemon"]
+    });
+    const thigh = recipe({
+      id: "broad-chicken-thigh",
+      title: "Roasted Chicken Thighs",
+      requiredCanonicals: ["chicken thighs", "lemon"]
+    });
+
+    expect(evaluateRecipePrimaryIngredientCompatibility(breast, ["chicken"]).compatible).toBe(true);
+    expect(evaluateRecipePrimaryIngredientCompatibility(thigh, ["chicken"]).compatible).toBe(true);
+  });
+
   it("allows ground and intact beef dishes when broad beef and ground beef are both requested", () => {
     const fattah = recipe({
       id: "egyptian-beef-fattah",

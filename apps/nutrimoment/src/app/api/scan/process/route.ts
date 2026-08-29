@@ -5,7 +5,9 @@ import {
   accessPayload,
   buildFreeAiCreditsExhaustedNotice,
   canUseApiFeature,
-  consumeFreeAiAction,
+  completeFreeAiAction,
+  releaseFreeAiAction,
+  reserveFreeAiAction,
   isFirebaseTransientError
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
@@ -33,6 +35,8 @@ const requestSchema = z.object({
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
+  let pendingAccess: Awaited<ReturnType<typeof canUseApiFeature>>["access"] | undefined;
+  let pendingActionId: string | undefined;
   logger.info("Image scan processing HTTP request received", { requestId });
   try {
     const accessCheck = await canUseApiFeature(request, "image_to_text");
@@ -62,11 +66,13 @@ export async function POST(request: Request) {
       });
     }
 
-    const { access: nextAccess } = await consumeFreeAiAction(
+    const aiAction = await reserveFreeAiAction(
       accessCheck.access,
       "image_to_text",
       parsed.data.actionId ?? requestId
     );
+    pendingAccess = accessCheck.access;
+    pendingActionId = aiAction.actionId;
     const result = await processScan({
       uid: accessCheck.access.uid,
       image: parsed.data.image,
@@ -80,9 +86,19 @@ export async function POST(request: Request) {
         cuisine: parsed.data.filters?.cuisine
       }
     });
+    const hasResults = result.ingredientsNormalized.length > 0;
+    const nextAccess = hasResults
+      ? await completeFreeAiAction(accessCheck.access, pendingActionId)
+      : accessCheck.access;
+    if (!hasResults) await releaseFreeAiAction(accessCheck.access, pendingActionId);
+    pendingActionId = undefined;
 
     return Response.json({ ...result, access: accessPayload(nextAccess) });
   } catch (error) {
+    if (pendingAccess && pendingActionId) {
+      await releaseFreeAiAction(pendingAccess, pendingActionId);
+      pendingActionId = undefined;
+    }
     if (
       isFirebaseTransientError(error) ||
       (error instanceof Error && (error.message.includes("Sign in") || error.message.includes("Firebase Admin credentials")))

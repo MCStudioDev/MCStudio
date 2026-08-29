@@ -95,6 +95,8 @@ export interface Recipe {
   cuisine: string;
   plated_visual_description?: string;
   recipe_origin?: "exact_scan_match" | "similar_ingredients";
+  freshness_origin?: "fresh" | "backfilled_recent";
+  cuisine_match_origin?: "preferred" | "ingredient_fallback";
   recipe_source_type?: "local_database" | "external_source" | "generated";
   dish_identity?: string;
   source_recipe_id?: string;

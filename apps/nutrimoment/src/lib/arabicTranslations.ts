@@ -259,6 +259,8 @@ Object.assign(arabicTranslations, {
   readyToCookDesc: "أضف بعض المكونات أو امسح صورة، وسنولد لك وصفات مرتبة حسب تطابق المكونات والتفضيلات. تحقق دائمًا من الحساسية والتغذية وسلامة الغذاء قبل الطهي.",
   exactScannedDish: "الطبق المطابق للصورة",
   similarIngredients: "مكونات مشابهة",
+  backfilledRecipe: "وصفة معاد استخدامها",
+  otherCuisineMatch: "مطبخ آخر - مطابق للمكونات",
   exactRecipePreview: "الوصفة المطابقة",
   similarRecipePreview: "وصفة قريبة",
   previewIngredientsMacros: "المكونات والقيم الغذائية",

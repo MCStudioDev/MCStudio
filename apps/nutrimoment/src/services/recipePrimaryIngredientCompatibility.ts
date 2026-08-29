@@ -123,7 +123,7 @@ export function createRecipeIngredientCompatibilityEvaluator(availableIngredient
       ]);
       const requestedProteinFormMismatch = requestedProteinFormConstraints.some((constraint) =>
         recipeFamilies.has(constraint.family) &&
-        constraint.detectRecipeForm(recipe) !== constraint.form
+        !constraint.allowedRecipeForms.includes(constraint.detectRecipeForm(recipe) ?? "")
       );
       const compatible = incompatibleFamilies.length === 0 && !requestedProteinMissing && !requestedProteinFormMismatch;
       return {
@@ -145,14 +145,20 @@ export function createRecipeIngredientCompatibilityEvaluator(availableIngredient
 }
 
 interface ProteinFormConstraint {
+  allowedRecipeForms: string[];
   detectRecipeForm: (recipe: RecipeCatalogDoc | Recipe) => string | null;
   family: string;
   form: string;
 }
 
+interface RequestedProteinForm {
+  allowedRecipeForms: string[];
+  form: string;
+}
+
 interface ProteinFormRule {
   detectRecipeForm: (recipe: RecipeCatalogDoc | Recipe) => string | null;
-  detectRequestedForm: (ingredients: string[]) => string | null;
+  detectRequestedForm: (ingredients: string[]) => RequestedProteinForm | null;
   family: string;
 }
 
@@ -161,26 +167,58 @@ const PROTEIN_FORM_RULES: ProteinFormRule[] = [
     detectRecipeForm: detectRecipeBeefForm,
     detectRequestedForm: detectRequestedBeefForm,
     family: "beef"
+  },
+  {
+    detectRecipeForm: detectRecipeChickenForm,
+    detectRequestedForm: detectRequestedChickenForm,
+    family: "chicken"
   }
 ];
 
 function detectRequestedProteinFormConstraints(ingredients: string[]): ProteinFormConstraint[] {
   return PROTEIN_FORM_RULES.flatMap((rule) => {
-    const form = rule.detectRequestedForm(ingredients);
-    return form ? [{ detectRecipeForm: rule.detectRecipeForm, family: rule.family, form }] : [];
+    const requestedForm = rule.detectRequestedForm(ingredients);
+    return requestedForm
+      ? [{
+          allowedRecipeForms: requestedForm.allowedRecipeForms,
+          detectRecipeForm: rule.detectRecipeForm,
+          family: rule.family,
+          form: requestedForm.form
+        }]
+      : [];
   });
+}
+
+export interface RequestedProteinFormRequirement {
+  family: string;
+  form: string;
+  instruction: string;
+}
+
+export function getRequestedProteinFormRequirements(ingredients: string[]): RequestedProteinFormRequirement[] {
+  return detectRequestedProteinFormConstraints(ingredients).map((constraint) => ({
+    family: constraint.family,
+    form: constraint.form,
+    instruction: buildProteinFormInstruction(constraint.family, constraint.form)
+  }));
+}
+
+export function hasRequestedProteinForm(value: string) {
+  return detectRequestedProteinFormConstraints([value]).length > 0;
 }
 
 export function hasExclusiveRequestedProteinForm(ingredients: string[], family: string) {
   const requestedFamilies = detectRequestedProteinFamilies(ingredients);
   return requestedFamilies.length === 1 &&
     requestedFamilies[0] === family &&
-    detectRequestedProteinFormConstraints(ingredients).some((constraint) => constraint.family === family);
+    detectRequestedProteinFormConstraints(ingredients).some((constraint) =>
+      constraint.family === family && constraint.form !== "non_ground"
+    );
 }
 
-type BeefForm = "ground" | "steak";
+type BeefRecipeForm = "ground" | "intact" | "steak";
 
-function detectRequestedBeefForm(ingredients: string[]): BeefForm | null {
+function detectRequestedBeefForm(ingredients: string[]): RequestedProteinForm | null {
   const normalizedIngredients = ingredients.map(normalizeIngredientText).filter(Boolean);
   const groundPattern = /\b(?:ground|minced|mince|hamburger)\s+(?:beef|meat)\b|\bbeef\s+(?:mince|minced|ground)\b/;
   const steakPattern = /\b(?:steak|sirloin|ribeye|rib eye|strip steak|tenderloin|filet mignon|flank steak|skirt steak)\b/;
@@ -194,13 +232,16 @@ function detectRequestedBeefForm(ingredients: string[]): BeefForm | null {
 
   // A broad beef item alongside a specific form means the pantry can support
   // both forms. Only an exclusive form request should filter the other form.
-  if (hasBroadBeefRequest || (hasGroundRequest && hasSteakRequest)) return null;
-  if (hasGroundRequest) return "ground";
-  if (hasSteakRequest) return "steak";
+  if ((hasBroadBeefRequest && (hasGroundRequest || hasSteakRequest)) || (hasGroundRequest && hasSteakRequest)) {
+    return null;
+  }
+  if (hasGroundRequest) return { allowedRecipeForms: ["ground"], form: "ground" };
+  if (hasSteakRequest) return { allowedRecipeForms: ["steak"], form: "steak" };
+  if (hasBroadBeefRequest) return { allowedRecipeForms: ["intact", "steak"], form: "non_ground" };
   return null;
 }
 
-function detectRecipeBeefForm(recipe: RecipeCatalogDoc | Recipe): BeefForm | null {
+function detectRecipeBeefForm(recipe: RecipeCatalogDoc | Recipe): BeefRecipeForm | null {
   const identityValues = "requiredCanonicals" in recipe
     ? [
         recipe.title,
@@ -226,7 +267,82 @@ function detectRecipeBeefForm(recipe: RecipeCatalogDoc | Recipe): BeefForm | nul
   }
   const steakForm = /\b(?:steak|sirloin|ribeye|rib eye|strip steak|tenderloin|filet mignon|flank steak|skirt steak|carne asada|churrasco|bistecca|london broil|tagliata)\b/;
   if (steakForm.test(identity) || steakForm.test(ingredients)) return "steak";
+  const substantiveBeef = removeNonPrimaryProteinTerms(`${identity} ${ingredients}`);
+  if (/\b(?:beef|veal|meat)\b/.test(substantiveBeef)) return "intact";
   return null;
+}
+
+type ChickenForm = "breast" | "drumstick" | "ground" | "thigh" | "whole" | "wing";
+
+const CHICKEN_FORM_PATTERNS: Record<ChickenForm, RegExp> = {
+  breast: /\b(?:chicken\s+)?(?:breast|cutlet|escalope|tenderloin|tender)s?\b/,
+  drumstick: /\b(?:chicken\s+)?(?:drumstick|leg(?:\s+quarter)?)s?\b/,
+  ground: /\b(?:ground|minced|mince)\s+chicken\b|\bchicken\s+(?:mince|minced|ground)\b/,
+  thigh: /\b(?:chicken\s+)?thighs?\b/,
+  whole: /\b(?:whole|spatchcocked?|butterflied)\s+chicken\b/,
+  wing: /\b(?:chicken\s+)?wings?\b/
+};
+
+function detectRequestedChickenForm(ingredients: string[]): RequestedProteinForm | null {
+  const normalizedIngredients = ingredients.map(normalizeIngredientText).filter(Boolean);
+  const requestedForms = (Object.entries(CHICKEN_FORM_PATTERNS) as [ChickenForm, RegExp][])
+    .filter(([, pattern]) => normalizedIngredients.some((ingredient) => pattern.test(ingredient)))
+    .map(([form]) => form);
+  const hasBroadChickenRequest = normalizedIngredients.some((ingredient) =>
+    /\b(?:chicken|poultry)\b/.test(ingredient) &&
+    !Object.values(CHICKEN_FORM_PATTERNS).some((pattern) => pattern.test(ingredient))
+  );
+
+  if (hasBroadChickenRequest || requestedForms.length !== 1) return null;
+  return { allowedRecipeForms: requestedForms, form: requestedForms[0] };
+}
+
+function detectRecipeChickenForm(recipe: RecipeCatalogDoc | Recipe): ChickenForm | null {
+  const values = "requiredCanonicals" in recipe
+    ? [
+        recipe.title,
+        recipe.description,
+        recipe.dishIntent?.dish_name ?? "",
+        ...recipe.requiredCanonicals,
+        ...recipe.ingredients.flatMap((ingredient) => [ingredient.canonical, ingredient.name])
+      ]
+    : [
+        recipe.name,
+        recipe.dish_identity ?? "",
+        recipe.dish_intent?.dish_name ?? "",
+        ...recipe.ingredients,
+        ...recipe.missing_ingredients
+      ];
+  const identity = values.map(normalizeIngredientText).join(" ");
+  if (/\bchicken\s+(?:meatballs?|kofta|kofte|burgers?|patties?)\b/.test(identity)) return "ground";
+  for (const form of ["ground", "thigh", "breast", "wing", "drumstick", "whole"] as ChickenForm[]) {
+    if (CHICKEN_FORM_PATTERNS[form].test(identity)) return form;
+  }
+  return null;
+}
+
+function buildProteinFormInstruction(family: string, form: string) {
+  if (family === "beef" && form === "non_ground") {
+    return "Use intact, sliced, cubed, or steak beef. Do not substitute ground or minced beef.";
+  }
+  if (family === "beef" && form === "ground") {
+    return "Use ground or minced beef. Do not substitute steak, sliced, cubed, or whole-cut beef.";
+  }
+  if (family === "beef" && form === "steak") {
+    return "Use a steak cut explicitly. Do not substitute ground beef or generic stew beef.";
+  }
+  if (family === "chicken") {
+    const alternatives: Record<string, string> = {
+      breast: "chicken thighs, wings, drumsticks, whole chicken, or ground chicken",
+      drumstick: "chicken breast, thighs, wings, whole chicken, or ground chicken",
+      ground: "chicken breast, thighs, wings, drumsticks, or whole chicken",
+      thigh: "chicken breast, wings, drumsticks, whole chicken, or ground chicken",
+      whole: "chicken breast, thighs, wings, drumsticks, or ground chicken",
+      wing: "chicken breast, thighs, drumsticks, whole chicken, or ground chicken"
+    };
+    return `Use chicken ${form} explicitly. Do not substitute ${alternatives[form]}.`;
+  }
+  return `Use the requested ${family} form ${form} explicitly and do not substitute another form.`;
 }
 
 /**

@@ -7,7 +7,9 @@ import {
   accessErrorResponse,
   accessPayload,
   canUseApiFeature,
-  consumeFreeAiAction,
+  completeFreeAiAction,
+  releaseFreeAiAction,
+  reserveFreeAiAction,
   isFirebaseTransientError
 } from "@/services/authService";
 import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
@@ -47,6 +49,7 @@ import {
   attachSharedRecipeLinksToMealPlan,
   type MealPlanSharedRecipeLink
 } from "@/services/mealPlanSharedRecipeLinkService";
+import { createRecipeIngredientCompatibilityEvaluator } from "@/services/recipePrimaryIngredientCompatibility";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -117,6 +120,8 @@ export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   let failureHistoryEntryId: string | undefined;
   let failureUid: string | undefined;
+  let pendingActionAccess: Awaited<ReturnType<typeof canUseApiFeature>>["access"] | undefined;
+  let pendingActionId: string | undefined;
   logger.info("Meal plan HTTP request received", { requestId });
   try {
     const accessCheck = await canUseApiFeature(request, "weekly_plan");
@@ -149,8 +154,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const aiAction = await consumeFreeAiAction(access, "weekly_plan", parsed.data.actionId ?? requestId);
-    const nextAccess = aiAction.access;
+    const aiAction = await reserveFreeAiAction(access, "weekly_plan", parsed.data.actionId ?? requestId);
+    let nextAccess = aiAction.access;
+    pendingActionAccess = access;
+    pendingActionId = aiAction.actionId;
+    const completeAiAction = async () => {
+      nextAccess = await completeFreeAiAction(access, pendingActionId);
+      pendingActionId = undefined;
+    };
+    const releaseAiAction = async () => {
+      await releaseFreeAiAction(access, pendingActionId);
+      pendingActionId = undefined;
+    };
     const actionGrantPayload = aiAction.actionGrantId
       ? { aiActionGrantId: aiAction.actionGrantId }
       : {};
@@ -169,6 +184,7 @@ export async function POST(request: Request) {
     const pantryStock = rawPantryStock.filter((item) => !findIngredientDietViolation(item.name, dietContext));
     const ignoredPantryItems = rawPantryStock.filter((item) => findIngredientDietViolation(item.name, dietContext));
     const dietCompatiblePantry = pantryStock.map((item) => item.name);
+    const pantryIngredientCompatibilityEvaluator = createRecipeIngredientCompatibilityEvaluator(dietCompatiblePantry);
     if (ignoredPantryItems.length) {
       logger.info("Meal plan ignored pantry items that conflict with selected diet/allergen rules", {
         requestId,
@@ -198,6 +214,7 @@ export async function POST(request: Request) {
       let repairCount = 0;
       let dietViolationCount = 0;
       let healthViolationCount = 0;
+      let proteinFormMismatchCount = 0;
       let cuisineRepairCount = 0;
       let placeholderCount = 0;
       let catalogReplacementCount = 0;
@@ -216,12 +233,17 @@ export async function POST(request: Request) {
             const healthViolation = findRecipeHealthViolation(meal, parsed.data.conditions ?? []);
             const placeholder = isPlaceholderMeal(meal);
             const cuisineMismatch = !mealMatchesPreferredCuisine(meal, parsed.data.preferredCuisine);
-            if (violation || healthViolation || placeholder || cuisineMismatch) {
+            const proteinCompatibility = pantryIngredientCompatibilityEvaluator.evaluatePrimary(
+              mealPlanMealToRecipe(meal)
+            );
+            const proteinFormMismatch = proteinCompatibility.reason === "requested_protein_form_mismatch";
+            if (violation || healthViolation || placeholder || cuisineMismatch || proteinFormMismatch) {
               repairCount += 1;
               if (violation) dietViolationCount += 1;
               if (healthViolation) healthViolationCount += 1;
               if (placeholder) placeholderCount += 1;
               if (cuisineMismatch) cuisineRepairCount += 1;
+              if (proteinFormMismatch) proteinFormMismatchCount += 1;
               const replacement = buildSafeMealReplacement({
                 dietContext,
                 recipeLanguage,
@@ -248,6 +270,7 @@ export async function POST(request: Request) {
           repairCount,
           dietViolationCount,
           healthViolationCount,
+          proteinFormMismatchCount,
           cuisineRepairCount,
           placeholderCount,
           catalogReplacementCount,
@@ -417,6 +440,7 @@ export async function POST(request: Request) {
         persistResult: parsed.data.persistResult,
         uid: access.uid
       });
+      await completeAiAction();
       return Response.json({
         ...actionGrantPayload,
         result: JSON.stringify({ ...outputMockPlan, preferenceSignature, imageActionGrantId: aiAction.actionGrantId }),
@@ -559,6 +583,7 @@ export async function POST(request: Request) {
           persistResult: parsed.data.persistResult,
           uid: access.uid
         });
+        await completeAiAction();
         logger.info("Meal plan served from Gemini fallback AI", {
           days: linkedOutputMealPlan.plan.length,
           shoppingItems: linkedOutputMealPlan.shoppingList.length,
@@ -590,6 +615,7 @@ export async function POST(request: Request) {
     }
 
     if (!catalogRecipes.length) {
+      await releaseAiAction();
       return Response.json(
         {
           error: "The shared recipe pool is empty right now, so no fallback meal plan is available.",
@@ -668,6 +694,7 @@ export async function POST(request: Request) {
       }
     }
     if (finalizedEmergencyMealPlan.issues.length && !repeatFallbackMetadata) {
+      await releaseAiAction();
       return Response.json(
         {
           error: "The shared recipe pool does not currently contain enough validated recipes for a safe weekly plan.",
@@ -700,6 +727,7 @@ export async function POST(request: Request) {
       persistResult: parsed.data.persistResult,
       uid: access.uid
     });
+    await completeAiAction();
     logger.info("Meal plan served from shared recipe pool after AI failure", {
       days: outputEmergencyMealPlan.plan.length,
       shoppingItems: outputEmergencyMealPlan.shoppingList.length
@@ -720,6 +748,10 @@ export async function POST(request: Request) {
       access: accessPayload(nextAccess)
     });
   } catch (err) {
+    if (pendingActionAccess && pendingActionId) {
+      await releaseFreeAiAction(pendingActionAccess, pendingActionId);
+      pendingActionId = undefined;
+    }
     if (
       isFirebaseTransientError(err) ||
       (err instanceof Error && (err.message.includes("Sign in") || err.message.includes("Firebase Admin credentials")))

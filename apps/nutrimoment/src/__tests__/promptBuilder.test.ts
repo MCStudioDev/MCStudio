@@ -196,4 +196,21 @@ describe("PromptBuilder", () => {
     expect(prompt).toContain('"form":"thigh"');
     expect(prompt).toContain("Do not substitute chicken breast");
   });
+
+  it("enforces cuisine-aware breakfast, lunch, and dinner slot boundaries", () => {
+    const prompt = PromptBuilder.mealPlan({
+      pantry: ["white fish", "rice", "vegetables"],
+      diets: ["pescatarian"],
+      conditions: [],
+      recipeLanguage: "English",
+      preferredCuisine: "Mediterranean",
+      calorieTarget: 1800
+    });
+
+    expect(prompt).toContain("HARD MEAL-SLOT GATE");
+    expect(prompt).toContain("Do not place a lunch or dinner dish into breakfast");
+    expect(prompt).toContain("Reject roasts, baked fish trays, heavy casseroles, dinner stir-fries, and large meat plates");
+    expect(prompt).toContain("inspect all 21 meals");
+    expect(prompt).toContain("Never fix a mismatch by merely relabeling it");
+  });
 });

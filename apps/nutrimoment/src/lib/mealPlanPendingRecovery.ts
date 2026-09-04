@@ -27,7 +27,7 @@ export function classifyPendingMealPlanEntries(input: {
       failedIds.push(entry.id);
       return;
     }
-    if (status === "pending" || input.now - entry.startedAt <= input.staleAfterMs) {
+    if (input.now - entry.startedAt <= input.staleAfterMs) {
       activeIds.push(entry.id);
       return;
     }

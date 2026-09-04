@@ -121,4 +121,20 @@ describe("compact recipe editor prompt", () => {
     expect(schema.items.required).toContain("source_url");
     expect(schema.items.required).toContain("dish_identity");
   });
+
+  it("makes the dairy-free egg exclusion explicit during discovery", () => {
+    const context = JSON.parse(buildRecipeGenerationPrompt([{ name: "tomato" }], {
+      recipeLanguage: "English",
+      preferredCuisine: "Any",
+      calorieTarget: 1800,
+      maxMissingIngredients: 4,
+      recipeCount: 5,
+      diets: ["dairyFree"],
+      conditions: [],
+      allergens: [],
+      recipeReferences: []
+    }));
+
+    expect(context.requiredChanges.join(" ")).toContain("dairy-free also means egg-free");
+  });
 });

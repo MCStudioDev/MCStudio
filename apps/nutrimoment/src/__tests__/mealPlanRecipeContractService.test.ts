@@ -39,6 +39,39 @@ describe("meal plan recipe contract service", () => {
     expect(evaluateMealPlanMealRecipeContract(validMeal("Chickpea Tomato Stew"), "English").accepted).toBe(true);
   });
 
+  it("rejects egg meals from dairy-free weekly plans", () => {
+    const eggBreakfast: MealPlanMeal = {
+      ...validMeal("Vegetable Omelette", "breakfast"),
+      ingredients: ["2 whole eggs", "1 cup spinach", "1 tbsp olive oil"],
+      steps: [
+        "Warm 1 tbsp olive oil in a skillet over medium heat for 2 minutes.",
+        "Add 1 cup spinach and cook for 3 minutes until wilted.",
+        "Whisk 2 whole eggs, pour them into the skillet, and cook for 5 minutes until set."
+      ]
+    };
+    const plan: MealPlanData = {
+      plan: [{
+        day: "Monday",
+        breakfast: eggBreakfast,
+        lunch: validMeal("Chickpea Tomato Lunch", "lunch"),
+        dinner: validMeal("Chickpea Tomato Dinner", "dinner")
+      }],
+      shoppingList: []
+    };
+
+    const issues = validateMealPlanRecipeContracts(plan, {
+      ...OPTIONS,
+      dietContext: { diets: ["dairyFree"], allergens: [] }
+    });
+
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        slot: "breakfast",
+        reasons: expect.arrayContaining(["diet:diet:egg"])
+      })
+    ]));
+  });
+
   it("replaces invalid weekly slots with validated compatible recipe meals", () => {
     const invalid = thinMeal();
     const plan: MealPlanData = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Bell, Calendar, Camera, ChefHat, Heart, History, LogOut, Menu, MoonStar, Settings, ShoppingCart, SunMedium, X } from "lucide-react";
+import { Bell, Calendar, Camera, ChefHat, History, LogOut, Menu, MoonStar, Settings, ShoppingCart, SunMedium, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,7 +24,6 @@ const TABS: { id: Tab; icon: typeof ChefHat; key: Parameters<ReturnType<typeof u
   { id: "pantry", icon: ShoppingCart, key: "pantry" },
   { id: "mealplan", icon: Calendar, key: "mealplan" },
   { id: "history", icon: History, key: "history" },
-  { id: "health", icon: Heart, key: "health" },
   { id: "settings", icon: Settings, key: "settings" }
 ];
 

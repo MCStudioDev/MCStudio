@@ -364,7 +364,7 @@ function buildCompactRestrictionActions(options: RecipePromptOptions) {
     actions.push("Remove all animal products; use dish-appropriate plant substitutes everywhere.");
   }
   if (diets.has("dairyfree") || diets.has("dairy-free")) {
-    actions.push("Replace every dairy ingredient with a dish-appropriate dairy-free equivalent everywhere.");
+    actions.push("Remove or safely replace every egg, egg dish, egg-based sauce, and dairy ingredient everywhere. In this app, dairy-free also means egg-free.");
   }
   for (const allergen of options.allergens ?? []) {
     if (allergen.trim()) actions.push(`Remove or safely replace every occurrence of allergen: ${allergen.trim()}.`);
@@ -389,7 +389,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     allergens: (options.allergens ?? []).filter(Boolean),
     excludedIngredients: (options.excludedIngredients ?? []).filter(Boolean)
   };
-  const requiredChanges = sourceRecipe ? buildCompactRestrictionActions(options) : [];
+  const requiredChanges = buildCompactRestrictionActions(options);
   const dishDiscoveryHints = sourceRecipe
     ? ""
     : buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);

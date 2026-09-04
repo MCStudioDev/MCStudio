@@ -260,6 +260,19 @@ const DIET_FORBIDDEN_PATTERNS: Record<string, ForbiddenPatternSet> = {
   },
   dairyFree: {
     english: [
+      "egg",
+      "egg white",
+      "egg yolk",
+      "omelette",
+      "omelet",
+      "frittata",
+      "shakshuka",
+      "eggah",
+      "mayonnaise",
+      "mayo",
+      "aioli",
+      "meringue",
+      "albumen",
       "milk",
       "buttermilk",
       "cream",
@@ -784,7 +797,7 @@ const ARABIC_DIET_FORBIDDEN_ALIASES: Partial<Record<string, string[]>> = {
     "جيلاتين"
   ],
   vegetarian: [...ARABIC_MEAT_POULTRY_TERMS, ...ARABIC_SEAFOOD_TERMS, "جيلاتين"],
-  dairyFree: ARABIC_DAIRY_EGG_TERMS.filter((term) => !/بيض|أوم|اوم|فريتاتا|شكشوكة|عجة|مايونيز/.test(term)),
+  dairyFree: ARABIC_DAIRY_EGG_TERMS,
   pescatarian: [...ARABIC_MEAT_POULTRY_TERMS, "جيلاتين"],
   glutenFree: [
     "قمح",

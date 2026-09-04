@@ -14,19 +14,20 @@ describe("meal-plan pending recovery", () => {
     expect(result.staleUnconfirmedIds).toEqual([]);
   });
 
-  it("separates stale unconfirmed work without declaring it failed", () => {
+  it("expires stale work even when server history remains pending", () => {
     const result = classifyPendingMealPlanEntries({
       history: [{ id: "still-pending", generationStatus: "pending" }],
       now: 1_000,
       pending: [
         { id: "still-pending", startedAt: 950 },
+        { id: "stale-server-pending", startedAt: 1 },
         { id: "unknown-old", startedAt: 1 }
       ],
       staleAfterMs: 100
     });
 
     expect(result.activeIds).toEqual(["still-pending"]);
-    expect(result.staleUnconfirmedIds).toEqual(["unknown-old"]);
+    expect(result.staleUnconfirmedIds).toEqual(["stale-server-pending", "unknown-old"]);
     expect(result.failedIds).toEqual([]);
   });
 });

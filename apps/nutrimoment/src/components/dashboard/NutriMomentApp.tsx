@@ -6,7 +6,6 @@ import { TopNav } from "./TopNav";
 import { ErrorBanner } from "./ErrorBanner";
 import { ScannerTab } from "./tabs/ScannerTab";
 import { PantryTab } from "./tabs/PantryTab";
-import { HealthTab } from "./tabs/HealthTab";
 import { MealPlanTab } from "./tabs/MealPlanTab";
 import { HistoryTab } from "./tabs/HistoryTab";
 import { SettingsTab } from "./tabs/SettingsTab";
@@ -19,7 +18,6 @@ const TAB_COMPONENTS: Record<Tab, React.ComponentType> = {
   scanner: ScannerTab,
   pantry: PantryTab,
   mealplan: MealPlanTab,
-  health: HealthTab,
   history: HistoryTab,
   settings: SettingsTab
 };
@@ -127,9 +125,11 @@ function getSavedDashboardTab() {
   if (typeof window === "undefined") return null;
 
   const urlTab = new URLSearchParams(window.location.search).get("tab");
+  if (urlTab === "health") return "settings";
   if (isDashboardTab(urlTab)) return urlTab;
 
   const storedTab = safeReadDashboardTab();
+  if (storedTab === "health") return "settings";
   return isDashboardTab(storedTab) ? storedTab : null;
 }
 

@@ -116,7 +116,7 @@ describe("recipe search service", () => {
     };
 
     expect(filterRecipeCatalogByDietConstraints([eggKofta as never], ["vegan"], [])).toEqual([]);
-    expect(filterRecipeCatalogByDietConstraints([eggKofta as never], ["dairyFree"], [])).toHaveLength(1);
+    expect(filterRecipeCatalogByDietConstraints([eggKofta as never], ["dairyFree"], [])).toEqual([]);
   });
 
   it("includes cuisine catalog V2 dishes in the deterministic recipe pool", () => {

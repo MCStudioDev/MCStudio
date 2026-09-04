@@ -364,7 +364,7 @@ function buildCompactRestrictionActions(options: RecipePromptOptions) {
     actions.push("Remove all animal products; use dish-appropriate plant substitutes everywhere.");
   }
   if (diets.has("dairyfree") || diets.has("dairy-free")) {
-    actions.push("Replace every dairy ingredient with a dish-appropriate dairy-free equivalent everywhere.");
+    actions.push("Remove or safely replace every egg, egg dish, egg-based sauce, and dairy ingredient everywhere. In this app, dairy-free also means egg-free.");
   }
   for (const allergen of options.allergens ?? []) {
     if (allergen.trim()) actions.push(`Remove or safely replace every occurrence of allergen: ${allergen.trim()}.`);
@@ -389,7 +389,7 @@ export function buildRecipeGenerationPrompt(ingredients: RecipePromptIngredient[
     allergens: (options.allergens ?? []).filter(Boolean),
     excludedIngredients: (options.excludedIngredients ?? []).filter(Boolean)
   };
-  const requiredChanges = sourceRecipe ? buildCompactRestrictionActions(options) : [];
+  const requiredChanges = buildCompactRestrictionActions(options);
   const dishDiscoveryHints = sourceRecipe
     ? ""
     : buildIngredientDrivenCuisineGuidance(options.preferredCuisine, ingredients);
@@ -1671,6 +1671,9 @@ export function buildMealPlanPrompt({
       : `Closed cuisine rule: every breakfast, lunch, and dinner must belong to ${preferredCuisine} or a direct regional substyle inside ${preferredCuisine}. Do not output Egyptian, Mediterranean, American, Italian, Turkish, or any other off-cuisine meal when ${preferredCuisine} is selected; add missing ingredients instead of drifting off-cuisine.`,
     "Every breakfast, lunch, and dinner object must include a cuisine field. Use the precise cuisine or regional substyle for that specific meal, not only the user's broad preference. Examples: Egyptian, Alexandrian Egyptian, Turkish, Levantine, North Indian, Thai, Italian-American, Mediterranean.",
     "Deep cuisine rule for every meal slot: choose a real breakfast/lunch/dinner tradition from that cuisine, then make the ingredients, steps, aromatics, spice base, starch, sauce, garnish, and plating match that tradition. Do not make a generic protein bowl and label it Egyptian, Turkish, Italian, Indian, Asian, or Mediterranean.",
+    "HARD MEAL-SLOT GATE: each meal must naturally belong to its assigned breakfast, lunch, or dinner slot in the selected cuisine. Do not place a lunch or dinner dish into breakfast simply to complete the plan.",
+    "BREAKFAST RULE: breakfast must use a cuisine-native breakfast dish or a clearly breakfast-style meal. Reject roasts, baked fish trays, heavy casseroles, dinner stir-fries, and large meat plates unless they are genuinely traditional breakfast dishes in the selected cuisine.",
+    "FINAL SLOT CHECK: before returning JSON, inspect all 21 meals and ask whether each would normally be served in its assigned slot for its cuisine. If not, replace the meal. Never fix a mismatch by merely relabeling it.",
     "Breakfast should be cuisine-native, not a generic Western breakfast unless that cuisine or user preference supports it. Lunch and dinner should use distinct cuisine-native structures such as stew, rice plate, stuffed bread, grilled plate, baked casserole, curry, soup, pasta, pilaf, bean dish, or skillet only when that structure belongs to the meal's cuisine.",
     "Across the week, vary cuisine depth by substyle and dish family: do not repeat the same cuisine expression every day. For example, Egyptian can rotate between ful/shakshuka breakfast, koshary/rice-and-stew lunch, hawawshi/kofta/fish tagine dinner; Turkish can rotate menemen breakfast, lentil soup lunch, kofte/adana/pide dinner.",
     "Duplicate meal rule: do not repeat the same dish family across cards unless the core ingredients clearly change the plate. A repeated protein with only a different cooking method is not enough; use a different starch, sauce, vegetable base, or named dish family.",

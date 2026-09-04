@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { adaptRecipeForDietRestrictions, findRecipeDietViolation } from "../lib/dietEnforcement";
 
 describe("diet enforcement", () => {
-  it("treats dairy-free as blocking dairy but not eggs", () => {
+  it("treats dairy-free as blocking both dairy and eggs", () => {
     expect(findRecipeDietViolation(
       { name: "Shakshuka", ingredients: ["eggs", "tomato", "bell pepper", "olive oil"] },
       { diets: ["dairyFree"], allergens: [] }
-    )).toBeNull();
+    )).toEqual({ kind: "diet", diet: "dairyFree", match: "egg" });
 
     expect(
       findRecipeDietViolation(

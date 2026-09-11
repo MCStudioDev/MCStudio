@@ -95,7 +95,13 @@
     "isActive": true,
     "qualityStatus": "verified",
     "contentVersion": "recipe-content-v2",
-    "validatorHash": "recipe-content-v2:identity-pure:diet-v5:compact-ingredients:alias-index:2026-08-14"
+    "validatorHash": "recipe-content-v2:identity-pure:diet-v5:compact-ingredients:alias-index:2026-08-14",
+    "difficulty": "easy",
+    "totalMinutes": 30,
+    "image": {
+      "storagePath": "",
+      "thumbPath": ""
+    }
   },
   "patch": {
     "isActive": false,

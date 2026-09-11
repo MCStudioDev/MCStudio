@@ -12,6 +12,18 @@ const original = evidence.original as unknown as RecipeCatalogDoc;
 const context = { diets: ["pescatarian"], allergens: [] };
 
 describe("Sandy dietary safety acceptance criteria", () => {
+  it("does not let a mushroom side dish verify an unspecified shawarma ingredient", () => {
+    expect(findRecipeDietViolation({ name: "Rice Bowl", ingredients: ["mushrooms", "shawarma", "rice"] }, context)).not.toBeNull();
+  });
+  it("accepts shawarma seasoning without assuming that it contains meat", () => {
+    expect(findRecipeDietViolation({ name: "Seasoned rice", ingredients: ["rice", "shawarma spices"] }, context)).toBeNull();
+  });
+  it("withholds a shawarma title when no ingredient establishes its protein", () => {
+    expect(findRecipeDietViolation({ name: "Shawarma Bowl", ingredients: ["rice", "lettuce"] }, context)).not.toBeNull();
+  });
+  it.each(["شاورما", "kofta", "kebab"])("withholds unresolved composite ingredient %s", ingredient => {
+    expect(findRecipeDietViolation({ ingredients: [ingredient, "rice"] }, context)).not.toBeNull();
+  });
   it("rejects the exact saved card with unresolved shawrma in its missing ingredients and steps", () => {
     expect(findRecipeDietViolation(evidence.observedRecipe, context)).not.toBeNull();
   });

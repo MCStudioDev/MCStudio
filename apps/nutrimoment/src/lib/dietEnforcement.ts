@@ -1,3 +1,4 @@
+import { findUnverifiedCompositeProtein } from "@/lib/compositeProteinSafety";
 /**
  * Deterministic, ingredient-based diet/allergen enforcement.
  *
@@ -1323,6 +1324,10 @@ export function findRecipeDietViolation(
   const arabicHaystack = parts.join(" | ");
 
   for (const diet of ctx.diets) {
+    if (["vegan", "vegetarian", "pescatarian"].includes(diet)) {
+      const unverified = findUnverifiedCompositeProtein(recipe);
+      if (unverified) return { kind: "diet", diet, match: unverified };
+    }
     const patterns = resolveDietForbiddenPatterns(diet);
     if (!patterns) continue;
     let dietEnglishHaystack =

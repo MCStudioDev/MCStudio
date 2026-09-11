@@ -1,3 +1,6 @@
+import { loadGenerationRestrictions } from "@/services/generationProfileService";
+import { ProfileUnavailableError, type GenerationRestrictions } from "@/lib/profileSafety";
+import { assertSafeMealPlan } from "@/lib/generationSafety";
 import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 import { PromptBuilder } from "@/ai/PromptBuilder";
@@ -142,6 +145,8 @@ export async function POST(request: Request) {
     }
     failureHistoryEntryId = parsed.data.historyEntryId;
     failureUid = access.uid;
+    const verifiedRestrictions = await loadGenerationRestrictions(access.uid);
+    Object.assign(parsed.data, verifiedRestrictions);
     const recipeLanguage = recipeLanguageFromUiLanguage(normalizePilotLanguage(parsed.data.uiLanguage, "en"));
 
     if (!accessCheck.allowed) {
@@ -424,6 +429,7 @@ export async function POST(request: Request) {
         wantsArabic ? localizeMealPlanForArabic(guardedMockPlan) : guardedMockPlan,
         wantsArabic ? "Arabic" : "English"
       );
+      assertSafeMealPlan(outputMockPlan, verifiedRestrictions);
       await queueMealPlanCachePersist({
         uid: access.uid,
         recipeLanguage,
@@ -437,6 +443,8 @@ export async function POST(request: Request) {
         historyTitle: parsed.data.historyTitle,
         mealPlan: outputMockPlan,
         preferenceSignature,
+        effectiveRestrictions: verifiedRestrictions,
+        requestId,
         persistResult: parsed.data.persistResult,
         uid: access.uid
       });
@@ -558,6 +566,7 @@ export async function POST(request: Request) {
             pantryItems: pantryStock
           })
         };
+        assertSafeMealPlan(outputMealPlan, verifiedRestrictions);
         const aiRepeatUsage = summarizeMealPlanRepeatUsage(outputMealPlan);
         const repeatFallbackMetadata = aiRepeatUsage.repeatedSlots
           ? { maxRepeatedSlots: 2, ...aiRepeatUsage }
@@ -580,6 +589,8 @@ export async function POST(request: Request) {
           historyTitle: parsed.data.historyTitle,
           mealPlan: linkedOutputMealPlan,
           preferenceSignature,
+          effectiveRestrictions: verifiedRestrictions,
+          requestId,
           persistResult: parsed.data.persistResult,
           uid: access.uid
         });
@@ -711,6 +722,7 @@ export async function POST(request: Request) {
         pantryItems: pantryStock
       })
     };
+    assertSafeMealPlan(outputEmergencyMealPlan, verifiedRestrictions);
     await queueMealPlanCachePersist({
       uid: access.uid,
       recipeLanguage,
@@ -724,6 +736,8 @@ export async function POST(request: Request) {
       historyTitle: parsed.data.historyTitle,
       mealPlan: outputEmergencyMealPlan,
       preferenceSignature,
+      effectiveRestrictions: verifiedRestrictions,
+      requestId,
       persistResult: parsed.data.persistResult,
       uid: access.uid
     });
@@ -748,6 +762,9 @@ export async function POST(request: Request) {
       access: accessPayload(nextAccess)
     });
   } catch (err) {
+    if (err instanceof ProfileUnavailableError) {
+      return Response.json({ error: err.message, code: "PROFILE_UNAVAILABLE" }, { status: 503 });
+    }
     if (pendingActionAccess && pendingActionId) {
       await releaseFreeAiAction(pendingActionAccess, pendingActionId);
       pendingActionId = undefined;
@@ -1596,6 +1613,8 @@ function getShoppingListItemKey(value: string) {
 }
 
 async function persistMealPlanResultForUser({
+  effectiveRestrictions,
+  requestId,
   actionGrantId,
   historyEntryId,
   historyIngredients,
@@ -1605,6 +1624,8 @@ async function persistMealPlanResultForUser({
   persistResult,
   uid
 }: {
+  effectiveRestrictions: GenerationRestrictions;
+  requestId: string;
   actionGrantId?: string;
   historyEntryId?: string;
   historyIngredients: string[];
@@ -1622,6 +1643,8 @@ async function persistMealPlanResultForUser({
     const sanitized = sanitizeMealPlanForFirestore(authorizedMealPlan);
     await db.doc(`users/${uid}/plans/currentWeekly`).set(
       {
+        effectiveRestrictions,
+        requestId,
         mealPlan: preferenceSignature ? { ...sanitized, preferenceSignature } : sanitized,
         ...(preferenceSignature ? { preferenceSignature } : {}),
         updatedAt: FieldValue.serverTimestamp()
@@ -1632,6 +1655,8 @@ async function persistMealPlanResultForUser({
     if (historyEntryId) {
       await db.doc(`users/${uid}/history/${historyEntryId}`).set(
         {
+          effectiveRestrictions,
+          requestId,
           completedAt: new Date().toISOString(),
           generationMessage: null,
           generationStatus: "completed",

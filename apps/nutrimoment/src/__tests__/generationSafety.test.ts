@@ -24,6 +24,18 @@ describe("server generation safety", () => {
     mocks.get.mockRejectedValue(new Error("unavailable"));
     await expect(loadGenerationRestrictions("user-123")).rejects.toThrow(/profile/i);
   });
+  it("times out a profile read that never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.get.mockReturnValue(new Promise(() => {}));
+      const pending = expect(loadGenerationRestrictions("user-123")).rejects.toThrow(/profile/i);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
+    } finally { vi.useRealTimers(); }
+  });
+  it("preserves an error-only response without adding recipe results", () => {
+    expect(filterSafeRecipeResponse({ error: "Sign in" }, null)).toEqual({ error: "Sign in" });
+  });
   it("removes unsafe fallback recipes and synchronizes the serialized result", () => {
     const recipes = [{ name: "Chicken shawarma", ingredients: ["chicken"] }, { name: "Salmon", ingredients: ["salmon"] }];
     const result = filterSafeRecipeResponse({ recipes, result: JSON.stringify(recipes), returnedCount: 2 }, context);

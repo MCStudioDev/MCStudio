@@ -1,3 +1,4 @@
+import { parseSavedRestrictions, ProfileUnavailableError } from "@/lib/profileSafety";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import type { UserPreferenceSnapshot } from "@/lib/domain";
@@ -21,7 +22,8 @@ export async function getUserPreferenceSnapshot(uid: string | null): Promise<Use
     ]);
 
     const settings = settingsSnap.exists() ? settingsSnap.data() : {};
-    const health = healthSnap.exists() ? healthSnap.data() : {};
+    if (!healthSnap.exists()) throw new ProfileUnavailableError();
+    const health = parseSavedRestrictions(healthSnap.data());
 
     return {
       preferredCuisine: typeof settings.preferredCuisine === "string"
@@ -35,6 +37,6 @@ export async function getUserPreferenceSnapshot(uid: string | null): Promise<Use
       allergens: Array.isArray(health.allergens) ? health.allergens : []
     };
   } catch {
-    return DEFAULT_SNAPSHOT;
+    throw new ProfileUnavailableError();
   }
 }

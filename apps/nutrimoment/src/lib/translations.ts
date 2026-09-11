@@ -5,6 +5,10 @@ export type TranslationKey = keyof typeof translations.en;
 
 export const translations = {
   en: {
+    profileLoadingMeals: "Loading your saved dietary restrictions…",
+    profileUnavailableMeals: "Your saved dietary restrictions could not be verified. Reload your profile to continue.",
+    retryProfile: "Reload profile",
+    historyDietConflict: "This saved meal does not pass your current dietary checks. It is withheld pending review.",
     appTitle: "NutriMoment",
     appSubtitle: "AI-guided recipe and meal-planning support",
     login: "Login",

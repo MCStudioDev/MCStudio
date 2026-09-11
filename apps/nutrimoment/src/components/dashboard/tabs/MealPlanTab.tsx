@@ -1,5 +1,9 @@
 "use client";
 
+import { findRecipeDietViolation } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
+import { assertSafeMealPlan } from "@/lib/generationSafety";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { CalendarDays, Lock } from "lucide-react";
@@ -85,7 +89,7 @@ function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 }
 
 export function MealPlanTab() {
-  const { t, settings, health, setError } = useApp();
+  const { t, settings, health, setError, loadingProfile, profileError, reloadProfile } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasNativeGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
@@ -103,7 +107,15 @@ export function MealPlanTab() {
     () => buildMealPlanPreferenceSignatureFromProfile(settings, health),
     [health, settings]
   );
-  const { mealPlan, loading: savedPlanLoading, error: mealPlanError, reloadMealPlan, saveMealPlan, updateMealImage } = useMealPlan(mealPlanPreferenceSignature);
+  const { mealPlan: storedMealPlan, loading: savedPlanLoading, error: mealPlanError, reloadMealPlan, saveMealPlan, updateMealImage } = useMealPlan(mealPlanPreferenceSignature);
+  const mealPlan = !loadingProfile && !profileError && storedMealPlan && storedMealPlan.plan.every(day =>
+    [day.breakfast, day.lunch, day.dinner].every(meal =>
+      !findRecipeDietViolation(meal, { diets: health.diets, allergens: health.allergens ?? [] }) &&
+      !findRecipeHealthViolation(meal, health.conditions)
+    )
+  ) ? storedMealPlan : null;
+  const profileVersionRef = useRef(0);
+  useEffect(() => { profileVersionRef.current += 1; }, [mealPlanPreferenceSignature, loadingProfile, profileError, user?.uid]);
   const [loading, setLoading] = useState(false);
   const [imageLoadingSlots, setImageLoadingSlots] = useState<Set<string>>(() => new Set());
   const [imageErrorSlots, setImageErrorSlots] = useState<Set<string>>(() => new Set());
@@ -128,6 +140,8 @@ export function MealPlanTab() {
   }, [mealPlanError, setError]);
 
   const generateMealPlan = async () => {
+    if (loadingProfile || profileError) return;
+    const profileVersion = profileVersionRef.current;
     if (!canGenerateMealPlan) {
       setError(t("freeMealPlanNotice"));
       return;
@@ -201,6 +215,8 @@ export function MealPlanTab() {
         throw new Error("Meal plan response was empty");
       }
 
+      if (profileVersion !== profileVersionRef.current) return;
+      assertSafeMealPlan(nextMealPlan, { diets: health.diets, allergens: health.allergens ?? [], conditions: health.conditions });
       await saveMealPlan(nextMealPlan);
       void persistMealPlanRecipes(nextMealPlan);
       if (pendingHistoryEntryId) {
@@ -747,7 +763,9 @@ export function MealPlanTab() {
                 {t("premiumMealPlanNotice")}
               </div>
             )}
-            <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan}>
+            {loadingProfile ? <p role="status">{t("profileLoadingMeals")}</p> : null}
+            {profileError ? <p role="alert">{t("profileUnavailableMeals")} <button type="button" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></p> : null}
+            <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan || loadingProfile || Boolean(profileError)}>
               {!canGenerateMealPlan ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
             </Button>
           </div>

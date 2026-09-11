@@ -1,5 +1,8 @@
 "use client";
 
+import { findRecipeDietViolation } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
+
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, Camera, CheckCircle2, ChefHat, Info, Lock, Plus, Search, Sparkles, Upload, Utensils, X, type LucideIcon } from "lucide-react";
@@ -191,7 +194,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 export function ScannerTab() {
-  const { t, settings, health, setError, addNotification, rtl } = useApp();
+  const { t, settings, health, setError, addNotification, rtl, loadingProfile, profileError, reloadProfile } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
@@ -203,6 +206,10 @@ export function ScannerTab() {
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const recipeRequestVersionRef = useRef(0);
+  useEffect(() => {
+    recipeRequestVersionRef.current += 1;
+    setRecipes([]);
+  }, [health, loadingProfile, profileError, user?.uid]);
   const notifiedHistoryEntriesRef = useRef<Set<string>>(new Set());
   const [manualEntry, setManualEntry] = useState("");
   const [ingredients, setIngredients] = useState<ScannerIngredient[]>([]);
@@ -558,6 +565,7 @@ export function ScannerTab() {
   }, [cameraOpen, cameraStream]);
 
   useEffect(() => {
+    if (loadingProfile || profileError) return;
     const pendingIds = readPendingRecipeHistoryIds();
     if (!pendingIds.length) return;
 
@@ -572,7 +580,11 @@ export function ScannerTab() {
       notifiedHistoryEntriesRef.current.add(completedEntry.id);
       forgetPendingRecipeHistoryId(completedEntry.id);
       setHistoryEntryId(completedEntry.id);
-      const completedRecipes = prepareRecipesForDietPhotoValidation(completedEntry.recipes, health.diets);
+      const compatibleRecipes = completedEntry.recipes.filter(recipe =>
+        !findRecipeDietViolation(recipe, { diets: health.diets, allergens: health.allergens ?? [] }) &&
+        !findRecipeHealthViolation(recipe, health.conditions)
+      );
+      const completedRecipes = prepareRecipesForDietPhotoValidation(compatibleRecipes, health.diets);
       setRecipes(completedRecipes);
       setRecipeLoading(false);
       void hydrateRecipePhotos(completedRecipes, completedEntry.id, recipeRequestVersionRef.current, health.diets);
@@ -591,7 +603,7 @@ export function ScannerTab() {
       setRecipeLoading(false);
       setError(failedEntry.generationMessage ?? t("backgroundRecipesFailed"));
     }
-  }, [health.diets, historyItems, hydrateRecipePhotos, setError, t]);
+  }, [health, loadingProfile, profileError, historyItems, hydrateRecipePhotos, setError, t]);
 
   const dismissOnboarding = () => {
     localStorage.setItem("nutrimoment.scannerOnboardingDismissed", "true");
@@ -787,6 +799,7 @@ export function ScannerTab() {
   };
 
   const handleGenerateRecipes = async () => {
+    if (loadingProfile || profileError) return;
     const canUseReferenceImage = canUseFridgeScan && Boolean(lastScanImage);
     if (!ingredients.length && !canUseReferenceImage) {
       setError(t("addOrScanFirst"));
@@ -856,7 +869,10 @@ export function ScannerTab() {
         throw new Error(data.error ?? "Failed to generate recipes");
       }
 
-      const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "", data.recipes ?? []);
+      const nextRecipes = safeJsonParse<Recipe[]>(data.result ?? "", data.recipes ?? []).filter(recipe =>
+        !findRecipeDietViolation(recipe, { diets: health.diets, allergens: health.allergens ?? [] }) &&
+        !findRecipeHealthViolation(recipe, health.conditions)
+      );
       if (requestVersion !== recipeRequestVersionRef.current) {
         return;
       }
@@ -1262,12 +1278,14 @@ export function ScannerTab() {
                 </div>
               )}
 
+              {loadingProfile ? <p role="status">{t("profileLoadingMeals")}</p> : null}
+              {profileError ? <p role="alert">{t("profileUnavailableMeals")} <button type="button" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></p> : null}
               <Button
                 fullWidth
                 size="lg"
                 loading={recipeLoading}
                 leftIcon={<ChefHat className="h-5 w-5" />}
-                onClick={handleGenerateRecipes}
+                disabled={loadingProfile || Boolean(profileError)} onClick={handleGenerateRecipes}
               >
                 {recipeLoading ? t("aiThinking") : t("generateRecipes")}
               </Button>
@@ -1310,7 +1328,7 @@ export function ScannerTab() {
             <RecipeGenerationStatusCard status={recipeGenerationStatus} detail={recipeGenerationDetail} rtl={rtl} />
             <ResultLegalNotice mode="recipes" />
             <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
-              {recipes.map((recipe, index) => (
+              {recipes.filter(recipe => !loadingProfile && !profileError && !findRecipeDietViolation(recipe, { diets: health.diets, allergens: health.allergens ?? [] }) && !findRecipeHealthViolation(recipe, health.conditions)).map((recipe, index) => (
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
                   disableAutoImageLookup

@@ -89,6 +89,7 @@ export interface CatalogRecipeSearchInput {
 }
 
 export interface CatalogRecipeSearchResult extends RecipeSearchResponse {
+  missingLimitRejected?: number;
   rankedRecipeIds: string[];
   candidateRecipes: RecipeCatalogDoc[];
   matchingRecipeCount: number;
@@ -224,10 +225,11 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
   const missingIngredientLimit = Number.isFinite(input.maxMissingIngredients)
     ? Math.max(0, Number(input.maxMissingIngredients))
     : Number.POSITIVE_INFINITY;
-  const safeSharedPoolRanked = mergeDistinctRankedResults(
+  const beforeMissingLimit = mergeDistinctRankedResults(
     evidenceCompatibleRanked,
     primaryCompatibleRanked
-  ).filter((result) => countNonPantryMissingIngredients(result, normalized.raw.length) <= missingIngredientLimit);
+  );
+  const safeSharedPoolRanked = beforeMissingLimit.filter((result) => countNonPantryMissingIngredients(result, normalized.raw.length) <= missingIngredientLimit);
   const ingredientPrioritized = prioritizeIngredientMatches(safeSharedPoolRanked, ingredientMatchedRanked);
   const relevanceRankedResults = cuisineSearchOrder.length
     ? ingredientPrioritized
@@ -317,6 +319,7 @@ export async function searchCatalogRecipes(input: CatalogRecipeSearchInput): Pro
 
   return {
     ingredientsNormalized: normalized.normalized,
+    missingLimitRejected: beforeMissingLimit.length - safeSharedPoolRanked.length,
     recipes,
     servedFrom: "shared_pool",
     generationStatus: RecipeGenerationStatus.SUCCESS_DATASET,

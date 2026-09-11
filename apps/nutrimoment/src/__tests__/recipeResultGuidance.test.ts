@@ -42,7 +42,22 @@ describe("recipe result explanations and next steps", () => {
     expect(result.reasons.join(" ")).toContain("المكونات المفقودة");
     expect(result.suggestions.join(" ")).toContain("مكون أو مكونين");
   });
+  it("localizes partial-result reasons and recommendations in Arabic", () => {
+    const result = buildRecipeResultGuidance({ ...base, language: "ar", returnedCount: 2, maxMissingIngredients: 2, preferredCuisine: "Italian", otherCuisineCount: 1, safetyRejected: 1, missingLimitRejected: 2, recentExcluded: 1, aiCreditsExhausted: true })!;
+    expect(result.title).toContain("2 من 5");
+    expect(result.reasons.join(" ")).toContain("مطابخ أخرى");
+    expect(result.suggestions.join(" ")).toContain("ارفع الحد الأقصى");
+    expect(result.reasons.join(" ")).toContain("رصيد الذكاء الاصطناعي");
+  });
+  it("localizes service failures without blaming Arabic users' preferences", () => {
+    const result = buildRecipeResultGuidance({ ...base, language: "ar", serviceUnavailable: true })!;
+    expect(result.title).toBe("تعذر إكمال البحث");
+    expect(result.suggestions).toEqual(["حاول مرة أخرى بعد قليل بنفس الإعدادات."]);
+  });
   it("does not show problem guidance for a complete preference match", () => {
     expect(buildRecipeResultGuidance({ ...base, returnedCount: 5 })).toBeNull();
+  });
+  it("preserves the credit explanation when AI could not add options", () => {
+    expect(buildRecipeResultGuidance({ ...base, aiCreditsExhausted: true })!.reasons.join(" ")).toContain("AI credits are used up");
   });
 });

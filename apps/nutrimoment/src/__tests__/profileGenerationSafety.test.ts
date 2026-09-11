@@ -125,4 +125,17 @@ describe("Generation controls with simulated profile states; all network calls m
     await act(async () => button(label).click());
     expect(requests.filter(request => request.url === endpoint)).toEqual([{ url: endpoint, diets: ["pescatarian"] }]);
   });
+
+  it("shows a zero-missing explanation and concrete next steps after an empty result", async () => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), maxMissingIngredients: 0 };
+    state.app.health = { ...createDefaultUserHealthProfile(), diets: ["pescatarian"] };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ recipes: [], result: "[]", generationStatus: "NO_RESULTS" }), { status: 200 })));
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain("set to 0");
+    expect(container.textContent).toContain("What you can try");
+    expect(container.textContent).toContain("1 or 2");
+    expect(container.textContent).toContain("already have");
+  });
 });

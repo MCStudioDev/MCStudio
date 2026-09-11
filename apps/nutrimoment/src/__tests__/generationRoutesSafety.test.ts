@@ -32,6 +32,19 @@ import { POST as mealplan } from "@/app/api/mealplan/route";
 
 describe("generation routes reject unavailable saved profiles before any generation or credit charge", () => {
   beforeEach(() => { vi.clearAllMocks(); });
+  it("explains zero-missing empty results using search evidence and saves the explanation", async () => {
+    mocks.get.mockResolvedValue({ exists: true, data: () => ({ diets: ["pescatarian"], allergens: [], conditions: [] }) });
+    mocks.search.mockResolvedValue({ recipes: [], missingLimitRejected: 4 });
+    const response = await recipes(new Request("http://localhost/api/generate-recipes", {
+      method: "POST", body: JSON.stringify({ ingredients: ["rice"], maxMissingIngredients: 0, recipeCount: 2, historyEntryId: "empty-history" })
+    }));
+    const body = await response.json();
+    expect(body.recipes).toEqual([]);
+    expect(body.guidance.reasons.join(" ")).toContain("set to 0");
+    expect(body.guidance.reasons.join(" ")).toContain("needed more missing ingredients");
+    expect(body.guidance.suggestions.join(" ")).toContain("1 or 2");
+    expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ generationMessage: body.message, recipes: [] }), { merge: true });
+  });
   it("uses saved pescatarian restrictions and filters an unsafe cached result before both response and history", async () => {
     const restrictions = { diets: ["pescatarian"], allergens: [], conditions: [] };
     mocks.get.mockResolvedValue({ exists: true, data: () => restrictions });

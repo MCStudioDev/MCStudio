@@ -1,6 +1,7 @@
 "use client";
 
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
+import { buildRecipeResultGuidance, type RecipeResultGuidance } from "@/lib/recipeResultGuidance";
 import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
@@ -225,6 +226,7 @@ export function ScannerTab() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipeGenerationStatus, setRecipeGenerationStatus] = useState<RecipeGenerationStatus | null>(null);
   const [recipeGenerationDetail, setRecipeGenerationDetail] = useState<string | null>(null);
+  const [recipeGuidance, setRecipeGuidance] = useState<RecipeResultGuidance | null>(null);
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [confirmState, setConfirmState] = useState<{
@@ -812,6 +814,7 @@ export function ScannerTab() {
     setRecipeLoading(true);
     setRecipeGenerationStatus(null);
     setRecipeGenerationDetail(null);
+    setRecipeGuidance(null);
     let pendingEntryId: string | null = null;
     try {
       const ingredientNames = ingredients.map((item) => item.name);
@@ -848,6 +851,7 @@ export function ScannerTab() {
       });
 
       const data = (await response.json()) as {
+        guidance?: RecipeResultGuidance;
         result?: string;
         recipes?: Recipe[];
         requestId?: string;
@@ -893,6 +897,15 @@ export function ScannerTab() {
           : "show_no_matching_recipes"
       });
       setRecipeGenerationStatus(nextStatus);
+      setRecipeGuidance(data.guidance ?? buildRecipeResultGuidance({
+        returnedCount: nextRecipes.length,
+        requestedCount: settings.recipeCount,
+        maxMissingIngredients: settings.maxMissingIngredients,
+        preferredCuisine: settings.preferredCuisine,
+        language: settings.uiLanguage,
+        hasRestrictions: Boolean(health.diets.length || health.conditions.length || health.allergens?.length),
+        safetyRejected: Math.max(0, (data.recipes?.length ?? nextRecipes.length) - nextRecipes.length)
+      }));
       setRecipeGenerationDetail(data.message ?? buildRecipeGenerationStatusDetail({
         aiFillUnavailableReason: data.aiFillUnavailableReason,
         requestedCount: data.requestedCount ?? settings.recipeCount,
@@ -1325,7 +1338,7 @@ export function ScannerTab() {
           </div>
         ) : recipes.length ? (
           <div className="space-y-4">
-            <RecipeGenerationStatusCard status={recipeGenerationStatus} detail={recipeGenerationDetail} rtl={rtl} />
+            <RecipeGenerationStatusCard status={recipeGenerationStatus} detail={recipeGenerationDetail} guidance={recipeGuidance} rtl={rtl} />
             <ResultLegalNotice mode="recipes" />
             <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
               {recipes.filter(recipe => !loadingProfile && !profileError && !findRecipeDietViolation(recipe, { diets: health.diets, allergens: health.allergens ?? [] }) && !findRecipeHealthViolation(recipe, health.conditions)).map((recipe, index) => (
@@ -1400,7 +1413,7 @@ export function ScannerTab() {
             </div>
           </div>
         ) : recipeGenerationStatus === RecipeGenerationStatus.NO_RESULTS ? (
-          <RecipeGenerationStatusCard status={recipeGenerationStatus} detail={recipeGenerationDetail} rtl={rtl} />
+          <RecipeGenerationStatusCard status={recipeGenerationStatus} detail={recipeGenerationDetail} guidance={recipeGuidance} rtl={rtl} />
         ) : (
           <EmptyState
             title={t("readyToCook")}
@@ -1429,10 +1442,12 @@ export function ScannerTab() {
 
 function RecipeGenerationStatusCard({
   detail,
+  guidance,
   rtl,
   status
 }: {
   detail: string | null;
+  guidance?: RecipeResultGuidance | null;
   rtl: boolean;
   status: RecipeGenerationStatus | null;
 }) {
@@ -1453,8 +1468,16 @@ function RecipeGenerationStatusCard({
       <div className="flex items-start gap-3">
         <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
         <div className="space-y-1">
-          <p className="font-semibold">{copy.title}</p>
-          <p className="text-xs leading-relaxed opacity-80">{detail ?? copy.detail}</p>
+          <p className="font-semibold">{guidance?.title ?? copy.title}</p>
+          {guidance ? (
+            <>
+              {guidance.reasons.map(reason => <p key={reason} className="text-xs leading-relaxed opacity-80">{reason}</p>)}
+              {guidance.suggestions.length ? <p className="pt-2 font-semibold">{rtl ? "ما الذي يمكنك تجربته؟" : "What you can try"}</p> : null}
+              <ul className="list-disc space-y-1 ps-4 text-xs leading-relaxed">
+                {guidance.suggestions.map(suggestion => <li key={suggestion}>{suggestion}</li>)}
+              </ul>
+            </>
+          ) : <p className="text-xs leading-relaxed opacity-80">{detail ?? copy.detail}</p>}
         </div>
       </div>
     </div>

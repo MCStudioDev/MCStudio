@@ -2900,6 +2900,20 @@ export async function POST(request: Request) {
     if (error instanceof ProfileUnavailableError) {
       return Response.json({ error: error.message, code: "PROFILE_UNAVAILABLE", recipes: [], result: "[]" }, { status: 503 });
     }
+    if (!accessCheck) {
+      // No search ran when account verification failed. Never report this as
+      // an ingredient/preference mismatch or attempt a recipe fallback.
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("Sign in")) {
+        return Response.json({ error: "Sign in again to generate recipes." }, { status: 401 });
+      }
+      logger.warn("Recipe account verification unavailable", { requestId });
+      return Response.json({
+        code: "ACCOUNT_VERIFICATION_UNAVAILABLE",
+        error: "We could not verify your account right now. Recipe search has not started. Please try again shortly.",
+        requestId
+      }, { status: 503 });
+    }
     if (
       isFirebaseTransientError(error) ||
       (error instanceof Error && (

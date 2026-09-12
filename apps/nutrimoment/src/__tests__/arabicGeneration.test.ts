@@ -62,6 +62,14 @@ describe("Arabic request integration with write recording", () => {
     expect((await response.json()).recipes.some((recipe: { name: string }) => recipe.name === "أرز بالطماطم البسيط")).toBe(true);
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
   });
+  it("explains the extra ingredients for a safe dish excluded by the missing limit", async () => {
+    mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: arabic }] });
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 0 }), "recipes");
+    const data = await response.json();
+    expect(response.status).toBe(503);
+    expect(data.suggestions).toEqual([{ name: arabic.name, missingIngredients: [arabic.ingredients[0], arabic.ingredients[2]], maxMissingIngredients: 0 }]);
+    expect(mock.writes).toEqual([]);
+  });
   it("still rejects negative structured quantities after simplifying the provider schema", async () => {
     const { materializeArabicGeneration } = await import("@/services/arabic/modelSchemas");
     mock.generate.mockResolvedValue(materializeArabicGeneration({ recipes: [{

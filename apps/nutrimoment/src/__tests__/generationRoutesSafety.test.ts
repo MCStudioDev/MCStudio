@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), search: vi.fn(), reserve: vi.fn(), write: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), search: vi.fn(), reserve: vi.fn(), write: vi.fn(), accessFailure: false }));
 vi.mock("@/lib/firebaseAdmin", () => ({
   getAdminDb: () => ({
     doc: () => ({ get: mocks.get, set: mocks.write }),
@@ -9,7 +9,10 @@ vi.mock("@/lib/firebaseAdmin", () => ({
 }));
 vi.mock("@/services/authService", async importOriginal => ({
   ...await importOriginal<typeof import("@/services/authService")>(),
-  canUseApiFeature: async () => ({ allowed: false, access: { uid: "authenticated-user", isPremium: false, isAdmin: false, tier: "free" } }),
+  canUseApiFeature: async () => {
+    if (mocks.accessFailure) throw new Error("Error while making request: . Error code: EACCES");
+    return { allowed: false, access: { uid: "authenticated-user", isPremium: false, isAdmin: false, tier: "free" } };
+  },
   reserveFreeAiAction: mocks.reserve
 }));
 vi.mock("@/services/rateLimitService", () => ({ applyRateLimit: () => ({ decision: { allowed: true } }) }));
@@ -31,7 +34,17 @@ import { POST as recipes } from "@/app/api/generate-recipes/route";
 import { POST as mealplan } from "@/app/api/mealplan/route";
 
 describe("generation routes reject unavailable saved profiles before any generation or credit charge", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); mocks.accessFailure = false; });
+  it("reports unavailable account verification as a service error, not zero recipe matches", async () => {
+    mocks.accessFailure = true;
+    const response = await recipes(new Request("http://localhost/api/generate-recipes", {
+      method: "POST", body: JSON.stringify({ ingredients: ["rice", "salmon"] })
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "ACCOUNT_VERIFICATION_UNAVAILABLE" });
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.reserve).not.toHaveBeenCalled();
+  });
   it("explains zero-missing empty results using search evidence and saves the explanation", async () => {
     mocks.get.mockResolvedValue({ exists: true, data: () => ({ diets: ["pescatarian"], allergens: [], conditions: [] }) });
     mocks.search.mockResolvedValue({ recipes: [], missingLimitRejected: 4 });

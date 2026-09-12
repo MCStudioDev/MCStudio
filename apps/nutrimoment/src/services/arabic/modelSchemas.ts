@@ -3,23 +3,23 @@ import { z } from "zod";
 const englishUnits = ["g", "kg", "ml", "cup", "piece", "clove", "tbsp", "tsp"] as const;
 const arabicUnits = ["غرام", "كيلوغرام", "ملليلتر", "كوب", "حبة", "فص", "ملعقة كبيرة", "ملعقة صغيرة"] as const;
 
-// Gemini supports numeric bounds and enums, but does not document regex support.
-// Require quantity/unit fields, then render the existing recipe string format.
+// Nested array/numeric bounds exhaust Gemini's serving constraint state limit.
+// Keep structural requirements here; apply quantitative bounds on the server.
 function recipeSchema(arabic: boolean, generated: boolean) {
   const text = { type: "string", ...(arabic ? { description: "Modern Standard Arabic only, no Latin words." } : {}) };
   const ingredient = generated ? {
     type: "object", properties: {
       name: { ...text, description: `Ingredient name only in ${arabic ? "Arabic" : "English"}; no quantity, unit, size, or preparation adjectives.` },
-      quantity: { type: "number", minimum: 0.001, maximum: 10000, description: "Explicit positive quantity, including for salt and water." },
+      quantity: { type: "number", description: "Explicit positive quantity, including for salt and water." },
       unit: { type: "string", enum: arabic ? arabicUnits : englishUnits }
     }, required: ["name", "quantity", "unit"], additionalProperties: false
   } : text;
   const properties = {
     name: text, cuisine: text,
-    ingredients: { type: "array", items: ingredient, minItems: 1, maxItems: 30 },
-    missing_ingredients: { type: "array", items: ingredient, maxItems: 30 },
-    steps: { type: "array", items: text, minItems: 3, maxItems: 10 },
-    calories: { type: "number", minimum: 80, maximum: 2500 },
+    ingredients: { type: "array", items: ingredient },
+    missing_ingredients: { type: "array", items: ingredient },
+    steps: { type: "array", items: text },
+    calories: { type: "number" },
     protein: text, carbs: text, fat: text, cook_time: text, difficulty: text
   };
   return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };
@@ -52,7 +52,7 @@ export function materializeArabicGeneration(value: unknown): unknown {
 
 export function arabicGenerationSchema(count: number) {
   return { type: "object", properties: { recipes: {
-    type: "array", minItems: 1, maxItems: count,
+    type: "array", description: `Up to ${count} complete recipes.`,
     items: { type: "object", properties: { canonical: recipeSchema(false, true), recipe: recipeSchema(true, true) }, required: ["canonical", "recipe"], additionalProperties: false }
   } }, required: ["recipes"], additionalProperties: false };
 }
@@ -63,8 +63,8 @@ export const arabicTranslationSchema = {
 
 export const arabicRepairSchema = {
   type: "object", properties: { repairs: {
-    type: "array", maxItems: 21, items: {
-      type: "object", properties: { index: { type: "integer", minimum: 0 }, recipe: recipeSchema(true, false) },
+    type: "array", items: {
+      type: "object", properties: { index: { type: "integer" }, recipe: recipeSchema(true, false) },
       required: ["index", "recipe"], additionalProperties: false
     }
   } }, required: ["repairs"], additionalProperties: false

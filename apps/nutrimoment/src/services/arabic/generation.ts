@@ -60,6 +60,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const accepted = new Map<string, ArabicRecipeEntry>();
     const output = new Map<string, Recipe>();
     let invalidCount = 0, modelFailureCount = 0;
+    let generationRequestFailed = false;
     const rejectionCounts: Record<string, number> = {};
     const recordReasons = (reasons: string[]) => {
       for (const reason of reasons) {
@@ -128,9 +129,12 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         try {
           const generated = await generateArabicRecipes({ ingredients: normalized.canonical, restrictions, count: count - accepted.size, cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients }, deadline - 10_000, requestId);
           const pairs = pairsFrom(generated);
-          if (!pairs.length) { modelFailureCount++; recordReasons(["empty_or_malformed_model_response"]); }
+          if (!pairs.length) { modelFailureCount++; generationRequestFailed = true; recordReasons(["empty_or_malformed_model_response"]); }
           for (const pair of pairs) await processPair(pair);
-        } catch { modelFailureCount++; recordReasons(["generation_request_failed"]); }
+        } catch (error) {
+          modelFailureCount++; generationRequestFailed = true;
+          recordReasons([error instanceof Error && /too many states for serving/i.test(error.message) ? "model_schema_rejected" : "generation_request_failed"]);
+        }
       }
       if (failed.length && accepted.size < count && deadline - Date.now() >= 5000) {
         // One repair batch; canonical recipes and source links are never accepted back from the model.
@@ -156,9 +160,9 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     if (!recipes.length || (mode === "mealplan" && recipes.length < 21)) {
       if (reservationId) { await releaseFreeAiAction(access, reservationId); reservationId = undefined; }
       logger.warn("Arabic generation produced insufficient validated results", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts });
-      const failureCode = invalidCount ? "ARABIC_VALIDATION_FAILED" : modelFailureCount ? "ARABIC_AI_UNAVAILABLE" : "ARABIC_RESULTS_UNAVAILABLE";
+      const failureCode = generationRequestFailed ? "ARABIC_AI_UNAVAILABLE" : invalidCount ? "ARABIC_VALIDATION_FAILED" : modelFailureCount ? "ARABIC_AI_UNAVAILABLE" : "ARABIC_RESULTS_UNAVAILABLE";
       if (authorization.allowed && failureCode !== "ARABIC_RESULTS_UNAVAILABLE") {
-        const reason = invalidCount
+        const reason = failureCode === "ARABIC_VALIDATION_FAILED"
           ? "تعذر التحقق من دقة الوصفات العربية التي تم توليدها، لذلك لم نعرضها. هذه مشكلة في نتيجة التوليد وليست في اشتراكك."
           : "تعذر إكمال توليد الوصفات بالعربية الآن بسبب مشكلة في خدمة التوليد. اشتراكك يتيح التوليد.";
         return Response.json({ code: failureCode, error: reason + " حاول مجددًا أو بدّل إلى الإنجليزية. لم يتم خصم رصيد، ونتائجك السابقة محفوظة.", recipes: [], generationLanguage: "ar", requestId }, { status: 503 });

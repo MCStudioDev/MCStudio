@@ -37,7 +37,7 @@ describe("Arabic Gemini orchestration", () => {
     for (const recipe of [pair.canonical, pair.recipe]) {
       const ingredient = recipe.properties.ingredients.items;
       expect(ingredient.required).toEqual(["name", "quantity", "unit"]);
-      expect(ingredient.properties.quantity).toMatchObject({ type: "number", minimum: 0.001 });
+      expect(ingredient.properties.quantity).toMatchObject({ type: "number" });
     }
     expect(pair.canonical.properties.ingredients.items.properties.unit.enum).toContain("tsp");
     expect(pair.recipe.properties.ingredients.items.properties.unit.enum).toContain("ملعقة صغيرة");

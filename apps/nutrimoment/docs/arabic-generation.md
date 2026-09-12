@@ -71,3 +71,15 @@ An explicitly authorized, one-call Gemini diagnostic reproduced a rejected respo
 - The post-fix live Gemini response has not been replayed. The diagnostic authorization covered one call, which was used to reproduce the original failure. A new UI generation attempt is the remaining live quality check.
 
 The local feature flag is enabled with the user's approval. This localhost environment uses the production Firebase project; no deployed production feature flag was changed. English endpoints, normalization, validators, transport and content storage were not modified by this fix.
+
+## Follow-up from live retries
+
+The first fix did not restore live generation. Actual server logs showed Gemini rejecting both generation and repair schemas with HTTP 400: nested array and numeric bounds produced too many serving-constraint states. Removed those provider-side bounds while preserving required fields/types, unit enums, and all local quantity/count/safety limits. Provider failures now take precedence over unrelated rejected English-source candidates in the error response.
+
+Two live, empty-output protocol requests confirmed that Gemini accepts the revised generation and repair schemas. These checks supplied no account data, ingredients or dietary preferences and executed no Firebase or billing operations.
+
+A subsequent user-triggered generation reached Gemini successfully but still rejected its recipes. The exact returned tomato-rice recipe revealed missing `vegetable broth` / `مرق خضار` aliases and a false rejection of the Arabic chop command `فرّم`. Both are corrected in the Arabic adapter. Unknown Arabic text can no longer qualify as recognized merely by round-tripping unchanged through the localization fallback. The independent Arabic validator version is now `arabic-v3`.
+
+The actual returned recipes are stored as regression fixtures with no account identifiers or source-image links. The captured request now returns HTTP 200 in the integration test with only Arabic content writes. Temporary logging of complete rejected recipes was removed.
+
+Verification: 122 tests across 12 files passed, plus the additional negative-quantity regression passed separately (123 total). Arabic-service coverage: 98.6% lines, 93.5% statements, 84.35% branches, 96.7% functions. TypeScript and Arabic-service lint passed. A fresh full live generation after the adapter corrections remains unverified; the request for additional diagnostic authorization is pending.

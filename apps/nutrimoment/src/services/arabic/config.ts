@@ -1,4 +1,4 @@
-export const ARABIC_VALIDATOR_VERSION = "arabic-v2";
+export const ARABIC_VALIDATOR_VERSION = "arabic-v3";
 export const ARABIC_REQUEST_BUDGET_MS = 70_000;
 export function arabicEnabled() { return process.env.ARABIC_GENERATION_ENABLED === "true"; }
 export function arabicDisabledResponse() {

@@ -30,10 +30,15 @@ export async function normalizeArabicInputs(values: string[]) {
       canonical.push("fava beans");
       continue;
     }
+    if (/^(?:vegetable (?:broth|stock)|مرق(?:ة)? (?:ال)?خضار|مرق(?:ة)? (?:ال)?خضروات)$/i.test(prepared.trim())) {
+      canonical.push("vegetable broth");
+      continue;
+    }
     const english = translateIngredientToEnglish(prepared);
     const result = await normalizeIngredients([english], { allowRemoteAliases: false });
     const arabic = translateIngredientToArabic(english);
-    const dictionaryRecognized = /[\u0600-\u06ff]/.test(arabic) && !/[A-Za-z]/.test(arabic) && translateIngredientToEnglish(arabic).toLowerCase() === english.toLowerCase();
+    const dictionaryRecognized = /[A-Za-z]/.test(english) && !/[\u0600-\u06ff]/.test(english)
+      && /[\u0600-\u06ff]/.test(arabic) && !/[A-Za-z]/.test(arabic) && translateIngredientToEnglish(arabic).toLowerCase() === english.toLowerCase();
     if ((result.unmapped.length && !dictionaryRecognized) || !result.normalized.length || findUnverifiedCompositeProtein({ ingredients: [text, prepared] })) {
       unclear.push({ index, text });
     } else canonical.push(...result.normalized);

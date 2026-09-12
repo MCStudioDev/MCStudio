@@ -35,7 +35,7 @@ const instructionActions: Array<[RegExp, RegExp]> = [
   [/\bcover\b/i, /غط/], [/\bcook\b/i, /اطبخ|اطه|اطهي|اطهِ/],
   [/\b(?:serve|plate)\b/i, /قدم|قدّم/], [/\b(?:bake|roast)\b/i, /اخبز|اشو|اشوِ/],
   [/\b(?:boil|simmer)\b/i, /اغل|اسلق|غلي|يغلي/], [/\b(?:fry|saute|sauté)\b/i, /اقل|اقلي|شوح|حمّر|حمر/],
-  [/\bgrill\b/i, /اشو|اشوِ/], [/\b(?:chop|cut|slice|dice)\b/i, /قطع|قطّع|افرم/],
+  [/\bgrill\b/i, /اشو|اشوِ/], [/\b(?:chop|cut|slice|dice)\b/i, /قطع|قطّع|فرم/],
   [/\b(?:mix|stir|toss)\b/i, /اخلط|حرك|حرّك|قلب|قلّب/], [/\bdrain\b/i, /(?:^|\s)صف(?:ي)?(?=$|[\s.،])/]
 ];
 

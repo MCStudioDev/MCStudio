@@ -6,15 +6,15 @@ import { createDefaultUserHealthProfile, createDefaultUserSettings } from "@/lib
 
 const state = vi.hoisted(() => ({ app: {} as Record<string, unknown> }));
 vi.mock("@/contexts/AppContext", () => ({ useApp: () => state.app }));
-vi.mock("@/contexts/AuthContext", () => ({
-  hasRecipeImageLookupAccess: () => false,
-  useAuth: () => ({
+vi.mock("@/contexts/AuthContext", () => {
+  const auth = {
     access: { role: "user", tier: "premium", aiCreditsRemaining: 10 },
     user: { uid: "diagnostic-user" },
     getAuthHeaders: async () => ({}),
     refreshAccess: async () => undefined
-  })
-}));
+  };
+  return { hasRecipeImageLookupAccess: () => false, useAuth: () => auth };
+});
 vi.mock("@/hooks/useHistory", () => ({ useHistory: () => ({
   items: [], loading: false,
   addEntry: async () => null,
@@ -33,7 +33,7 @@ vi.mock("@/hooks/useMealPlan", () => ({ useMealPlan: () => ({
   updateMealImage: async () => undefined
 }) }));
 vi.mock("@/lib/recipeImageStorage", () => ({ persistRecipeImageForUser: async () => undefined }));
-vi.mock("@/components/dashboard/MealRevealCard", () => ({ MealRevealCard: () => null }));
+vi.mock("@/components/dashboard/MealRevealCard", () => ({ MealRevealCard: ({ name }: { name: string }) => createElement("div", null, name) }));
 vi.mock("framer-motion", async () => {
   const { createElement } = await import("react");
   const Box = ({ children }: { children: unknown }) => createElement("div", null, children);
@@ -43,6 +43,7 @@ vi.mock("framer-motion", async () => {
 
 import { ScannerTab } from "@/components/dashboard/tabs/ScannerTab";
 import { MealPlanTab } from "@/components/dashboard/tabs/MealPlanTab";
+import { canonical } from "./fixtures/arabic";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -83,6 +84,7 @@ describe("Generation controls with simulated profile states; all network calls m
       rtl: false,
       t: (key: string) => key,
       setError: vi.fn(),
+      setLanguage: vi.fn(),
       addNotification: vi.fn()
     };
     vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
@@ -137,5 +139,39 @@ describe("Generation controls with simulated profile states; all network calls m
     expect(container.textContent).toContain("What you can try");
     expect(container.textContent).toContain("1 or 2");
     expect(container.textContent).toContain("already have");
+  });
+  it.each([
+    { tab: "scanner" as const, label: "generateRecipes", endpoint: "/api/ar/generate-recipes" },
+    { tab: "mealplan" as const, label: "generatePlan", endpoint: "/api/ar/mealplan" }
+  ])("routes $tab Arabic generation exclusively to the Arabic endpoint", async ({ tab, label, endpoint }) => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    await mount(tab);
+    await act(async () => button(label).click());
+    expect(requests.some(request => request.url === endpoint)).toBe(true);
+    expect(requests.some(request => request.url === "/api/generate-recipes" || request.url === "/api/mealplan" || request.url === "/api/recipe-photo")).toBe(false);
+  });
+  it("offers an explicit English switch when Arabic is disabled", async () => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: "ARABIC_GENERATION_DISABLED", error: "Arabic unavailable" }, { status: 503 })));
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain("Arabic unavailable");
+    await act(async () => button("التبديل إلى الإنجليزية").click());
+    expect(state.app.setLanguage).toHaveBeenCalledWith("en");
+  });
+  it("keeps generated English recipes visible after an Arabic failure", async () => {
+    state.app.loadingProfile = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url === "/api/generate-recipes"
+      ? Response.json({ recipes: [canonical], result: JSON.stringify([canonical]), generationStatus: "SUCCESS_DATASET" })
+      : Response.json({ error: "Arabic unavailable" }, { status: 503 })));
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain(canonical.name);
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    await act(async () => root.render(createElement(ScannerTab)));
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain(canonical.name);
   });
 });

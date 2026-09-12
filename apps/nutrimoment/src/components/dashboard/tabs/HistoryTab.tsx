@@ -12,7 +12,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
 import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
-import { useHistory } from "@/hooks/useHistory";
+import { useCombinedHistory as useHistory } from "@/hooks/useCombinedHistory";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
 import { buildRecipePhotoQueryCandidates } from "@/lib/recipePhotoQueries";
@@ -28,7 +28,7 @@ const HISTORY_INITIAL_ENTRY_COUNT = 6;
 const HISTORY_LOAD_MORE_COUNT = 6;
 
 export function HistoryTab() {
-  const { t, setError, settings, health, loadingProfile, profileError } = useApp();
+  const { t, setError, health, loadingProfile, profileError } = useApp();
   const { access, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items, clear, removeEntry, loading, error: historyError, updateRecipeImage } = useHistory();
@@ -210,19 +210,21 @@ export function HistoryTab() {
                     {entry.recipes.map((recipe, recipeIndex) => {
                       if (loadingProfile || profileError) return <p key={recipeIndex} role="status">{t("profileUnavailableMeals")}</p>;
                       if (findRecipeDietViolation(recipe, { diets: health.diets, allergens: health.allergens ?? [] }) || findRecipeHealthViolation(recipe, health.conditions)) {
-                        return <div key={`${entry.id}-${recipeIndex}`} className="rounded-xl border border-amber-300 p-4"><strong>{buildRecipeDisplayName(recipe, settings.uiLanguage)}</strong><p>{t("historyDietConflict")}</p></div>;
+                        return <div key={`${entry.id}-${recipeIndex}`} className="rounded-xl border border-amber-300 p-4"><strong>{buildRecipeDisplayName(recipe, entry.generationLanguage ?? recipe.generationLanguage ?? "en")}</strong><p>{t("historyDietConflict")}</p></div>;
                       }
                       const entryHasGeneratedImageAccess = hasGeneratedImageAccess || Boolean(entry.imageActionGrantId);
                       return (
                       <MealRevealCard
                       key={`${entry.id}-${recipe.id ?? recipeIndex}`}
-                      disableAutoImageLookup={!entryHasGeneratedImageAccess}
+                      disableAutoImageLookup={entry.generationLanguage === "ar" || !entryHasGeneratedImageAccess}
+                      readOnlyImage={entry.generationLanguage === "ar"}
+                      arabicRecipeId={entry.generationLanguage === "ar" ? recipe.id : undefined}
                       trustProvidedImage
                       imageActionGrantId={entry.imageActionGrantId}
                       eyebrow={getRecipeEyebrow(recipe, t)}
-                      name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
+                      name={buildRecipeDisplayName(recipe, entry.generationLanguage ?? recipe.generationLanguage ?? "en")}
                       visualMatchLabel={recipe.visual_match_label}
-                      summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
+                      summary={buildRecipeSummary(recipe, t, entry.generationLanguage ?? recipe.generationLanguage ?? "en")}
                       previewLabel={getRecipePreviewLabel(recipe, t)}
                       previewItems={buildRecipePreviewItems(recipe)}
                       imageUrl={getHistoryRecipeImageUrl(recipe, entryHasGeneratedImageAccess, health.diets)}
@@ -239,7 +241,7 @@ export function HistoryTab() {
                       imagePhotoIdentity={recipe.photo_identity}
                       imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                       onImageResolved={
-                        user
+                        user && entry.generationLanguage !== "ar"
                           ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                               const persistedImageUrl =
                                 entryHasGeneratedImageAccess

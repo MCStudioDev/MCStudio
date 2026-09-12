@@ -42,7 +42,10 @@ beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("ARABIC_GENERATION_ENABLED", "true");
   mock.rows = []; mock.writes = []; mock.allowed = true;
   mock.profile.mockResolvedValue(restrictions); mock.reserve.mockResolvedValue({ actionId: "action-1" });
-  mock.complete.mockImplementation(async access => access); mock.release.mockResolvedValue(true); mock.commit.mockResolvedValue(undefined);
+  mock.complete.mockImplementation(async (access, _actionId, publish) => {
+    if (publish) await publish({ set: (ref: { path: string }, data: unknown) => mock.writes.push({ path: ref.path, data }) });
+    return access;
+  }); mock.release.mockResolvedValue(true); mock.commit.mockResolvedValue(undefined);
   mock.findSources.mockResolvedValue([]); mock.readSource.mockResolvedValue(null);
   mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: arabic }] });
   mock.repair.mockResolvedValue({ repairs: [] });

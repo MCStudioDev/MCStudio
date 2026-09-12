@@ -49,6 +49,8 @@ interface MealRevealStat {
 interface MealRevealCardProps {
   imageActionGrantId?: string;
   disableAutoImageLookup?: boolean;
+  readOnlyImage?: boolean;
+  arabicRecipeId?: string;
   deferImageLookup?: boolean;
   trustProvidedImage?: boolean;
   imageLookupVersion?: number;
@@ -90,6 +92,8 @@ interface MealRevealCardProps {
 export function MealRevealCard({
   imageActionGrantId,
   disableAutoImageLookup = false,
+  readOnlyImage: requestedReadOnlyImage = false,
+  arabicRecipeId,
   deferImageLookup = false,
   trustProvidedImage = false,
   imageLookupVersion = 0,
@@ -117,10 +121,13 @@ export function MealRevealCard({
   sections = [],
   className
 }: MealRevealCardProps) {
+  const readOnlyImage = requestedReadOnlyImage || Boolean(arabicRecipeId);
+  const [arabicPhoto, setArabicPhoto] = useState<{ id: string; url: string } | null>(null);
+  const [arabicPhotoLoading, setArabicPhotoLoading] = useState(false);
   const { t, rtl } = useApp();
   const { access, getAuthHeaders, loading: authLoading, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access) || Boolean(imageActionGrantId);
-  const bypassClientCache = disableAutoImageLookup;
+  const bypassClientCache = readOnlyImage || disableAutoImageLookup;
   const cardRef = useRef<HTMLElement | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const premiumRetryCountsRef = useRef<Map<string, number>>(new Map());
@@ -224,7 +231,7 @@ export function MealRevealCard({
       ? imageUrl
       : undefined;
   const effectiveProvidedImage = internetProvidedImage;
-  const resolvedImage = effectiveProvidedImage || lookedUpImage || cachedImage;
+  const resolvedImage = (arabicPhoto?.id === arabicRecipeId ? arabicPhoto?.url : undefined) || effectiveProvidedImage || lookedUpImage || cachedImage;
   const resolvedImageSource = effectiveProvidedImage
     ? imageSource
     : lookedUpImage
@@ -234,8 +241,20 @@ export function MealRevealCard({
         : undefined;
   const lookupEnabled = !deferImageLookup || lookupActivated;
   const effectiveImageLoading =
-    !resolvedImage && Boolean(lookupLoading || lookupRetrying || (imageLoading && !lookupFailed && !cachedFailure));
-  const showNoExactPhoto = !resolvedImage && !effectiveImageLoading && (imageError || lookupFailed || cachedFailure);
+    !resolvedImage && Boolean(arabicPhotoLoading || lookupLoading || lookupRetrying || (imageLoading && !lookupFailed && !cachedFailure));
+  const showNoExactPhoto = !resolvedImage && !effectiveImageLoading && (readOnlyImage || imageError || lookupFailed || cachedFailure);
+  const requestArabicPhoto = async () => {
+    if (!arabicRecipeId || arabicPhotoLoading) return;
+    setArabicPhotoLoading(true);
+    try {
+      const response = await fetch("/api/ar/recipe-photo", {
+        method: "POST", headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+        body: JSON.stringify({ recipeId: arabicRecipeId, actionGrantId: imageActionGrantId }), signal: AbortSignal.timeout(90_000)
+      });
+      const result = await response.json();
+      if (response.ok && typeof result.imageUrl === "string") setArabicPhoto({ id: arabicRecipeId, url: result.imageUrl });
+    } finally { setArabicPhotoLoading(false); }
+  };
   const excludedImageUrls = useMemo(
     () => Array.from(new Set([...getRecentlyAssignedRecipePhotoUrls(queryKey, reuseKey), ...failedImageUrls])),
     [failedImageUrls, queryKey, reuseKey]
@@ -277,6 +296,7 @@ export function MealRevealCard({
   );
 
   const handleRetryImageLookup = useCallback(() => {
+    if (readOnlyImage) return;
     if (retryTimeoutRef.current) {
       globalThis.clearTimeout(retryTimeoutRef.current);
       retryTimeoutRef.current = null;
@@ -308,13 +328,14 @@ export function MealRevealCard({
     setLookupActivated,
     setLookupRetryToken,
     setLookupState,
-    setManualImageLookupRequested
+    setManualImageLookupRequested,
+    readOnlyImage
   ]);
 
   useEffect(() => {
-    if (!queryKey || !resolvedImage) return;
+    if (readOnlyImage || !queryKey || !resolvedImage) return;
     rememberRecentRecipePhotoSelection(resolvedImage, queryKey, reuseKey);
-  }, [queryKey, resolvedImage, reuseKey]);
+  }, [queryKey, resolvedImage, reuseKey, readOnlyImage]);
 
   useEffect(() => {
     return () => {
@@ -348,7 +369,7 @@ export function MealRevealCard({
   }, [deferImageLookup, lookupActivated]);
 
   useEffect(() => {
-    if (disableAutoImageLookup && !manualImageLookupRequested) return;
+    if (readOnlyImage || (disableAutoImageLookup && !manualImageLookupRequested)) return;
     if (authLoading) return;
     if (!lookupEnabled) return;
     if (imageLoading && hasGeneratedImageAccess) return;
@@ -537,6 +558,7 @@ export function MealRevealCard({
     bypassClientCache,
     cachedImage,
     disableAutoImageLookup,
+    readOnlyImage,
     effectiveProvidedImage,
     getAuthHeaders,
     imageLoading,
@@ -637,7 +659,7 @@ export function MealRevealCard({
                 placeholderStyle={placeholderStyle}
                 onImageLoadError={handleImageLoadError}
                 onOpenRecipe={openRecipeDetails}
-                onRetryImageLookup={handleRetryImageLookup}
+                onRetryImageLookup={arabicRecipeId ? () => { void requestArabicPhoto().catch(() => undefined); } : readOnlyImage ? undefined : handleRetryImageLookup}
                 provenance={{ imageSource: resolvedImageSource, recipeSource, recipeSourceUrl }}
               />
             </div>
@@ -742,7 +764,7 @@ function RecipeFrontFace({
   placeholderStyle: CSSProperties;
   onImageLoadError: (failedUrl: string) => void;
   onOpenRecipe: () => void;
-  onRetryImageLookup: () => void;
+  onRetryImageLookup?: () => void;
   provenance: {
     imageSource?: RecipeImageSource;
     recipeSource?: "external_source" | "generated" | "local_database";
@@ -778,7 +800,7 @@ function RecipeFrontFace({
       {noImageState ? (
         <div className="absolute inset-0 z-10 flex flex-col justify-between gap-3 px-4 pb-3 pt-12 sm:px-5 sm:pb-4 sm:pt-14">
           <div className="flex justify-end">
-            {showNoExactPhoto && !imageLoading ? (
+            {showNoExactPhoto && !imageLoading && onRetryImageLookup ? (
               <button
                 type="button"
                 title={t("retryPhoto")}

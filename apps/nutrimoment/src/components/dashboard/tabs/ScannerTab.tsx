@@ -1,4 +1,6 @@
 "use client";
+import { useArabicWorkflow } from "@/hooks/useArabicWorkflow";
+import { ArabicGenerationIssue } from "@/components/dashboard/ArabicGenerationIssue";
 
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { buildRecipeResultGuidance, type RecipeResultGuidance } from "@/lib/recipeResultGuidance";
@@ -195,6 +197,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 export function ScannerTab() {
+  const arabic = useArabicWorkflow();
   const { t, settings, health, setError, addNotification, rtl, loadingProfile, profileError, reloadProfile } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
@@ -614,7 +617,7 @@ export function ScannerTab() {
 
   const addManualIngredient = () => {
     const next = manualEntry
-      .split(",")
+      .split(/[,\u060c;\u061b\n]+/u)
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item) => !ingredients.some((ingredient) => ingredient.name.toLowerCase() === item.toLowerCase()))
@@ -810,6 +813,25 @@ export function ScannerTab() {
 
     const requestVersion = recipeRequestVersionRef.current + 1;
     recipeRequestVersionRef.current = requestVersion;
+    if (settings.uiLanguage === "ar") {
+      setRecipeLoading(true);
+      try {
+        const data = await arabic.generate("recipes", {
+          ingredients: ingredients.map(item => item.name), recipeCount: settings.recipeCount,
+          preferredCuisine: settings.preferredCuisine, calorieTarget: settings.calorieTarget,
+          maxMissingIngredients: settings.maxMissingIngredients
+        });
+        if (requestVersion !== recipeRequestVersionRef.current) return;
+        setRecipes(data.recipes);
+        setHistoryEntryId(null);
+        setRecipeGuidance(null);
+        setRecipeGenerationDetail(data.message ?? null);
+        setRecipeGenerationStatus(data.recipes.length < settings.recipeCount ? RecipeGenerationStatus.PARTIAL_RESULTS : RecipeGenerationStatus.SUCCESS_DATASET);
+        await refreshAccess();
+      } catch (error) { setError(error instanceof Error ? error.message : "Arabic generation unavailable"); }
+      finally { setRecipeLoading(false); }
+      return;
+    }
     readPendingRecipeHistoryIds().forEach(forgetPendingRecipeHistoryId);
     setRecipeLoading(true);
     setRecipeGenerationStatus(null);
@@ -817,7 +839,7 @@ export function ScannerTab() {
     setRecipeGuidance(null);
     let pendingEntryId: string | null = null;
     try {
-      const ingredientNames = ingredients.map((item) => item.name);
+      const ingredientNames = await arabic.normalizeInput(ingredients.map((item) => item.name));
       pendingEntryId = await addEntry({
         timestamp: new Date().toISOString(),
         ingredients: ingredientNames,
@@ -1204,6 +1226,8 @@ export function ScannerTab() {
                   {ingredients.map((ingredient) => (
                     <div
                       key={ingredient.id}
+                      aria-invalid={arabic.issue?.items?.some(item => item.text === ingredient.name) || undefined}
+                      style={arabic.issue?.items?.some(item => item.text === ingredient.name) ? { borderColor: "#f59e0b" } : undefined}
                       className="grid gap-2.5 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/82 sm:grid-cols-[1fr_auto]"
                     >
                       <div className="min-w-0">
@@ -1291,6 +1315,7 @@ export function ScannerTab() {
                 </div>
               )}
 
+              <ArabicGenerationIssue issue={arabic.issue} />
               {loadingProfile ? <p role="status">{t("profileLoadingMeals")}</p> : null}
               {profileError ? <p role="alert">{t("profileUnavailableMeals")} <button type="button" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></p> : null}
               <Button
@@ -1345,12 +1370,15 @@ export function ScannerTab() {
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
                   disableAutoImageLookup
+                  readOnlyImage={recipe.generationLanguage === "ar"}
+                  arabicRecipeId={recipe.generationLanguage === "ar" ? recipe.id : undefined}
+                  imageActionGrantId={recipe.generationLanguage === "ar" ? recipe.image_action_grant_id : undefined}
                   deferImageLookup={index >= 2}
                   trustProvidedImage
                   eyebrow={getRecipeEyebrow(recipe, t)}
-                  name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
+                  name={buildRecipeDisplayName(recipe, recipe.generationLanguage ?? "en")}
                   visualMatchLabel={recipe.visual_match_label}
-                  summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
+                  summary={buildRecipeSummary(recipe, t, recipe.generationLanguage ?? "en")}
                   previewLabel={getRecipePreviewLabel(recipe, t)}
                   previewItems={buildRecipePreviewItems(recipe)}
                   imageUrl={hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess) ? recipe.image_url : undefined}
@@ -1369,7 +1397,7 @@ export function ScannerTab() {
                   imageDiets={health.diets}
                   imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                   onImageResolved={
-                    user && historyEntryId
+                    user && recipe.generationLanguage !== "ar" && historyEntryId
                       ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                           const persistedImageUrl =
                             hasGeneratedImageAccess

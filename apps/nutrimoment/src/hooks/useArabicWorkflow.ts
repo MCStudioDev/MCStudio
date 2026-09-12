@@ -2,11 +2,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import type { HistoryItem, MealPlanData, Recipe } from "@/lib/types";
+import type { ArabicRecipeSuggestion } from "@/services/arabic/types";
 
-export interface ArabicGenerationResult { recipes: Recipe[]; result: string; generationStatus?: string; message?: string }
+export interface ArabicGenerationResult { recipes: Recipe[]; result: string; generationStatus?: string; message?: string; suggestions?: ArabicRecipeSuggestion[] }
 export function useArabicWorkflow(readSaved = false) {
   const { user, getAuthHeaders } = useAuth();
-  const [issue, setIssue] = useState<{ code?: string; message: string; items?: Array<{ index: number; text: string }> } | null>(null);
+  const [issue, setIssue] = useState<{ code?: string; message: string; items?: Array<{ index: number; text: string }>; suggestions?: ArabicRecipeSuggestion[] } | null>(null);
   const normalizeInput = useCallback(async (ingredients: string[]) => {
     setIssue(null);
     // Ordinary English input retains the existing request path.
@@ -31,9 +32,10 @@ export function useArabicWorkflow(readSaved = false) {
     });
     const data = await response.json();
     if (!response.ok) {
-      const failure = { code: data.code, message: data.error ?? "تعذر إكمال الطلب بالعربية.", items: data.items };
+      const failure = { code: data.code, message: data.error ?? "تعذر إكمال الطلب بالعربية.", items: data.items, suggestions: data.suggestions };
       setIssue(failure); throw new Error(failure.message);
     }
+    if (data.suggestions?.length) setIssue({ code: "ARABIC_RECIPE_SUGGESTIONS", message: "أكلات أخرى تحتاج مكونات إضافية:", suggestions: data.suggestions });
     window.dispatchEvent(new Event("nutrimoment:arabic-results"));
     return data as ArabicGenerationResult;
   }, [getAuthHeaders]);

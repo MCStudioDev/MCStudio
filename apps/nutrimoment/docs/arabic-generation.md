@@ -83,3 +83,13 @@ A subsequent user-triggered generation reached Gemini successfully but still rej
 The actual returned recipes are stored as regression fixtures with no account identifiers or source-image links. The captured request now returns HTTP 200 in the integration test with only Arabic content writes. Temporary logging of complete rejected recipes was removed.
 
 Verification: 122 tests across 12 files passed, plus the additional negative-quantity regression passed separately (123 total). Arabic-service coverage: 98.6% lines, 93.5% statements, 84.35% branches, 96.7% functions. TypeScript and Arabic-service lint passed. A fresh full live generation after the adapter corrections remains unverified; the request for additional diagnostic authorization is pending.
+
+Later server logs confirmed two user-triggered Arabic requests completed successfully, returning one validated recipe each (request IDs `70d2f493-cac9-4f24-aa29-d69f0cc9fc83` and `7c55a015-1164-4d95-97d6-fda4f8c0a2e6`). This verifies recovery from the zero-result failure; it also exposed insufficient cuisine variety.
+
+## Recognizable cuisine and shortage suggestions
+
+Arabic fresh generation now reads the existing static cuisine dish catalog as prompt guidance, filtered through the saved dietary/health restrictions and ranked using pantry overlap and iconic-dish scores. Egyptian vegan guidance includes Ful Medames, Taameya and Koshary with their essential ingredient descriptions. The prompt prioritizes distinct recognizable dishes, avoids already-returned names, and forbids dropping defining ingredients to fit the allowance. Catalog hints are not recipes or publication receipts; generated recipes still pass the complete Arabic validator.
+
+The same model request may include up to three additional complete alternatives, within the existing 21-candidate response cap. Validated Arabic recipes that exceed the user's missing-ingredient allowance are shown separately with their names, exact missing ingredients and configured limit. They are not saved or counted as matching results. This adds no separate model call or user charge. English-source derivatives are excluded from these suggestions so they retain their existing publication/source recheck rules.
+
+128 tests across 14 files, TypeScript and the production build passed. Arabic-service coverage: 98.68% lines, 93.46% statements and 84.96% branches. The existing English file-tracing build warning remains. The guide and suggestion UI are verified locally; live output variety after this latest prompt change still needs a fresh generation attempt. English pool and generation endpoints remain unchanged.

@@ -18,7 +18,7 @@ import { englishSourceFingerprint, englishSourceRecipe, findEnglishSources, read
 import { arabicRecipeSchema, buildArabicEntry, partitionArabicRecipe } from "./validation";
 import { callArabicModel, generateArabicRecipes, translateArabicSource } from "./gemini";
 import { arabicRepairSchema } from "./modelSchemas";
-import type { ArabicRecipeEntry } from "./types";
+import type { ArabicRecipeEntry, ArabicRecipeSuggestion } from "./types";
 import { cuisineMatchesPreference } from "@/lib/cuisines";
 
 const schema = z.object({
@@ -59,6 +59,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const count = mode === "mealplan" ? 21 : input.recipeCount;
     const accepted = new Map<string, ArabicRecipeEntry>();
     const output = new Map<string, Recipe>();
+    const alternatives = new Map<string, ArabicRecipeSuggestion>();
     let invalidCount = 0, modelFailureCount = 0;
     let generationRequestFailed = false;
     const rejectionCounts: Record<string, number> = {};
@@ -83,8 +84,15 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
           rebuilt.entry.recipe.image_source = english.image_source;
         }
       }
-      const displayed = await partitionArabicRecipe(rebuilt.entry, normalized.canonical, input.maxMissingIngredients);
+      const displayed = await partitionArabicRecipe(rebuilt.entry, normalized.canonical, 30);
       if (!displayed) { recordReasons(["pantry_mismatch"]); return; }
+      if (displayed.missing_ingredients.length > input.maxMissingIngredients) {
+        recordReasons(["missing_ingredient_limit"]);
+        // Only fresh validated recipes are suggested. English-derived entries
+        // keep their stricter source-recheck publication path.
+        if (!entry.source) alternatives.set(entry.id, { name: displayed.name, missingIngredients: displayed.missing_ingredients, maxMissingIngredients: input.maxMissingIngredients });
+        return;
+      }
       accepted.set(rebuilt.entry.id, rebuilt.entry); output.set(rebuilt.entry.id, displayed);
     };
     for (const entry of await listArabicRecipes(normalized.canonical)) await consider(entry);
@@ -127,7 +135,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       if (accepted.size < count && deadline - Date.now() > 15_000) {
         didCallAi = true;
         try {
-          const generated = await generateArabicRecipes({ ingredients: normalized.canonical, restrictions, count: count - accepted.size, cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients }, deadline - 10_000, requestId);
+          const generated = await generateArabicRecipes({ ingredients: normalized.canonical, restrictions, count: count - accepted.size, cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: [...accepted.values()].map(entry => entry.canonical.name) }, deadline - 10_000, requestId);
           const pairs = pairsFrom(generated);
           if (!pairs.length) { modelFailureCount++; generationRequestFailed = true; recordReasons(["empty_or_malformed_model_response"]); }
           for (const pair of pairs) await processPair(pair);
@@ -157,6 +165,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       if (!source || englishSourceFingerprint(source) !== entry.source.fingerprint) { accepted.delete(id); output.delete(id); }
     }
     const recipes = [...output.values()].map(recipe => imageActionGrantId ? { ...recipe, image_action_grant_id: imageActionGrantId } : recipe);
+    const suggestions = [...alternatives.values()].sort((a, b) => a.missingIngredients.length - b.missingIngredients.length).slice(0, 3);
     if (!recipes.length || (mode === "mealplan" && recipes.length < 21)) {
       if (reservationId) { await releaseFreeAiAction(access, reservationId); reservationId = undefined; }
       logger.warn("Arabic generation produced insufficient validated results", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts });
@@ -165,14 +174,14 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         const reason = failureCode === "ARABIC_VALIDATION_FAILED"
           ? "تعذر التحقق من دقة الوصفات العربية التي تم توليدها، لذلك لم نعرضها. هذه مشكلة في نتيجة التوليد وليست في اشتراكك."
           : "تعذر إكمال توليد الوصفات بالعربية الآن بسبب مشكلة في خدمة التوليد. اشتراكك يتيح التوليد.";
-        return Response.json({ code: failureCode, error: reason + " حاول مجددًا أو بدّل إلى الإنجليزية. لم يتم خصم رصيد، ونتائجك السابقة محفوظة.", recipes: [], generationLanguage: "ar", requestId }, { status: 503 });
+        return Response.json({ code: failureCode, error: reason + " حاول مجددًا أو بدّل إلى الإنجليزية. لم يتم خصم رصيد، ونتائجك السابقة محفوظة.", recipes: [], suggestions, generationLanguage: "ar", requestId }, { status: 503 });
       }
       const shortage = !authorization.allowed
         ? " تتوفر الوصفات العربية المحفوظة فقط لأن رصيد التوليد غير متاح. لم يتم استخدام رصيد إضافي."
         : input.maxMissingIngredients === 0
           ? " الحد الأقصى للمكونات الناقصة هو صفر؛ أضف المكونات المتوفرة لديك أو اسمح بمكون ناقص واحد أو اثنين."
           : ` الحد الأقصى للمكونات الناقصة هو ${input.maxMissingIngredients}. أضف مكونات متوفرة لديك أو عدّل هذا الحد. تبقى قيودك الغذائية مطبقة.`;
-      return Response.json({ code: "ARABIC_RESULTS_UNAVAILABLE", error: (mode === "mealplan" ? "لم نتمكن من إعداد أسبوع كامل يجتاز الفحوص بالعربية. لم يتم استبدال خطتك الحالية." : "لم نجد وصفات عربية تجتاز الفحوص بهذه الإعدادات.") + shortage, recipes: [], generationLanguage: "ar", requestId }, { status: 503 });
+      return Response.json({ code: "ARABIC_RESULTS_UNAVAILABLE", error: (mode === "mealplan" ? "لم نتمكن من إعداد أسبوع كامل يجتاز الفحوص بالعربية. لم يتم استبدال خطتك الحالية." : "لم نجد وصفات عربية تجتاز الفحوص بهذه الإعدادات.") + shortage, recipes: [], suggestions, generationLanguage: "ar", requestId }, { status: 503 });
     }
     let mealPlan: MealPlanData | undefined;
     if (mode === "mealplan") {
@@ -193,7 +202,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     if (completedAccess) access = completedAccess;
     reservationId = undefined;
     logger.info("Arabic generation completed", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, elapsedMs: Date.now() - startedAt });
-    return Response.json({ recipes, result: JSON.stringify(mealPlan ?? recipes), generationLanguage: "ar", generationStatus: recipes.length < count ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message: recipes.length < count ? `تم العثور على ${recipes.length} من ${count} وصفات تجتاز الفحوص بالعربية.` : undefined, requestId, access: accessPayload(access) });
+    return Response.json({ recipes, suggestions, result: JSON.stringify(mealPlan ?? recipes), generationLanguage: "ar", generationStatus: recipes.length < count ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message: recipes.length < count ? `تم العثور على ${recipes.length} من ${count} وصفات تجتاز الفحوص بالعربية.` : undefined, requestId, access: accessPayload(access) });
   } catch (error) {
     if (access && reservationId) await releaseFreeAiAction(access, reservationId);
     if (!access) return accessErrorResponse(error);

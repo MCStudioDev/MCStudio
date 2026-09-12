@@ -3,8 +3,16 @@ import { canonical } from "./fixtures/arabic";
 const model = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/openai", () => ({ callOpenAIText: model, extractJson: (value: string) => value }));
 import { callArabicModel, translateArabicSource, generateArabicRecipes } from "@/services/arabic/gemini";
+import { arabicGenerationSchema, arabicRepairSchema, arabicTranslationSchema } from "@/services/arabic/modelSchemas";
 beforeEach(() => { vi.clearAllMocks(); model.mockResolvedValue('{"recipe":{}}'); });
 describe("Arabic Gemini orchestration", () => {
+  it("keeps nested serving constraints out of all Gemini schemas", () => {
+    // Captured Gemini 400: nested array/numeric bounds produce too many states.
+    // Structural fields remain required; semantic bounds are validated locally.
+    for (const schema of [arabicGenerationSchema(10), arabicGenerationSchema(21), arabicTranslationSchema, arabicRepairSchema]) {
+      expect(JSON.stringify(schema)).not.toMatch(/"(?:minItems|maxItems|minimum|maximum)":/);
+    }
+  });
   it("coalesces concurrent translations without an English cache", async () => {
     const deadline = Date.now() + 10_000;
     const [first, second] = await Promise.all([translateArabicSource("same", canonical, deadline, "r1"), translateArabicSource("same", canonical, deadline, "r2")]);

@@ -159,6 +159,14 @@ describe("Arabic request integration with write recording", () => {
     expect(data.code).toBe("ARABIC_AI_UNAVAILABLE");
     expect(data.error).not.toContain("الحد الأقصى للمكونات");
   });
+  it("reports provider failure when rejected sources are followed by a generation error", async () => {
+    mock.findSources.mockResolvedValue([{ id: "english-1", recipe: { ...canonical, ingredients: ["salmon", "rice", "water"] }, fingerprint: "original" }]);
+    mock.translate.mockResolvedValue({ recipe: arabic });
+    mock.generate.mockRejectedValue(new Error("400: schema has too many states for serving"));
+    const response = await handleArabicGeneration(request(), "recipes");
+    expect((await response.json()).code).toBe("ARABIC_AI_UNAVAILABLE");
+    expect(mock.writes).toEqual([]);
+  });
   it("identifies rejected translations instead of blaming the missing-ingredient setting", async () => {
     mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: { ...arabic, calories: 700 } }] });
     const response = await handleArabicGeneration(request(), "recipes");

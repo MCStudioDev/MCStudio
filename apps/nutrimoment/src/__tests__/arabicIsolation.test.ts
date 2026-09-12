@@ -1,0 +1,40 @@
+import { describe, expect, it, vi } from "vitest";
+import { assertArabicWritePath, arabicPaths } from "@/services/arabic/repository";
+import { normalizeArabicInputs } from "@/services/arabic/ingredients";
+import { arabicEnabled } from "@/services/arabic/config";
+import { POST as generate } from "@/app/api/ar/generate-recipes/route";
+import { POST as mealplan } from "@/app/api/ar/mealplan/route";
+
+describe("Arabic workflow isolation", () => {
+  it.each(["sharedRecipesV2/x", "users/u/offlineRecipeCache/x", "users/u/history/x", "users/u/plans/currentWeekly", "recipePhotoCache/x"])("rejects English write destination %s", path => {
+    expect(() => assertArabicWritePath(path)).toThrow();
+  });
+  it("allows only explicit Arabic content destinations", () => {
+    for (const path of [arabicPaths.shared("r"), arabicPaths.userCache("u", "r"), arabicPaths.history("u", "h"), arabicPaths.plan("u")]) {
+      expect(() => assertArabicWritePath(path)).not.toThrow();
+    }
+    expect(() => arabicPaths.history("u", "../history/x")).toThrow();
+  });
+  it("is disabled by default", () => {
+    vi.stubEnv("ARABIC_GENERATION_ENABLED", "");
+    expect(arabicEnabled()).toBe(false);
+    vi.unstubAllEnvs();
+  });
+  it.each([generate, mealplan])("disabled endpoints never enter generation", async handler => {
+    vi.stubEnv("ARABIC_GENERATION_ENABLED", "false");
+    const result = await handler(new Request("http://localhost/api/ar/test", { method: "POST", body: "{}" }));
+    expect(result.status).toBe(503);
+    expect(await result.json()).toMatchObject({ code: "ARABIC_GENERATION_DISABLED" });
+    vi.unstubAllEnvs();
+  });
+  it("normalizes mixed-language lists, Arabic commas and digits", async () => {
+    const result = await normalizeArabicInputs(["rice، ٢٠٠ غرام تونة\ncucumber"]);
+    expect(result.unclear).toEqual([]);
+    expect(result.canonical).toEqual(expect.arrayContaining(["rice", "tuna", "cucumber"]));
+    expect(result.original).toContain("٢٠٠ غرام تونة");
+  });
+  it("requests correction instead of guessing an unknown protein", async () => {
+    const result = await normalizeArabicInputs(["rice", "شاورما", "xyzfoodxyz"]);
+    expect(result.unclear.map(item => item.index)).toEqual([1, 2]);
+  });
+});

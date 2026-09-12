@@ -43,4 +43,14 @@ describe("Arabic validation adapter", () => {
     const translated = { ...arabic, name: "طبق الفطر مع الأرز", ingredients: arabic.ingredients.map(value => value.replace("سلمون", "فطر")), steps: arabic.steps.map(value => value.replaceAll("سلمون", "فطر")) };
     expect(await validateArabicPair(mushroom, translated, restrictions)).toEqual([]);
   });
+  it("accepts a quantified Egyptian vegan rice and fava-bean recipe", async () => {
+    const { veganCanonical, veganArabic } = await import("./fixtures/arabic");
+    expect(await validateArabicPair(veganCanonical, veganArabic, { diets: ["vegan"], allergens: [], conditions: [] })).toEqual([]);
+    const { entry } = await buildArabicEntry(veganCanonical, veganArabic, { diets: ["vegan"], allergens: [], conditions: [] });
+    expect(await partitionArabicRecipe(entry!, ["rice", "tomato", "fava beans"], 5)).not.toBeNull();
+  });
+  it("does not equate generic canned beans with fava beans", async () => {
+    const { veganCanonical, veganArabic } = await import("./fixtures/arabic");
+    expect(await validateArabicPair({ ...veganCanonical, ingredients: veganCanonical.ingredients.map(s => s.replace("fava beans", "canned beans")) }, veganArabic, { diets: ["vegan"], allergens: [], conditions: [] })).toContain("ingredient_identity_changed");
+  });
 });

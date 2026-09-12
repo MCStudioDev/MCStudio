@@ -21,6 +21,19 @@ describe("Arabic Gemini orchestration", () => {
     await expect(callArabicModel("test", Date.now(), "r", "repair")).rejects.toThrow("DEADLINE");
     expect(model).not.toHaveBeenCalled();
   });
+  it("constrains generated ingredient quantities in both representations", async () => {
+    await generateArabicRecipes({ ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 1, cuisine: "Any", calorieTarget: 1650, missingLimit: 2 }, Date.now() + 10_000, "r");
+    const schema = model.mock.calls[0][3].responseJsonSchema;
+    expect(schema).toBeDefined();
+    const pair = schema.properties.recipes.items.properties;
+    const english = new RegExp(pair.canonical.properties.ingredients.items.pattern);
+    const arabic = new RegExp(pair.recipe.properties.ingredients.items.pattern);
+    expect(english.test("Salt to taste")).toBe(false);
+    expect(english.test("Water")).toBe(false);
+    expect(english.test("0.25 tsp salt")).toBe(true);
+    expect(arabic.test("ملح حسب الرغبة")).toBe(false);
+    expect(arabic.test("0.25 ملعقة صغيرة ملح")).toBe(true);
+  });
   it("rejects malformed JSON and clears failed translation locks", async () => {
     model.mockResolvedValueOnce("invalid json");
     await expect(translateArabicSource("bad", canonical, Date.now() + 10_000, "r")).rejects.toThrow();

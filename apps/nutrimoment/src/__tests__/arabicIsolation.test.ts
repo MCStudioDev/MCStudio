@@ -37,4 +37,10 @@ describe("Arabic workflow isolation", () => {
     const result = await normalizeArabicInputs(["rice", "شاورما", "xyzfoodxyz"]);
     expect(result.unclear.map(item => item.index)).toEqual([1, 2]);
   });
+  it("preserves fava-bean identity in Arabic and mixed ingredient input", async () => {
+    for (const ingredient of ["فول", "٢٠٠ غرام فول", "fava beans", "broad beans"]) {
+      expect(await normalizeArabicInputs([ingredient])).toMatchObject({ canonical: ["fava beans"], unclear: [] });
+    }
+    expect((await normalizeArabicInputs(["رز، طماطم، فول"])).canonical).toEqual(["rice", "tomato", "fava beans"]);
+  });
 });

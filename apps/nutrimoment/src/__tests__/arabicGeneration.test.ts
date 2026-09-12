@@ -150,4 +150,19 @@ describe("Arabic request integration with write recording", () => {
     expect((await handleArabicGeneration(request(), "recipes")).status).toBe(503);
     expect(mock.writes).toEqual([]);
   });
+  it("identifies model failures instead of telling premium users to change ingredients", async () => {
+    mock.generate.mockRejectedValue(new Error("Gemini unavailable"));
+    const response = await handleArabicGeneration(request(), "recipes");
+    const data = await response.json();
+    expect(data.code).toBe("ARABIC_AI_UNAVAILABLE");
+    expect(data.error).not.toContain("الحد الأقصى للمكونات");
+  });
+  it("identifies rejected translations instead of blaming the missing-ingredient setting", async () => {
+    mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: { ...arabic, calories: 700 } }] });
+    const response = await handleArabicGeneration(request(), "recipes");
+    const data = await response.json();
+    expect(data.code).toBe("ARABIC_VALIDATION_FAILED");
+    expect(data.error).not.toContain("الحد الأقصى للمكونات");
+    expect(mock.writes).toEqual([]);
+  });
 });

@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { canonical, arabic, restrictions, veganCanonical, veganArabic } from "./fixtures/arabic";
+import livePairs from "./fixtures/arabic-live-rejection.json";
 
 const mock = vi.hoisted(() => ({
   rows: [] as unknown[], writes: [] as Array<{ path: string; data: unknown }>,
@@ -53,6 +54,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it("returns valid recipes from the real rejected Gemini response for the screenshot settings", async () => {
+    mock.profile.mockResolvedValue({ diets: ["vegan"], conditions: [], allergens: [] });
+    mock.generate.mockResolvedValue({ recipes: livePairs });
+    const response = await handleArabicGeneration(request({ ingredients: ["رز", "طماطم", "فول"], preferredCuisine: "Egyptian", recipeCount: 10, maxMissingIngredients: 5 }), "recipes");
+    expect(response.status).toBe(200);
+    expect((await response.json()).recipes.some((recipe: { name: string }) => recipe.name === "أرز بالطماطم البسيط")).toBe(true);
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
   it("generates safely and writes zero English content destinations", async () => {
     const response = await handleArabicGeneration(request(), "recipes");
     expect(response.status).toBe(200);

@@ -6,6 +6,12 @@ import { POST as generate } from "@/app/api/ar/generate-recipes/route";
 import { POST as mealplan } from "@/app/api/ar/mealplan/route";
 
 describe("Arabic workflow isolation", () => {
+  it("recognizes vegetable broth without guessing unknown Arabic ingredients", async () => {
+    for (const text of ["vegetable broth", "vegetable stock", "مرق خضار", "مرق الخضار"]) {
+      expect(await normalizeArabicInputs([text])).toMatchObject({ canonical: ["vegetable broth"], unclear: [] });
+    }
+    expect((await normalizeArabicInputs(["زقربوط"])).unclear).toHaveLength(1);
+  });
   it.each(["sharedRecipesV2/x", "users/u/offlineRecipeCache/x", "users/u/history/x", "users/u/plans/currentWeekly", "recipePhotoCache/x"])("rejects English write destination %s", path => {
     expect(() => assertArabicWritePath(path)).toThrow();
   });

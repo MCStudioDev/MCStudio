@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import { buildArabicEntry, validateArabicPair, partitionArabicRecipe } from "@/services/arabic/validation";
 
 import { restrictions, canonical, arabic } from "./fixtures/arabic";
+import livePairs from "./fixtures/arabic-live-rejection.json";
 
 describe("Arabic validation adapter", () => {
+  it("accepts the actual live tomato-rice response after Arabic alias validation", async () => {
+    const pair = livePairs[1];
+    expect(await validateArabicPair(pair.canonical, pair.recipe, { diets: ["vegan"], conditions: [], allergens: [] })).toEqual([]);
+    const { entry } = await buildArabicEntry(pair.canonical, pair.recipe, { diets: ["vegan"], conditions: [], allergens: [] });
+    expect((await partitionArabicRecipe(entry!, ["rice", "tomato", "fava beans"], 5))?.missing_ingredients).toHaveLength(5);
+  });
   it("accepts a complete fish recipe with Arabic digits without changing English validators", async () => {
     expect(await validateArabicPair(canonical, arabic, restrictions)).toEqual([]);
   });

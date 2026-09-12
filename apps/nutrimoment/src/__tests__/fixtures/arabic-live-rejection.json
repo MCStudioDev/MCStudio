@@ -1,0 +1,122 @@
+[
+  {
+    "canonical": {
+      "name": "Egyptian Fava Bean Salad",
+      "cuisine": "Egyptian",
+      "ingredients": [
+        "400 g fava beans",
+        "2 piece tomato",
+        "1 piece onion",
+        "0.5 cup parsley",
+        "3 tbsp lemon juice",
+        "2 tbsp olive oil",
+        "1 tsp cumin",
+        "0.5 tsp salt",
+        "0.25 tsp black pepper"
+      ],
+      "missing_ingredients": [],
+      "steps": [
+        "Drain and rinse the fava beans.",
+        "Dice the tomatoes and onion.",
+        "Chop the parsley.",
+        "In a large bowl, combine fava beans, tomatoes, onion, and parsley.",
+        "In a small bowl, whisk together lemon juice, olive oil, cumin, salt, and pepper.",
+        "Pour dressing over the bean mixture and toss to combine."
+      ],
+      "calories": 350,
+      "protein": "15g",
+      "carbs": "40g",
+      "fat": "15g",
+      "cook_time": "15 minutes",
+      "difficulty": "Easy"
+    },
+    "recipe": {
+      "name": "سلطة الفول المصرية",
+      "cuisine": "مصرية",
+      "ingredients": [
+        "400 غرام فول مدمس",
+        "2 حبة طماطم",
+        "1 حبة بصل",
+        "0.5 كوب بقدونس",
+        "3 ملعقة كبيرة عصير ليمون",
+        "2 ملعقة كبيرة زيت زيتون",
+        "1 ملعقة صغيرة كمون",
+        "0.5 ملعقة صغيرة ملح",
+        "0.25 ملعقة صغيرة فلفل أسود"
+      ],
+      "missing_ingredients": [],
+      "steps": [
+        "صفّي الفول المدمس واشطفه.",
+        "قطّع الطماطم والبصل إلى مكعبات.",
+        "فرّم البقدونس.",
+        "في وعاء كبير، اخلط الفول والطماطم والبصل والبقدونس.",
+        "في وعاء صغير، اخفق عصير الليمون وزيت الزيتون والكمون والملح والفلفل.",
+        "اسكب التتبيلة فوق خليط الفول وقلّب جيدًا."
+      ],
+      "calories": 350,
+      "protein": "15غرام",
+      "carbs": "40غرام",
+      "fat": "15غرام",
+      "cook_time": "15 دقيقة",
+      "difficulty": "سهل"
+    }
+  },
+  {
+    "canonical": {
+      "name": "Simple Tomato Rice",
+      "cuisine": "Egyptian",
+      "ingredients": [
+        "1 cup rice",
+        "2 piece tomato",
+        "1 piece onion",
+        "2 cup vegetable broth",
+        "1 tbsp olive oil",
+        "0.5 tsp salt",
+        "0.25 tsp black pepper"
+      ],
+      "missing_ingredients": [],
+      "steps": [
+        "Finely chop the onion.",
+        "Dice the tomatoes.",
+        "Heat olive oil in a saucepan over medium heat. Add onion and cook until softened, about 5 minutes.",
+        "Add diced tomatoes, rice, vegetable broth, salt, and pepper. Stir well.",
+        "Bring to a boil, then reduce heat to low, cover, and simmer for 15-20 minutes, or until rice is cooked and liquid is absorbed.",
+        "Let stand covered for 5 minutes before serving."
+      ],
+      "calories": 400,
+      "protein": "8g",
+      "carbs": "75g",
+      "fat": "8g",
+      "cook_time": "30 minutes",
+      "difficulty": "Easy"
+    },
+    "recipe": {
+      "name": "أرز بالطماطم البسيط",
+      "cuisine": "مصرية",
+      "ingredients": [
+        "1 كوب أرز",
+        "2 حبة طماطم",
+        "1 حبة بصل",
+        "2 كوب مرق خضار",
+        "1 ملعقة كبيرة زيت زيتون",
+        "0.5 ملعقة صغيرة ملح",
+        "0.25 ملعقة صغيرة فلفل أسود"
+      ],
+      "missing_ingredients": [],
+      "steps": [
+        "فرّم البصل ناعمًا.",
+        "قطّع الطماطم إلى مكعبات صغيرة.",
+        "سخّن زيت الزيتون في قدر على نار متوسطة. أضف البصل واطهُ حتى يلين، حوالي 5 دقائق.",
+        "أضف الطماطم المقطعة والأرز ومرق الخضار والملح والفلفل. قلّب جيدًا.",
+        "اتركه يغلي، ثم خفّض الحرارة إلى هادئة، وغطّه، واتركه على نار هادئة لمدة 15-20 دقيقة، أو حتى ينضج الأرز ويتشرب السائل.",
+        "اتركه مغطى لمدة 5 دقائق قبل التقديم."
+      ],
+      "calories": 400,
+      "protein": "8غرام",
+      "carbs": "75غرام",
+      "fat": "8غرام",
+      "cook_time": "30 دقيقة",
+      "difficulty": "سهل"
+    }
+  }
+]

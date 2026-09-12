@@ -3,7 +3,9 @@ import { findUnverifiedCompositeProtein } from "@/lib/compositeProteinSafety";
 import { translateIngredientToArabic, translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
 
 export function westernDigits(text: string) {
-  return text.replace(/[٠-٩۰-۹]/g, digit => String(digit.charCodeAt(0) - (digit >= "۰" ? 0x6f0 : 0x660))).replace(/٫/g, ".");
+  const fractions: Record<string, number> = { "½": 0.5, "¼": 0.25, "¾": 0.75 };
+  return text.replace(/[٠-٩۰-۹]/g, digit => String(digit.charCodeAt(0) - (digit >= "۰" ? 0x6f0 : 0x660))).replace(/٫/g, ".")
+    .replace(/(\d+)?\s*([½¼¾])/g, (_match, whole: string | undefined, fraction: string) => String(Number(whole ?? 0) + fractions[fraction]));
 }
 export function normalizeArabicMeasure(text: string) {
   return westernDigits(text).replace(/[ًٌٍَُِّْـ]/g, "")
@@ -22,6 +24,12 @@ export async function normalizeArabicInputs(values: string[]) {
   const unclear: Array<{ index: number; text: string }> = [];
   for (const [index, text] of original.entries()) {
     const prepared = normalizeArabicMeasure(text).replace(/^\s*((?:\d+\s+)?\d+\s*\/\s*\d+|\d+(?:\.\d+)?)\s*(?:g|kg|ml|cup|piece|clove|can|tbsp|tsp)\s+/i, "");
+    // The legacy English localization table maps فول to generic canned beans.
+    // Preserve its specific identity here without changing that shared table.
+    if (/^(?:فول|الفول|fava beans?|broad beans?)$/i.test(prepared.trim())) {
+      canonical.push("fava beans");
+      continue;
+    }
     const english = translateIngredientToEnglish(prepared);
     const result = await normalizeIngredients([english], { allowRemoteAliases: false });
     const arabic = translateIngredientToArabic(english);

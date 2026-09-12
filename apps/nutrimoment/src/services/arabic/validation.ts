@@ -22,7 +22,11 @@ const gate = new RecipeQualityGate();
 const allIngredients = (recipe: Recipe) => [...recipe.ingredients, ...recipe.missing_ingredients];
 
 function measure(value: string) {
-  return normalizeArabicMeasure(value).match(/^\s*((?:\d+\s+)?\d+\s*\/\s*\d+|\d+(?:\.\d+)?)\s*(\S+)/)?.slice(1).join(" ").toLowerCase();
+  const match = normalizeArabicMeasure(value).match(/^\s*((?:\d+\s+)?\d+\s*\/\s*\d+|\d+(?:\.\d+)?)\s*(\S+)/);
+  if (!match) return undefined;
+  const fraction = match[1].match(/^(?:(\d+)\s+)?(\d+)\s*\/\s*(\d+)$/);
+  const quantity = fraction ? Number(fraction[1] ?? 0) + Number(fraction[2]) / Number(fraction[3]) : Number(match[1]);
+  return Number.isFinite(quantity) && quantity > 0 ? `${quantity} ${match[2].toLowerCase()}` : undefined;
 }
 function normalizedMacro(value: string) { return Number(westernDigits(value).match(/\d+(?:\.\d+)?/)?.[0]); }
 
@@ -32,7 +36,7 @@ const instructionActions: Array<[RegExp, RegExp]> = [
   [/\b(?:serve|plate)\b/i, /قدم|قدّم/], [/\b(?:bake|roast)\b/i, /اخبز|اشو|اشوِ/],
   [/\b(?:boil|simmer)\b/i, /اغل|اسلق|غلي|يغلي/], [/\b(?:fry|saute|sauté)\b/i, /اقل|اقلي|شوح|حمّر|حمر/],
   [/\bgrill\b/i, /اشو|اشوِ/], [/\b(?:chop|cut|slice|dice)\b/i, /قطع|قطّع|افرم/],
-  [/\b(?:mix|stir|toss)\b/i, /اخلط|حرك|حرّك|قلب|قلّب/], [/\bdrain\b/i, /صفّ|صفِّ|صفي/]
+  [/\b(?:mix|stir|toss)\b/i, /اخلط|حرك|حرّك|قلب|قلّب/], [/\bdrain\b/i, /(?:^|\s)صف(?:ي)?(?=$|[\s.،])/]
 ];
 
 function instructionConsistency(english: string, arabic: string) {

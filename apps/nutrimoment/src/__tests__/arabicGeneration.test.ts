@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { canonical, arabic, restrictions } from "./fixtures/arabic";
+import { canonical, arabic, restrictions, veganCanonical, veganArabic } from "./fixtures/arabic";
 
 const mock = vi.hoisted(() => ({
   rows: [] as unknown[], writes: [] as Array<{ path: string; data: unknown }>,
@@ -105,6 +105,8 @@ describe("Arabic request integration with write recording", () => {
     mock.repair.mockResolvedValue({ repairs: [{ index: 0, recipe: arabic }] });
     expect((await handleArabicGeneration(request(), "recipes")).status).toBe(200);
     expect(mock.repair).toHaveBeenCalledTimes(1); expect(mock.complete).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(mock.repair.mock.calls[0][0].split("\n").at(-1));
+    expect(payload[0].index).toBe(0);
   });
   it("never saves after failed repair", async () => {
     mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: { ...arabic, calories: 700 } }] });
@@ -164,5 +166,56 @@ describe("Arabic request integration with write recording", () => {
     expect(data.code).toBe("ARABIC_VALIDATION_FAILED");
     expect(data.error).not.toContain("الحد الأقصى للمكونات");
     expect(mock.writes).toEqual([]);
+  });
+  it("serves the screenshot's vegan Egyptian ingredients with only Arabic content writes", async () => {
+    mock.profile.mockResolvedValue({ diets: ["vegan"], conditions: [], allergens: [] });
+    mock.generate.mockResolvedValue({ recipes: [{ canonical: veganCanonical, recipe: veganArabic }] });
+    const response = await handleArabicGeneration(request({ ingredients: ["رز", "طماطم", "فول"], preferredCuisine: "Egyptian", maxMissingIngredients: 5, recipeCount: 10 }), "recipes");
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.recipes).toHaveLength(1);
+    expect(data.generationStatus).toBe("PARTIAL_RESULTS");
+    expect(mock.generate.mock.calls[0][0].ingredients).toEqual(["rice", "tomato", "fava beans"]);
+    expect(mock.writes).toHaveLength(3);
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+    expect(mock.complete).toHaveBeenCalledTimes(1);
+  });
+  it("does not spend a translation request on the wrong cuisine", async () => {
+    mock.findSources.mockResolvedValue([{ id: "english-1", recipe: canonical, fingerprint: "original" }]);
+    await handleArabicGeneration(request({ preferredCuisine: "Mexican" }), "recipes");
+    expect(mock.translate).not.toHaveBeenCalled();
+  });
+  it("preserves partial cached results when Gemini is unavailable", async () => {
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    mock.generate.mockRejectedValue(new Error("Gemini unavailable"));
+    const response = await handleArabicGeneration(request({ recipeCount: 10 }), "recipes");
+    expect(response.status).toBe(200);
+    expect((await response.json()).recipes).toHaveLength(1);
+  });
+  it("repairs malformed Arabic fields while keeping the canonical recipe", async () => {
+    mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: { ...arabic, steps: "broken" } }] });
+    mock.repair.mockResolvedValue({ repairs: [{ index: 0, recipe: arabic }] });
+    expect((await handleArabicGeneration(request(), "recipes")).status).toBe(200);
+    expect(mock.repair).toHaveBeenCalledTimes(1);
+  });
+  it("does not attempt translation repair when canonical quantities are missing", async () => {
+    mock.generate.mockResolvedValue({ recipes: [{ canonical: { ...canonical, ingredients: ["salmon", "rice", "water"] }, recipe: arabic }] });
+    const response = await handleArabicGeneration(request(), "recipes");
+    expect((await response.json()).code).toBe("ARABIC_VALIDATION_FAILED");
+    expect(mock.repair).not.toHaveBeenCalled();
+    expect(mock.writes).toEqual([]);
+  });
+  it("records failed translations and repairs without exposing ingredient text", async () => {
+    const { logger } = await import("@/lib/logger");
+    const log = vi.spyOn(logger, "warn");
+    mock.findSources.mockResolvedValue([{ id: "english-1", recipe: canonical, fingerprint: "original" }]);
+    mock.translate.mockRejectedValue(new Error("translation unavailable"));
+    mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: { ...arabic, ingredients: ["سلمون", "أرز", "ماء"] } }] });
+    mock.repair.mockRejectedValue(new Error("repair unavailable"));
+    await handleArabicGeneration(request(), "recipes");
+    const context = log.mock.calls.find(call => call[0] === "Arabic generation produced insufficient validated results")?.[1];
+    expect(context).toMatchObject({ modelFailureCount: 2, rejectionCounts: { translation_request_failed: 1, repair_request_failed: 1 } });
+    expect(JSON.stringify(context)).not.toContain("سلمون");
+    log.mockRestore();
   });
 });

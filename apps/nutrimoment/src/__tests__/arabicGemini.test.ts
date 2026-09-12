@@ -26,13 +26,30 @@ describe("Arabic Gemini orchestration", () => {
     const schema = model.mock.calls[0][3].responseJsonSchema;
     expect(schema).toBeDefined();
     const pair = schema.properties.recipes.items.properties;
-    const english = new RegExp(pair.canonical.properties.ingredients.items.pattern);
-    const arabic = new RegExp(pair.recipe.properties.ingredients.items.pattern);
-    expect(english.test("Salt to taste")).toBe(false);
-    expect(english.test("Water")).toBe(false);
-    expect(english.test("0.25 tsp salt")).toBe(true);
-    expect(arabic.test("ملح حسب الرغبة")).toBe(false);
-    expect(arabic.test("0.25 ملعقة صغيرة ملح")).toBe(true);
+    for (const recipe of [pair.canonical, pair.recipe]) {
+      const ingredient = recipe.properties.ingredients.items;
+      expect(ingredient.required).toEqual(["name", "quantity", "unit"]);
+      expect(ingredient.properties.quantity).toMatchObject({ type: "number", minimum: 0.001 });
+    }
+    expect(pair.canonical.properties.ingredients.items.properties.unit.enum).toContain("tsp");
+    expect(pair.recipe.properties.ingredients.items.properties.unit.enum).toContain("ملعقة صغيرة");
+  });
+  it("renders structured quantities without inventing or converting measures", async () => {
+    model.mockResolvedValue(JSON.stringify({ recipes: [{
+      canonical: { ingredients: [{ name: "salt", quantity: 0.25, unit: "tsp" }] },
+      recipe: { ingredients: [{ name: "ملح", quantity: 0.25, unit: "ملعقة صغيرة" }] }
+    }] }));
+    const result = await generateArabicRecipes({ ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 1, cuisine: "Any", calorieTarget: 1650, missingLimit: 2 }, Date.now() + 10_000, "r");
+    expect(result).toEqual({ recipes: [{ canonical: { ingredients: ["0.25 tsp salt"] }, recipe: { ingredients: ["0.25 ملعقة صغيرة ملح"] } }] });
+  });
+  it("preserves valid pairs for partial results when another ingredient is malformed", async () => {
+    model.mockResolvedValue(JSON.stringify({ recipes: [
+      { canonical: { ingredients: [{ name: "salt", quantity: 0.25, unit: "tsp" }] }, recipe: {} },
+      { canonical: { ingredients: [{ name: "water", unit: "cup" }] }, recipe: null }
+    ] }));
+    const result = await generateArabicRecipes({ ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 2, cuisine: "Any", calorieTarget: 1650, missingLimit: 2 }, Date.now() + 10_000, "r") as { recipes: Array<{ canonical: { ingredients: unknown[] } }> };
+    expect(result.recipes[0].canonical.ingredients).toEqual(["0.25 tsp salt"]);
+    expect(result.recipes[1].canonical.ingredients[0]).toEqual({ name: "water", unit: "cup" });
   });
   it("rejects malformed JSON and clears failed translation locks", async () => {
     model.mockResolvedValueOnce("invalid json");

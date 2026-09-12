@@ -1,3 +1,7 @@
+import { loadGenerationRestrictions } from "@/services/generationProfileService";
+import { ProfileUnavailableError, type GenerationRestrictions } from "@/lib/profileSafety";
+import { filterSafeRecipeResponse } from "@/lib/generationSafety";
+import { buildRecipeResultGuidance, type RecipeResultContext } from "@/lib/recipeResultGuidance";
 import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 import { after } from "next/server";
@@ -314,6 +318,8 @@ export async function POST(request: Request) {
   let historyEntryId: string | undefined;
   let historyIngredientContextKey = "";
   let historyUid: string | undefined;
+  let verifiedRestrictions: GenerationRestrictions | null = null;
+  let resultContext: Omit<RecipeResultContext, "returnedCount"> | null = null;
   let responsePreferredCuisine = "Any";
   let responseRequiresDailyFreshness = false;
   let responseRecentRecipeMemory = EMPTY_RECENT_RECIPE_MEMORY;
@@ -331,6 +337,7 @@ export async function POST(request: Request) {
     let pipelineReportPath: string | undefined;
     const hasSearchCandidates = validationReport.generationTrace.search.candidatesFound > 0;
     const shouldFailOpen =
+      (init?.status ?? 200) < 400 &&
       (!Array.isArray(payload.recipes) || payload.recipes.length === 0) &&
       lastValidSearchRecipes.length > 0;
     const failOpenPayload = shouldFailOpen
@@ -425,10 +432,26 @@ export async function POST(request: Request) {
                 ? cuisineEligiblePayload.message
                 : "No new validated recipes are available for these ingredients yet. Recipes shown in the last 24 hours were excluded."
         };
-    const responsePayload = freshnessPayload;
+    const responsePayload = filterSafeRecipeResponse(freshnessPayload, verifiedRestrictions);
     const recipes = responsePayload.recipes;
     const returned = Array.isArray(recipes) ? recipes.length : 0;
     const responseStatus = init?.status ?? 200;
+    if (resultContext && responseStatus < 400) {
+      const guidance = buildRecipeResultGuidance({
+        ...resultContext,
+        returnedCount: returned,
+        aiCreditsExhausted: responsePayload.aiFillUnavailableReason === "free_ai_credits_exhausted" || accessCheck?.reason === "free_ai_credits_exhausted",
+        safetyRejected: Math.max(0, freshnessRecipes.length - returned),
+        recentExcluded: recentExcludedCount,
+        otherCuisineCount: Array.isArray(recipes) && responsePreferredCuisine !== "Any"
+          ? (recipes as Recipe[]).filter(recipe => !cuisineMatchesPreference(recipe.cuisine, responsePreferredCuisine)).length
+          : 0
+      });
+      if (guidance) {
+        responsePayload.guidance = guidance;
+        responsePayload.message = [...guidance.reasons, ...guidance.suggestions].join("\n");
+      }
+    }
     const actionSucceeded = responseStatus >= 200 && responseStatus < 300 && returned > 0;
     let finalizedAccess = accessCheck?.access;
     let completedActionGrantId: string | undefined;
@@ -450,6 +473,16 @@ export async function POST(request: Request) {
     }
     if (historyUid && historyIngredientContextKey && Array.isArray(recipes) && recipes.length) {
       rememberInProcessRecentRecipes(historyUid, historyIngredientContextKey, recipes as Recipe[]);
+    }
+    if (verifiedRestrictions) {
+      await persistRecipeGenerationHistoryEntry({
+        historyEntryId, uid: historyUid,
+        recipes: Array.isArray(recipes) ? recipes as Recipe[] : [],
+        status: actionSucceeded ? "completed" : "failed",
+        effectiveRestrictions: verifiedRestrictions,
+        requestId,
+        errorMessage: typeof responsePayload.message === "string" ? responsePayload.message : undefined
+      });
     }
     recordRecipeGenerationTrace(validationReport, {
       type: "response",
@@ -538,6 +571,8 @@ export async function POST(request: Request) {
     }
     historyEntryId = parsed.data.historyEntryId;
     historyUid = requestAccess.uid;
+    verifiedRestrictions = await loadGenerationRestrictions(requestAccess.uid);
+    Object.assign(parsed.data, verifiedRestrictions);
     pipelineDebug ||= parsed.data.debug === true;
     variationSeed = buildRecipeVariationSeed(parsed.data.actionId ?? requestId);
 
@@ -561,6 +596,13 @@ export async function POST(request: Request) {
     const requestedRecipeCount = clampRecipeCount(parsed.data.recipeCount, MAX_SHARED_POOL_RECIPE_RESULT_COUNT);
     responsePreferredCuisine = parsed.data.preferredCuisine ?? "Any";
     responseRequestedRecipeCount = requestedRecipeCount;
+    resultContext = {
+      requestedCount: requestedRecipeCount,
+      maxMissingIngredients: parsed.data.maxMissingIngredients ?? DEFAULT_USER_SETTINGS.maxMissingIngredients,
+      preferredCuisine: responsePreferredCuisine,
+      language: parsed.data.uiLanguage ?? "en",
+      hasRestrictions: Boolean(verifiedRestrictions.diets.length || verifiedRestrictions.allergens.length || verifiedRestrictions.conditions.length)
+    };
     let recipeCount = requestedRecipeCount;
     let v2PrefillRecipes: Recipe[] = [];
     updateRecipeValidationFunnel(validationReport, {
@@ -638,6 +680,7 @@ export async function POST(request: Request) {
       v2SearchResult?.recipes ?? [],
       parsed.data.excludedIngredients ?? []
     );
+    resultContext.missingLimitRejected = v2SearchResult?.missingLimitRejected ?? 0;
     const v2RestrictionSafe = v2ExcludedIngredientFilter.allowed
       .filter((recipe) => !findRecipeHealthViolation(recipe, parsed.data.conditions ?? []));
     const v2FreshRecipes = hasPremiumWorkflowAccess
@@ -671,13 +714,6 @@ export async function POST(request: Request) {
       const message = v2Plan.unfilledCount
         ? `Showing ${v2Plan.existing.length} of ${requestedRecipeCount} validated shared recipes.`
         : undefined;
-      await persistRecipeGenerationHistoryEntry({
-        historyEntryId,
-        recipes: v2Plan.existing,
-        status: v2Plan.existing.length ? "completed" : "failed",
-        errorMessage: v2Plan.existing.length ? undefined : buildRecipeUnavailableMessage(recipeLanguage),
-        uid: requestAccess.uid
-      });
       return await respondWithValidationReport({
         recipes: v2Plan.existing,
         result: JSON.stringify(v2Plan.existing),
@@ -1604,12 +1640,6 @@ export async function POST(request: Request) {
         dietContext,
         promoteToSharedPool: hasPremiumWorkflowAccess
       });
-      await persistRecipeGenerationHistoryEntry({
-        historyEntryId,
-        recipes: finalRecipes,
-        status: "completed",
-        uid: requestAccess.uid
-      });
       return await respondWithValidationReport({
         recipes: finalRecipes,
         result: JSON.stringify(finalRecipes),
@@ -1786,12 +1816,6 @@ export async function POST(request: Request) {
               dietContext,
               promoteToSharedPool: hasPremiumWorkflowAccess
             });
-            await persistRecipeGenerationHistoryEntry({
-              historyEntryId,
-              recipes: finalRecipes,
-              status: "completed",
-              uid: requestAccess.uid
-            });
             logger.info("Recipe generation served from real recipe reference library", {
               ...aiTraceSummary,
               servedFrom: "recipe_reference",
@@ -1926,12 +1950,6 @@ export async function POST(request: Request) {
             dietContext,
             promoteToSharedPool: hasPremiumWorkflowAccess
           });
-          await persistRecipeGenerationHistoryEntry({
-            historyEntryId,
-            recipes: validatedLocalSourceRecipes,
-            status: "completed",
-            uid: requestAccess.uid
-          });
           logger.info("Recipe generation served from validated local recipe sources", {
             ...aiTraceSummary,
             servedFrom: "local_recipe_sources",
@@ -2044,12 +2062,6 @@ export async function POST(request: Request) {
           dietContext,
           promoteToSharedPool: hasPremiumWorkflowAccess
         });
-        await persistRecipeGenerationHistoryEntry({
-          historyEntryId,
-          recipes: finalDatasetRecipes,
-          status: "completed",
-          uid: requestAccess.uid
-        });
         logger.info("Recipe generation served from recipe dataset before AI", {
           ...aiTraceSummary,
           servedFrom: datasetSearchResult.servedFrom,
@@ -2085,12 +2097,6 @@ export async function POST(request: Request) {
           dietContext,
           promoteToSharedPool: hasPremiumWorkflowAccess
         });
-        await persistRecipeGenerationHistoryEntry({
-          historyEntryId,
-          recipes: responseReadySourceRecipes,
-          status: "completed",
-          uid: requestAccess.uid
-        });
         return await respondWithValidationReport({
           recipes: responseReadySourceRecipes,
           result: JSON.stringify(responseReadySourceRecipes),
@@ -2109,13 +2115,6 @@ export async function POST(request: Request) {
       logger.info("Recipe generation stopped after empty dataset search and unavailable AI access", {
         accessReason: accessCheck.reason,
         isFreeTier
-      });
-      await persistRecipeGenerationHistoryEntry({
-        errorMessage: message,
-        historyEntryId,
-        recipes: [],
-        status: "failed",
-        uid: requestAccess.uid
       });
       return await respondWithValidationReport({
         message,
@@ -2789,12 +2788,6 @@ export async function POST(request: Request) {
           dietContext,
           promoteToSharedPool: hasPremiumWorkflowAccess
         });
-        await persistRecipeGenerationHistoryEntry({
-          historyEntryId,
-          recipes: finalRecipes,
-          status: "completed",
-          uid: requestAccess.uid
-        });
         logger.info("Recipe generation served from custom generation", {
           recipeCount: finalRecipes.length,
           hasExactScanMatch: Boolean(exactScanMatch)
@@ -2861,12 +2854,6 @@ export async function POST(request: Request) {
           dietContext,
           promoteToSharedPool: hasPremiumWorkflowAccess
         });
-        await persistRecipeGenerationHistoryEntry({
-          historyEntryId,
-          recipes: finalRecipes,
-          status: "completed",
-          uid: requestAccess.uid
-        });
         return await respondWithValidationReport({
           recipes: finalRecipes,
           result: JSON.stringify(finalRecipes),
@@ -2877,13 +2864,6 @@ export async function POST(request: Request) {
         });
       }
       const message = buildRecipeUnavailableMessage(recipeLanguage);
-      await persistRecipeGenerationHistoryEntry({
-        errorMessage: message,
-        historyEntryId,
-        recipes: [],
-        status: "failed",
-        uid: requestAccess.uid
-      });
       return await respondWithValidationReport({
         message,
         recipes: [],
@@ -2902,12 +2882,6 @@ export async function POST(request: Request) {
       dietContext,
       promoteToSharedPool: hasPremiumWorkflowAccess
     });
-    await persistRecipeGenerationHistoryEntry({
-      historyEntryId,
-      recipes: finalRecipes,
-      status: "completed",
-      uid: requestAccess.uid
-    });
     logger.info("Recipe generation request completed", {
       ...aiTraceSummary,
       servedFrom: "shared_pool",
@@ -2923,6 +2897,9 @@ export async function POST(request: Request) {
       access: accessPayload(nextAccess)
     });
   } catch (error) {
+    if (error instanceof ProfileUnavailableError) {
+      return Response.json({ error: error.message, code: "PROFILE_UNAVAILABLE", recipes: [], result: "[]" }, { status: 503 });
+    }
     if (
       isFirebaseTransientError(error) ||
       (error instanceof Error && (
@@ -2947,15 +2924,9 @@ export async function POST(request: Request) {
       );
     }
     logger.error("Error generating recipes", error, { requestId });
+    if (resultContext) resultContext.serviceUnavailable = true;
     const safeMessage = buildRecipeUnavailableMessage("English");
     const status = 200;
-    await persistRecipeGenerationHistoryEntry({
-      errorMessage: safeMessage,
-      historyEntryId,
-      recipes: [],
-      status: "failed",
-      uid: historyUid
-    });
     return await respondWithValidationReport(
       { message: safeMessage, generationStatus: RecipeGenerationStatus.NO_RESULTS, recipes: [], result: "[]" },
       { status }
@@ -2964,6 +2935,8 @@ export async function POST(request: Request) {
 }
 
 async function persistRecipeGenerationHistoryEntry(input: {
+  effectiveRestrictions: GenerationRestrictions;
+  requestId: string;
   errorMessage?: string;
   historyEntryId?: string;
   recipes: Recipe[];
@@ -2983,7 +2956,9 @@ async function persistRecipeGenerationHistoryEntry(input: {
             completedAt: input.status === "completed" ? now : undefined,
             generationMessage: input.errorMessage,
             generationStatus: input.status,
-            recipes: input.status === "completed" ? input.recipes : undefined,
+            recipes: input.recipes,
+            effectiveRestrictions: input.effectiveRestrictions,
+            requestId: input.requestId,
             updatedAt: FieldValue.serverTimestamp()
           }),
           { merge: true }
@@ -7395,7 +7370,7 @@ function clampRecipeCount(value?: number, maxRecipeCount = MAX_SHARED_POOL_RECIP
   return Math.min(maxRecipeCount, Math.max(MIN_RECIPE_RESULT_COUNT, Number(value)));
 }
 
-export function enforceExplicitCuisineResponsePolicy(
+function enforceExplicitCuisineResponsePolicy(
   payload: Record<string, unknown>,
   context: { preferredCuisine: string; requestedCount: number }
 ) {
@@ -7636,6 +7611,13 @@ async function queueRecipeCachePersist(input: {
   dietContext?: DietEnforcementContext;
   promoteToSharedPool?: boolean;
 }) {
+  input = {
+    ...input,
+    recipes: input.dietContext
+      ? (input.recipes ?? []).filter(recipe => !findRecipeDietViolation(recipe, input.dietContext!))
+      : []
+  };
+  if (!input.recipes?.length) return;
   const persist = async () => {
     const startedAt = Date.now();
     try {

@@ -1,0 +1,114 @@
+{
+  "observedRecipe": {
+    "id": "shared-premium-fh4jia",
+    "name": "Shawrma Rice Mexican",
+    "ingredients": [
+      "1 cup rice",
+      "1 portion lettuce",
+      "1 piece tomato",
+      "1 portion cucumber",
+      "1 piece onion"
+    ],
+    "missing_ingredients": [
+      "1 portion shawrma",
+      "1 portion for the tahini dressing 1 4 cup tahini"
+    ],
+    "steps": [
+      "Prepare the tahini dressing: In a small bowl, whisk together tahini, lemon juice, minced garlic, and salt. Gradually whisk in water until the dressing reaches your desired consistency.",
+      "Assemble the bowls: Divide the cooked rice among serving bowls. Top with chopped lettuce, tomatoes, cucumber, red onion, and sliced shawrma.",
+      "Drizzle generously with the tahini dressing.",
+      "Serve immediately."
+    ]
+  },
+  "original": {
+    "id": "shared-premium-fh4jia",
+    "title": "Shawrma Rice Bowl",
+    "description": "Shawrma Rice Bowl",
+    "ingredients": [
+      {
+        "name": "shawrma",
+        "canonical": "shawrma",
+        "required": true,
+        "quantity": 1
+      },
+      {
+        "name": "rice",
+        "canonical": "rice",
+        "required": true,
+        "quantity": 1
+      },
+      {
+        "name": "lettuce",
+        "canonical": "lettuce",
+        "required": true,
+        "quantity": 1
+      },
+      {
+        "name": "tomato",
+        "canonical": "tomato",
+        "required": false
+      },
+      {
+        "name": "cucumber",
+        "canonical": "cucumber",
+        "required": false
+      },
+      {
+        "name": "onion",
+        "canonical": "onion",
+        "required": false
+      },
+      {
+        "name": "for the tahini dressing 1 4 cup tahini",
+        "canonical": "for the tahini dressing 1 4 cup tahini",
+        "required": false
+      }
+    ],
+    "ingredientCanonicals": [
+      "shawrma",
+      "rice",
+      "lettuce",
+      "tomato",
+      "cucumber",
+      "onion",
+      "for the tahini dressing 1 4 cup tahini"
+    ],
+    "steps": [
+      "Prepare the tahini dressing: In a small bowl, whisk together tahini, lemon juice, minced garlic, and salt. Gradually whisk in water until the dressing reaches your desired consistency.",
+      "Assemble the bowls: Divide the cooked rice among serving bowls. Top with chopped lettuce, tomatoes, cucumber, red onion, and sliced shawrma.",
+      "Drizzle generously with the tahini dressing.",
+      "Serve immediately."
+    ],
+    "dietTags": [
+      "dairy-free",
+      "gluten-free",
+      "high-protein",
+      "vegan",
+      "vegetarian"
+    ],
+    "allergenTags": [],
+    "protein": 35,
+    "carbs": 50,
+    "calories": 550,
+    "fat": 25,
+    "cuisine": "Mexican",
+    "isActive": true,
+    "qualityStatus": "verified",
+    "contentVersion": "recipe-content-v2",
+    "validatorHash": "recipe-content-v2:identity-pure:diet-v5:compact-ingredients:alias-index:2026-08-14",
+    "difficulty": "easy",
+    "totalMinutes": 30,
+    "image": {
+      "storagePath": "",
+      "thumbPath": ""
+    }
+  },
+  "patch": {
+    "isActive": false,
+    "qualityStatus": "blocked",
+    "qualityReasons": [
+      "manual_quarantine:unverified_shawarma_protein:requires_explicit_protein_verification_before_reactivation"
+    ],
+    "updatedAt": 1789153944533
+  }
+}

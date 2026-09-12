@@ -1,5 +1,8 @@
 "use client";
 
+import { findRecipeDietViolation } from "@/lib/dietEnforcement";
+import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
+
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { History, Search, Trash2 } from "lucide-react";
@@ -25,7 +28,7 @@ const HISTORY_INITIAL_ENTRY_COUNT = 6;
 const HISTORY_LOAD_MORE_COUNT = 6;
 
 export function HistoryTab() {
-  const { t, setError, settings, health } = useApp();
+  const { t, setError, settings, health, loadingProfile, profileError } = useApp();
   const { access, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items, clear, removeEntry, loading, error: historyError, updateRecipeImage } = useHistory();
@@ -205,6 +208,10 @@ export function HistoryTab() {
                 {entry.recipes.length ? (
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
                     {entry.recipes.map((recipe, recipeIndex) => {
+                      if (loadingProfile || profileError) return <p key={recipeIndex} role="status">{t("profileUnavailableMeals")}</p>;
+                      if (findRecipeDietViolation(recipe, { diets: health.diets, allergens: health.allergens ?? [] }) || findRecipeHealthViolation(recipe, health.conditions)) {
+                        return <div key={`${entry.id}-${recipeIndex}`} className="rounded-xl border border-amber-300 p-4"><strong>{buildRecipeDisplayName(recipe, settings.uiLanguage)}</strong><p>{t("historyDietConflict")}</p></div>;
+                      }
                       const entryHasGeneratedImageAccess = hasGeneratedImageAccess || Boolean(entry.imageActionGrantId);
                       return (
                       <MealRevealCard

@@ -1,3 +1,4 @@
+import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 import {
   classifyRecipeContentQuality,
@@ -99,6 +100,10 @@ export function deriveRecipeComplianceTags(recipe: RecipeCatalogDoc) {
   if (Number(recipe.protein) >= 25) dietTags.add("high-protein");
   if (Number(recipe.carbs) <= 25) dietTags.add("low-carb");
   if (Number(recipe.carbs) <= 20) dietTags.add("keto");
+
+  for (const diet of ["vegan", "vegetarian", "pescatarian"]) {
+    if (findRecipeDietViolation(recipe, { diets: [diet], allergens: [] })) dietTags.delete(diet);
+  }
 
   const allergenTags = new Set<string>();
   if (hasDairy) allergenTags.add("dairy");

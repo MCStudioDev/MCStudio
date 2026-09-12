@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   collection,
   deleteDoc,
@@ -27,6 +27,8 @@ import {
 import { isRtl, t as translate, type TranslationKey } from "@/lib/translations";
 import { createDefaultUserHealthProfile, createDefaultUserSettings } from "@/lib/userDefaults";
 
+import { parseSavedRestrictions, ProfileUnavailableError } from "@/lib/profileSafety";
+
 const DEFAULT_SETTINGS: UserSettings = createDefaultUserSettings();
 const DEFAULT_HEALTH: HealthProfile = createDefaultUserHealthProfile();
 const MAX_USER_NOTIFICATIONS = 50;
@@ -41,6 +43,8 @@ interface AppContextValue {
   rtl: boolean;
   t: (key: TranslationKey) => string;
   loadingProfile: boolean;
+  profileError: string | null;
+  reloadProfile: () => Promise<void>;
   error: string | null;
   setError: (msg: string | null) => void;
   notifications: AppNotification[];
@@ -142,6 +146,9 @@ function normalizeHealth(raw: Partial<HealthProfile> | undefined): HealthProfile
 export function AppProvider({ children }: AppProviderProps) {
   const { user } = useAuth();
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE);
+  const profileLoadVersion = useRef(0);
+  const [profileUid, setProfileUid] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [lastReadNotificationAt, setLastReadNotificationAt] = useState<string | null>(null);
@@ -186,6 +193,8 @@ export function AppProvider({ children }: AppProviderProps) {
   }, [user]);
 
   const loadProfileForUser = useCallback(async () => {
+    const version = ++profileLoadVersion.current;
+    setProfileError(null);
     if (!user) {
       dispatch({ type: "profile/loading", payload: false });
       return;
@@ -198,6 +207,9 @@ export function AppProvider({ children }: AppProviderProps) {
         getDoc(doc(db, "users", user.uid, "profile", "settings")),
         getDoc(doc(db, "users", user.uid, "profile", "health"))
       ]);
+      if (version !== profileLoadVersion.current) return;
+      if (!healthSnap.exists()) throw new ProfileUnavailableError();
+      parseSavedRestrictions(healthSnap.data());
       const fallbackLanguage = getStoredOrDetectedPilotLanguage();
 
       if (settingsSnap.exists()) {
@@ -214,13 +226,15 @@ export function AppProvider({ children }: AppProviderProps) {
         persistPilotLanguage(fallbackLanguage);
       }
 
-      if (healthSnap.exists()) {
-        dispatch({ type: "health/set", payload: normalizeHealth(healthSnap.data() as Partial<HealthProfile>) });
-      } else {
-        dispatch({ type: "health/set", payload: DEFAULT_HEALTH });
+      dispatch({ type: "health/set", payload: normalizeHealth(healthSnap.data() as Partial<HealthProfile>) });
+      setProfileUid(user.uid);
+    } catch {
+      if (version === profileLoadVersion.current) {
+        setProfileError(new ProfileUnavailableError().message);
+        setProfileUid(null);
       }
     } finally {
-      dispatch({ type: "profile/loading", payload: false });
+      if (version === profileLoadVersion.current) dispatch({ type: "profile/loading", payload: false });
     }
   }, [user]);
 
@@ -241,10 +255,11 @@ export function AppProvider({ children }: AppProviderProps) {
       return;
     }
     void loadProfileForUser();
+    return () => { profileLoadVersion.current += 1; };
   }, [loadProfileForUser, user]);
 
   const settings = state.settings;
-  const health = user ? state.health : DEFAULT_HEALTH;
+  const health = user && profileUid === user.uid ? state.health : DEFAULT_HEALTH;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -271,6 +286,10 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const saveHealth = useCallback(
     async (next: Partial<HealthProfile>) => {
+      if (!user || state.loadingProfile || profileUid !== user.uid || profileError) {
+        setError(new ProfileUnavailableError().message);
+        return;
+      }
       const merged = normalizeHealth({
         diets: next.diets ?? health.diets,
         conditions: next.conditions ?? health.conditions,
@@ -279,17 +298,23 @@ export function AppProvider({ children }: AppProviderProps) {
         weightKg: next.weightKg ?? health.weightKg ?? null,
         heightCm: next.heightCm ?? health.heightCm ?? null
       });
-      dispatch({ type: "health/set", payload: merged });
-      if (!user) return;
+      const version = ++profileLoadVersion.current;
+      dispatch({ type: "profile/loading", payload: true });
       try {
         const ref = doc(db, "users", user.uid, "profile", "health");
         await setDoc(ref, merged, { merge: true });
+        if (version !== profileLoadVersion.current) return;
+        dispatch({ type: "health/set", payload: merged });
+        setProfileUid(user.uid);
+        setProfileError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to save health profile";
-        setError(message);
+        if (version === profileLoadVersion.current) { setError(message); setProfileError(message); }
+      } finally {
+        if (version === profileLoadVersion.current) dispatch({ type: "profile/loading", payload: false });
       }
     },
-    [health, user]
+    [health, user, state.loadingProfile, profileUid, profileError]
   );
 
   const setLanguage = useCallback(
@@ -377,7 +402,9 @@ export function AppProvider({ children }: AppProviderProps) {
       setLanguage,
       rtl: isRtl(settings.uiLanguage),
       t,
-      loadingProfile: user ? state.loadingProfile : false,
+      loadingProfile: user ? state.loadingProfile || (!profileError && profileUid !== user.uid) : false,
+      profileError,
+      reloadProfile: loadProfileForUser,
       error,
       setError,
       notifications,
@@ -395,6 +422,9 @@ export function AppProvider({ children }: AppProviderProps) {
       setLanguage,
       t,
       state.loadingProfile,
+      profileError,
+      profileUid,
+      loadProfileForUser,
       error,
       notifications,
       unreadNotificationCount,

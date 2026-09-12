@@ -1,4 +1,8 @@
 export const arabicTranslations: Record<string, string> = {
+  profileLoadingMeals: "جارٍ تحميل قيودك الغذائية المحفوظة…",
+  profileUnavailableMeals: "تعذر التحقق من قيودك الغذائية المحفوظة. أعد تحميل ملفك للمتابعة.",
+  retryProfile: "إعادة تحميل الملف",
+  historyDietConflict: "هذه الوجبة المحفوظة لا تجتاز فحوص قيودك الغذائية الحالية. تم حجبها لحين المراجعة.",
   appTitle: "NutriMoment",
   backgroundRecipesQueued: "بدأ توليد الوصفات. سيتم حفظ النتائج في السجل.",
   backgroundRecipesReady: "الوصفات جاهزة في السجل.",

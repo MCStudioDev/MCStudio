@@ -115,6 +115,13 @@ export async function buildArabicFactsEntry(input: unknown, restrictions: Genera
     if ((!step.foodIds.length && !step.previousSteps?.length && step.action !== "serve") || step.previousSteps?.some(previous => previous > index)) reasons.add("invalid_preparation_reference");
     if (cooking.has(step.action) && step.minutes <= 0) reasons.add("missing_cooking_time");
     if (step.action === "bake" && step.temperatureC <= 0) reasons.add("missing_oven_temperature");
+    if (["boil", "simmer", "steam"].includes(step.action)) {
+      const used = stepFoods(facts, index);
+      const dryStaple = facts.ingredients.some(item => used.includes(item.foodId) && ["raw", "dried"].includes(item.state)
+        && /grain|legume/.test(arabicFoodById(item.foodId)!.categories.join(" ")));
+      const liquid = used.some(id => /\b(water|broth|stock|milk|sauce)\b/.test(arabicFoodById(id)?.en ?? ""));
+      if (dryStaple && !liquid) reasons.add("missing_cooking_liquid");
+    }
   }
   for (const item of facts.ingredients) {
     if (!facts.steps.some(step => step.foodIds.includes(item.foodId))) reasons.add("unused_ingredient");

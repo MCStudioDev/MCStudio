@@ -108,7 +108,7 @@ FINAL CONSTRAINT CHECK: the only available ingredients are ${JSON.stringify(inpu
       const item = z.object({ facts: z.record(z.unknown()) }).safeParse(value);
       if (!item.success) continue;
       const checked = await buildArabicFactsEntry(item.data.facts, input.restrictions);
-      const repairable = checked.reasons.filter(reason => ["invalid_facts_shape", "unlisted_step_ingredient", "invalid_preparation_reference", "unused_ingredient", "missing_cooking_time", "missing_oven_temperature", "canonical:ingredient_only_title"].includes(reason));
+      const repairable = checked.reasons.filter(reason => ["invalid_facts_shape", "unlisted_step_ingredient", "invalid_preparation_reference", "unused_ingredient", "missing_cooking_time", "missing_cooking_liquid", "missing_oven_temperature", "canonical:ingredient_only_title"].includes(reason));
       if (repairable.length) repairs.push({ index, facts: item.data.facts, reasons: repairable });
     }
     if (repairs.length && deadline - Date.now() >= 11000) {

@@ -28,11 +28,32 @@ beforeEach(() => {
       culinary: p.culinaryChecks.map((item: { candidateId: string }) => ({ candidateId: item.candidateId, valid: true, issues: [] }))
     };
     if (stage === "arabic_facts_repair") return { repairs: repair ? p.repairs.map((item: { candidateId: string }) => ({ candidateId: item.candidateId,
-      ingredients: [], nutrition: {}, steps: facts.steps.map(step => ({ ...step, previousSteps: step.previousSteps ?? [] })), totalMinutes: facts.totalMinutes })) : [] };
+      ingredients: [], nutrition: {}, steps: facts.steps.map(({ previousSteps, ...step }, index) => ({ ...step, stepId: `s${index + 1}`, previousStepIds: (previousSteps ?? []).map(value => `s${value}`) })), totalMinutes: facts.totalMinutes })) : [] };
     throw new Error(`Unexpected phase ${stage}`);
   });
 });
 describe("Arabic fact generation orchestration", () => {
+  it("materializes explicit step IDs without guessing zero/one-based positions", async () => {
+    output = { ...facts, steps: facts.steps.map(({ previousSteps, ...step }, index) => ({ ...step, stepId: `s${index + 1}`, previousStepIds: (previousSteps ?? []).map(value => `s${value}`) })) };
+    const result = await run();
+    expect(result.recipes[0].facts.steps.at(-1)?.previousSteps).toEqual([2, 3]);
+    expect(result.recipes[0].facts.steps[0].previousSteps).toEqual([]);
+  });
+  it("counts automatically included preparation water against a zero missing limit", async () => {
+    manifestIds = manifestIds.filter(id => id !== findArabicFood("water")!.id);
+    const result = await run({ ingredients: ["salmon", "rice", "tomato"], missingLimit: 0 });
+    expect(result.recipes).toEqual([]);
+    expect(result.diagnostics.some(item => item.issues.includes("missing_ingredient_limit"))).toBe(true);
+    expect(model).toHaveBeenCalledOnce();
+  });
+  it("accepts known plant/mineral classifications but rejects unverified compound constituents", () => {
+    const oil = { ...facts, ingredients: [{ ...facts.ingredients[0], foodId: findArabicFood("oil")!.id }] };
+    const restriction = { ...input.restrictions, diets: ["vegan"] };
+    expect(arabicClassificationsAreSafe(oil, restriction, [{ foodId: oil.ingredients[0].foodId, category: "plant", contains: [] }])).toBe(true);
+    expect(arabicClassificationsAreSafe(oil, restriction, [{ foodId: oil.ingredients[0].foodId, category: "mixed", contains: ["dairy"] }])).toBe(false);
+    expect(arabicClassificationsAreSafe(oil, restriction, [{ foodId: oil.ingredients[0].foodId, category: "mixed", contains: [] }])).toBe(false);
+    expect(arabicClassificationsAreSafe(oil, restriction, [{ foodId: oil.ingredients[0].foodId, category: "unknown", contains: [] }])).toBe(false);
+  });
   it("rejects an independently classified bird for vegan/pescatarian users regardless of a safe verdict", () => {
     const bird = { ...facts, ingredients: [{ ...facts.ingredients[0], foodId: findArabicFood("pigeon")!.id }] };
     for (const diet of ["vegan", "pescatarian"]) expect(arabicClassificationsAreSafe(bird, { ...input.restrictions, diets: [diet] }, [{ foodId: bird.ingredients[0].foodId, category: "poultry", contains: [] }])).toBe(false);
@@ -50,7 +71,7 @@ describe("Arabic fact generation orchestration", () => {
     await run();
     const steps = (model.mock.calls[1][4] as any).properties.recipes.items.properties.facts.properties.steps.items;
     expect(steps.properties.foodIds.items.enum).toEqual(manifestIds);
-    expect(steps.required).toContain("previousSteps");
+    expect(steps.required).toContain("previousStepIds");
   });
   it("generates complete manifests with no missing cutoff when unlimited", async () => {
     const result = await run({ missingLimit: "unlimited" });
@@ -70,7 +91,7 @@ describe("Arabic fact generation orchestration", () => {
     const steps = schema.properties.recipes.items.properties.facts.properties.steps.items;
     expect(steps.properties).not.toHaveProperty("ingredientNumbers");
     expect(steps.properties.foodIds.items.enum).toEqual(manifestIds);
-    expect(steps.required).toContain("previousSteps");
+    expect(steps.required).toContain("previousStepIds");
     expect(schema.properties.recipes.items.properties).not.toHaveProperty("planIndex");
   });
   it("rejects a correction that drops its verified protein before full generation", async () => {

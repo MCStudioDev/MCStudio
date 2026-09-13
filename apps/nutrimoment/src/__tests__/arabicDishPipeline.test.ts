@@ -7,7 +7,7 @@ import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 import { findArabicFood } from "@/services/arabic/foodCatalog";
 
 const input = { ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 2, cuisine: "Mediterranean", calorieTarget: 1650, missingLimit: "unlimited" as const };
-const fixtures = () => [weeklyFactFixtures()[0], weeklyFactFixtures()[7]];
+const fixtures = () => [weeklyFactFixtures()[0], weeklyFactFixtures()[1]];
 const payload = (prompt: string) => prompt.includes("INPUT_JSON\n") ? JSON.parse(prompt.split("INPUT_JSON\n")[1]) : { candidates: [], plans: [], culinaryChecks: [], repairs: [] };
 type Candidate = { candidateId: string; title?: string };
 const state = { ids: [] as string[] };
@@ -18,7 +18,7 @@ function useProvider(options: { reorder?: boolean; omitFirst?: boolean; badSeque
       state.ids = data.candidates.map((item: Candidate) => item.candidateId);
       return { plans: data.candidates.slice(0, 2).map((item: Candidate, index: number) => {
         const facts = fixtures()[index];
-        return { candidateId: item.candidateId, name: facts.name, dishFamily: facts.dishFamily, foodIds: facts.ingredients.map(i => i.foodId), mealTypes: facts.mealTypes };
+        return { candidateId: item.candidateId, name: facts.name, dishFamily: facts.dishFamily, foodIds: facts.ingredients.map(i => i.foodId), preparations: facts.steps.map(step => step.action), mealTypes: facts.mealTypes };
       }) };
     }
     if (stage === "arabic_facts_generation") {
@@ -37,7 +37,7 @@ function useProvider(options: { reorder?: boolean; omitFirst?: boolean; badSeque
     };
     if (stage === "arabic_facts_repair") {
       if (options.repairFails) throw new Error("repair offline");
-      return { repairs: data.repairs.map((item: Candidate) => ({ candidateId: item.candidateId, steps: fixtures()[0].steps.map(step => ({ ...step, previousSteps: step.previousSteps ?? [] })), totalMinutes: fixtures()[0].totalMinutes })) };
+      return { repairs: data.repairs.map((item: Candidate) => ({ candidateId: item.candidateId, steps: fixtures()[0].steps.map(({ previousSteps, ...step }, index) => ({ ...step, stepId: `s${index + 1}`, previousStepIds: (previousSteps ?? []).map(value => `s${value}`) })), totalMinutes: fixtures()[0].totalMinutes })) };
     }
     throw new Error(`Unexpected stage ${stage}`);
   });
@@ -86,6 +86,8 @@ describe("Arabic dish ownership and independent validation", () => {
     const result = await generateArabicFactBatch(input, Date.now() + 65000, "sequence");
     const repairs = mocks.model.mock.calls.filter(call => call[3] === "arabic_facts_repair");
     expect(repairs).toHaveLength(1);
+    const repairFoodIds = (repairs[0][4] as any).properties.repairs.items.properties.steps.items.properties.foodIds.items.enum;
+    expect(repairFoodIds).toEqual(fixtures()[0].ingredients.map(item => item.foodId));
     expect(payload(repairs[0][0]).repairs.map((item: Candidate) => item.candidateId)).toEqual([state.ids[0]]);
     // The independent reviewer still rejects the repair; the other dish survives.
     expect(result.recipes.map(item => item.facts.name)).toEqual([fixtures()[1].name]);

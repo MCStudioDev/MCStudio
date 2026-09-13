@@ -34,8 +34,8 @@ export const arabicFactsSchema = z.object({
   servings: z.literal(1),
   ingredients: z.array(z.object({ foodId: z.string().max(100), arabicName: z.string().min(1).max(100).regex(/^[^A-Za-z]+$/).optional(), quantity: z.number().positive().max(10000), unit: z.enum(unitKeys), state: z.enum(["raw", "cooked", "canned", "dried"]) })).min(1).max(30),
   steps: z.array(z.object({ action: z.enum(actionKeys), foodIds: z.array(z.string()).max(30).describe("Only foodIds from THIS recipe's ingredients. Never equipment, prepared mixtures, sauces made in earlier steps or finished dish IDs."),
-    previousSteps: z.array(z.number().int().positive()).max(15).optional().describe("1-based indexes of earlier steps whose prepared outputs are used here. A sauce or mixture made earlier is referenced here, not added as a new foodId."),
-    minutes: z.number().min(0).max(1440), temperatureC: z.number().min(0).max(300), heat: z.enum(["none", "low", "medium", "high"]) })).min(3).max(15),
+    previousSteps: z.array(z.number().int().positive()).max(30).optional().describe("1-based indexes of earlier steps whose prepared outputs are used here. A sauce or mixture made earlier is referenced here, not added as a new foodId."),
+    minutes: z.number().min(0).max(1440), temperatureC: z.number().min(0).max(300), heat: z.enum(["none", "low", "medium", "high"]) })).min(3).max(30),
   nutrition: z.object({ calories: z.number().positive().max(3000), protein: z.number().nonnegative().max(300), carbs: z.number().nonnegative().max(750), fat: z.number().nonnegative().max(300) }),
   totalMinutes: z.number().positive().max(1500), difficulty: z.enum(["easy", "medium", "hard"])
 }).strict();

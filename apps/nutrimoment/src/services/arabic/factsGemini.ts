@@ -77,7 +77,11 @@ CHECK BEFORE RETURNING: Count foodIds outside ownedFoodIds for every manifest. T
   const plans = planned.success ? planned.data.plans.filter(plan => {
     const reference = input.references?.find(item => item.reference.id === plan.referenceId);
     if (input.sourceOnly && (!reference || !reference.requiredFoodIds?.length || !reference.requiredFoodIds.every(id => plan.foodIds.includes(id)))) return false;
-    if (input.sourceOnly && plan.foodIds.some(id => !reference!.requiredFoodIds!.includes(id) && !isCorrectionStaple(id))) return false;
+    // Corrections may add cooking liquids/aromatics, but cannot introduce a
+    // new animal ingredient. The independent source check below also verifies
+    // dish identity, quantities and preparation before anything is accepted.
+    if (input.sourceOnly && plan.foodIds.some(id => !reference!.requiredFoodIds!.includes(id)
+      && findRecipeDietViolation({ ingredients: [arabicFoodById(id)?.en ?? ""] }, { diets: ["vegan"], allergens: [], conditions: [] }))) return false;
     return new Set(plan.foodIds).size === plan.foodIds.length &&
     plan.foodIds.every(id => foods.some(food => food.id === id)) && plan.foodIds.some(id => owned.has(id)) &&
     (input.sourceOnly || plan.foodIds.filter(id => !owned.has(id)).length <= input.missingLimit);
@@ -162,9 +166,4 @@ FINAL CONSTRAINT CHECK: the only available ingredients are ${JSON.stringify(inpu
     const safetyReceipt = safe.has(index) ? arabicSafetyFingerprint(candidate.facts, input.restrictions) : undefined;
     return [{ facts: candidate.facts, labelReceipt, safetyReceipt, source, variantKey: reference?.variantKey }];
   }) };
-}
-
-function isCorrectionStaple(id: string) {
-  const food = arabicFoodById(id);
-  return !!food && (food.en === "water" || food.en === "salt" || /spice|seasoning|herb|oil|fat/.test(food.categories.join(" ")));
 }

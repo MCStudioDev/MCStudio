@@ -21,12 +21,19 @@ vi.mock("@/services/arabic/englishSources", async importOriginal => ({ ...await 
 import { findArabicSourceCandidates } from "@/services/arabic/sourceCandidates";
 import { arabicSourceIsCurrent } from "@/services/arabic/sourceEligibility";
 import { arabicFingerprint } from "@/services/arabic/fingerprint";
+import { arabicRecipeNameKey, arabicSourceKey } from "@/services/arabic/freshness";
 const vegan = { diets: ["vegan"], conditions: [], allergens: [] };
 function editor(id: string, sourceId: string, recipe = canonical) {
   return { id, data: { cacheVersion: "recipe-editor-v11-validation-identity-v1", expiresAt: { toMillis: () => Date.now() + 60000 }, recipe: { ...recipe, source_recipe_id: sourceId } } };
 }
 beforeEach(() => { vi.clearAllMocks(); mock.editors = []; mock.rows.clear(); mock.queries = []; mock.reads = []; mock.references.mockResolvedValue([]); mock.shared.mockResolvedValue([]); });
 describe("Arabic independent English source retrieval", () => {
+  it("excludes recently shown English sources before choosing correction candidates", async () => {
+    mock.shared.mockResolvedValue([{ id: "seen-source", recipe: canonical }, { id: "new-source", recipe: { ...canonical, name: "Salmon Pilaf" } }]);
+    const result = await findArabicSourceCandidates(["rice"], "Mediterranean", { ...vegan, diets: ["pescatarian"] }, 1,
+      { recentKeys: [arabicSourceKey({ id: "seen-source", fingerprint: "old" }), arabicRecipeNameKey(canonical.name)], seed: "next-click" });
+    expect(result.map(row => row.source?.id)).toEqual(["new-source"]);
+  });
   it("finds trusted koshary when the Firebase reference lookup returns nothing", async () => {
     const result = await findArabicSourceCandidates(["rice", "lentils", "chickpeas"], "Egyptian", vegan, 10);
     expect(result.find(row => /koshary/i.test(row.reference.title))?.source).toMatchObject({ kind: "trusted", id: "trusted-source-egyptian-classic-koshary" });

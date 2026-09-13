@@ -11,7 +11,8 @@ import { logger } from "@/lib/logger";
 import type { MealPlanData, Recipe } from "@/lib/types";
 import { arabicDisabledResponse, arabicEnabled, ARABIC_REQUEST_BUDGET_MS, ARABIC_READABLE_VERSIONS } from "./config";
 import { resolveArabicIngredients } from "./ingredientResolution";
-import { listArabicRecipes, saveArabicResult, arabicPaths } from "./repository";
+import { listArabicRecipes, saveArabicResult, arabicPaths, readRecentArabicRecipeHistory } from "./repository";
+import { arabicLastShownAt, buildArabicRecentRecipes, rotateArabicCandidates, type ArabicRecentRecipes } from "./freshness";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { arabicRecipeSchema, buildArabicEntry, partitionArabicRecipe, revalidateArabicEntry } from "./validation";
 import { callArabicModel } from "./gemini";
@@ -64,12 +65,21 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     if (!raw.length) return Response.json({ error: "أضف مكونًا واحدًا على الأقل." }, { status: 400 });
     const normalized = await resolveArabicIngredients(raw, { allowAi: authorization.allowed, deadline: Math.min(deadline, Date.now() + 15000), requestId });
     if (normalized.unclear.length) return Response.json({ code: "INGREDIENT_CLARIFICATION_REQUIRED", error: "يرجى توضيح المكونات المحددة أو كتابة أسمائها بشكل أدق.", items: normalized.unclear }, { status: 422 });
+    const variationSeed = input.actionId ?? requestId;
+    let recent: ArabicRecentRecipes = { shownAt: new Map(), names: [] }, freshnessUnavailable = false;
+    if (mode === "recipes") {
+      try { recent = await buildArabicRecentRecipes(await readRecentArabicRecipeHistory(access.uid), normalized.canonical); }
+      catch { freshnessUnavailable = true; logger.warn("Arabic freshness history unavailable", { requestId }); }
+    }
     const count = mode === "mealplan" ? 21 : input.recipeCount;
     const poolLimit = mode === "mealplan" ? 80 : count;
     const accepted = new Map<string, ArabicRecipeEntry>();
     const needsMore = () => mode === "mealplan" ? !selectArabicWeeklyMeals([...accepted.values()]) : accepted.size < count;
     const identities = new Set<string>();
     const output = new Map<string, Recipe>();
+    const recentCandidates = new Map<string, { entry: ArabicRecipeEntry; displayed: Recipe; identity: string }>();
+    const backfilledIds = new Set<string>(), aiAcceptedIds = new Set<string>();
+    const excludeNames = () => [...new Set([...recent.names, ...[...accepted.values()].flatMap(entry => [entry.canonical.name, entry.recipe.name])])];
     const alternatives = new Map<string, ArabicRecipeSuggestion>();
     const alternativeSources = new Map<string, NonNullable<ArabicRecipeEntry["source"]>>();
     let invalidCount = 0, modelFailureCount = 0;
@@ -99,17 +109,26 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       }
       const identity = entry.facts ? recipeFactsIdentity(entry.facts) : arabicFingerprint({ ingredients: entry.canonical.ingredients.map(value => value.toLowerCase()).sort(), steps: entry.canonical.steps });
       if (identities.has(identity)) { recordReasons(["duplicate_dish"]); return; }
+      if (mode === "recipes" && arabicLastShownAt(rebuilt.entry, recent)) {
+        if (!recentCandidates.has(identity)) recentCandidates.set(identity, { entry: rebuilt.entry, displayed, identity });
+        recordReasons(["recent_recipe"]); return;
+      }
       identities.add(identity);
       accepted.set(rebuilt.entry.id, rebuilt.entry); output.set(rebuilt.entry.id, displayed);
     };
-    for (const entry of await listArabicRecipes(normalized.canonical)) await consider(entry);
+    const cached = await listArabicRecipes(normalized.canonical, mode === "recipes" ? 200 : 50);
+    for (const entry of mode === "recipes" ? rotateArabicCandidates(cached, variationSeed, entry => entry.id) : cached) await consider(entry);
     const failed: Array<Pair & { reasons: string[] }> = [];
     const processPair = async (pair: Pair) => {
       try {
         const validated = pair.facts ? await buildArabicFactsEntry(pair.facts, restrictions, pair.source, pair.labelReceipt, pair.safetyReceipt)
           : await buildArabicEntry(pair.canonical, pair.recipe, restrictions, pair.source);
         if (validated.entry && pair.variantKey) validated.entry.variantKey = pair.variantKey;
-        if (validated.entry) await consider(validated.entry);
+        if (validated.entry) {
+          const alreadyAccepted = accepted.has(validated.entry.id);
+          await consider(validated.entry);
+          if (!alreadyAccepted && accepted.has(validated.entry.id)) aiAcceptedIds.add(validated.entry.id);
+        }
         else {
           invalidCount++; recordReasons(validated.reasons);
           // A translation repair cannot fix an invalid canonical recipe.
@@ -120,7 +139,8 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         if (arabicRecipeSchema.safeParse(pair.canonical).success) failed.push({ ...pair, reasons: ["invalid_recipe_shape"] });
       }
     };
-    const references = needsMore() && authorization.allowed ? await findArabicSourceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count) : [];
+    const references = needsMore() && authorization.allowed ? await findArabicSourceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count,
+      mode === "recipes" ? { recentKeys: [...recent.shownAt.keys()], seed: variationSeed } : undefined) : [];
     // Arabic cache is the entire discovery path without AI access. Entitled
     // requests can reuse a matching Arabic derivative before reserving an action.
     for (const reference of references) {
@@ -142,7 +162,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
           const corrected = await generateArabicSourceBatch({ ingredients: normalized.canonical, restrictions,
             count: Math.min(7, Math.max(1, count - accepted.size)), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget,
             missingLimit: input.maxMissingIngredients, sourceOnly: true, references: references.slice(0, 9),
-            excludeNames: [...accepted.values()].map(entry => entry.canonical.name)
+            excludeNames: excludeNames(), variationSeed
           }, Math.min(deadline - 15000, Date.now() + 35000), requestId);
           for (const pair of pairsFrom(corrected)) await processPair(pair);
           for (const diagnostic of corrected.diagnostics ?? []) recordReasons(diagnostic.issues);
@@ -170,7 +190,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       for (let batch = 0; mode === "recipes" && batch < 3 && accepted.size < count && deadline - Date.now() > 15000; batch++) {
         didCallAi = true;
         try {
-          const generated = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions, count: Math.min(7, count - accepted.size), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: [...accepted.values()].map(entry => entry.canonical.name),
+          const generated = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions, count: Math.min(7, count - accepted.size), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: excludeNames(), variationSeed: `${variationSeed}:${batch}`,
             previousShortages: [...alternatives.values()].slice(-10).map(item => ({ name: item.name, missingIngredients: item.missingIngredients })) }, deadline - 5000, requestId);
           const pairs = pairsFrom(generated);
           if (!pairs.length) {
@@ -196,7 +216,11 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
           for (const item of result.repairs) if (failed[item.index]) {
             const original = failed[item.index];
             const validated = await buildArabicEntry(original.canonical, item.recipe, restrictions, original.source);
-            if (validated.entry) await consider(validated.entry);
+            if (validated.entry) {
+              const alreadyAccepted = accepted.has(validated.entry.id);
+              await consider(validated.entry);
+              if (!alreadyAccepted && accepted.has(validated.entry.id)) aiAcceptedIds.add(validated.entry.id);
+            }
             else recordReasons(validated.reasons);
           }
         } catch { modelFailureCount++; recordReasons(["repair_request_failed"]); }
@@ -205,6 +229,21 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     // Recheck source eligibility immediately before any Arabic publication.
     for (const [id, entry] of accepted) if (entry.source) {
       if (!await arabicSourceIsCurrent(entry.source)) { accepted.delete(id); output.delete(id); }
+    }
+    // Only after fresh cache/source/AI selection, fill remaining slots with
+    // currently safe recent dishes. Prefer those shown least recently.
+    if (mode === "recipes") {
+      const fallback = rotateArabicCandidates([...recentCandidates.values()], variationSeed, item => item.entry.id)
+        .sort((a, b) => arabicLastShownAt(a.entry, recent) - arabicLastShownAt(b.entry, recent));
+      for (const { entry, displayed, identity } of fallback) {
+        if (accepted.size >= count) break;
+        if (identities.has(identity) || (entry.source && !await arabicSourceIsCurrent(entry.source))) continue;
+        identities.add(identity); accepted.set(entry.id, entry); output.set(entry.id, displayed); backfilledIds.add(entry.id);
+      }
+      if (reservationId && ![...accepted.keys()].some(id => aiAcceptedIds.has(id))) {
+        await releaseFreeAiAction(access, reservationId); reservationId = undefined; imageActionGrantId = undefined; didCallAi = false;
+      }
+      for (const [id, recipe] of output) output.set(id, { ...recipe, freshness_origin: freshnessUnavailable ? undefined : backfilledIds.has(id) ? "backfilled_recent" : "fresh" });
     }
     const weeklyEntries = mode === "mealplan" ? selectArabicWeeklyMeals([...accepted.values()]) : null;
     const recipes = (weeklyEntries ? weeklyEntries.map(entry => output.get(entry.id)!) : [...output.values()]).map(recipe => imageActionGrantId ? { ...recipe, image_action_grant_id: imageActionGrantId } : recipe);
@@ -247,11 +286,16 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       reservationId = undefined;
       return arabicDisabledResponse();
     }
-    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: weeklyEntries ?? [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, restrictions, mealPlan, imageActionGrantId, billing: didCallAi ? { access, actionId: reservationId } : undefined });
+    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: weeklyEntries ?? [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, canonicalIngredients: normalized.canonical, restrictions, mealPlan, imageActionGrantId, billing: didCallAi ? { access, actionId: reservationId } : undefined });
     if (completedAccess) access = completedAccess;
     reservationId = undefined;
     logger.info("Arabic generation completed", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, elapsedMs: Date.now() - startedAt });
-    return Response.json({ recipes, suggestions, result: JSON.stringify(mealPlan ?? recipes), generationLanguage: "ar", generationStatus: recipes.length < count ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message: recipes.length < count ? `تم العثور على ${recipes.length} من ${count} وصفات تجتاز الفحوص بالعربية.` : undefined, requestId, access: accessPayload(access) });
+    const backfilledCount = backfilledIds.size, freshCount = recipes.length - backfilledCount;
+    const message = freshnessUnavailable ? "تعذر التحقق من السجل الآن. هذه وصفات مطابقة لإعداداتك، وقد تتضمن وصفات شاهدتها سابقًا."
+      : backfilledCount ? `وجدنا ${freshCount} وصفات جديدة، وأكملنا النتائج بـ ${backfilledCount} وصفات شاهدتها خلال آخر 24 ساعة لعدم توفر خيارات جديدة كافية. ما زالت جميعها تطابق مكوناتك وقيودك الغذائية.`
+      : recipes.length < count ? `تم العثور على ${recipes.length} من ${count} وصفات تجتاز الفحوص بالعربية.` : undefined;
+    return Response.json({ recipes, suggestions, result: JSON.stringify(mealPlan ?? recipes), generationLanguage: "ar", generationStatus: recipes.length < count || backfilledCount || freshnessUnavailable ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message,
+      ...(mode === "recipes" ? { freshCount: freshnessUnavailable ? undefined : freshCount, backfilledCount, freshnessUnavailable } : {}), requestId, access: accessPayload(access) });
   } catch (error) {
     if (access && reservationId) await releaseFreeAiAction(access, reservationId);
     if (!access) return accessErrorResponse(error);

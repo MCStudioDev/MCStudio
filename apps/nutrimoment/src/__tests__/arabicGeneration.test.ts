@@ -74,15 +74,15 @@ describe("Arabic request integration with write recording", () => {
     expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
   });
-  it("labels repeats when the free Arabic pool is exhausted and preserves images", async () => {
+  it("labels repeats when the free Arabic pool is exhausted and keeps the image-cache identity", async () => {
     mock.allowed = false;
     const entry = (await buildArabicEntry(canonical, arabic, restrictions)).entry!;
-    entry.recipe.image_url = "https://images.example.test/salmon.jpg";
     mock.rows = [entry];
     await handleArabicGeneration(request(), "recipes");
     const data = await (await handleArabicGeneration(request(), "recipes")).json();
     expect(data).toMatchObject({ freshCount: 0, backfilledCount: 1, generationStatus: "PARTIAL_RESULTS" });
-    expect(data.recipes[0]).toMatchObject({ freshness_origin: "backfilled_recent", image_url: entry.recipe.image_url });
+    expect(data.recipes[0]).toMatchObject({ freshness_origin: "backfilled_recent", id: entry.id });
+    expect(data.recipes[0].image_action_grant_id).toBeUndefined();
     expect(data.message).toContain("24");
     expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
   });

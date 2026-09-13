@@ -826,7 +826,7 @@ export function ScannerTab() {
         setHistoryEntryId(null);
         setRecipeGuidance(null);
         setRecipeGenerationDetail(data.message ?? null);
-        setRecipeGenerationStatus(data.recipes.length < settings.recipeCount ? RecipeGenerationStatus.PARTIAL_RESULTS : RecipeGenerationStatus.SUCCESS_DATASET);
+        setRecipeGenerationStatus(data.generationStatus === RecipeGenerationStatus.PARTIAL_RESULTS || data.recipes.length < settings.recipeCount ? RecipeGenerationStatus.PARTIAL_RESULTS : RecipeGenerationStatus.SUCCESS_DATASET);
         await refreshAccess();
       } catch (error) { setError(error instanceof Error ? error.message : "Arabic generation unavailable"); }
       finally { setRecipeLoading(false); }
@@ -1524,7 +1524,7 @@ function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: bool
     },
     [RecipeGenerationStatus.SUCCESS_DATASET]: {
       icon: Search,
-      className: "border-sky-200/28 bg-sky-400/12 text-sky-50",
+      className: "theme-callout-info border-sky-200/28 bg-sky-400/12 text-sky-50",
       title: rtl ? "\u0648\u062c\u062f\u0646\u0627 \u0648\u0635\u0641\u0627\u062a \u0645\u0646\u0627\u0633\u0628\u0629" : "We found matching recipes",
       detail: rtl
         ? "\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0648\u0635\u0641\u0627\u062a \u062a\u0646\u0627\u0633\u0628 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a \u0627\u0644\u062a\u064a \u0623\u0636\u0641\u062a\u0647\u0627."

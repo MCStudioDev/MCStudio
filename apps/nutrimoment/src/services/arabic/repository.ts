@@ -5,6 +5,7 @@ import type { HistoryItem, MealPlanData, Recipe } from "@/lib/types";
 import type { GenerationRestrictions } from "@/lib/profileSafety";
 import type { ArabicRecipeEntry } from "./types";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
+import { buildArabicFreshnessRecord } from "./freshness";
 export { arabicFingerprint } from "./fingerprint";
 
 function segment(value: string) {
@@ -26,15 +27,16 @@ export function assertArabicWritePath(path: string) {
   }
 }
 const clean = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-export async function listArabicRecipes(ingredients: string[]) {
+export async function listArabicRecipes(ingredients: string[], limit = 50) {
   if (!ingredients.length) return [];
   const snapshot = await getAdminDb().collection("sharedRecipesArabicV1")
-    .where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)).limit(50).get();
+    .where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)).limit(Math.min(limit, 200)).get();
   return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as ArabicRecipeEntry);
 }
 export async function saveArabicResult(input: {
   uid: string; requestId: string; entries: ArabicRecipeEntry[]; ingredients: string[];
   restrictions: GenerationRestrictions; mealPlan?: MealPlanData; displayedRecipes?: Recipe[]; imageActionGrantId?: string;
+  canonicalIngredients?: string[];
   billing?: { access: RequestAccess; actionId?: string };
 }) {
   const writes: Array<{ path: string; data: object }> = [];
@@ -51,7 +53,9 @@ export async function saveArabicResult(input: {
     recipes: input.displayedRecipes ?? input.entries.map(entry => entry.recipe), generationStatus: "completed", generationLanguage: "ar",
     effectiveRestrictions: input.restrictions, imageActionGrantId: input.imageActionGrantId
   };
-  writes.push({ path: arabicPaths.history(input.uid, input.requestId), data: { ...history, englishSources } });
+  const recipeFreshness = !input.mealPlan && input.canonicalIngredients
+    ? buildArabicFreshnessRecord(input.canonicalIngredients, input.entries) : undefined;
+  writes.push({ path: arabicPaths.history(input.uid, input.requestId), data: { ...history, englishSources, recipeFreshness } });
   if (input.mealPlan) writes.push({ path: arabicPaths.plan(input.uid), data: { mealPlan: input.mealPlan, effectiveRestrictions: input.restrictions, generationLanguage: "ar", englishSources } });
   writes.forEach(({ path }) => assertArabicWritePath(path));
   const db = getAdminDb();
@@ -65,6 +69,11 @@ export async function saveArabicResult(input: {
   };
   if (input.billing) return completeFreeAiAction(input.billing.access, input.billing.actionId, publish);
   await db.runTransaction(publish);
+}
+export async function readRecentArabicRecipeHistory(uid: string): Promise<Record<string, unknown>[]> {
+  const path = arabicPaths.history(uid, "placeholder").split("/").slice(0, -1).join("/");
+  const snapshot = await getAdminDb().collection(path).orderBy("timestamp", "desc").limit(100).get();
+  return snapshot.docs.map(doc => doc.data());
 }
 export async function readArabicHistory(uid: string) {
   const path = arabicPaths.history(uid, "placeholder").split("/").slice(0, -1).join("/");

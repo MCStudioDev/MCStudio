@@ -16,6 +16,7 @@ import { normalizeArabicInputs } from "./ingredients";
 import { findArabicFood } from "./foodCatalog";
 import { arabicFingerprint } from "./fingerprint";
 import type { ArabicRecipeEntry } from "./types";
+import { arabicRecipeNameKey, arabicSourceKey, rotateArabicCandidates } from "./freshness";
 
 type Source = NonNullable<ArabicRecipeEntry["source"]>;
 type Editor = { key: string; fingerprint: string; recipe: Recipe };
@@ -67,13 +68,16 @@ async function resolveEditorSource(editor: Editor) {
     source: { kind: "reference", id, fingerprint: referenceFingerprint(reference) } as Source, names: reference.ingredients, servings: undefined };
 }
 
-export async function findArabicSourceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number): Promise<ArabicReferenceCandidate[]> {
+export async function findArabicSourceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number,
+  freshness?: { recentKeys: string[]; seed: string }): Promise<ArabicReferenceCandidate[]> {
   if (!ingredients.length) return [];
   const limit = Math.min(count + 6, 20);
   const owned = new Set(ingredients.flatMap(name => findArabicFood(name)?.id ?? []));
+  const recentKeys = new Set(freshness?.recentKeys);
   const results: Array<ArabicReferenceCandidate & { score: number }> = [];
   const add = async (recipe: Recipe, source: Source, names?: string[], edited?: Editor, servings?: number) => {
     if (!recipe?.name || !arabicCuisineMatches(recipe.cuisine, cuisine) || unsafe(recipe, restrictions)) return;
+    if (recentKeys.has(arabicRecipeNameKey(recipe.name)) || recentKeys.has(arabicSourceKey(source))) return;
     if (edited && (unsafe(edited.recipe, restrictions) || !sameArabicSourceDish(edited.recipe.name, recipe.name))) return;
     const foods = await arabicSourceFoodIds(names ?? [...recipe.ingredients, ...(recipe.missing_ingredients ?? [])]);
     const matching = foods.ids.filter(id => owned.has(id));
@@ -107,7 +111,10 @@ export async function findArabicSourceCandidates(ingredients: string[], cuisine:
       const foods = await arabicSourceFoodIds([...item.recipe.ingredients, ...(item.recipe.missing_ingredients ?? [])]);
       return { item, score: foods.ids.filter(id => owned.has(id)).length };
     }));
-    const selected = ranked.filter(row => row.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
+    const eligible = ranked.filter(row => row.score > 0 && !recentKeys.has(arabicRecipeNameKey(row.item.recipe.name))
+      && !["shared", "reference", "trusted"].some(kind => recentKeys.has(`source:${kind}:${row.item.recipe.source_recipe_id}`)));
+    const selected = (freshness ? rotateArabicCandidates(eligible, freshness.seed, row => row.item.key) : eligible)
+      .sort((a, b) => b.score - a.score).slice(0, limit);
     const hydrated = await Promise.allSettled(selected.map(async ({ item }) => {
       const source = await resolveEditorSource(item);
       if (source) await add(source.recipe, source.source, source.names, item, source.servings);
@@ -116,7 +123,7 @@ export async function findArabicSourceCandidates(ingredients: string[], cuisine:
   }
   if (batches.some(row => row.status === "rejected")) logger.warn("Some Arabic source lookups failed; remaining sources remain available");
   const seen = new Set<string>();
-  return results.sort((a, b) => b.score - a.score).filter(row => {
+  return (freshness ? rotateArabicCandidates(results, freshness.seed, row => row.reference.id) : results).sort((a, b) => b.score - a.score).filter(row => {
     const identity = findKnownDish(row.reference.title)?.key ?? row.reference.title.trim().toLowerCase();
     const key = `${identity}:${[...row.requiredFoodIds!].sort().join(",")}`;
     if (seen.has(key)) return false;

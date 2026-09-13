@@ -33,6 +33,14 @@ beforeEach(() => {
   });
 });
 describe("Arabic fact generation orchestration", () => {
+  it("repairs an omitted overnight soaking duration without treating the derived active-time error as fatal", async () => {
+    facts.steps.unshift({ action: "soak", foodIds: [findArabicFood("rice")!.id, findArabicFood("water")!.id], minutes: 720, temperatureC: 0, heat: "none" });
+    facts.totalMinutes += 720;
+    facts.steps.at(-1)!.previousSteps = [3, 4];
+    output = { ...facts, totalMinutes: 35 }; repair = true;
+    const result = await run();
+    expect(result.recipes[0]?.facts.totalMinutes, JSON.stringify(result.diagnostics)).toBe(755);
+  });
   it("materializes explicit step IDs without guessing zero/one-based positions", async () => {
     output = { ...facts, steps: facts.steps.map(({ previousSteps, ...step }, index) => ({ ...step, stepId: `s${index + 1}`, previousStepIds: (previousSteps ?? []).map(value => `s${value}`) })) };
     const result = await run();

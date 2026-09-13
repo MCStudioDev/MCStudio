@@ -20,6 +20,16 @@ describe("Arabic fact generation orchestration", () => {
     expect(result.recipes[0].source).toEqual(reference.source);
     expect(result.recipes[0].variantKey).toBe("variant-1");
   });
+  it("uses constrained food IDs in source cooking steps instead of ambiguous ingredient positions", async () => {
+    const facts = weeklyFactFixtures()[0];
+    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: [], steps: [], matchedIngredients: [] }, fingerprint: "f", variantKey: "v", requiredFoodIds: facts.ingredients.map(item => item.foodId) };
+    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] }).mockResolvedValueOnce({ labels: [], sources: [{ index: 0, valid: true }] });
+    await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test");
+    const schema = model.mock.calls[1][4] as { properties: { recipes: { items: { properties: { facts: { properties: { steps: { items: { properties: Record<string, unknown> } } } } } } } } };
+    const properties = schema.properties.recipes.items.properties.facts.properties.steps.items.properties;
+    expect(properties).not.toHaveProperty("ingredientNumbers");
+    expect(properties.foodIds).toMatchObject({ items: { enum: reference.requiredFoodIds } });
+  });
   it("rejects a source correction that drops its verified protein", async () => {
     const facts = weeklyFactFixtures()[0];
     const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: [], steps: [], matchedIngredients: [] }, fingerprint: "f", variantKey: "v", requiredFoodIds: [findArabicFood("salmon")!.id] };

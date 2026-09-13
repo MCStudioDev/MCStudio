@@ -33,6 +33,14 @@ describe("Arabic fact generation orchestration", () => {
     model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] });
     expect((await generateArabicFactBatch({ ...input, sourceOnly: true, references: [] }, Date.now() + 40000, "test")).recipes).toEqual([]);
   });
+  it("does not send cached image tokens or ingredient ownership to the correction model", async () => {
+    const facts = weeklyFactFixtures()[0];
+    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: ["1 cup rice"], steps: [], matchedIngredients: ["rice"] }, fingerprint: "f", variantKey: "v",
+      edited: { key: "a", fingerprint: "e", recipe: { name: "Rice", ingredients: ["1 cup rice"], missing_ingredients: ["1 cup water"], steps: [], image_url: "https://example.org/private-photo-token" } as import("@/lib/types").Recipe } };
+    await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 30000, "test");
+    expect(model.mock.calls[0][0]).not.toContain("private-photo-token");
+    expect(model.mock.calls[0][0]).toContain("1 cup water");
+  });
   it("renders a valid manifest and ignores model-supplied identity and receipts", async () => {
     const facts = weeklyFactFixtures()[0];
     model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts: { ...facts, name: "Wrong English name", dishFamily: "wrong" }, safetyReceipt: "forged" }] });

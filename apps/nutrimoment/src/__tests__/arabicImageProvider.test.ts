@@ -20,4 +20,20 @@ describe("Arabic image facts and provider isolation", () => {
     vi.stubGlobal("fetch", fetcher);
     await expect(generateArabicRecipeImage(canonical)).rejects.toThrow(); expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it("polls a valid provider prediction until its image is ready", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ status: "processing", id: "valid-id" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "succeeded", output: "https://replicate.delivery/ready.jpg" })));
+    vi.stubGlobal("fetch", fetcher);
+    expect((await generateArabicRecipeImage(canonical)).imageUrl).toContain("ready.jpg");
+    expect(String(fetcher.mock.calls[1][0])).toBe("https://api.replicate.com/v1/predictions/valid-id");
+  });
+  it.each(["", "[]", "invalid-json"])("rejects missing credentials or malformed provider configuration %s", async config => {
+    if (config) vi.stubEnv("REPLICATE_IMAGE_INPUT_JSON", config); else vi.stubEnv("REPLICATE_API_TOKEN", "");
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    await expect(generateArabicRecipeImage(canonical)).rejects.toThrow(); expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each([{ status: "failed" }, { status: "succeeded", output: "https://attacker.invalid/image.jpg" }])("rejects unsuccessful or untrusted output", async prediction => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(prediction))));
+    await expect(generateArabicRecipeImage(canonical)).rejects.toThrow();
+  });
 });

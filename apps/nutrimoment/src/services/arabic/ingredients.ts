@@ -45,7 +45,7 @@ export async function normalizeArabicInputs(values: string[]) {
       && /[\u0600-\u06ff]/.test(arabic) && !/[A-Za-z]/.test(arabic) && translateIngredientToEnglish(arabic).toLowerCase() === english.toLowerCase();
     if ((result.unmapped.length && !dictionaryRecognized) || !result.normalized.length || findUnverifiedCompositeProtein({ ingredients: [text, prepared] })) {
       unclear.push({ index, text });
-    } else canonical.push(...result.normalized);
+    } else canonical.push(...result.normalized.map(name => findArabicFood(name)?.en ?? name));
   }
   return { original, canonical: [...new Set(canonical)], unclear };
 }

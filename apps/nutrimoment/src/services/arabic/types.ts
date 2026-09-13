@@ -7,6 +7,7 @@ export interface ArabicRecipeSuggestion {
 export interface ArabicRecipeEntry {
   facts?: import("./recipeFacts").ArabicRecipeFacts;
   labelReceipt?: import("./recipeFacts").ArabicLabelReceipt;
+  safetyReceipt?: string;
   id: string;
   recipe: Recipe;
   canonical: Recipe;

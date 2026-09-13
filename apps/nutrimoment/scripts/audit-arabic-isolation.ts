@@ -1,7 +1,7 @@
 import { config } from "dotenv";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { getAdminDb } from "../src/lib/firebaseAdmin";
+import { getAdminDb, getAdminAuth } from "../src/lib/firebaseAdmin";
 
 config({ path: ".env.local", quiet: true });
 type Snapshot = { project: string; uid: string; hashes: Record<string, string>; counts: Record<string, number> };
@@ -13,9 +13,11 @@ function stable(value: unknown): string {
 const fingerprint = (value: unknown) => createHash("sha256").update(stable(value)).digest("hex");
 
 async function main() {
-  const [mode, file, project, uid] = process.argv.slice(2);
-  if (!["capture", "compare"].includes(mode) || !file || !project || !/^[\w-]+$/.test(uid ?? "")) throw new Error("Usage: capture|compare <snapshot-file> <project-id> <test-user-uid>");
+  const [mode, file, project, account] = process.argv.slice(2);
+  if (!["capture", "compare"].includes(mode) || !file || !project || !account) throw new Error("Usage: capture|compare <snapshot-file> <project-id> <test-user-uid-or-email>");
   if (process.env.FIREBASE_ADMIN_PROJECT_ID !== project) throw new Error("Configured Firebase project does not match the explicitly requested project");
+  const uid = account.includes("@") ? (await getAdminAuth().getUserByEmail(account)).uid : account;
+  if (!/^[\w-]+$/.test(uid)) throw new Error("Invalid account identifier");
   const db = getAdminDb();
   const collections = ["sharedRecipesV2", "recipePhotoCache", `users/${uid}/offlineRecipeCache`, `users/${uid}/history`];
   const snapshot: Snapshot = { project, uid, hashes: {}, counts: {} };

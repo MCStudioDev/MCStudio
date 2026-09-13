@@ -9,7 +9,7 @@ const CONTRACT = `Return JSON only. Recipe fields: name, cuisine, ingredients an
 
 export async function callArabicModel(prompt: string, deadline: number, requestId: string, phase: string, responseJsonSchema?: Record<string, unknown>) {
   const remaining = deadline - Date.now();
-  if (remaining < 5000) throw new Error("ARABIC_DEADLINE_EXCEEDED");
+  if (remaining < 11000) throw new Error("ARABIC_DEADLINE_EXCEEDED");
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Restrict this Arabic invocation to one model attempt. The shared English
   // transport keeps its normal fallback/retry policy for all other callers.

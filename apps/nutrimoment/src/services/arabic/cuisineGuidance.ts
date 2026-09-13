@@ -3,6 +3,12 @@ import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import type { GenerationRestrictions } from "@/lib/profileSafety";
 import { normalizeArabicInputs } from "./ingredients";
+import { translateCuisineToEnglish } from "@/lib/arabicRecipeLocalization";
+
+export function arabicCuisineMatches(actual: string, requested: string) {
+  if (!requested || requested.toLowerCase() === "any") return true;
+  return translateCuisineToEnglish(actual).toLowerCase() === translateCuisineToEnglish(requested).toLowerCase();
+}
 
 export async function buildArabicCuisineGuidance(cuisine: string, pantry: string[], restrictions: GenerationRestrictions) {
   const catalog = getCompleteCuisineCatalog(cuisine);

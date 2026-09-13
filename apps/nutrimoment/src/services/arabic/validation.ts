@@ -124,7 +124,7 @@ export async function partitionArabicRecipe(entry: ArabicRecipeEntry, pantry: st
   return { ...entry.recipe, ingredients: owned, missing_ingredients: missing };
 }
 export async function revalidateArabicEntry(entry: ArabicRecipeEntry, restrictions: GenerationRestrictions) {
-  const result = entry.facts ? await buildArabicFactsEntry(entry.facts, restrictions, entry.source, entry.labelReceipt)
+  const result = entry.facts ? await buildArabicFactsEntry(entry.facts, restrictions, entry.source, entry.labelReceipt, entry.safetyReceipt)
     : await buildArabicEntry(entry.canonical, entry.recipe, restrictions, entry.source);
   if (result.entry && entry.variantKey) result.entry.variantKey = entry.variantKey;
   return result;

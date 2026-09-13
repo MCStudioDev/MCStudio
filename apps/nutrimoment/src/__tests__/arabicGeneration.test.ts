@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { canonical, arabic, restrictions, veganCanonical, veganArabic } from "./fixtures/arabic";
 import livePairs from "./fixtures/arabic-live-rejection.json";
+import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 
 const mock = vi.hoisted(() => ({
   rows: [] as unknown[], writes: [] as Array<{ path: string; data: unknown }>,
@@ -26,7 +27,7 @@ vi.mock("@/services/authService", () => ({
   reserveFreeAiAction: mock.reserve, completeFreeAiAction: mock.complete, releaseFreeAiAction: mock.release
 }));
 vi.mock("@/services/generationProfileService", () => ({ loadGenerationRestrictions: mock.profile }));
-vi.mock("@/services/rateLimitService", () => ({ applyRateLimit: () => ({ decision: { allowed: true } }) }));
+vi.mock("@/services/arabic/rateLimit", () => ({ applyArabicRateLimit: () => ({ decision: { allowed: true } }) }));
 vi.mock("@/services/arabic/gemini", () => ({ generateArabicRecipes: mock.generate, translateArabicSource: mock.translate, callArabicModel: mock.repair }));
 vi.mock("@/services/arabic/factsGemini", () => ({ generateArabicFactBatch: mock.generate }));
 vi.mock("@/services/arabic/referenceSources", () => ({ findArabicReferenceCandidates: async () => [] }));
@@ -56,6 +57,20 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it("saves all 21 classified fact meals and their Arabic shopping list atomically", async () => {
+    const facts = weeklyFactFixtures();
+    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 3 }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    const plan = JSON.parse(data.result);
+    expect(plan.plan).toHaveLength(7);
+    expect(plan.shoppingList.join(" ")).toContain("سلمون");
+    expect(plan.shoppingList.join(" ")).not.toMatch(/[A-Za-z]/);
+    expect(mock.reserve).toHaveBeenCalledTimes(1); expect(mock.complete).toHaveBeenCalledTimes(1);
+    expect(mock.generate).toHaveBeenCalledTimes(3);
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
   it("returns valid recipes from the real rejected Gemini response for the screenshot settings", async () => {
     mock.profile.mockResolvedValue({ diets: ["vegan"], conditions: [], allergens: [] });
     mock.generate.mockResolvedValue({ recipes: livePairs });

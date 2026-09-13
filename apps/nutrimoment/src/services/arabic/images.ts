@@ -1,5 +1,5 @@
 import { getAdminDb, getAdminStorageBucket } from "@/lib/firebaseAdmin";
-import { generateRecipeImageWithReplicate } from "@/lib/replicateRecipeImage";
+import { generateArabicRecipeImage, ARABIC_IMAGE_PROMPT_VERSION } from "./imageProvider";
 import { isReplicateGenerationAllowedForUser, recordReplicateGeneration } from "@/services/replicateCostCapService";
 import { canReuseRecipePhotoForDiet } from "@/services/recipePhotoReusePolicy";
 import { arabicPaths, assertArabicWritePath } from "./repository";
@@ -11,6 +11,8 @@ import type { ArabicRecipeEntry } from "./types";
 import type { GenerationRestrictions } from "@/lib/profileSafety";
 import type { RequestAccess } from "@/services/authService";
 import type { Recipe } from "@/lib/types";
+import { acquireArabicImageLease, releaseArabicImageLease } from "./imageLease";
+import { logger } from "@/lib/logger";
 
 export function arabicImageObjectPath(id: string) {
   if (!/^ar-[a-f0-9]{24}$/.test(id)) throw new Error("Invalid Arabic image identity");
@@ -37,9 +39,15 @@ export async function resolveArabicImage(entry: ArabicRecipeEntry, restrictions:
   const current = pending.get(entry.id);
   if (current) return current;
   const task = (async () => {
+    const owner = crypto.randomUUID();
+    await acquireArabicImageLease(entry.id, owner);
+    try {
+    // Another worker may have finished between the first read and our lease.
+    const ready = await readArabicImage(entry, restrictions);
+    if (ready) return ready.imageUrl;
     const cap = await isReplicateGenerationAllowedForUser(access);
     if (!cap.allowed) throw new Error("ARABIC_IMAGE_LIMIT_REACHED");
-    const image = await generateRecipeImageWithReplicate(entry.canonical.name, [...entry.canonical.ingredients, ...entry.canonical.missing_ingredients], { exactRecipeName: entry.canonical.name });
+    const image = await generateArabicRecipeImage(entry.canonical);
     if (!image) throw new Error("Image generation unavailable");
     await recordReplicateGeneration(access, cap.dailyLimit);
     const url = new URL(image.imageUrl);
@@ -59,8 +67,17 @@ export async function resolveArabicImage(entry: ArabicRecipeEntry, restrictions:
     // This durable document is also the recipe-to-photo association. History,
     // scanner and plans hydrate it by Arabic recipe ID instead of duplicating
     // image data into old result records or writing English photo links.
-    await getAdminDb().doc(cachePath).set({ imageUrl, imageSource: "replicate", objectPath, fingerprint: entry.fingerprint, validatorVersion: ARABIC_VALIDATOR_VERSION, recipeId: entry.id });
+    const db = getAdminDb();
+    await db.runTransaction(async transaction => {
+      if (entry.source && !await arabicSourceIsCurrent(entry.source, transaction)) throw new Error("Source changed before Arabic image publication");
+      const lease = (await transaction.get(db.doc(cachePath))).data();
+      if (lease?.leaseOwner !== owner) throw new Error("Arabic image lease lost");
+      transaction.set(db.doc(cachePath), { imageUrl, imageSource: "replicate", objectPath, fingerprint: entry.fingerprint, validatorVersion: ARABIC_VALIDATOR_VERSION, promptVersion: ARABIC_IMAGE_PROMPT_VERSION, recipeId: entry.id });
+    });
     return imageUrl;
+    } finally {
+      await releaseArabicImageLease(entry.id, owner).catch(() => logger.warn("Arabic image lease cleanup deferred until expiry"));
+    }
   })().finally(() => pending.delete(entry.id));
   pending.set(entry.id, task);
   return task;
@@ -81,6 +98,6 @@ export async function readArabicImage(entry: ArabicRecipeEntry, restrictions: Ge
   }
   const cachePath = arabicPaths.image(entry.id);
   const cached = (await getAdminDb().doc(cachePath).get()).data();
-  if (cached?.fingerprint === entry.fingerprint && ARABIC_READABLE_VERSIONS.has(cached.validatorVersion) && typeof cached.imageUrl === "string" && /^https:\/\//.test(cached.imageUrl) && cached.objectPath === arabicImageObjectPath(entry.id)) return { imageUrl: cached.imageUrl as string, imageSource: "replicate" as const };
+  if (cached?.fingerprint === entry.fingerprint && cached.promptVersion === ARABIC_IMAGE_PROMPT_VERSION && ARABIC_READABLE_VERSIONS.has(cached.validatorVersion) && typeof cached.imageUrl === "string" && /^https:\/\//.test(cached.imageUrl) && cached.objectPath === arabicImageObjectPath(entry.id)) return { imageUrl: cached.imageUrl as string, imageSource: "replicate" as const };
   return null;
 }

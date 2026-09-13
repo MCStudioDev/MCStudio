@@ -2,10 +2,12 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { canonical, arabic, restrictions } from "./fixtures/arabic";
 const mock = vi.hoisted(() => ({ docs: new Map<string, unknown>(), writes: [] as string[], uploads: [] as string[], model: vi.fn(), source: vi.fn(), canReuse: false, cap: true }));
 vi.mock("@/lib/firebaseAdmin", () => ({
-  getAdminDb: () => ({ doc: (path: string) => ({ get: async () => ({ exists: mock.docs.has(path), data: () => mock.docs.get(path) }), set: async (data: unknown) => { mock.writes.push(path); mock.docs.set(path, data); } }) }),
+  getAdminDb: () => ({ doc: (path: string) => ({ path, get: async () => ({ exists: mock.docs.has(path), data: () => mock.docs.get(path) }), set: async (data: unknown) => { mock.writes.push(path); mock.docs.set(path, data); } }),
+    runTransaction: async (callback: (transaction: unknown) => Promise<unknown>) => callback({ get: async (ref: { path: string }) => ({ exists: mock.docs.has(ref.path), data: () => mock.docs.get(ref.path) }),
+      set: (ref: { path: string }, data: Record<string, unknown>, options?: { merge: boolean }) => { mock.writes.push(ref.path); mock.docs.set(ref.path, options?.merge ? { ...(mock.docs.get(ref.path) as object), ...data } : data); } }) }),
   getAdminStorageBucket: () => ({ name: "test-bucket", file: (path: string) => ({ save: async () => { mock.uploads.push(path); } }) })
 }));
-vi.mock("@/lib/replicateRecipeImage", () => ({ generateRecipeImageWithReplicate: mock.model }));
+vi.mock("@/services/arabic/imageProvider", () => ({ generateArabicRecipeImage: mock.model, ARABIC_IMAGE_PROMPT_VERSION: "test-version" }));
 vi.mock("@/services/replicateCostCapService", () => ({ isReplicateGenerationAllowedForUser: async () => ({ allowed: mock.cap, dailyLimit: 100 }), recordReplicateGeneration: vi.fn() }));
 vi.mock("@/services/arabic/englishSources", () => ({ readEnglishSource: mock.source, englishSourceFingerprint: () => "source-hash", englishSourceRecipe: () => ({ ...canonical, image_url: "https://example.org/existing.webp" }) }));
 vi.mock("@/services/recipePhotoReusePolicy", () => ({ canReuseRecipePhotoForDiet: () => mock.canReuse }));

@@ -10,6 +10,7 @@ import { arabicFoodById, findArabicFood, foodTerm } from "./foodCatalog";
 import { arabicFingerprint } from "./fingerprint";
 import { ARABIC_VALIDATOR_VERSION } from "./config";
 import type { ArabicRecipeEntry } from "./types";
+import { arabicSafetyFingerprint, needsArabicSemanticSafety } from "./semanticSafety";
 
 const actions = {
   wash: ["Wash", "اغسل"], chop: ["Chop", "قطع"], peel: ["Peel", "قشر"],
@@ -96,13 +97,15 @@ function render(facts: ArabicRecipeFacts, arabic: boolean): Recipe {
   };
 }
 
-export async function buildArabicFactsEntry(input: unknown, restrictions: GenerationRestrictions, source?: ArabicRecipeEntry["source"], labelReceipt?: ArabicLabelReceipt): Promise<{ entry: ArabicRecipeEntry | null; reasons: string[] }> {
+export async function buildArabicFactsEntry(input: unknown, restrictions: GenerationRestrictions, source?: ArabicRecipeEntry["source"], labelReceipt?: ArabicLabelReceipt, safetyReceipt?: string): Promise<{ entry: ArabicRecipeEntry | null; reasons: string[] }> {
   const parsed = arabicFactsSchema.safeParse(input);
   if (!parsed.success) return { entry: null, reasons: ["invalid_facts_shape"] };
   const facts = parsed.data, reasons = new Set<string>();
   if (facts.totalMinutes < Math.max(...facts.steps.map(step => step.minutes))) reasons.add("inconsistent_total_time");
   const ids = facts.ingredients.map(item => item.foodId);
   if (ids.some(id => !arabicFoodById(id))) return { entry: null, reasons: ["unknown_food_id"] };
+  if (arabicPropertyViolation(ids.map(id => arabicFoodById(id)!.en), restrictions)) reasons.add("diet_violation");
+  if (needsArabicSemanticSafety(facts, restrictions) && safetyReceipt !== arabicSafetyFingerprint(facts, restrictions)) reasons.add("semantic_safety_unverified");
   if (facts.ingredients.some(item => !arabicFoodById(item.foodId)!.ar) &&
     (facts.ingredients.some(item => !arabicFoodById(item.foodId)!.ar && !item.arabicName) || labelReceipt?.version !== "ar-label-v1" || labelReceipt.fingerprint !== recipeLabelFingerprint(facts))) reasons.add("unverified_ingredient_label");
   if (facts.ingredients.some(item => item.arabicName && arabicFoodById(item.foodId)!.ar && item.arabicName !== arabicFoodById(item.foodId)!.ar)) reasons.add("ingredient_label_changed");
@@ -138,6 +141,6 @@ export async function buildArabicFactsEntry(input: unknown, restrictions: Genera
   if (reasons.size) return { entry: null, reasons: [...reasons] };
   const fingerprint = arabicFingerprint({ facts, source: source ?? null });
   const id = `ar-${fingerprint.slice(0, 24)}`;
-  return { reasons: [], entry: { id, facts, labelReceipt, canonical, recipe: { ...recipe, id, generationLanguage: "ar" },
+  return { reasons: [], entry: { id, facts, labelReceipt, safetyReceipt, canonical, recipe: { ...recipe, id, generationLanguage: "ar" },
     ingredientCanonicals: names, fingerprint, source, validatorVersion: ARABIC_VALIDATOR_VERSION, validatedAt: new Date().toISOString() } };
 }

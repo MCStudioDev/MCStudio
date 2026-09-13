@@ -1,13 +1,14 @@
 import { z } from "zod";
 import { accessErrorResponse, accessPayload, canUseApiFeature, releaseFreeAiAction, reserveFreeAiAction } from "@/services/authService";
 import { loadGenerationRestrictions } from "@/services/generationProfileService";
-import { applyRateLimit, rateLimitedResponse } from "@/services/rateLimitService";
+import { rateLimitedResponse } from "@/services/rateLimitService";
+import { applyArabicRateLimit as applyRateLimit } from "./rateLimit";
 import { ProfileUnavailableError } from "@/lib/profileSafety";
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import { canReuseRecipePhotoForDiet } from "@/services/recipePhotoReusePolicy";
 import { buildMealPlanPreferenceSignature } from "@/lib/mealPlanPreferenceSignature";
-import { buildShoppingListFromMealIngredients } from "@/lib/shoppingListNormalizer";
+import { buildArabicShoppingList } from "./shoppingFacts";
 import { assertSafeMealPlan } from "@/lib/generationSafety";
 import { logger } from "@/lib/logger";
 import type { MealPlanData, Recipe } from "@/lib/types";
@@ -26,7 +27,7 @@ import { selectArabicWeeklyMeals } from "./weeklyFacts";
 import { arabicFingerprint } from "./fingerprint";
 import { arabicRepairSchema } from "./modelSchemas";
 import type { ArabicRecipeEntry, ArabicRecipeSuggestion } from "./types";
-import { cuisineMatchesPreference } from "@/lib/cuisines";
+import { arabicCuisineMatches as cuisineMatchesPreference } from "./cuisineGuidance";
 
 const schema = z.object({
   ingredients: z.array(z.string().min(1).max(300)).max(60).optional(),
@@ -37,10 +38,11 @@ const schema = z.object({
   preferredCuisine: z.string().max(80).default("Any"), calorieTarget: z.number().min(500).max(6000).default(1650),
   actionId: z.string().regex(/^[\w-]{1,128}$/).optional()
 });
-type Pair = { canonical?: unknown; recipe?: unknown; facts?: unknown; labelReceipt?: ArabicLabelReceipt; source?: ArabicRecipeEntry["source"]; variantKey?: string };
+type Pair = { canonical?: unknown; recipe?: unknown; facts?: unknown; labelReceipt?: ArabicLabelReceipt; safetyReceipt?: string; source?: ArabicRecipeEntry["source"]; variantKey?: string };
 const pairsFrom = (value: unknown): Pair[] => {
   const parsed = z.object({ recipes: z.array(z.object({ canonical: z.unknown().optional(), recipe: z.unknown().optional(), facts: z.unknown().optional(),
     labelReceipt: z.object({ version: z.literal("ar-label-v1"), fingerprint: z.string() }).optional(),
+    safetyReceipt: z.string().optional(),
     source: z.object({ id: z.string(), fingerprint: z.string(), kind: z.literal("reference").optional() }).optional(), variantKey: z.string().optional() })).max(21) }).safeParse(value);
   return parsed.success ? parsed.data.recipes : [];
 };
@@ -63,11 +65,12 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const restrictions = await loadGenerationRestrictions(access.uid);
     const raw = input.ingredients ?? input.pantry ?? input.pantryItems?.map(item => item.name) ?? [];
     if (!raw.length) return Response.json({ error: "أضف مكونًا واحدًا على الأقل." }, { status: 400 });
-    const normalized = await resolveArabicIngredients(raw, { allowAi: authorization.allowed, deadline: Math.min(deadline, Date.now() + 10000), requestId });
+    const normalized = await resolveArabicIngredients(raw, { allowAi: authorization.allowed, deadline: Math.min(deadline, Date.now() + 15000), requestId });
     if (normalized.unclear.length) return Response.json({ code: "INGREDIENT_CLARIFICATION_REQUIRED", error: "يرجى توضيح المكونات المحددة أو كتابة أسمائها بشكل أدق.", items: normalized.unclear }, { status: 422 });
     const count = mode === "mealplan" ? 21 : input.recipeCount;
-    const poolLimit = mode === "mealplan" ? 30 : count;
+    const poolLimit = mode === "mealplan" ? 80 : count;
     const accepted = new Map<string, ArabicRecipeEntry>();
+    const needsMore = () => mode === "mealplan" ? !selectArabicWeeklyMeals([...accepted.values()]) : accepted.size < count;
     const identities = new Set<string>();
     const output = new Map<string, Recipe>();
     const alternatives = new Map<string, ArabicRecipeSuggestion>();
@@ -114,7 +117,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const failed: Array<Pair & { reasons: string[] }> = [];
     const processPair = async (pair: Pair) => {
       try {
-        const validated = pair.facts ? await buildArabicFactsEntry(pair.facts, restrictions, pair.source, pair.labelReceipt)
+        const validated = pair.facts ? await buildArabicFactsEntry(pair.facts, restrictions, pair.source, pair.labelReceipt, pair.safetyReceipt)
           : await buildArabicEntry(pair.canonical, pair.recipe, restrictions, pair.source);
         if (validated.entry && pair.variantKey) validated.entry.variantKey = pair.variantKey;
         if (validated.entry) await consider(validated.entry);
@@ -128,7 +131,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         if (arabicRecipeSchema.safeParse(pair.canonical).success) failed.push({ ...pair, reasons: ["invalid_recipe_shape"] });
       }
     };
-    const references = accepted.size < count ? await findArabicReferenceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count) : [];
+    const references = needsMore() ? await findArabicReferenceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count) : [];
     // Free users also get reference-linked Arabic variants. Reading the English
     // reference/editor cache never authorizes a translation or adaptation.
     for (const reference of references) {
@@ -138,7 +141,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         if (entry && entry.fingerprint === variant.fingerprint) await consider(entry);
       }
     }
-    if (accepted.size < count && authorization.allowed) {
+    if (needsMore() && authorization.allowed) {
       // A completed English or Arabic action ID supplied by a client must not
       // authorize another generation for free. Repairs share this server action.
       const reservation = await reserveFreeAiAction(access, mode === "recipes" ? "recipe_generation" : "weekly_plan", requestId);
@@ -187,9 +190,14 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       for (let batch = 0; mode === "recipes" && batch < 3 && accepted.size < count && deadline - Date.now() > 15000; batch++) {
         didCallAi = true;
         try {
-          const generated = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions, count: Math.min(7, count - accepted.size), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: [...accepted.values()].map(entry => entry.canonical.name), references }, deadline - 5000, requestId);
+          const generated = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions, count: Math.min(7, count - accepted.size), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: [...accepted.values()].map(entry => entry.canonical.name),
+            previousShortages: [...alternatives.values()].slice(-10).map(item => ({ name: item.name, missingIngredients: item.missingIngredients })), references }, deadline - 5000, requestId);
           const pairs = pairsFrom(generated);
-          if (!pairs.length) { modelFailureCount++; generationRequestFailed = true; recordReasons(["empty_or_malformed_model_response"]); break; }
+          if (!pairs.length) {
+            if (generated.diagnostics?.some(item => item.issues.includes("no_feasible_ingredient_manifest"))) recordReasons(["missing_ingredient_limit"]);
+            else { modelFailureCount++; generationRequestFailed = true; recordReasons(["empty_or_malformed_model_response"]); }
+            break;
+          }
           for (const pair of pairs) await processPair(pair);
           // Repeating a batch that added no accepted dishes cannot fill a plan.
           if (batch > 0 && pairs.every(pair => !pair.facts)) break;
@@ -243,7 +251,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const completeRecipes = recipes.map(recipe => ({ ...recipe, ingredients: [...recipe.ingredients, ...recipe.missing_ingredients], missing_ingredients: [] }));
       const days = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"];
       mealPlan = { generationLanguage: "ar", plan: days.map((day, index) => ({ day, breakfast: completeRecipes[index * 3], lunch: completeRecipes[index * 3 + 1], dinner: completeRecipes[index * 3 + 2] })), shoppingList: [], preferenceSignature: buildMealPlanPreferenceSignature({ ...restrictions, ...input, uiLanguage: "ar" }) };
-      mealPlan.shoppingList = buildShoppingListFromMealIngredients({ mealPlan, pantryItems: input.pantryItems ?? normalized.canonical.map(name => ({ name, quantity: "1" })), displayLanguage: "ar" });
+      mealPlan.shoppingList = await buildArabicShoppingList(weeklyEntries!, input.pantryItems ?? normalized.canonical.map(name => ({ name })));
       if (mealPlan.shoppingList.some(item => /[A-Za-z]/.test(item))) throw new Error("Arabic shopping-list language validation failed");
       assertSafeMealPlan(mealPlan, restrictions);
     }

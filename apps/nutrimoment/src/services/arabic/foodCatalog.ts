@@ -34,7 +34,9 @@ const knownNames = new Set([
   ...getAllCuisineCatalogV2Entries().flatMap(item => [...item.ingredients.required, ...item.ingredients.optional]),
   ...Object.values(IngredientKnowledgeGraph).flatMap(item => [item.ingredient, ...item.flavorPairings, ...item.commonHerbs, ...item.commonSpices, ...item.sauces])
 ]);
-for (const [en, ar] of Object.entries(ARABIC_CULINARY_DICTIONARY.ingredients)) if (knownNames.has(en) || foods.has(foodTerm(en))) add(en, ar);
+for (const [en, ar] of Object.entries(ARABIC_CULINARY_DICTIONARY.ingredients)) {
+  if ([en, en.replace(/s$/, ""), `${en}s`].some(name => knownNames.has(name) || foods.has(foodTerm(name)))) add(en, ar);
+}
 for (const en of knownNames) add(en, translateIngredientToArabic(en));
 // Composition/property inheritance, not a translation alias. A bread-derived
 // ingredient retains the grain restriction even when its surface word differs.

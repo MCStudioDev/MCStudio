@@ -41,6 +41,8 @@ export function englishSourceRecipe(source: RecipeCatalogDoc): Recipe {
     cook_time: `${source.totalMinutes} minutes`, difficulty: source.difficulty,
     image_url: localized?.image_url ?? source.image?.storagePath,
     image_source: localized?.image_source ?? (source.image?.source === "replicate" ? "replicate" : undefined),
+    image_attribution_name: localized?.image_attribution_name,
+    image_attribution_url: localized?.image_attribution_url,
     photo_identity: localized?.photo_identity,
     source_recipe_id: source.id
   };

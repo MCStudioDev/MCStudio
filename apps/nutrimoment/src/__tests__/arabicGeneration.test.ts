@@ -7,7 +7,7 @@ const mock = vi.hoisted(() => ({
   rows: [] as unknown[], writes: [] as Array<{ path: string; data: unknown }>,
   allowed: true, source: null as unknown,
   generate: vi.fn(), translate: vi.fn(), repair: vi.fn(), reserve: vi.fn(), complete: vi.fn(), release: vi.fn(),
-  profile: vi.fn(), readSource: vi.fn(), findSources: vi.fn(), commit: vi.fn()
+  profile: vi.fn(), readSource: vi.fn(), findSources: vi.fn(), candidates: vi.fn(), commit: vi.fn()
 }));
 vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
   doc: (path: string) => ({ path }),
@@ -31,6 +31,7 @@ vi.mock("@/services/arabic/rateLimit", () => ({ applyArabicRateLimit: () => ({ d
 vi.mock("@/services/arabic/gemini", () => ({ generateArabicRecipes: mock.generate, translateArabicSource: mock.translate, callArabicModel: mock.repair }));
 vi.mock("@/services/arabic/factsGemini", () => ({ generateArabicFactBatch: mock.generate }));
 vi.mock("@/services/arabic/referenceSources", () => ({ findArabicReferenceCandidates: async () => [] }));
+vi.mock("@/services/arabic/sourceCandidates", () => ({ findArabicSourceCandidates: mock.candidates }));
 vi.mock("@/services/arabic/englishSources", () => ({
   findEnglishSources: mock.findSources, readEnglishSource: mock.readSource,
   englishSourceFingerprint: (source: { fingerprint: string }) => source.fingerprint,
@@ -50,13 +51,28 @@ beforeEach(() => {
     if (publish) await publish({ set: (ref: { path: string }, data: unknown) => mock.writes.push({ path: ref.path, data }) });
     return access;
   }); mock.release.mockResolvedValue(true); mock.commit.mockResolvedValue(undefined);
-  mock.findSources.mockResolvedValue([]); mock.readSource.mockResolvedValue(null);
+  mock.findSources.mockResolvedValue([]); mock.readSource.mockResolvedValue(null); mock.candidates.mockResolvedValue([]);
   mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: arabic }] });
   mock.repair.mockResolvedValue({ repairs: [] });
 });
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it("uses source corrections before fresh generation for entitled users and bills once", async () => {
+    mock.candidates.mockResolvedValue([{ reference: { id: "source-candidate", title: canonical.name }, variantKey: "candidate-variant" }]);
+    const response = await handleArabicGeneration(request(), "recipes");
+    expect(response.status).toBe(200);
+    expect(mock.candidates).toHaveBeenCalledOnce();
+    expect(mock.generate.mock.calls[0][0].sourceOnly).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("does not discover English sources or call Gemini for free users without credits", async () => {
+    mock.allowed = false;
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    expect((await handleArabicGeneration(request({ recipeCount: 10 }), "recipes")).status).toBe(200);
+    expect(mock.candidates).not.toHaveBeenCalled(); expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
+  });
   it("saves all 21 classified fact meals and their Arabic shopping list atomically", async () => {
     const facts = weeklyFactFixtures();
     mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));

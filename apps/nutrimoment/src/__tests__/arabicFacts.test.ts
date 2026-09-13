@@ -25,6 +25,14 @@ export function salmonFacts() {
 }
 
 describe("Arabic facts pipeline", () => {
+  it("requires explicitly measured soaking liquid, including water discarded before cooking", async () => {
+    const facts = salmonFacts();
+    facts.steps.unshift({ action: "soak", foodIds: [food("rice")], minutes: 20, temperatureC: 0, heat: "none" });
+    facts.totalMinutes = 50;
+    expect((await buildArabicFactsEntry(facts, unrestricted)).reasons).toContain("missing_soaking_liquid");
+    facts.steps[0].foodIds.push(food("water"));
+    expect((await buildArabicFactsEntry(facts, unrestricted)).entry).not.toBeNull();
+  });
   it("requires cooking liquid when raw grains or legumes are boiled or simmered", async () => {
     const facts = salmonFacts();
     facts.steps[1].foodIds = [food("rice")];

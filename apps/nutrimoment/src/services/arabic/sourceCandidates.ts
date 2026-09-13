@@ -116,5 +116,6 @@ export async function findArabicSourceCandidates(ingredients: string[], cuisine:
     const key = `${identity}:${[...row.requiredFoodIds!].sort().join(",")}`;
     if (seen.has(key)) return false;
     seen.add(key); return true;
-  }).slice(0, limit).map(({ score: _score, ...row }) => row);
+  }).slice(0, limit).map(row => ({ reference: row.reference, source: row.source, fingerprint: row.fingerprint, variantKey: row.variantKey,
+    requiredFoodIds: row.requiredFoodIds, sourceServings: row.sourceServings, edited: row.edited }));
 }

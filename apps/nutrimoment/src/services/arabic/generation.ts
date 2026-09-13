@@ -4,8 +4,6 @@ import { loadGenerationRestrictions } from "@/services/generationProfileService"
 import { rateLimitedResponse } from "@/services/rateLimitService";
 import { applyArabicRateLimit as applyRateLimit } from "./rateLimit";
 import { ProfileUnavailableError } from "@/lib/profileSafety";
-import { findRecipeDietViolation } from "@/lib/dietEnforcement";
-import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import { buildMealPlanPreferenceSignature } from "@/lib/mealPlanPreferenceSignature";
 import { buildArabicShoppingList } from "./shoppingFacts";
 import { assertSafeMealPlan } from "@/lib/generationSafety";
@@ -18,6 +16,7 @@ import { getAdminDb } from "@/lib/firebaseAdmin";
 import { arabicRecipeSchema, buildArabicEntry, partitionArabicRecipe, revalidateArabicEntry } from "./validation";
 import { callArabicModel } from "./gemini";
 import { generateArabicFactBatch } from "./factsGemini";
+import { generateArabicSourceBatch } from "./sourceCorrections";
 import { buildArabicFactsEntry, recipeFactsIdentity, type ArabicLabelReceipt } from "./recipeFacts";
 import { findArabicSourceCandidates } from "./sourceCandidates";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
@@ -140,7 +139,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       if (references.length && deadline - Date.now() > 25000) {
         try {
           didCallAi = true;
-          const corrected = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions,
+          const corrected = await generateArabicSourceBatch({ ingredients: normalized.canonical, restrictions,
             count: Math.min(7, Math.max(1, count - accepted.size)), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget,
             missingLimit: input.maxMissingIngredients, sourceOnly: true, references: references.slice(0, 9),
             excludeNames: [...accepted.values()].map(entry => entry.canonical.name)

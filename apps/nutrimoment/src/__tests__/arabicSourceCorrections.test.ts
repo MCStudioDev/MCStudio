@@ -3,7 +3,7 @@ const generate = vi.hoisted(() => vi.fn());
 vi.mock("@/services/arabic/factsGemini", () => ({ generateArabicFactBatch: generate }));
 import { generateArabicSourceBatch } from "@/services/arabic/sourceCorrections";
 const input = { ingredients: ["rice"], cuisine: "Egyptian", restrictions: { diets: ["vegan"], allergens: [], conditions: [] }, count: 3, calorieTarget: 1650, missingLimit: 5 };
-beforeEach(() => generate.mockReset());
+beforeEach(() => { generate.mockReset(); });
 describe("Arabic source correction concurrency", () => {
   it("shares one in-flight correction for identical requests", async () => {
     let resolve!: (value: { recipes: never[] }) => void;

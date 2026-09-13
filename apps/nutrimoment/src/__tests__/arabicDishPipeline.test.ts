@@ -44,10 +44,17 @@ function useProvider(options: { reorder?: boolean; omitFirst?: boolean; badSeque
 }
 beforeEach(() => { mocks.model.mockReset(); mocks.guidance.mockReset(); mocks.guidance.mockResolvedValue([]); state.ids = []; });
 describe("Arabic dish ownership and independent validation", () => {
+  it("cannot rename a different ingredient manifest after dropping catalog structural ingredients", async () => {
+    mocks.guidance.mockResolvedValue([{ name: "Chicken rice", nativeName: "أرز بالدجاج", essentialIngredients: ["chicken", "rice"], availableIngredients: ["rice"] }]);
+    useProvider();
+    const result = await generateArabicFactBatch({ ...input, count: 1 }, Date.now() + 65000, "identity");
+    expect(result.recipes).toEqual([]);
+    expect(result.diagnostics.some(item => item.issues.includes("dish_ingredients_changed"))).toBe(true);
+  });
   it("keeps identities and ingredients attached when Gemini reorders recipes", async () => {
     useProvider({ reorder: true });
     const result = await generateArabicFactBatch(input, Date.now() + 65000, "reorder");
-    expect(result.recipes.map(item => item.facts.name)).toEqual(fixtures().map(item => item.name).reverse());
+    expect(result.recipes.map(item => item.facts.name), JSON.stringify(result.diagnostics)).toEqual(fixtures().map(item => item.name).reverse());
     expect(result.recipes[0].facts.ingredients).toEqual(fixtures()[1].ingredients);
   });
   it("keeps the successful dish when another is omitted and records its identity", async () => {

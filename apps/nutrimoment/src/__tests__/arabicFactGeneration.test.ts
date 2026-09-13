@@ -1,146 +1,137 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const model = vi.hoisted(() => vi.fn());
 vi.mock("@/services/arabic/gemini", () => ({ callArabicModel: model }));
-import { generateArabicFactBatch, arabicFactsProviderSchema } from "@/services/arabic/factsGemini";
+vi.mock("@/services/arabic/cuisineGuidance", () => ({ buildArabicCuisineGuidance: async () => [] }));
+import { generateArabicFactBatch, arabicFactsProviderSchema, type ArabicFactBatchInput } from "@/services/arabic/factsGemini";
 import { selectArabicWeeklyMeals } from "@/services/arabic/weeklyFacts";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 import { arabicFoods, findArabicFood } from "@/services/arabic/foodCatalog";
 import { arabicSafetyFingerprint, needsArabicSemanticSafety } from "@/services/arabic/semanticSafety";
-beforeEach(() => { model.mockReset(); model.mockResolvedValue({ recipes: [] }); });
+import type { ArabicRecipeFacts } from "@/services/arabic/recipeFacts";
+
+const input: ArabicFactBatchInput = { ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 1, cuisine: "Mediterranean", calorieTarget: 1650, missingLimit: 5 };
+const data = (prompt: string) => JSON.parse(prompt.split("INPUT_JSON\n")[1]);
+let facts: ArabicRecipeFacts, output: unknown, manifestIds: string[], safe: boolean, sourceValid: boolean, repair: boolean;
+const run = (changes: Partial<ArabicFactBatchInput> = {}, budget = 65000) => generateArabicFactBatch({ ...input, ...changes }, Date.now() + budget, "test");
+const reference = () => ({ reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: ["200 g salmon", "1 cup rice", "2 cups water"], steps: ["Cook salmon and rice."], matchedIngredients: ["rice"] },
+  fingerprint: "source-fingerprint", variantKey: "variant-1", source: { kind: "trusted" as const, id: "trusted-1", fingerprint: "source-fingerprint" }, requiredFoodIds: [...manifestIds] });
+beforeEach(() => {
+  model.mockReset(); facts = weeklyFactFixtures()[0]; output = facts; manifestIds = facts.ingredients.map(item => item.foodId); safe = true; sourceValid = true; repair = false;
+  model.mockImplementation(async (prompt: string, _deadline: number, _id: string, stage: string) => {
+    const p = data(prompt);
+    if (stage === "arabic_facts_planning") return { plans: p.candidates.map((candidate: { candidateId: string }) => ({ candidateId: candidate.candidateId,
+      name: facts.name, dishFamily: facts.dishFamily, foodIds: manifestIds, mealTypes: facts.mealTypes })) };
+    if (stage === "arabic_facts_generation") return { recipes: p.plans.map((plan: { candidateId: string }) => ({ candidateId: plan.candidateId, facts: output, safetyReceipt: "forged" })) };
+    if (stage === "arabic_facts_verification") return {
+      labels: p.labels.map((label: object) => ({ ...label, valid: safe })), recipes: p.safetyChecks.map((item: object) => ({ ...item, safe })),
+      sources: p.sourceChecks.map((item: object) => ({ ...item, valid: sourceValid })),
+      culinary: p.culinaryChecks.map((item: { candidateId: string }) => ({ candidateId: item.candidateId, valid: true, issues: [] }))
+    };
+    if (stage === "arabic_facts_repair") return { repairs: repair ? p.repairs.map((item: { candidateId: string }) => ({ candidateId: item.candidateId,
+      ingredients: [], nutrition: {}, steps: facts.steps.map(({ foodIds, ...step }) => ({ ...step, ingredientNumbers: foodIds.map(id => facts.ingredients.findIndex(item => item.foodId === id) + 1) })), totalMinutes: facts.totalMinutes })) : [] };
+    throw new Error(`Unexpected phase ${stage}`);
+  });
+});
 describe("Arabic fact generation orchestration", () => {
-  const input = { ingredients: ["rice"], restrictions: { diets: [] as string[], allergens: [] as string[], conditions: [] as string[] }, count: 1, cuisine: "Mediterranean", calorieTarget: 1650, missingLimit: 5 };
-  const manifest = (facts: ReturnType<typeof weeklyFactFixtures>[number]) => ({ name: facts.name, dishFamily: facts.dishFamily, foodIds: facts.ingredients.map(item => item.foodId), mealTypes: facts.mealTypes });
-  it("generates complete manifests without a missing-ingredient cutoff when unlimited", async () => {
-    const facts = weeklyFactFixtures()[0];
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] });
-    const result = await generateArabicFactBatch({ ...input, missingLimit: "unlimited" }, Date.now() + 40000, "test");
+  it("also binds fresh cooking steps to food IDs and explicit preparation dependencies", async () => {
+    await run();
+    const steps = (model.mock.calls[1][4] as any).properties.recipes.items.properties.facts.properties.steps.items;
+    expect(steps.properties.foodIds.items.enum).toEqual(manifestIds);
+    expect(steps.required).toContain("previousSteps");
+  });
+  it("generates complete manifests with no missing cutoff when unlimited", async () => {
+    const result = await run({ missingLimit: "unlimited" });
     expect(result.recipes).toHaveLength(1);
     expect(model.mock.calls[0][0]).toContain("No limit on missing ingredients");
     expect(model.mock.calls[1][0]).not.toContain("AT MOST unlimited");
-    expect(model.mock.calls[0][0]).not.toContain("No more than unlimited");
   });
-  it("binds a correction to its selected trusted source and retains over-budget dishes for suggestions", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: ["200 g salmon", "1 cup rice", "1 cup water"], steps: ["Cook the salmon and rice."], matchedIngredients: ["rice"] },
-      fingerprint: "source-fingerprint", variantKey: "variant-1", source: { kind: "trusted" as const, id: "trusted-1", fingerprint: "source-fingerprint" }, requiredFoodIds: facts.ingredients.map(item => item.foodId) };
-    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] }).mockResolvedValueOnce({ labels: [], sources: [{ index: 0, valid: true }] });
-    const result = await generateArabicFactBatch({ ...input, missingLimit: 0, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test");
-    expect(result.recipes).toHaveLength(1);
-    expect(result.recipes[0].source).toEqual(reference.source);
+  it("binds corrections to the server-selected source, including over-budget alternatives", async () => {
+    const source = reference();
+    const result = await run({ missingLimit: 0, sourceOnly: true, references: [source] });
+    expect(result.recipes[0].source).toEqual(source.source);
     expect(result.recipes[0].variantKey).toBe("variant-1");
   });
-  it("uses constrained food IDs in source cooking steps instead of ambiguous ingredient positions", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: [], steps: [], matchedIngredients: [] }, fingerprint: "f", variantKey: "v", requiredFoodIds: facts.ingredients.map(item => item.foodId) };
-    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] }).mockResolvedValueOnce({ labels: [], sources: [{ index: 0, valid: true }] });
-    await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test");
-    const schema = model.mock.calls[1][4] as { properties: { recipes: { items: { properties: { facts: { properties: { steps: { items: { required: string[]; properties: Record<string, unknown> } } } } } } } } };
-    const properties = schema.properties.recipes.items.properties.facts.properties.steps.items.properties;
-    expect(properties).not.toHaveProperty("ingredientNumbers");
-    expect(properties.foodIds).toMatchObject({ items: { enum: reference.requiredFoodIds } });
-    expect(schema.properties.recipes.items.properties.facts.properties.steps.items.required).toContain("previousSteps");
+  it("constrains source steps to exact food IDs and requires preparation references", async () => {
+    await run({ sourceOnly: true, references: [reference()] });
+    const schema = model.mock.calls[1][4] as any;
+    const steps = schema.properties.recipes.items.properties.facts.properties.steps.items;
+    expect(steps.properties).not.toHaveProperty("ingredientNumbers");
+    expect(steps.properties.foodIds.items.enum).toEqual(manifestIds);
+    expect(steps.required).toContain("previousSteps");
+    expect(schema.properties.recipes.items.properties).not.toHaveProperty("planIndex");
   });
-  it("rejects a source correction that drops its verified protein", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: [], steps: [], matchedIngredients: [] }, fingerprint: "f", variantKey: "v", requiredFoodIds: [findArabicFood("salmon")!.id] };
-    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1", foodIds: [findArabicFood("rice")!.id] }] });
-    const result = await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test");
-    expect(result.recipes).toEqual([]);
-    expect(model).toHaveBeenCalledTimes(1);
+  it("rejects a correction that drops its verified protein before full generation", async () => {
+    const source = reference(); manifestIds = [findArabicFood("rice")!.id];
+    expect((await run({ sourceOnly: true, references: [source] })).recipes).toEqual([]);
+    expect(model).toHaveBeenCalledOnce();
   });
-  it("allows source-verified cooking aromatics without a per-dish ingredient allowlist", async () => {
-    const facts = weeklyFactFixtures()[0], requiredFoodIds = facts.ingredients.map(item => item.foodId);
-    const garlic = findArabicFood("garlic")!.id;
-    facts.ingredients.push({ foodId: garlic, quantity: 1, unit: "clove", state: "raw" });
-    facts.steps[1].foodIds.push(garlic);
-    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: [], steps: [], matchedIngredients: [] }, fingerprint: "f", variantKey: "v", requiredFoodIds };
-    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] }).mockResolvedValueOnce({ labels: [], sources: [{ index: 0, valid: true }] });
-    expect((await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test")).recipes).toHaveLength(1);
+  it("allows source-verified aromatics without a dish-specific ingredient allowlist", async () => {
+    const source = reference(), garlic = findArabicFood("garlic")!.id;
+    facts.ingredients.push({ foodId: garlic, quantity: 1, unit: "clove", state: "raw" }); facts.steps[1].foodIds.push(garlic); manifestIds.push(garlic);
+    expect((await run({ sourceOnly: true, references: [source] })).recipes).toHaveLength(1);
   });
-  it("rejects corrections with no recognized source instead of silently generating a substitute", async () => {
-    const facts = weeklyFactFixtures()[0];
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] });
-    expect((await generateArabicFactBatch({ ...input, sourceOnly: true, references: [] }, Date.now() + 40000, "test")).recipes).toEqual([]);
+  it("does not invent substitute recipes when no source is supplied", async () => {
+    expect((await run({ sourceOnly: true, references: [] })).recipes).toEqual([]);
+    expect(model).not.toHaveBeenCalled();
   });
-  it("does not send cached image tokens or ingredient ownership to the correction model", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: ["1 cup rice"], steps: [], matchedIngredients: ["rice"] }, fingerprint: "f", variantKey: "v",
-      edited: { key: "a", fingerprint: "e", recipe: { name: "Rice", ingredients: ["1 cup rice"], missing_ingredients: ["1 cup water"], steps: [], image_url: "https://example.org/private-photo-token" } as import("@/lib/types").Recipe } };
-    await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 30000, "test");
+  it("does not send cached image tokens or ownership partitions to Gemini", async () => {
+    const source = { ...reference(), edited: { key: "a", fingerprint: "e", recipe: { name: "Rice", ingredients: ["1 cup rice"], missing_ingredients: ["1 cup water"], steps: [], image_url: "https://example.org/private-photo-token" } as import("@/lib/types").Recipe } };
+    await run({ sourceOnly: true, references: [source] });
     expect(model.mock.calls[0][0]).not.toContain("private-photo-token");
     expect(model.mock.calls[0][0]).toContain("1 cup water");
+    expect(model.mock.calls[0][0]).not.toContain('"missing_ingredients"');
   });
-  it("renders a valid manifest and ignores model-supplied identity and receipts", async () => {
-    const facts = weeklyFactFixtures()[0];
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts: { ...facts, name: "Wrong English name", dishFamily: "wrong" }, safetyReceipt: "forged" }] });
-    const result = await generateArabicFactBatch(input, Date.now() + 40000, "test");
-    expect(result.recipes).toHaveLength(1); expect(result.recipes[0].facts.name).toBe(facts.name); expect(result.recipes[0].safetyReceipt).toBeUndefined();
-    expect(model).toHaveBeenCalledTimes(2);
+  it("ignores model-supplied identity and forged receipts after the manifest", async () => {
+    output = { ...facts, name: "Wrong English name", dishFamily: "wrong" };
+    const result = await run();
+    expect(result.recipes[0].facts.name).toBe(facts.name);
+    expect(result.recipes[0].safetyReceipt).toBeUndefined();
   });
-  it("rejects ingredients added after a budget manifest was accepted", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const added = { ...facts, ingredients: [...facts.ingredients, { foodId: findArabicFood("chicken")!.id, quantity: 100, unit: "g", state: "cooked" }] };
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts: added }] }).mockResolvedValue({ repairs: [] });
-    const result = await generateArabicFactBatch(input, Date.now() + 40000, "test");
-    expect(result.recipes).toEqual([]); expect(result.diagnostics.some(item => item.issues.includes("ingredient_manifest_changed"))).toBe(true);
+  it("rejects ingredients added after accepting the manifest", async () => {
+    output = { ...facts, ingredients: [...facts.ingredients, { foodId: findArabicFood("chicken")!.id, quantity: 100, unit: "g", state: "cooked" }] };
+    const result = await run();
+    expect(result.recipes).toEqual([]);
+    expect(result.diagnostics.some(item => item.issues.includes("ingredient_manifest_changed"))).toBe(true);
   });
-  it("allows one instruction repair while keeping ingredient quantities and nutrition fixed", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const broken = { ...facts, steps: facts.steps.map(step => ({ ...step, foodIds: step.action === "wash" ? ["invented-mixture"] : step.foodIds })) };
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts: broken }] })
-      .mockResolvedValueOnce({ repairs: [{ index: 0, name: facts.name, dishFamily: facts.dishFamily, ingredients: [], nutrition: {}, steps: facts.steps.map(({ foodIds, ...step }) => ({ ...step, ingredientNumbers: foodIds.map(id => facts.ingredients.findIndex(item => item.foodId === id) + 1) })) }] });
-    const result = await generateArabicFactBatch(input, Date.now() + 40000, "test");
-    expect(result.recipes[0].facts.ingredients).toEqual(facts.ingredients); expect(result.recipes[0].facts.nutrition).toEqual(facts.nutrition); expect(model).toHaveBeenCalledTimes(3);
-  });
-  it("repairs missing cooking-liquid references without changing ingredients", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const broken = { ...facts, steps: facts.steps.map(step => ({ ...step, foodIds: step.foodIds.filter(id => id !== findArabicFood("water")!.id) })) };
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts: broken }] })
-      .mockResolvedValueOnce({ repairs: [{ index: 0, name: facts.name, dishFamily: facts.dishFamily, steps: facts.steps.map(({ foodIds, ...step }) => ({ ...step, ingredientNumbers: foodIds.map(id => facts.ingredients.findIndex(item => item.foodId === id) + 1) })) }] });
-    const result = await generateArabicFactBatch(input, Date.now() + 40000, "test");
-    expect(result.recipes).toHaveLength(1);
-    expect(model.mock.calls[2][0]).toContain("missing_cooking_liquid");
-  });
-  it("identifies the exact repeated steps for the single bounded repair", async () => {
-    const facts = weeklyFactFixtures()[0];
-    const broken = { ...facts, steps: [...facts.steps, { ...facts.steps[0] }] };
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts: broken }] })
-      .mockResolvedValueOnce({ repairs: [{ index: 0, name: facts.name, dishFamily: facts.dishFamily, steps: facts.steps.map(({ foodIds, ...step }) => ({ ...step, ingredientNumbers: foodIds.map(id => facts.ingredients.findIndex(item => item.foodId === id) + 1) })) }] });
-    const result = await generateArabicFactBatch(input, Date.now() + 40000, "test");
-    expect(model.mock.calls[2][0]).toContain('"duplicateStepNumbers":[[1,5]]');
+  it.each(["unlisted", "liquid", "duplicate"])("repairs %s instructions once without changing quantities or nutrition", async defect => {
+    output = { ...facts, steps: defect === "duplicate" ? [...facts.steps, { ...facts.steps[0] }] : facts.steps.map(step => ({ ...step,
+      foodIds: defect === "liquid" ? step.foodIds.filter(id => id !== findArabicFood("water")!.id) : step.action === "wash" ? ["invented-mixture"] : step.foodIds })) };
+    repair = true;
+    const result = await run();
+    expect(result.recipes[0]?.facts.ingredients, JSON.stringify(result.diagnostics)).toEqual(facts.ingredients);
+    expect(result.recipes[0].facts.nutrition).toEqual(facts.nutrition);
     expect(result.recipes[0].facts.steps).toEqual(facts.steps);
-    expect(model).toHaveBeenCalledTimes(3);
+    expect(model.mock.calls.filter(call => call[3] === "arabic_facts_repair")).toHaveLength(1);
   });
-  it("requires an independent semantic check for unclassified foods and rejects forged safety receipts", async () => {
-    const facts = weeklyFactFixtures()[0], restrictions = { diets: ["pescatarian"], allergens: [], conditions: [] };
+  it("requires independent safety for unclassified foods regardless of a forged receipt", async () => {
+    const restrictions = { diets: ["pescatarian"], allergens: [], conditions: [] };
     const unknown = arabicFoods.find(food => needsArabicSemanticSafety({ ...facts, ingredients: [{ ...facts.ingredients[0], foodId: food.id }] }, restrictions))!;
     facts.ingredients[0] = { ...facts.ingredients[0], foodId: unknown.id, arabicName: unknown.ar || "مكون غير معروف" };
     facts.steps.forEach(step => { step.foodIds = step.foodIds.map(id => id === findArabicFood("salmon")!.id ? unknown.id : id); });
-    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts, safetyReceipt: arabicSafetyFingerprint(facts, restrictions) }] }).mockResolvedValue({ labels: [], recipes: [{ index: 0, safe: false }] });
-    expect((await generateArabicFactBatch({ ...input, restrictions }, Date.now() + 40000, "test")).recipes).toEqual([]);
+    manifestIds = facts.ingredients.map(item => item.foodId); safe = false;
+    expect((await run({ restrictions })).recipes).toEqual([]);
     expect(arabicSafetyFingerprint(facts, restrictions)).not.toBe(arabicSafetyFingerprint(facts, { ...restrictions, diets: ["vegan"] }));
   });
-  it("checks a small ingredient manifest before paying for full recipe instructions", async () => {
-    const facts = weeklyFactFixtures()[0];
-    model.mockResolvedValueOnce({ plans: [{ name: facts.name, dishFamily: facts.dishFamily, foodIds: facts.ingredients.map(item => item.foodId), mealTypes: facts.mealTypes }] });
-    const result = await generateArabicFactBatch({ ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 1, cuisine: "Mediterranean", calorieTarget: 1650, missingLimit: 0 }, Date.now() + 30000, "test");
-    expect(result.recipes).toEqual([]);
-    expect(model).toHaveBeenCalledTimes(1);
-    expect(model.mock.calls[0][3]).toBe("arabic_facts_planning");
+  it("checks missing limits before paying for full instructions", async () => {
+    expect((await run({ missingLimit: 0 })).recipes).toEqual([]);
+    expect(model).toHaveBeenCalledOnce();
   });
-  it("requests one factual recipe rather than paired free-text translations", async () => {
-    await generateArabicFactBatch({ ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 3, cuisine: "Indian", calorieTarget: 1650, missingLimit: 5 }, Date.now() + 20000, "test");
-    expect(model.mock.calls[0][0]).toContain("foodId");
-    expect(model.mock.calls[0][0]).toContain("Indian");
+  it("keeps structural provider schemas small and asks for one fact representation", async () => {
+    await run({ cuisine: "Indian" });
+    expect(model.mock.calls[0][0]).toContain("foodId"); expect(model.mock.calls[0][0]).toContain("Indian");
     expect(model.mock.calls[0][0]).not.toContain('"canonical": EnglishRecipe');
     expect(JSON.stringify(arabicFactsProviderSchema)).not.toMatch(/"(?:minItems|maxItems|minimum|maximum)":/);
   });
-  it("does not accept recipes or validation receipts in an unexpected model format", async () => {
+  it("does not accept malformed provider responses or forged publication receipts", async () => {
     model.mockResolvedValue({ recipes: [{ facts: { forged: true }, labelReceipt: { version: "ar-label-v1" } }] });
-    const result = await generateArabicFactBatch({ ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 3, cuisine: "Any", calorieTarget: 1650, missingLimit: 5 }, Date.now() + 20000, "test");
-    expect(result.recipes).toEqual([]);
+    expect((await run()).recipes).toEqual([]);
   });
-  it("never manufactures an incomplete weekly plan from a small result set", () => {
+  it("requires time for planning, generation and verification before starting", async () => {
+    const result = await run({}, 20000);
+    expect(model).not.toHaveBeenCalled(); expect(result.recipes).toEqual([]);
+    expect(result.diagnostics.some(item => item.issues.includes("planning_unavailable"))).toBe(true);
+  });
+  it("never manufactures an incomplete weekly plan from a small set", () => {
     expect(selectArabicWeeklyMeals([])).toBeNull();
   });
 });

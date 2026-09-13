@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildArabicCuisineGuidance } from "@/services/arabic/cuisineGuidance";
+import { selectArabicDishCandidates } from "@/services/arabic/dishCandidates";
 
 describe("Arabic cuisine guidance", () => {
+  it("assigns both taameya and koshary a stable slot for Mina's shown pantry", async () => {
+    const selected = await selectArabicDishCandidates({ ingredients: ["rice", "fava beans", "chickpeas"], cuisine: "Egyptian", count: 7,
+      calorieTarget: 1650, missingLimit: "unlimited", restrictions: { diets: ["vegan"], allergens: [], conditions: [] } });
+    expect(selected.map(item => item.title).join(" ").toLowerCase()).toMatch(/taameya/);
+    expect(selected.map(item => item.title).join(" ").toLowerCase()).toMatch(/koshary|koshari/);
+  });
   it("prioritizes recognizable Egyptian dishes compatible with the pantry and vegan profile", async () => {
     const dishes = await buildArabicCuisineGuidance("Egyptian", ["rice", "tomato", "fava beans"], { diets: ["vegan"], conditions: [], allergens: [] });
     const names = dishes.map(dish => dish.name).join(" ").toLowerCase();

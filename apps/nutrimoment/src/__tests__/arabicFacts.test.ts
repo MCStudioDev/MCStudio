@@ -30,6 +30,16 @@ describe("Arabic facts pipeline", () => {
     facts.steps[1].foodIds = [food("rice")];
     expect((await buildArabicFactsEntry(facts, unrestricted)).reasons).toContain("missing_cooking_liquid");
   });
+  it("reports repairable instruction defects even while compound safety verification is pending", async () => {
+    const facts = salmonFacts();
+    facts.ingredients.push({ foodId: food("tomato sauce"), quantity: 0.5, unit: "cup", state: "cooked" });
+    facts.steps[1].foodIds.push(food("tomato sauce"));
+    facts.steps.push({ ...facts.steps[0] });
+    const checked = await buildArabicFactsEntry(facts, { ...unrestricted, diets: ["pescatarian"] });
+    expect(checked.entry).toBeNull();
+    expect(checked.reasons).toContain("semantic_safety_unverified");
+    expect(checked.reasons).toContain("canonical:duplicate_instructions");
+  });
   it("uses existing food knowledge for ordinary English, Arabic and mixed input", async () => {
     for (const term of ["mushroom", "mushrooms", "فطر", "soy sauce", "lime", "cilantro"]) {
       const result = await normalizeArabicInputs([term]);

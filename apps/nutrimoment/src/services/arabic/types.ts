@@ -13,6 +13,7 @@ export interface ArabicRecipeEntry {
   ingredientCanonicals: string[];
   validatorVersion: string;
   fingerprint: string;
-  source?: { id: string; fingerprint: string };
+  source?: { id: string; fingerprint: string; kind?: "reference"; editorKey?: string; editorFingerprint?: string };
+  variantKey?: string;
   validatedAt: string;
 }

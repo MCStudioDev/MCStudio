@@ -5,6 +5,7 @@ import type { HistoryItem, MealPlanData, Recipe } from "@/lib/types";
 import type { GenerationRestrictions } from "@/lib/profileSafety";
 import type { ArabicRecipeEntry } from "./types";
 import { readEnglishSource, englishSourceFingerprint } from "./englishSources";
+import { arabicSourceIsCurrent } from "./sourceEligibility";
 export { arabicFingerprint } from "./fingerprint";
 
 function segment(value: string) {
@@ -12,6 +13,8 @@ function segment(value: string) {
   return value;
 }
 export const arabicPaths = {
+  resolution: (id: string) => `ingredientResolutionsArabicV1/${segment(id)}`,
+  variant: (id: string) => `recipeVariantsArabicV1/${segment(id)}`,
   image: (id: string) => `recipePhotoCacheArabicV1/${segment(id)}`,
   shared: (id: string) => `sharedRecipesArabicV1/${segment(id)}`,
   userCache: (uid: string, id: string) => `users/${segment(uid)}/offlineRecipeCacheArabicV1/${segment(id)}`,
@@ -19,7 +22,7 @@ export const arabicPaths = {
   plan: (uid: string) => `users/${segment(uid)}/plans/currentWeeklyArabic`
 };
 export function assertArabicWritePath(path: string) {
-  if (!/^(?:(?:sharedRecipesArabicV1|recipePhotoCacheArabicV1)\/[\w-]+|users\/[\w-]+\/(?:offlineRecipeCacheArabicV1\/[\w-]+|historyArabicV1\/[\w-]+|plans\/currentWeeklyArabic))$/.test(path)) {
+  if (!/^(?:(?:sharedRecipesArabicV1|recipePhotoCacheArabicV1|ingredientResolutionsArabicV1|recipeVariantsArabicV1)\/[\w-]+|users\/[\w-]+\/(?:offlineRecipeCacheArabicV1\/[\w-]+|historyArabicV1\/[\w-]+|plans\/currentWeeklyArabic))$/.test(path)) {
     throw new Error("Write outside Arabic content namespace denied");
   }
 }
@@ -37,6 +40,7 @@ export async function saveArabicResult(input: {
 }) {
   const writes: Array<{ path: string; data: object }> = [];
   for (const entry of input.entries) {
+    if (entry.variantKey) writes.push({ path: arabicPaths.variant(entry.variantKey), data: { recipeId: entry.id, fingerprint: entry.fingerprint, validatorVersion: entry.validatorVersion } });
     writes.push({ path: arabicPaths.shared(entry.id), data: entry });
     writes.push({ path: arabicPaths.userCache(input.uid, entry.id), data: entry });
   }
@@ -56,8 +60,7 @@ export async function saveArabicResult(input: {
     // Firestore retries if a source changes during publication; all writes
     // remain in Arabic collections even though the transaction reads English.
     for (const entry of input.entries) if (entry.source) {
-      const source = await readEnglishSource(entry.source.id, transaction);
-      if (!source || englishSourceFingerprint(source) !== entry.source.fingerprint) throw new Error("English source changed before Arabic publication");
+      if (!await arabicSourceIsCurrent(entry.source, transaction)) throw new Error("English source changed before Arabic publication");
     }
     for (const { path, data } of writes) transaction.set(db.doc(path), { ...clean(data), updatedAt: FieldValue.serverTimestamp() });
   };

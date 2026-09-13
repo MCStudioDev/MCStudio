@@ -25,10 +25,11 @@ describe("Arabic fact generation orchestration", () => {
     const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: [], steps: [], matchedIngredients: [] }, fingerprint: "f", variantKey: "v", requiredFoodIds: facts.ingredients.map(item => item.foodId) };
     model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] }).mockResolvedValueOnce({ labels: [], sources: [{ index: 0, valid: true }] });
     await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test");
-    const schema = model.mock.calls[1][4] as { properties: { recipes: { items: { properties: { facts: { properties: { steps: { items: { properties: Record<string, unknown> } } } } } } } } };
+    const schema = model.mock.calls[1][4] as { properties: { recipes: { items: { properties: { facts: { properties: { steps: { items: { required: string[]; properties: Record<string, unknown> } } } } } } } } };
     const properties = schema.properties.recipes.items.properties.facts.properties.steps.items.properties;
     expect(properties).not.toHaveProperty("ingredientNumbers");
     expect(properties.foodIds).toMatchObject({ items: { enum: reference.requiredFoodIds } });
+    expect(schema.properties.recipes.items.properties.facts.properties.steps.items.required).toContain("previousSteps");
   });
   it("rejects a source correction that drops its verified protein", async () => {
     const facts = weeklyFactFixtures()[0];

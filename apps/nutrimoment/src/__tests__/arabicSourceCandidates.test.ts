@@ -58,6 +58,10 @@ describe("Arabic independent English source retrieval", () => {
     const result = await findArabicSourceCandidates(["rice"], "Egyptian", vegan, 10);
     expect(result.some(row => /koshary/i.test(row.reference.title))).toBe(true);
   });
+  it("ignores malformed semantic records while retaining eligible trusted recipes", async () => {
+    mock.editors = [{ id: "a".repeat(64), data: { ...editor("a", "bad").data, recipe: { name: "Broken", cuisine: "Egyptian", source_recipe_id: "bad", ingredients: [123], steps: ["Cook"] } } }];
+    expect((await findArabicSourceCandidates(["rice"], "Egyptian", vegan, 10)).some(row => /koshary/i.test(row.reference.title))).toBe(true);
+  });
   it("rechecks trusted fingerprints and semantic expiry before Arabic publication", async () => {
     const [candidate] = await findArabicSourceCandidates(["rice"], "Egyptian", vegan, 10);
     expect(await arabicSourceIsCurrent(candidate.source!)).toBe(true);

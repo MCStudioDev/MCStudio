@@ -15,6 +15,7 @@ import { buildArabicEntry } from "@/services/arabic/validation";
 import { arabicImageObjectPath, readValidatedArabicEntry, resolveArabicImage } from "@/services/arabic/images";
 import { arabicPaths, assertArabicWritePath } from "@/services/arabic/repository";
 import type { RequestAccess } from "@/services/authService";
+import { arabicFingerprint } from "@/services/arabic/fingerprint";
 const access = { uid: "test", isPremium: true } as RequestAccess;
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("ARABIC_GENERATION_ENABLED", "true");
@@ -42,6 +43,14 @@ describe("Arabic image isolation", () => {
     const entry = await fixture({ id: "en-1", fingerprint: "source-hash" });
     mock.source.mockResolvedValue({}); mock.canReuse = true;
     expect(await resolveArabicImage(entry, restrictions, access, false)).toContain("existing.webp");
+    expect(mock.writes).toEqual([]); expect(mock.uploads).toEqual([]); expect(mock.model).not.toHaveBeenCalled();
+  });
+  it("reuses a source-matched semantic picture without any image generation or English writes", async () => {
+    const key = "a".repeat(64), recipe = { ...canonical, image_url: "https://example.org/semantic.webp" };
+    const entry = await fixture({ kind: "shared", id: "en-1", fingerprint: "source-hash", editorKey: key, editorFingerprint: arabicFingerprint(recipe) });
+    mock.docs.set(`recipeEditorSemanticCache/${key}`, { recipe, cacheVersion: "recipe-editor-v11-validation-identity-v1", expiresAt: { toMillis: () => Date.now() + 60000 } });
+    mock.source.mockResolvedValue({}); mock.canReuse = true;
+    expect(await resolveArabicImage(entry, restrictions, access, false)).toBe(recipe.image_url);
     expect(mock.writes).toEqual([]); expect(mock.uploads).toEqual([]); expect(mock.model).not.toHaveBeenCalled();
   });
   it("blocks changed sources and invalid Arabic recipes", async () => {

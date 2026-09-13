@@ -59,7 +59,7 @@ async function resolveEditorSource(editor: Editor) {
   if (trusted) return { recipe: englishSourceRecipe(trusted), names: trusted.ingredientCanonicals, servings: trusted.servings,
     source: { kind: "trusted", id, fingerprint: trustedArabicSourceFingerprint(trusted) } as Source };
   const shared = await readEnglishSource(id);
-  if (shared) return { recipe: englishSourceRecipe(shared), names: shared.ingredientCanonicals, servings: shared.servings,
+  if (shared) return { recipe: englishSourceRecipe(shared), names: undefined, servings: shared.servings,
     source: { kind: "shared", id, fingerprint: englishSourceFingerprint(shared) } as Source };
   const reference = await readArabicReferenceSource(id);
   if (!reference) return null;
@@ -97,7 +97,8 @@ export async function findArabicSourceCandidates(ingredients: string[], cuisine:
     await add(recipe, { kind: "reference", id: row.reference.id, fingerprint: row.fingerprint }, undefined, row.edited ?? undefined);
   }
   const shared = batches[1];
-  if (shared.status === "fulfilled") for (const row of shared.value) await add(englishSourceRecipe(row), { kind: "shared", id: row.id, fingerprint: englishSourceFingerprint(row) }, row.ingredientCanonicals, undefined, row.servings);
+  // Shared ingredientCanonicals are lookup aliases, not an authored ingredient list.
+  if (shared.status === "fulfilled") for (const row of shared.value) await add(englishSourceRecipe(row), { kind: "shared", id: row.id, fingerprint: englishSourceFingerprint(row) }, undefined, undefined, row.servings);
   for (const row of listTrustedArabicSources()) await add(englishSourceRecipe(row), { kind: "trusted", id: row.id, fingerprint: trustedArabicSourceFingerprint(row) }, row.ingredientCanonicals, undefined, row.servings);
   const editors = batches[2];
   if (editors.status === "fulfilled") {

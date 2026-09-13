@@ -12,7 +12,7 @@ export async function resolveArabicIngredients(values: string[], options: {
   allowAi: boolean; deadline: number; requestId: string; model?: typeof callArabicModel;
 }) {
   const normalized = await normalizeArabicInputs(values);
-  const remaining = [];
+  const remaining: Array<{ index: number; text: string; candidates: ReturnType<typeof rankArabicFoodCandidates>; path?: string }> = [];
   const resolved = new Map<number, string>();
   for (const item of normalized.unclear) {
     // A language model is never allowed to guess a composite meal's protein.

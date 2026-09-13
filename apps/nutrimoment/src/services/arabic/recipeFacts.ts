@@ -82,7 +82,7 @@ function render(facts: ArabicRecipeFacts, arabic: boolean): Recipe {
     carbs: `${facts.nutrition.carbs} ${arabic ? "غرام" : "g"}`, fat: `${facts.nutrition.fat} ${arabic ? "غرام" : "g"}`,
     cook_time: `${facts.totalMinutes} ${arabic ? "دقيقة" : "minutes"}`,
     difficulty: arabic ? { easy: "سهل", medium: "متوسط", hard: "صعب" }[facts.difficulty] : facts.difficulty,
-    servings: facts.servings, recipe_source_type: "generated"
+    recipe_source_type: "generated"
   };
 }
 

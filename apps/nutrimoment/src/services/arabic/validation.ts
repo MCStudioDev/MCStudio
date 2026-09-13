@@ -9,6 +9,8 @@ import { normalizeArabicInputs, normalizeArabicMeasure, westernDigits } from "./
 import { ARABIC_VALIDATOR_VERSION } from "./config";
 import { arabicFingerprint } from "./repository";
 import type { ArabicRecipeEntry } from "./types";
+import { buildArabicFactsEntry, arabicPropertyViolation } from "./recipeFacts";
+import { findArabicFood } from "./foodCatalog";
 
 export const arabicRecipeSchema = z.object({
   name: z.string().min(3).max(180), cuisine: z.string().min(1).max(80),
@@ -95,10 +97,11 @@ export async function buildArabicEntry(canonicalInput: unknown, arabicInput: unk
   const reasons = await validateArabicPair(canonical, recipe, restrictions);
   if (reasons.length) return { entry: null, reasons };
   const ingredients = await normalizeArabicInputs(allIngredients(canonical));
+  if (arabicPropertyViolation(ingredients.canonical, restrictions)) return { entry: null, reasons: ["diet_violation"] };
   const fingerprint = arabicFingerprint({ canonical, recipe, source: source ?? null });
   const id = `ar-${fingerprint.slice(0, 24)}`;
   const entry: ArabicRecipeEntry = {
-    id, canonical, recipe: { ...recipe, id, generationLanguage: "ar" }, ingredientCanonicals: ingredients.canonical,
+    id, canonical, recipe: { ...recipe, id, generationLanguage: "ar", recipe_source_type: source ? "external_source" : "generated" }, ingredientCanonicals: ingredients.canonical,
     validatorVersion: ARABIC_VALIDATOR_VERSION, fingerprint, source, validatedAt: new Date().toISOString()
   };
   return { reasons: [], entry };
@@ -107,10 +110,22 @@ export async function partitionArabicRecipe(entry: ArabicRecipeEntry, pantry: st
   const canonical = allIngredients(entry.canonical), display = allIngredients(entry.recipe);
   const owned: string[] = [], missing: string[] = [];
   for (const [index, ingredient] of canonical.entries()) {
+    if (entry.facts) {
+      const item = entry.ingredientCanonicals[index];
+      const pantryIds = new Set(pantry.map(name => findArabicFood(name)?.id ?? name));
+      (pantryIds.has(findArabicFood(item)?.id ?? item) ? owned : missing).push(display[index]);
+      continue;
+    }
     const normalized = await normalizeArabicInputs([ingredient]);
     if (normalized.unclear.length) return null;
     (normalized.canonical.every(name => pantry.includes(name)) ? owned : missing).push(display[index]);
   }
   if (!owned.length || missing.length > missingLimit) return null;
   return { ...entry.recipe, ingredients: owned, missing_ingredients: missing };
+}
+export async function revalidateArabicEntry(entry: ArabicRecipeEntry, restrictions: GenerationRestrictions) {
+  const result = entry.facts ? await buildArabicFactsEntry(entry.facts, restrictions, entry.source, entry.labelReceipt)
+    : await buildArabicEntry(entry.canonical, entry.recipe, restrictions, entry.source);
+  if (result.entry && entry.variantKey) result.entry.variantKey = entry.variantKey;
+  return result;
 }

@@ -28,6 +28,8 @@ vi.mock("@/services/authService", () => ({
 vi.mock("@/services/generationProfileService", () => ({ loadGenerationRestrictions: mock.profile }));
 vi.mock("@/services/rateLimitService", () => ({ applyRateLimit: () => ({ decision: { allowed: true } }) }));
 vi.mock("@/services/arabic/gemini", () => ({ generateArabicRecipes: mock.generate, translateArabicSource: mock.translate, callArabicModel: mock.repair }));
+vi.mock("@/services/arabic/factsGemini", () => ({ generateArabicFactBatch: mock.generate }));
+vi.mock("@/services/arabic/referenceSources", () => ({ findArabicReferenceCandidates: async () => [] }));
 vi.mock("@/services/arabic/englishSources", () => ({
   findEnglishSources: mock.findSources, readEnglishSource: mock.readSource,
   englishSourceFingerprint: (source: { fingerprint: string }) => source.fingerprint,
@@ -154,18 +156,15 @@ describe("Arabic request integration with write recording", () => {
     expect((await handleArabicGeneration(request(), "recipes")).status).toBe(503);
     expect(mock.writes).toEqual([]);
   });
-  it("saves a complete Arabic week and includes absent ingredients in the shopping list", async () => {
+  it("refuses to manufacture a week from 21 renamed copies of one dish", async () => {
     mock.generate.mockResolvedValue({ recipes: Array.from({ length: 21 }, (_, index) => ({
       canonical: { ...canonical, name: `${canonical.name} ${index + 1}` },
       recipe: { ...arabic, name: `${arabic.name} ${index + 1}` }
     })) });
     const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 2 }), "mealplan");
-    expect(response.status).toBe(200);
-    const saved = mock.writes.find(write => write.path === "users/sandy-test/plans/currentWeeklyArabic")?.data as any;
-    expect(saved.mealPlan.plan).toHaveLength(7);
-    expect(saved.mealPlan.plan.every((day: any) => [day.breakfast, day.lunch, day.dinner].every((meal: any) => meal.ingredients.length === 3))).toBe(true);
-    expect(saved.mealPlan.shoppingList.join(" ")).toMatch(/سلمون/);
-    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+    expect(response.status).toBe(503);
+    expect(mock.writes).toEqual([]);
+    expect(mock.release).toHaveBeenCalledTimes(1);
   });
   it("honors disabling Arabic while a request is running", async () => {
     mock.generate.mockImplementation(async () => {

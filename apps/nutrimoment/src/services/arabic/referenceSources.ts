@@ -50,7 +50,7 @@ export async function findArabicReferenceCandidates(ingredients: string[], cuisi
     if (!source) return null;
     const fingerprint = referenceFingerprint(source);
     const input: RecipeEditorCacheInput = { sourceRecipe: reference, recipeLanguage: "English", preferredCuisine: cuisine,
-      availableIngredients: ingredients.map(name => ({ name })), ...restrictions, excludedIngredients: restrictions.excludedIngredients ?? [] };
+      availableIngredients: ingredients.map(name => ({ name })), ...restrictions, excludedIngredients: [] };
     const edited = await readEnglishEditorForArabic(input);
     return { reference, fingerprint, variantKey: arabicVariantKey(fingerprint, input), edited };
   }));

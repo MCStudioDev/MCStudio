@@ -62,6 +62,34 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it("starts fresh generation while source correction is pending under the same billing action", async () => {
+    mock.candidates.mockResolvedValue([{ reference: { id: "source-candidate", title: "Koshary" }, variantKey: "v" }]);
+    let releaseSource!: (value: unknown) => void;
+    const pending = new Promise(resolve => { releaseSource = resolve; });
+    let freshStarted = false;
+    mock.generate.mockImplementation(async (input: { sourceOnly?: boolean }) => {
+      if (input.sourceOnly) return pending;
+      freshStarted = true; return { recipes: [{ canonical, recipe: arabic }] };
+    });
+    const response = handleArabicGeneration(request({ recipeCount: 3 }), "recipes");
+    try { await vi.waitFor(() => expect(freshStarted).toBe(true), { timeout: 500 }); }
+    finally { releaseSource({ recipes: [], diagnostics: [] }); await response; }
+    expect(mock.reserve).toHaveBeenCalledOnce();
+    expect(mock.complete).toHaveBeenCalledOnce();
+  });
+  it("persists per-dish rejection diagnostics in Arabic history and explains a failed refresh", async () => {
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    await handleArabicGeneration(request(), "recipes");
+    const diagnostic = { candidateId: `dish-${"a".repeat(24)}`, name: "طعمية", stage: "validation", status: "rejected", issues: ["incorrect_cooking_sequence"] };
+    mock.generate.mockResolvedValue({ recipes: [], diagnostics: [diagnostic] });
+    const data = await (await handleArabicGeneration(request(), "recipes")).json();
+    expect(data.backfilledCount).toBe(1);
+    expect(data.message).toContain("لم تجتز");
+    const histories = mock.writes.filter(write => write.path.includes("historyArabicV1"));
+    expect(histories.at(-1)?.data).toMatchObject({ generationDiagnostics: [diagnostic] });
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+    expect(mock.release).toHaveBeenCalledOnce();
+  });
   it.each([false, true])("returns a different cached dish on the next click, AI access=%s", async allowed => {
     mock.allowed = allowed;
     mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry, (await buildArabicEntry(veganCanonical, veganArabic, restrictions)).entry];

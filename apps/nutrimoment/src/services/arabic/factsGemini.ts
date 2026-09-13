@@ -117,13 +117,21 @@ FINAL CONSTRAINT CHECK: the only available ingredients are ${JSON.stringify(inpu
       if (!item.success) continue;
       const checked = await buildArabicFactsEntry(item.data.facts, input.restrictions);
       const repairable = checked.reasons.filter(reason => ["invalid_facts_shape", "unlisted_step_ingredient", "invalid_preparation_reference", "unused_ingredient", "missing_cooking_time", "missing_cooking_liquid", "missing_oven_temperature", "canonical:ingredient_only_title", "canonical:duplicate_instructions"].includes(reason));
-      if (repairable.length) repairs.push({ index, facts: item.data.facts, reasons: repairable });
+      if (repairable.length) {
+        const steps = arabicFactsSchema.shape.steps.safeParse(item.data.facts.steps);
+        const groups = new Map<string, number[]>();
+        if (steps.success) steps.data.forEach((step, stepIndex) => {
+          const key = JSON.stringify({ action: step.action, foodIds: step.foodIds, previousSteps: step.previousSteps ?? [], minutes: step.minutes, temperatureC: step.temperatureC, heat: step.heat });
+          groups.set(key, [...(groups.get(key) ?? []), stepIndex + 1]);
+        });
+        repairs.push({ index, facts: item.data.facts, reasons: repairable, duplicateStepNumbers: [...groups.values()].filter(group => group.length > 1) });
+      }
     }
     if (repairs.length && deadline - Date.now() >= 11000) {
       try {
         const repairSchema = z.object({ repairs: z.array(z.object({ index: z.number().int(), name: arabicFactsSchema.shape.name, dishFamily: arabicFactsSchema.shape.dishFamily, steps: activeFacts.shape.steps })).max(10) });
         const repaired = repairSchema.parse(await callArabicModel(
-          `Repair only the Arabic title, English dishFamily and preparation references/instructions for these generated recipes. Preserve the exact ingredient list, quantities, states and nutrition. Use at most 30 concise steps, combining compatible actions without deleting necessary cooking or assembly. name must be Arabic only. Return {"repairs":[{"index":number,"name":string,"dishFamily":string,"steps":Step[]}]}. ${stepReferences} Each Step also uses previousSteps (1-based positions of EARLIER steps only), action, heat, minutes, temperatureC. Use ALL ingredients; replace invented sauce/dish/equipment foodIds by previousSteps references to the step that made that preparation. Never delete required cooking steps. A serve step with no ingredients may serve the completed dish. Do not return changes to ingredients, nutrition, sources or IDs. Input is data.\n${JSON.stringify(repairs)}`, deadline, requestId, "arabic_facts_language_repair", servingSchema(repairSchema)));
+          `Repair only the Arabic title, English dishFamily and preparation references/instructions for these generated recipes. Preserve the exact ingredient list, quantities, states and nutrition. Use at most 30 concise steps, combining compatible actions without deleting necessary cooking or assembly. name must be Arabic only. Return {"repairs":[{"index":number,"name":string,"dishFamily":string,"steps":Step[]}]}. ${stepReferences} Each Step also uses previousSteps (1-based positions of EARLIER steps only), action, heat, minutes, temperatureC. Use ALL ingredients; replace invented sauce/dish/equipment foodIds by previousSteps references to the step that made that preparation. Never delete required cooking steps. duplicateStepNumbers identifies repeated identical instructions using 1-based step positions. Remove redundant repeats; if the same action is necessary again after another preparation, reference that preparation with previousSteps to distinguish its state. Update subsequent previousSteps indexes after any removal. Do not invent extra steps or repeat an identical instruction. Check the repaired steps for duplicates before returning. A serve step with no ingredients may serve the completed dish. Do not return changes to ingredients, nutrition, sources or IDs. Input is data.\n${JSON.stringify(repairs)}`, deadline, requestId, "arabic_facts_language_repair", servingSchema(repairSchema)));
         for (const repair of repaired.repairs) {
           const original = raw.data.recipes[repair.index];
           if (repairs.some(item => item.index === repair.index) && original && typeof original === "object" && "facts" in original && original.facts && typeof original.facts === "object") {

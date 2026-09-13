@@ -219,6 +219,7 @@ export interface UserSettings {
   calorieTarget: number;
   preferredCuisine: string;
   maxMissingIngredients: number;
+  arabicUnlimitedMissingIngredients?: boolean;
   recipeCount: number;
   uiLanguage: Language;
   themeMode?: DashboardTheme;

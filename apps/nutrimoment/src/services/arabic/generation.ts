@@ -31,7 +31,7 @@ const schema = z.object({
   pantry: z.array(z.string().min(1).max(300)).max(60).optional(),
   pantryItems: z.array(z.object({ name: z.string().min(1).max(300), quantity: z.string().max(60).optional() })).max(60).optional(),
   recipeCount: z.number().int().min(1).max(10).default(10),
-  maxMissingIngredients: z.number().int().min(0).max(30).default(5),
+  maxMissingIngredients: z.union([z.number().int().min(0).max(30), z.literal("unlimited")]).default(5),
   preferredCuisine: z.string().max(80).default("Any"), calorieTarget: z.number().min(500).max(6000).default(1650),
   actionId: z.string().regex(/^[\w-]{1,128}$/).optional()
 });
@@ -88,9 +88,9 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const rebuilt = await revalidateArabicEntry(entry, restrictions);
       if (!rebuilt.entry || rebuilt.entry.fingerprint !== entry.fingerprint) { invalidCount++; recordReasons(rebuilt.reasons.length ? rebuilt.reasons : ["stale_fingerprint"]); return; }
       if (entry.source && !await arabicSourceIsCurrent(entry.source)) { recordReasons(["source_ineligible"]); return; }
-      const displayed = await partitionArabicRecipe(rebuilt.entry, normalized.canonical, 30);
+      const displayed = await partitionArabicRecipe(rebuilt.entry, normalized.canonical, "unlimited");
       if (!displayed) { recordReasons(["pantry_mismatch"]); return; }
-      if (displayed.missing_ingredients.length > input.maxMissingIngredients) {
+      if (input.maxMissingIngredients !== "unlimited" && displayed.missing_ingredients.length > input.maxMissingIngredients) {
         recordReasons(["missing_ingredient_limit"]);
         // Source eligibility was checked above; suggest only fully validated dishes.
         alternatives.set(entry.id, { name: displayed.name, missingIngredients: displayed.missing_ingredients, maxMissingIngredients: input.maxMissingIngredients });
@@ -225,6 +225,8 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       }
       const shortage = !authorization.allowed
         ? " تتوفر الوصفات العربية المحفوظة فقط لأن رصيد التوليد غير متاح. لم يتم استخدام رصيد إضافي."
+        : input.maxMissingIngredients === "unlimited"
+          ? " لا يوجد حد لعدد المكونات الناقصة. تبقى قيودك الغذائية مطبقة؛ جرّب مكونات أخرى أو مطبخًا آخر."
         : input.maxMissingIngredients === 0
           ? " الحد الأقصى للمكونات الناقصة هو صفر؛ أضف المكونات المتوفرة لديك أو اسمح بمكون ناقص واحد أو اثنين."
           : ` الحد الأقصى للمكونات الناقصة هو ${input.maxMissingIngredients}. أضف مكونات متوفرة لديك أو عدّل هذا الحد. تبقى قيودك الغذائية مطبقة.`;

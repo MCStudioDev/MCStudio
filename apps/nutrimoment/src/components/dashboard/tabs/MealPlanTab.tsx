@@ -152,7 +152,7 @@ export function MealPlanTab() {
     if (settings.uiLanguage === "ar") {
       setLoading(true);
       try {
-        await arabic.generate("mealplan", { pantry: items.map(item => item.name), pantryItems: items.map(item => ({ name: item.name, quantity: item.quantity })), preferredCuisine: settings.preferredCuisine, calorieTarget: settings.calorieTarget, maxMissingIngredients: settings.maxMissingIngredients });
+        await arabic.generate("mealplan", { pantry: items.map(item => item.name), pantryItems: items.map(item => ({ name: item.name, quantity: item.quantity })), preferredCuisine: settings.preferredCuisine, calorieTarget: settings.calorieTarget, maxMissingIngredients: settings.arabicUnlimitedMissingIngredients === true ? "unlimited" : settings.maxMissingIngredients });
         if (profileVersion !== profileVersionRef.current) return;
         await arabic.reload();
         setShownLanguage("ar");

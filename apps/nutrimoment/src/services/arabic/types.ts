@@ -1,4 +1,5 @@
 import type { Recipe } from "@/lib/types";
+export type ArabicMissingIngredientLimit = number | "unlimited";
 export interface ArabicRecipeSuggestion {
   name: string;
   missingIngredients: string[];

@@ -165,6 +165,8 @@ export const arabicTranslations: Record<string, string> = {
   switchToMintTheme: "التبديل إلى نعناع أبيض",
   preferredCuisine: "المطبخ المفضل",
   maxMissingIngredients: "الحد الأقصى للمكونات الناقصة",
+  unlimited: "بلا حد",
+  unlimitedMissingIngredientsDescription: "لا يوجد حد لعدد المكونات الناقصة. تبقى القيود الغذائية وفحوص السلامة مطبقة.",
   recipeCount: "عدد الوصفات لكل مسح",
   recipesWillAllowUpTo: "ستسمح الوصفات بما يصل إلى",
   missingIngredients: "مكونات ناقصة.",

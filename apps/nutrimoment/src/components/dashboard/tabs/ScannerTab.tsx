@@ -819,7 +819,7 @@ export function ScannerTab() {
         const data = await arabic.generate("recipes", {
           ingredients: ingredients.map(item => item.name), recipeCount: settings.recipeCount,
           preferredCuisine: settings.preferredCuisine, calorieTarget: settings.calorieTarget,
-          maxMissingIngredients: settings.maxMissingIngredients
+          maxMissingIngredients: settings.arabicUnlimitedMissingIngredients === true ? "unlimited" : settings.maxMissingIngredients
         });
         if (requestVersion !== recipeRequestVersionRef.current) return;
         setRecipes(data.recipes);

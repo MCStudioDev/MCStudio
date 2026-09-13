@@ -2,8 +2,16 @@ import { describe, expect, it } from "vitest";
 import { buildArabicShoppingList } from "@/services/arabic/shoppingFacts";
 import { buildArabicFactsEntry } from "@/services/arabic/recipeFacts";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
+import { buildArabicEntry } from "@/services/arabic/validation";
+import { canonical, arabic } from "./fixtures/arabic";
 const restrictions = { diets: [], conditions: [], allergens: [] };
 describe("Arabic shopping quantities from verified facts", () => {
+  it("keeps fractional quantities when an existing Arabic recipe joins a new weekly plan", async () => {
+    const legacy = await buildArabicEntry({ ...canonical, ingredients: [canonical.ingredients[0], "1/2 cup rice", canonical.ingredients[2]] },
+      { ...arabic, ingredients: [arabic.ingredients[0], "١/٢ كوب أرز", arabic.ingredients[2]] }, restrictions);
+    expect(legacy.reasons).toEqual([]);
+    expect(await buildArabicShoppingList([legacy.entry!], [])).toContain("0.5 كوب أرز");
+  });
   it("aggregates every meal and subtracts measured pantry stock once", async () => {
     const facts = weeklyFactFixtures().slice(0, 2);
     const entries = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry!));

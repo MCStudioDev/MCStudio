@@ -26,6 +26,16 @@ Source discovery is deliberately bounded: shared ingredient lookup reads at most
 
 Source pointers identify `shared`, `reference` or `trusted` origins and bind their content fingerprint. Semantic derivatives additionally bind the editor key, recipe fingerprint, version and expiry. These checks run again before publication, Arabic reuse and photo reuse. Stale or blocked derivatives are rejected without repairing or deleting their English sources. Prompts receive only recipe content; cached image tokens and user-specific ownership metadata are excluded.
 
+## Unlimited missing ingredients (2026-09-13)
+
+Arabic Settings includes a **بلا حد** (Unlimited) checkbox alongside the existing missing-ingredient slider. The optional `arabicUnlimitedMissingIngredients` preference defaults to off and is saved through the existing user-settings path. It does not replace `maxMissingIngredients`; turning it off restores the previous numeric limit, and English requests continue to use that numeric setting.
+
+Both Arabic generation endpoints accept `maxMissingIngredients: "unlimited"` in addition to the existing numeric values. Arabic cache matching, source correction, fresh ingredient manifests and weekly batches omit only the missing-count cutoff. Prompts explicitly state that missing ingredients are unrestricted. Pantry overlap, full ingredient quantities, recipe schema bounds, dietary/safety/source validation and billing remain mandatory. Free users without credits still receive Arabic cache entries only. An empty Unlimited result never recommends raising the already-unlimited limit.
+
+Regression coverage includes both client request paths, unchanged English request payloads, the saved setting's toggle behavior, free/premium cache use, model manifests, complete weekly plans, dietary rejection and koshary with six missing ingredients.
+
+Verification: 187 Arabic tests passed across 26 files, plus all 14 generation/profile UI tests. Arabic service coverage measured 91.38% statements and 84.37% branches. Scoped ESLint, TypeScript and the production build passed (with the existing English artifact-loader tracing warning). A separate browser tab confirmed the Arabic checkbox is visible and enabled; no account preference was changed and no live generation was submitted.
+
 ## Images
 
 The Arabic photo endpoint previously used the undefined `recipe_image` rate-limit name. It now uses the existing photo-limit configuration with an Arabic-only bucket. The rate limiter's English configuration and buckets are unchanged.

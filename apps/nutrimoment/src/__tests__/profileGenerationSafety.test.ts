@@ -161,6 +161,26 @@ describe("Generation controls with simulated profile states; all network calls m
     await act(async () => button("التبديل إلى الإنجليزية").click());
     expect(state.app.setLanguage).toHaveBeenCalledWith("en");
   });
+  it.each([
+    { tab: "scanner" as const, label: "generateRecipes", endpoint: "/api/ar/generate-recipes" },
+    { tab: "mealplan" as const, label: "generatePlan", endpoint: "/api/ar/mealplan" }
+  ])("sends the persisted Arabic unlimited preference from $tab", async ({ tab, label, endpoint }) => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar", arabicUnlimitedMissingIngredients: true };
+    await mount(tab);
+    await act(async () => button(label).click());
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === endpoint);
+    expect(call).toBeDefined();
+    expect(JSON.parse(String(call![1]?.body)).maxMissingIngredients).toBe("unlimited");
+  });
+  it("keeps the numeric English request when Arabic unlimited is saved", async () => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "en", maxMissingIngredients: 2, arabicUnlimitedMissingIngredients: true };
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/generate-recipes");
+    expect(JSON.parse(String(call![1]?.body)).maxMissingIngredients).toBe(2);
+  });
   it("keeps generated English recipes visible after an Arabic failure", async () => {
     state.app.loadingProfile = false;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => url === "/api/generate-recipes"

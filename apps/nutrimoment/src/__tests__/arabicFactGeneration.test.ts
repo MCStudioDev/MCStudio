@@ -10,6 +10,15 @@ beforeEach(() => { model.mockReset(); model.mockResolvedValue({ recipes: [] }); 
 describe("Arabic fact generation orchestration", () => {
   const input = { ingredients: ["rice"], restrictions: { diets: [] as string[], allergens: [] as string[], conditions: [] as string[] }, count: 1, cuisine: "Mediterranean", calorieTarget: 1650, missingLimit: 5 };
   const manifest = (facts: ReturnType<typeof weeklyFactFixtures>[number]) => ({ name: facts.name, dishFamily: facts.dishFamily, foodIds: facts.ingredients.map(item => item.foodId), mealTypes: facts.mealTypes });
+  it("generates complete manifests without a missing-ingredient cutoff when unlimited", async () => {
+    const facts = weeklyFactFixtures()[0];
+    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] });
+    const result = await generateArabicFactBatch({ ...input, missingLimit: "unlimited" }, Date.now() + 40000, "test");
+    expect(result.recipes).toHaveLength(1);
+    expect(model.mock.calls[0][0]).toContain("No limit on missing ingredients");
+    expect(model.mock.calls[1][0]).not.toContain("AT MOST unlimited");
+    expect(model.mock.calls[0][0]).not.toContain("No more than unlimited");
+  });
   it("binds a correction to its selected trusted source and retains over-budget dishes for suggestions", async () => {
     const facts = weeklyFactFixtures()[0];
     const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: ["200 g salmon", "1 cup rice", "1 cup water"], steps: ["Cook the salmon and rice."], matchedIngredients: ["rice"] },

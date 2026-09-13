@@ -33,6 +33,7 @@ describe("Arabic recipes with separately prepared components", () => {
     expect(checked.reasons).toEqual([]);
     expect(checked.entry?.recipe.steps).toHaveLength(18);
     expect(await partitionArabicRecipe(checked.entry!, ["rice", "lentils", "chickpeas"], 5)).toBeNull();
+    expect((await partitionArabicRecipe(checked.entry!, ["rice", "lentils", "chickpeas"], "unlimited"))?.missing_ingredients).toHaveLength(6);
     expect((await partitionArabicRecipe(checked.entry!, ["rice", "lentils", "chickpeas", "pasta", "tomato sauce", "onion"], 5))?.missing_ingredients).toHaveLength(3);
   });
 });

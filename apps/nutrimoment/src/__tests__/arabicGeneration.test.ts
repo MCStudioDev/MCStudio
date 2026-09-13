@@ -58,6 +58,45 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it.each([true, false])("serves validated cache with unlimited missing ingredients, AI access=%s", async allowed => {
+    mock.allowed = allowed;
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: "unlimited" }), "recipes");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.recipes[0].missing_ingredients).toHaveLength(2);
+    expect(data.suggestions).toEqual([]);
+    expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("keeps dietary restrictions enforced with unlimited missing ingredients", async () => {
+    mock.allowed = false;
+    mock.profile.mockResolvedValue({ diets: ["vegan"], allergens: [], conditions: [] });
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: "unlimited" }), "recipes");
+    expect(response.status).toBe(503);
+    expect((await response.json()).recipes).toEqual([]);
+    expect(mock.writes).toEqual([]);
+  });
+  it("forwards unlimited to every weekly batch and saves a complete plan", async () => {
+    const facts = weeklyFactFixtures();
+    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: "unlimited" }), "mealplan");
+    expect(response.status).toBe(200);
+    expect(JSON.parse((await response.json()).result).plan).toHaveLength(7);
+    expect(mock.generate).toHaveBeenCalledTimes(3);
+    expect(mock.generate.mock.calls.every(([input]) => input.missingLimit === "unlimited")).toBe(true);
+  });
+  it("does not recommend raising a missing limit that is already unlimited", async () => {
+    mock.generate.mockResolvedValue({ recipes: [], diagnostics: [{ issues: ["no_feasible_ingredient_manifest"] }] });
+    const response = await handleArabicGeneration(request({ maxMissingIngredients: "unlimited" }), "recipes");
+    expect(response.status).toBe(503);
+    const data = await response.json();
+    expect(data.error).toContain("لا يوجد حد");
+    expect(data.error).not.toContain("unlimited");
+    expect(data.error).not.toContain("عدّل هذا الحد");
+    expect(mock.release).toHaveBeenCalledOnce();
+  });
   it("uses source corrections before fresh generation for entitled users and bills once", async () => {
     mock.candidates.mockResolvedValue([{ reference: { id: "source-candidate", title: canonical.name }, variantKey: "candidate-variant" }]);
     const response = await handleArabicGeneration(request(), "recipes");

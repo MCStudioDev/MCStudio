@@ -5,15 +5,19 @@ import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 
 const mock = vi.hoisted(() => ({
   rows: [] as unknown[], writes: [] as Array<{ path: string; data: unknown }>,
-  allowed: true, source: null as unknown,
+  allowed: true, source: null as unknown, history: [] as Record<string, unknown>[], uid: "sandy-test", historyFailure: false,
   generate: vi.fn(), translate: vi.fn(), repair: vi.fn(), reserve: vi.fn(), complete: vi.fn(), release: vi.fn(),
   profile: vi.fn(), readSource: vi.fn(), findSources: vi.fn(), candidates: vi.fn(), commit: vi.fn()
 }));
 vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
   doc: (path: string) => ({ path, get: async () => ({ exists: false, data: () => undefined }) }),
   collection: (path: string) => {
-    if (path !== "sharedRecipesArabicV1") throw new Error(`Unexpected query ${path}`);
-    const query = { where: () => query, limit: () => query, get: async () => ({ docs: mock.rows.map((row: any) => ({ id: row.id, data: () => structuredClone(row) })) }) };
+    if (path !== "sharedRecipesArabicV1" && path !== `users/${mock.uid}/historyArabicV1`) throw new Error(`Unexpected query ${path}`);
+    const query = { where: () => query, orderBy: () => query, limit: () => query, get: async () => {
+      if (path.includes("historyArabicV1") && mock.historyFailure) throw new Error("History unavailable");
+      const rows = path === "sharedRecipesArabicV1" ? mock.rows : [...mock.history, ...mock.writes.filter(write => write.path.startsWith(`${path}/`)).map(write => write.data)];
+      return { docs: rows.map((row: any) => ({ id: row.id, data: () => structuredClone(row) })) };
+    } };
     return query;
   },
   runTransaction: async (action: (transaction: unknown) => Promise<void>) => {
@@ -22,7 +26,7 @@ vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
   }
 }) }));
 vi.mock("@/services/authService", () => ({
-  canUseApiFeature: async () => ({ allowed: mock.allowed, access: { uid: "sandy-test", isAdmin: false } }),
+  canUseApiFeature: async () => ({ allowed: mock.allowed, access: { uid: mock.uid, isAdmin: false } }),
   accessPayload: (a: unknown) => a, accessErrorResponse: () => Response.json({}, { status: 401 }),
   reserveFreeAiAction: mock.reserve, completeFreeAiAction: mock.complete, releaseFreeAiAction: mock.release
 }));
@@ -45,7 +49,7 @@ import { ProfileUnavailableError } from "@/lib/profileSafety";
 const request = (body = {}) => new Request("http://localhost/api/ar/generate-recipes", { method: "POST", body: JSON.stringify({ ingredients: ["rice", "salmon", "water"], recipeCount: 1, ...body }) });
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("ARABIC_GENERATION_ENABLED", "true");
-  mock.rows = []; mock.writes = []; mock.allowed = true;
+  mock.rows = []; mock.writes = []; mock.allowed = true; mock.history = []; mock.uid = "sandy-test"; mock.historyFailure = false;
   mock.profile.mockResolvedValue(restrictions); mock.reserve.mockResolvedValue({ actionId: "action-1" });
   mock.complete.mockImplementation(async (access, _actionId, publish) => {
     if (publish) await publish({ set: (ref: { path: string }, data: unknown) => mock.writes.push({ path: ref.path, data }) });
@@ -58,6 +62,65 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it.each([false, true])("returns a different cached dish on the next click, AI access=%s", async allowed => {
+    mock.allowed = allowed;
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry, (await buildArabicEntry(veganCanonical, veganArabic, restrictions)).entry];
+    const body = { ingredients: ["rice"], maxMissingIngredients: "unlimited" };
+    const first = await (await handleArabicGeneration(request({ ...body, actionId: "click-1" }), "recipes")).json();
+    const second = await (await handleArabicGeneration(request({ ...body, ingredients: ["أرز"], actionId: "click-2" }), "recipes")).json();
+    expect(first.recipes).toHaveLength(1); expect(second.recipes).toHaveLength(1);
+    expect(second.recipes[0].id).not.toBe(first.recipes[0].id);
+    expect(second.freshCount).toBe(1); expect(second.backfilledCount).toBe(0);
+    expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("labels repeats when the free Arabic pool is exhausted and preserves images", async () => {
+    mock.allowed = false;
+    const entry = (await buildArabicEntry(canonical, arabic, restrictions)).entry!;
+    entry.recipe.image_url = "https://images.example.test/salmon.jpg";
+    mock.rows = [entry];
+    await handleArabicGeneration(request(), "recipes");
+    const data = await (await handleArabicGeneration(request(), "recipes")).json();
+    expect(data).toMatchObject({ freshCount: 0, backfilledCount: 1, generationStatus: "PARTIAL_RESULTS" });
+    expect(data.recipes[0]).toMatchObject({ freshness_origin: "backfilled_recent", image_url: entry.recipe.image_url });
+    expect(data.message).toContain("24");
+    expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
+  });
+  it("uses AI for a new premium dish and passes previously shown names to the prompt", async () => {
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    const body = { ingredients: ["rice"], maxMissingIngredients: "unlimited" };
+    await handleArabicGeneration(request(body), "recipes");
+    mock.generate.mockResolvedValue({ recipes: [{ canonical: veganCanonical, recipe: veganArabic }] });
+    const data = await (await handleArabicGeneration(request(body), "recipes")).json();
+    expect(data.recipes[0].name).toBe(veganArabic.name);
+    expect(mock.generate.mock.calls[0][0].excludeNames).toEqual(expect.arrayContaining([canonical.name, arabic.name]));
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+  });
+  it("does not charge when AI produces only a renamed repeat", async () => {
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    await handleArabicGeneration(request(), "recipes");
+    mock.generate.mockResolvedValue({ recipes: [{ canonical: { ...canonical, name: "Another Salmon Bowl" }, recipe: { ...arabic, name: "طبق سلمون آخر" } }] });
+    const data = await (await handleArabicGeneration(request(), "recipes")).json();
+    expect(data).toMatchObject({ freshCount: 0, backfilledCount: 1 });
+    expect(mock.release).toHaveBeenCalledOnce(); expect(mock.complete).not.toHaveBeenCalled();
+    expect(data.recipes[0].image_action_grant_id).toBeUndefined();
+  });
+  it("keeps safe cached results after a freshness history failure without claiming they are new", async () => {
+    mock.allowed = false; mock.historyFailure = true;
+    mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    const data = await (await handleArabicGeneration(request(), "recipes")).json();
+    expect(data.recipes).toHaveLength(1);
+    expect(data.freshnessUnavailable).toBe(true);
+    expect(data.recipes[0].freshness_origin).toBeUndefined();
+    expect(data.message).toContain("السجل");
+  });
+  it("does not reuse an unsafe recent dish after preferences change", async () => {
+    mock.allowed = false; mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    await handleArabicGeneration(request(), "recipes");
+    mock.profile.mockResolvedValue({ diets: ["vegan"], conditions: [], allergens: [] });
+    const response = await handleArabicGeneration(request(), "recipes");
+    expect(response.status).toBe(503); expect((await response.json()).recipes).toEqual([]);
+  });
   it.each([true, false])("serves validated cache with unlimited missing ingredients, AI access=%s", async allowed => {
     mock.allowed = allowed;
     mock.rows = [(await buildArabicEntry(canonical, arabic, restrictions)).entry];

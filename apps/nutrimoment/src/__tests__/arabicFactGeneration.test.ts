@@ -14,7 +14,7 @@ describe("Arabic fact generation orchestration", () => {
     const facts = weeklyFactFixtures()[0];
     const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: ["200 g salmon", "1 cup rice", "1 cup water"], steps: ["Cook the salmon and rice."], matchedIngredients: ["rice"] },
       fingerprint: "source-fingerprint", variantKey: "variant-1", source: { kind: "trusted" as const, id: "trusted-1", fingerprint: "source-fingerprint" }, requiredFoodIds: facts.ingredients.map(item => item.foodId) };
-    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] });
+    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] }).mockResolvedValueOnce({ labels: [], sources: [{ index: 0, valid: true }] });
     const result = await generateArabicFactBatch({ ...input, missingLimit: 0, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test");
     expect(result.recipes).toHaveLength(1);
     expect(result.recipes[0].source).toEqual(reference.source);

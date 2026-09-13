@@ -15,9 +15,9 @@ vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
 }) }));
 vi.mock("@/services/arabic/referenceSources", () => ({ findArabicReferenceCandidates: mock.references,
   readArabicReferenceSource: async () => null, referenceFingerprint: () => "reference-hash" }));
-vi.mock("@/services/arabic/englishSources", () => ({ findEnglishSources: mock.shared,
+vi.mock("@/services/arabic/englishSources", async importOriginal => ({ ...await importOriginal<typeof import("@/services/arabic/englishSources")>(), findEnglishSources: mock.shared,
   readEnglishSource: async (id: string) => mock.rows.get(`sharedRecipesV2/${id}`) ?? null,
-  englishSourceFingerprint: () => "shared-hash", englishSourceRecipe: (row: { recipe: unknown }) => row.recipe }));
+  englishSourceFingerprint: () => "shared-hash", englishSourceRecipe: (row: { recipe?: unknown; title?: string; cuisine?: string; ingredients?: Array<{ name: string; quantity?: number; unit?: string }>; steps?: string[] }) => row.recipe ?? { name: row.title, cuisine: row.cuisine, ingredients: row.ingredients?.map(item => `${item.quantity} ${item.unit} ${item.name}`), missing_ingredients: [], steps: row.steps } }));
 import { findArabicSourceCandidates } from "@/services/arabic/sourceCandidates";
 import { arabicSourceIsCurrent } from "@/services/arabic/sourceEligibility";
 import { arabicFingerprint } from "@/services/arabic/fingerprint";

@@ -10,7 +10,7 @@ const mock = vi.hoisted(() => ({
   profile: vi.fn(), readSource: vi.fn(), findSources: vi.fn(), candidates: vi.fn(), commit: vi.fn()
 }));
 vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
-  doc: (path: string) => ({ path }),
+  doc: (path: string) => ({ path, get: async () => ({ exists: false, data: () => undefined }) }),
   collection: (path: string) => {
     if (path !== "sharedRecipesArabicV1") throw new Error(`Unexpected query ${path}`);
     const query = { where: () => query, limit: () => query, get: async () => ({ docs: mock.rows.map((row: any) => ({ id: row.id, data: () => structuredClone(row) })) }) };
@@ -271,16 +271,15 @@ describe("Arabic request integration with write recording", () => {
     expect(mock.repair).not.toHaveBeenCalled();
     expect(mock.writes).toEqual([]);
   });
-  it("records failed translations and repairs without exposing ingredient text", async () => {
+  it("records failed source corrections and repairs without exposing ingredient text", async () => {
     const { logger } = await import("@/lib/logger");
     const log = vi.spyOn(logger, "warn");
-    mock.findSources.mockResolvedValue([{ id: "english-1", recipe: canonical, fingerprint: "original" }]);
-    mock.translate.mockRejectedValue(new Error("translation unavailable"));
-    mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: { ...arabic, ingredients: ["سلمون", "أرز", "ماء"] } }] });
+    mock.candidates.mockResolvedValue([{ reference: { id: "source-candidate", title: canonical.name }, variantKey: "candidate-variant" }]);
+    mock.generate.mockRejectedValueOnce(new Error("correction unavailable")).mockResolvedValue({ recipes: [{ canonical, recipe: { ...arabic, ingredients: ["سلمون", "أرز", "ماء"] } }] });
     mock.repair.mockRejectedValue(new Error("repair unavailable"));
     await handleArabicGeneration(request(), "recipes");
     const context = log.mock.calls.find(call => call[0] === "Arabic generation produced insufficient validated results")?.[1];
-    expect(context).toMatchObject({ modelFailureCount: 2, rejectionCounts: { translation_request_failed: 1, repair_request_failed: 1 } });
+    expect(context).toMatchObject({ modelFailureCount: 2, rejectionCounts: { source_correction_failed: 1, repair_request_failed: 1 } });
     expect(JSON.stringify(context)).not.toContain("سلمون");
     log.mockRestore();
   });

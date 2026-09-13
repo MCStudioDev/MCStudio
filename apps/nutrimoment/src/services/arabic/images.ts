@@ -13,6 +13,9 @@ import type { RequestAccess } from "@/services/authService";
 import type { Recipe } from "@/lib/types";
 import { acquireArabicImageLease, releaseArabicImageLease } from "./imageLease";
 import { logger } from "@/lib/logger";
+import { readTrustedArabicSource, trustedArabicSourceFingerprint } from "./trustedSources";
+import { arabicSourceFoodIds, sameArabicSourceDish } from "./sourceCandidates";
+import { arabicFoodById } from "./foodCatalog";
 
 export function arabicImageObjectPath(id: string) {
   if (!/^ar-[a-f0-9]{24}$/.test(id)) throw new Error("Invalid Arabic image identity");
@@ -85,19 +88,30 @@ export async function resolveArabicImage(entry: ArabicRecipeEntry, restrictions:
 
 export async function readArabicImage(entry: ArabicRecipeEntry, restrictions: GenerationRestrictions) {
   if (entry.source && !await arabicSourceIsCurrent(entry.source)) throw new Error("Source changed");
-  if (entry.source?.kind === "reference" && entry.source.editorKey) {
+  if (entry.source?.editorKey) {
     const cached = (await getAdminDb().doc(`recipeEditorSemanticCache/${entry.source.editorKey}`).get()).data();
     const recipe = cached?.recipe as Recipe | undefined;
-    if (recipe && canReuseRecipePhotoForDiet(recipe, restrictions.diets, true) && recipe.image_url && /^https:\/\//.test(recipe.image_url)) return { imageUrl: recipe.image_url, imageSource: recipe.image_source, imageAttributionName: recipe.image_attribution_name, imageAttributionUrl: recipe.image_attribution_url };
+    if (recipe && await canReuseArabicSourcePicture(recipe, entry.canonical, restrictions) && recipe.image_url && /^https:\/\//.test(recipe.image_url)) return { imageUrl: recipe.image_url, imageSource: recipe.image_source, imageAttributionName: recipe.image_attribution_name, imageAttributionUrl: recipe.image_attribution_url };
   }
   if (entry.source && entry.source.kind !== "reference") {
-    const source = await readEnglishSource(entry.source.id);
-    if (!source || englishSourceFingerprint(source) !== entry.source.fingerprint) throw new Error("Source changed");
+    const source = entry.source.kind === "trusted" ? readTrustedArabicSource(entry.source.id) : await readEnglishSource(entry.source.id);
+    if (!source || (entry.source.kind === "trusted" ? trustedArabicSourceFingerprint(source) : englishSourceFingerprint(source)) !== entry.source.fingerprint) throw new Error("Source changed");
     const recipe = englishSourceRecipe(source);
-    if (canReuseRecipePhotoForDiet(recipe, restrictions.diets, true) && recipe.image_url && /^https:\/\//.test(recipe.image_url)) return { imageUrl: recipe.image_url, imageSource: recipe.image_source, imageAttributionName: recipe.image_attribution_name, imageAttributionUrl: recipe.image_attribution_url };
+    if (await canReuseArabicSourcePicture(recipe, entry.canonical, restrictions) && recipe.image_url && /^https:\/\//.test(recipe.image_url)) return { imageUrl: recipe.image_url, imageSource: recipe.image_source, imageAttributionName: recipe.image_attribution_name, imageAttributionUrl: recipe.image_attribution_url };
   }
   const cachePath = arabicPaths.image(entry.id);
   const cached = (await getAdminDb().doc(cachePath).get()).data();
   if (cached?.fingerprint === entry.fingerprint && cached.promptVersion === ARABIC_IMAGE_PROMPT_VERSION && ARABIC_READABLE_VERSIONS.has(cached.validatorVersion) && typeof cached.imageUrl === "string" && /^https:\/\//.test(cached.imageUrl) && cached.objectPath === arabicImageObjectPath(entry.id)) return { imageUrl: cached.imageUrl as string, imageSource: "replicate" as const };
   return null;
+}
+
+async function canReuseArabicSourcePicture(recipe: Recipe, corrected: Recipe, restrictions: GenerationRestrictions) {
+  if (!canReuseRecipePhotoForDiet(recipe, restrictions.diets, true) || !sameArabicSourceDish(recipe.name, corrected.name)) return false;
+  const [source, output] = await Promise.all([recipe, corrected].map(item => arabicSourceFoodIds([...item.ingredients, ...(item.missing_ingredients ?? [])])));
+  if (source.unclear || output.unclear) return false;
+  const core = (ids: string[]) => ids.filter(id => {
+    const food = arabicFoodById(id)!;
+    return food.en !== "water" && food.en !== "salt" && !/oil|spice|seasoning|herb|fat/.test(food.categories.join(" "));
+  }).sort().join("|");
+  return !!core(source.ids) && core(source.ids) === core(output.ids);
 }

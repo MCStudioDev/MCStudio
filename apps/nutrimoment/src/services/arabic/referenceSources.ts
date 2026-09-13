@@ -9,6 +9,7 @@ import type { Recipe } from "@/lib/types";
 import { arabicFingerprint } from "./fingerprint";
 import { ARABIC_VALIDATOR_VERSION } from "./config";
 import { logger } from "@/lib/logger";
+import type { ArabicRecipeEntry } from "./types";
 
 const editorVersion = "recipe-editor-v11-validation-identity-v1";
 export async function readEnglishEditorForArabic(input: RecipeEditorCacheInput) {
@@ -40,6 +41,9 @@ export async function readArabicReferenceSource(id: string, transaction?: Transa
 export interface ArabicReferenceCandidate {
   reference: RecipeReferencePromptRecipe; fingerprint: string; variantKey: string;
   edited?: Awaited<ReturnType<typeof readEnglishEditorForArabic>>;
+  source?: ArabicRecipeEntry["source"];
+  requiredFoodIds?: string[];
+  sourceServings?: number;
 }
 export async function findArabicReferenceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number): Promise<ArabicReferenceCandidate[]> {
   // This existing retrieval service performs reads only. Dietary ranking is

@@ -6,7 +6,7 @@ import { generateArabicFactBatch, arabicFactsProviderSchema, type ArabicFactBatc
 import { selectArabicWeeklyMeals } from "@/services/arabic/weeklyFacts";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 import { arabicFoods, findArabicFood } from "@/services/arabic/foodCatalog";
-import { arabicSafetyFingerprint, needsArabicSemanticSafety } from "@/services/arabic/semanticSafety";
+import { arabicSafetyFingerprint, needsArabicSemanticSafety, arabicClassificationsAreSafe } from "@/services/arabic/semanticSafety";
 import type { ArabicRecipeFacts } from "@/services/arabic/recipeFacts";
 
 const input: ArabicFactBatchInput = { ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 1, cuisine: "Mediterranean", calorieTarget: 1650, missingLimit: 5 };
@@ -20,7 +20,7 @@ beforeEach(() => {
   model.mockImplementation(async (prompt: string, _deadline: number, _id: string, stage: string) => {
     const p = data(prompt);
     if (stage === "arabic_facts_planning") return { plans: p.candidates.map((candidate: { candidateId: string }) => ({ candidateId: candidate.candidateId,
-      name: facts.name, dishFamily: facts.dishFamily, foodIds: manifestIds, mealTypes: facts.mealTypes })) };
+      name: facts.name, dishFamily: facts.dishFamily, foodIds: manifestIds, preparations: facts.steps.map(step => step.action), mealTypes: facts.mealTypes })) };
     if (stage === "arabic_facts_generation") return { recipes: p.plans.map((plan: { candidateId: string }) => ({ candidateId: plan.candidateId, facts: output, safetyReceipt: "forged" })) };
     if (stage === "arabic_facts_verification") return {
       labels: p.labels.map((label: object) => ({ ...label, valid: safe })), recipes: p.safetyChecks.map((item: object) => ({ ...item, safe })),
@@ -28,11 +28,24 @@ beforeEach(() => {
       culinary: p.culinaryChecks.map((item: { candidateId: string }) => ({ candidateId: item.candidateId, valid: true, issues: [] }))
     };
     if (stage === "arabic_facts_repair") return { repairs: repair ? p.repairs.map((item: { candidateId: string }) => ({ candidateId: item.candidateId,
-      ingredients: [], nutrition: {}, steps: facts.steps.map(({ foodIds, ...step }) => ({ ...step, ingredientNumbers: foodIds.map(id => facts.ingredients.findIndex(item => item.foodId === id) + 1) })), totalMinutes: facts.totalMinutes })) : [] };
+      ingredients: [], nutrition: {}, steps: facts.steps.map(step => ({ ...step, previousSteps: step.previousSteps ?? [] })), totalMinutes: facts.totalMinutes })) : [] };
     throw new Error(`Unexpected phase ${stage}`);
   });
 });
 describe("Arabic fact generation orchestration", () => {
+  it("rejects an independently classified bird for vegan/pescatarian users regardless of a safe verdict", () => {
+    const bird = { ...facts, ingredients: [{ ...facts.ingredients[0], foodId: findArabicFood("pigeon")!.id }] };
+    for (const diet of ["vegan", "pescatarian"]) expect(arabicClassificationsAreSafe(bird, { ...input.restrictions, diets: [diet] }, [{ foodId: bird.ingredients[0].foodId, category: "poultry", contains: [] }])).toBe(false);
+    expect(arabicClassificationsAreSafe(bird, { ...input.restrictions, diets: ["vegan"] }, [])).toBe(false);
+  });
+  it("accounts for soaking water before the immutable recipe manifest and missing limit", async () => {
+    facts.steps.unshift({ action: "soak", foodIds: [findArabicFood("rice")!.id, findArabicFood("water")!.id], minutes: 20, temperatureC: 0, heat: "none" });
+    facts.totalMinutes += 20;
+    manifestIds = manifestIds.filter(id => id !== findArabicFood("water")!.id);
+    await run();
+    const generated = model.mock.calls.find(call => call[3] === "arabic_facts_generation");
+    expect(data(generated![0]).plans[0].foodIds).toContain(findArabicFood("water")!.id);
+  });
   it("also binds fresh cooking steps to food IDs and explicit preparation dependencies", async () => {
     await run();
     const steps = (model.mock.calls[1][4] as any).properties.recipes.items.properties.facts.properties.steps.items;
@@ -100,7 +113,7 @@ describe("Arabic fact generation orchestration", () => {
     const result = await run();
     expect(result.recipes[0]?.facts.ingredients, JSON.stringify(result.diagnostics)).toEqual(facts.ingredients);
     expect(result.recipes[0].facts.nutrition).toEqual(facts.nutrition);
-    expect(result.recipes[0].facts.steps).toEqual(facts.steps);
+    expect(result.recipes[0].facts.steps).toEqual(facts.steps.map(step => ({ ...step, previousSteps: step.previousSteps ?? [] })));
     expect(model.mock.calls.filter(call => call[3] === "arabic_facts_repair")).toHaveLength(1);
   });
   it("requires independent safety for unclassified foods regardless of a forged receipt", async () => {

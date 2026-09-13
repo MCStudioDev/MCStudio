@@ -37,7 +37,7 @@ function useProvider(options: { reorder?: boolean; omitFirst?: boolean; badSeque
     };
     if (stage === "arabic_facts_repair") {
       if (options.repairFails) throw new Error("repair offline");
-      return { repairs: data.repairs.map((item: Candidate) => ({ candidateId: item.candidateId, steps: fixtures()[0].steps, totalMinutes: fixtures()[0].totalMinutes })) };
+      return { repairs: data.repairs.map((item: Candidate) => ({ candidateId: item.candidateId, steps: fixtures()[0].steps.map(step => ({ ...step, previousSteps: step.previousSteps ?? [] })), totalMinutes: fixtures()[0].totalMinutes })) };
     }
     throw new Error(`Unexpected stage ${stage}`);
   });

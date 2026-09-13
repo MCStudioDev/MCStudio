@@ -5,6 +5,8 @@ export interface ArabicRecipeSuggestion {
   maxMissingIngredients: number;
 }
 export interface ArabicRecipeEntry {
+  facts?: import("./recipeFacts").ArabicRecipeFacts;
+  labelReceipt?: import("./recipeFacts").ArabicLabelReceipt;
   id: string;
   recipe: Recipe;
   canonical: Recipe;

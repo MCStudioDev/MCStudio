@@ -1,6 +1,7 @@
 import { normalizeIngredients } from "@/services/ingredientNormalizationService";
 import { findUnverifiedCompositeProtein } from "@/lib/compositeProteinSafety";
 import { translateIngredientToArabic, translateIngredientToEnglish } from "@/lib/arabicRecipeLocalization";
+import { findArabicFood } from "./foodCatalog";
 
 export function westernDigits(text: string) {
   const fractions: Record<string, number> = { "½": 0.5, "¼": 0.25, "¾": 0.75 };
@@ -24,6 +25,9 @@ export async function normalizeArabicInputs(values: string[]) {
   const unclear: Array<{ index: number; text: string }> = [];
   for (const [index, text] of original.entries()) {
     const prepared = normalizeArabicMeasure(text).replace(/^\s*((?:\d+\s+)?\d+\s*\/\s*\d+|\d+(?:\.\d+)?)\s*(?:g|kg|ml|cup|piece|clove|can|tbsp|tsp)\s+/i, "");
+    if (findUnverifiedCompositeProtein({ ingredients: [text, prepared] })) { unclear.push({ index, text }); continue; }
+    const food = findArabicFood(prepared);
+    if (food) { canonical.push(food.en); continue; }
     // The legacy English localization table maps فول to generic canned beans.
     // Preserve its specific identity here without changing that shared table.
     if (/^(?:فول|الفول|fava beans?|broad beans?)$/i.test(prepared.trim())) {

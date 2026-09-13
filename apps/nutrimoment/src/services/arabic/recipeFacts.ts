@@ -129,7 +129,9 @@ export async function buildArabicFactsEntry(input: unknown, restrictions: Genera
     if ((item.state === "raw" || item.state === "dried") && /meat|protein|seafood|fish|poultry/.test(food.categories.join(" "))
       && !facts.steps.some((step, index) => cooking.has(step.action) && stepFoods(facts, index).includes(item.foodId))) reasons.add("raw_protein_not_cooked");
   }
-  if (reasons.size) return { entry: null, reasons: [...reasons] };
+  // Pending semantic receipts must not hide repairable instruction defects.
+  // Only invalid references prevent safe rendering for the quality preflight.
+  if (reasons.has("unlisted_step_ingredient") || reasons.has("invalid_preparation_reference")) return { entry: null, reasons: [...reasons] };
   const canonical = render(facts, false), recipe = render(facts, true);
   const names = ids.map(id => arabicFoodById(id)!.en);
   if (arabicPropertyViolation(names, restrictions)) reasons.add("diet_violation");

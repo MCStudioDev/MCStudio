@@ -44,7 +44,11 @@ async function readCurrentEditors(): Promise<Editor[]> {
   return snapshot.docs.flatMap(doc => {
     const value = doc.data();
     if (!/^[a-f0-9]{64}$/.test(doc.id) || value.cacheVersion !== editorVersion || typeof value.expiresAt?.toMillis !== "function"
-      || value.expiresAt.toMillis() <= Date.now() || !value.recipe?.source_recipe_id || !Array.isArray(value.recipe.ingredients) || !Array.isArray(value.recipe.steps)) return [];
+      || value.expiresAt.toMillis() <= Date.now() || typeof value.recipe?.source_recipe_id !== "string"
+      || typeof value.recipe.name !== "string" || typeof value.recipe.cuisine !== "string"
+      || !Array.isArray(value.recipe.ingredients) || value.recipe.ingredients.some((item: unknown) => typeof item !== "string")
+      || !Array.isArray(value.recipe.steps) || value.recipe.steps.some((item: unknown) => typeof item !== "string")
+      || (value.recipe.missing_ingredients !== undefined && (!Array.isArray(value.recipe.missing_ingredients) || value.recipe.missing_ingredients.some((item: unknown) => typeof item !== "string")))) return [];
     return [{ key: doc.id, fingerprint: arabicFingerprint(value.recipe), recipe: value.recipe as Recipe }];
   });
 }

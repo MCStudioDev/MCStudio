@@ -3,7 +3,6 @@ const mock = vi.hoisted(() => ({ cached: vi.fn(), generate: vi.fn(), profile: vi
 vi.mock("@/services/authService", () => ({ getRequestAccess: async () => ({ uid: "test", isPremium: mock.premium }), accessErrorResponse: () => Response.json({}, { status: 401 }),
   hasGeneratedRecipeImageAccess: () => mock.premium, hasFreeAiActionImageGrantForKey: mock.grant, consumeFreeAiActionImageGrant: mock.consume }));
 vi.mock("@/services/generationProfileService", () => ({ loadGenerationRestrictions: mock.profile }));
-vi.mock("@/services/rateLimitService", () => ({ applyRateLimit: () => ({ decision: { allowed: true } }) }));
 vi.mock("@/services/arabic/images", () => ({ readValidatedArabicEntry: mock.entry, readArabicImage: mock.cached, resolveArabicImage: mock.generate }));
 import { POST } from "@/app/api/ar/recipe-photo/route";
 const request = () => new Request("http://localhost/api/ar/recipe-photo", { method: "POST", body: JSON.stringify({ recipeId: `ar-${"a".repeat(24)}`, actionGrantId: "parent" }) });

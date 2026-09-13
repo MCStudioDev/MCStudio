@@ -209,7 +209,10 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const weeklyEntries = mode === "mealplan" ? selectArabicWeeklyMeals([...accepted.values()]) : null;
     const recipes = (weeklyEntries ? weeklyEntries.map(entry => output.get(entry.id)!) : [...output.values()]).map(recipe => imageActionGrantId ? { ...recipe, image_action_grant_id: imageActionGrantId } : recipe);
     for (const [id, entry] of alternativeSources) if (!await arabicSourceIsCurrent(entry)) alternatives.delete(id);
-    const suggestions = [...alternatives.values()].sort((a, b) => a.missingIngredients.length - b.missingIngredients.length).slice(0, 3);
+    const suggestions = [...alternatives.entries()]
+      .sort(([aId, a], [bId, b]) => a.missingIngredients.length - b.missingIngredients.length
+        || Number(alternativeSources.has(bId)) - Number(alternativeSources.has(aId)))
+      .slice(0, 3).map(([, suggestion]) => suggestion);
     if (!recipes.length || (mode === "mealplan" && !weeklyEntries)) {
       if (reservationId) { await releaseFreeAiAction(access, reservationId); reservationId = undefined; }
       logger.warn("Arabic generation produced insufficient validated results", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts });

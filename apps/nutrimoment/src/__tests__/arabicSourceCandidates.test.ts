@@ -53,6 +53,13 @@ describe("Arabic independent English source retrieval", () => {
     mock.editors = [editor("a".repeat(64), "fish-source", { ...canonical, ingredients: ["200 g chicken", "1 cup rice"] })];
     expect(await findArabicSourceCandidates(["rice"], "Mediterranean", { ...vegan, diets: ["pescatarian"] }, 3)).toEqual([]);
   });
+  it("derives required ingredients from the shared recipe rather than its search aliases", async () => {
+    mock.shared.mockResolvedValue([{ id: "fish-source", recipe: canonical, ingredientCanonicals: ["rice", "salmon", "seafood", "protein", "chicken"] }]);
+    const result = await findArabicSourceCandidates(["rice"], "Mediterranean", { ...vegan, diets: ["pescatarian"] }, 3);
+    const shared = result.find(row => row.source?.id === "fish-source");
+    expect(shared?.requiredFoodIds).toEqual(expect.arrayContaining(["food-rice", "food-salmon"]));
+    expect(shared?.requiredFoodIds).not.toContain("food-chicken");
+  });
   it("keeps other source types available when reference lookup fails", async () => {
     mock.references.mockRejectedValue(new Error("reference unavailable"));
     const result = await findArabicSourceCandidates(["rice"], "Egyptian", vegan, 10);

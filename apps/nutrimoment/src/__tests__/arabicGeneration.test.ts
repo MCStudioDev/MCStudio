@@ -103,6 +103,17 @@ describe("Arabic request integration with write recording", () => {
     expect(data.suggestions).toEqual([{ name: arabic.name, missingIngredients: [arabic.ingredients[0], arabic.ingredients[2]], maxMissingIngredients: 0 }]);
     expect(mock.writes).toEqual([]);
   });
+  it("keeps a newly found source dish visible ahead of equally distant cached suggestions", async () => {
+    mock.rows = await Promise.all([1, 2, 3].map(async number => (await buildArabicEntry({ ...canonical, name: `${canonical.name} ${number}` }, { ...arabic, name: `${arabic.name} ${number}` }, restrictions)).entry));
+    mock.candidates.mockResolvedValue([{ reference: { id: "source-candidate", title: canonical.name }, variantKey: "candidate-variant" }]);
+    mock.readSource.mockResolvedValue({ fingerprint: "original", recipe: canonical });
+    mock.generate.mockResolvedValue({ recipes: [{ canonical, recipe: arabic, source: { id: "english-1", fingerprint: "original" } }] });
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 0 }), "recipes");
+    const data = await response.json();
+    expect(data.suggestions).toHaveLength(3);
+    expect(data.suggestions[0].name).toBe(arabic.name);
+    expect(mock.writes).toEqual([]);
+  });
   it("still rejects negative structured quantities after simplifying the provider schema", async () => {
     const { materializeArabicGeneration } = await import("@/services/arabic/modelSchemas");
     mock.generate.mockResolvedValue(materializeArabicGeneration({ recipes: [{

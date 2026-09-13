@@ -92,7 +92,8 @@ CHECK BEFORE RETURNING: Count foodIds outside ownedFoodIds for every manifest. T
   if (!plans.length) return { recipes: [], diagnostics: [{ issues: [planned.success ? "no_feasible_ingredient_manifest" : "invalid_manifest_response"] }] };
   const planFoodIds = [...new Set(plans.flatMap(plan => plan.foodIds))] as [string, ...string[]];
   const activeFacts = input.sourceOnly ? providerFacts.extend({ steps: z.array(arabicFactsSchema.shape.steps.element.extend({
-    foodIds: z.array(z.enum(planFoodIds)).describe("Exact food IDs from THIS recipe's ingredient manifest. Never use numeric ingredient positions. Use previousSteps for mixtures prepared earlier.")
+    foodIds: z.array(z.enum(planFoodIds)).describe("Exact food IDs from THIS recipe's ingredient manifest. Never use numeric ingredient positions. Use previousSteps for mixtures prepared earlier."),
+    previousSteps: z.array(z.number().int().positive()).max(30).describe("Required. The 1-based earlier steps that prepared the food being used now, such as boiling before draining. Empty only when starting from unprepared ingredients. Distinguish repeated actions by their different previous preparations.")
   })) }) : providerFacts;
   const activeSchema = input.sourceOnly ? servingSchema(z.object({ recipes: z.array(z.object({ planIndex: z.number().int(), facts: activeFacts })) })) : arabicFactsProviderSchema;
   const stepReferences = input.sourceOnly

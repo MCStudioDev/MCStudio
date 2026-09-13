@@ -36,7 +36,19 @@ Regression coverage includes both client request paths, unchanged English reques
 
 Verification: 187 Arabic tests passed across 26 files, plus all 14 generation/profile UI tests. Arabic service coverage measured 91.38% statements and 84.37% branches. Scoped ESLint, TypeScript and the production build passed (with the existing English artifact-loader tracing warning). A separate browser tab confirmed the Arabic checkbox is visible and enabled; no account preference was changed and no live generation was submitted.
 
-## Images
+## Recipe variation on repeated clicks (2026-09-13)
+
+Arabic scanner generation now follows the English fresh-first concept, implemented entirely in Arabic services. For the same normalized ingredient set, each request reads up to 100 recent Arabic history entries and prioritizes dishes not shown during the last 24 hours. English, Arabic and mixed pantry spellings resolve to the same context. New Arabic history records include versioned dish keys; older Arabic history is interpreted at read time without migration. Weekly-plan selection is unchanged.
+
+Each click supplies a new action seed to rotate equivalent cache candidates and fresh Gemini generation. The Arabic cache lookup considers up to 200 matches. Entitled users can fill shortages through eligible English-source correction and then fresh Arabic generation, with previous dish names excluded. Previously shown sources are filtered before source selection; source corrections retain their existing in-flight sharing when inputs match. Free users without AI credits use only the validated Arabic cache.
+
+If fresh options cannot fill the requested count, the response appends revalidated recent recipes, preferring the least recently shown. Each repeat carries `freshness_origin: "backfilled_recent"`, and the Arabic status message reports new/reused counts. This cannot guarantee unlimited unseen dishes in a finite compatible cache. Dietary, cuisine, missing-ingredient and source-eligibility checks still apply to every result. An unavailable history read times out after five seconds and returns matching results with an explicit freshness-unavailable message rather than claiming they are new.
+
+If AI adds no accepted fresh recipe, its reserved action is released and no new image grant is issued. Reused recipes keep their Arabic IDs and existing image-cache associations. All variation metadata is written atomically with the result to `users/{uid}/historyArabicV1`; no English history, recipes, cache, images or endpoints are changed.
+
+Verification: 213 Arabic tests passed across 27 files, plus 90 existing English/profile/UI tests. An additional scanner case verifies distinct per-click action IDs and the full-count repeat message. The freshness module has 100% statement and 97.36% branch coverage. Scoped ESLint, TypeScript and the final production build passed; the build retains the existing English artifact-loader tracing warning. Local tests mock Firebase and AI providers; no live account generation, account-setting change, credit consumption, push or deployment was performed.
+
+## Image behavior
 
 The Arabic photo endpoint previously used the undefined `recipe_image` rate-limit name. It now uses the existing photo-limit configuration with an Arabic-only bucket. The rate limiter's English configuration and buckets are unchanged.
 

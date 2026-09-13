@@ -6,6 +6,7 @@ import type { GenerationRestrictions } from "@/lib/profileSafety";
 import type { ArabicRecipeEntry } from "./types";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
 import { buildArabicFreshnessRecord } from "./freshness";
+import { withTimeout } from "@/lib/utils";
 export { arabicFingerprint } from "./fingerprint";
 
 function segment(value: string) {
@@ -72,7 +73,7 @@ export async function saveArabicResult(input: {
 }
 export async function readRecentArabicRecipeHistory(uid: string): Promise<Record<string, unknown>[]> {
   const path = arabicPaths.history(uid, "placeholder").split("/").slice(0, -1).join("/");
-  const snapshot = await getAdminDb().collection(path).orderBy("timestamp", "desc").limit(100).get();
+  const snapshot = await withTimeout(getAdminDb().collection(path).orderBy("timestamp", "desc").limit(100).get(), 5000, "Arabic freshness history");
   return snapshot.docs.map(doc => doc.data());
 }
 export async function readArabicHistory(uid: string) {

@@ -162,7 +162,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
           const corrected = await generateArabicSourceBatch({ ingredients: normalized.canonical, restrictions,
             count: Math.min(7, Math.max(1, count - accepted.size)), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget,
             missingLimit: input.maxMissingIngredients, sourceOnly: true, references: references.slice(0, 9),
-            excludeNames: excludeNames(), variationSeed
+            excludeNames: excludeNames()
           }, Math.min(deadline - 15000, Date.now() + 35000), requestId);
           for (const pair of pairsFrom(corrected)) await processPair(pair);
           for (const diagnostic of corrected.diagnostics ?? []) recordReasons(diagnostic.issues);

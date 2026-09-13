@@ -43,7 +43,7 @@ vi.mock("framer-motion", async () => {
 
 import { ScannerTab } from "@/components/dashboard/tabs/ScannerTab";
 import { MealPlanTab } from "@/components/dashboard/tabs/MealPlanTab";
-import { canonical } from "./fixtures/arabic";
+import { arabic, canonical } from "./fixtures/arabic";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -160,6 +160,26 @@ describe("Generation controls with simulated profile states; all network calls m
     expect(container.textContent).toContain("Arabic unavailable");
     await act(async () => button("التبديل إلى الإنجليزية").click());
     expect(state.app.setLanguage).toHaveBeenCalledWith("en");
+  });
+  it("creates a new Arabic action each click and explains repeats even when the recipe count is full", async () => {
+    state.app.loadingProfile = false; state.app.rtl = true;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar", recipeCount: 1 };
+    const actionIds: string[] = [];
+    const repeatedMessage = "لا توجد وصفات جديدة كافية؛ هذه وصفة شاهدتها خلال آخر 24 ساعة.";
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("/api/ar/generate-recipes");
+      actionIds.push(JSON.parse(String(init?.body)).actionId);
+      const recipe = { ...arabic, freshness_origin: actionIds.length > 1 ? "backfilled_recent" : "fresh" };
+      return Response.json({ recipes: [recipe], result: JSON.stringify([recipe]),
+        generationStatus: actionIds.length > 1 ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message: actionIds.length > 1 ? repeatedMessage : undefined });
+    }));
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain("وجدنا وصفات مناسبة");
+    await act(async () => button("generateRecipes").click());
+    expect(actionIds).toHaveLength(2); expect(actionIds[0]).not.toBe(actionIds[1]);
+    expect(container.textContent).toContain("عرضنا أفضل النتائج");
+    expect(container.textContent).toContain(repeatedMessage);
   });
   it.each([
     { tab: "scanner" as const, label: "generateRecipes", endpoint: "/api/ar/generate-recipes" },

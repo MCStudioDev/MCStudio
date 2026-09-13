@@ -4,7 +4,6 @@ import { completeFreeAiAction, type RequestAccess } from "@/services/authService
 import type { HistoryItem, MealPlanData, Recipe } from "@/lib/types";
 import type { GenerationRestrictions } from "@/lib/profileSafety";
 import type { ArabicRecipeEntry } from "./types";
-import { readEnglishSource, englishSourceFingerprint } from "./englishSources";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
 export { arabicFingerprint } from "./fingerprint";
 
@@ -70,7 +69,7 @@ export async function saveArabicResult(input: {
 export async function readArabicHistory(uid: string) {
   const path = arabicPaths.history(uid, "placeholder").split("/").slice(0, -1).join("/");
   const snapshot = await getAdminDb().collection(path).orderBy("timestamp", "desc").limit(50).get();
-  return snapshot.docs.map(doc => ({ ...doc.data(), id: `ar:${doc.id}` } as HistoryItem & { englishSources?: Record<string, { id: string; fingerprint: string }> }));
+  return snapshot.docs.map(doc => ({ ...doc.data(), id: `ar:${doc.id}` } as HistoryItem & { englishSources?: Record<string, NonNullable<ArabicRecipeEntry["source"]>> }));
 }
 export async function removeArabicHistory(uid: string, id: string) {
   const path = arabicPaths.history(uid, id); assertArabicWritePath(path);

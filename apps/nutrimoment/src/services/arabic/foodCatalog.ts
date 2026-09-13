@@ -17,8 +17,10 @@ const foods = new Map<string, ArabicFood>();
 function add(en: string, ar: string, aliases: string[] = [], categories: string[] = []) {
   if (!en || findUnverifiedCompositeProtein({ ingredients: [en] })) return;
   if (/[a-z]/i.test(ar) || !/[\u0600-\u06ff]/.test(ar)) ar = "";
-  const key = foodTerm(en), previous = foods.get(key);
-  foods.set(key, { id: `food-${key.replace(/[^a-z0-9]+/g, "-")}`, en, ar: previous?.ar ?? ar,
+  const inputKey = foodTerm(en);
+  const previous = foods.get(inputKey) ?? foods.get(inputKey.replace(/s$/, "")) ?? foods.get(`${inputKey}s`);
+  const key = previous ? foodTerm(previous.en) : inputKey;
+  foods.set(key, { id: `food-${key.replace(/[^a-z0-9]+/g, "-")}`, en: previous?.en ?? en, ar: previous?.ar || ar,
     aliases: [...new Set([...(previous?.aliases ?? []), en, ar, ...aliases].filter(Boolean))],
     categories: [...new Set([...(previous?.categories ?? []), ...categories])] });
 }
@@ -28,11 +30,11 @@ for (const item of FOOD_DICTIONARY.ingredients) add(item.canonicalEnglishName, i
   [...item.aliases, ...item.synonyms, ...item.pluralForms, ...item.spellingMistakes, ...item.ocrMistakes], item.category ? [item.category] : []);
 for (const item of OFFLINE_INGREDIENT_TAXONOMY.filter(item => item.isActive)) add(item.canonical,
   item.variants.find(v => v.locale === "ar")?.values[0] ?? "", item.variants.flatMap(v => v.values).concat(item.misspellings ?? []), [item.category, item.broadCategory ?? ""]);
-for (const [en, ar] of Object.entries(ARABIC_CULINARY_DICTIONARY.ingredients)) add(en, ar);
 const knownNames = new Set([
   ...getAllCuisineCatalogV2Entries().flatMap(item => [...item.ingredients.required, ...item.ingredients.optional]),
   ...Object.values(IngredientKnowledgeGraph).flatMap(item => [item.ingredient, ...item.flavorPairings, ...item.commonHerbs, ...item.commonSpices, ...item.sauces])
 ]);
+for (const [en, ar] of Object.entries(ARABIC_CULINARY_DICTIONARY.ingredients)) if (knownNames.has(en) || foods.has(foodTerm(en))) add(en, ar);
 for (const en of knownNames) add(en, translateIngredientToArabic(en));
 // Composition/property inheritance, not a translation alias. A bread-derived
 // ingredient retains the grain restriction even when its surface word differs.

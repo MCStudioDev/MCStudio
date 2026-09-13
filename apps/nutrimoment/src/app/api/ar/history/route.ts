@@ -1,19 +1,21 @@
 import { getRequestAccess, accessErrorResponse } from "@/services/authService";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { arabicPaths, readArabicHistory, removeArabicHistory } from "@/services/arabic/repository";
-import { readEnglishSource, englishSourceFingerprint } from "@/services/arabic/englishSources";
+import { arabicSourceIsCurrent } from "@/services/arabic/sourceEligibility";
+import type { ArabicRecipeEntry } from "@/services/arabic/types";
 
 // Existing Arabic results remain readable even when new Arabic generation is disabled.
 export async function GET(request: Request) {
   try {
     const { uid } = await getRequestAccess(request);
     const [items, plan] = await Promise.all([readArabicHistory(uid), getAdminDb().doc(arabicPaths.plan(uid)).get()]);
-    const currentSources = new Map<string, Promise<string | null>>();
-    const blocked = async (refs: Record<string, { id: string; fingerprint: string }> = {}) => {
+    const currentSources = new Map<string, Promise<boolean>>();
+    const blocked = async (refs: Record<string, NonNullable<ArabicRecipeEntry["source"]>> = {}) => {
       const ids = new Set<string>();
       for (const [recipeId, reference] of Object.entries(refs)) {
-        if (!currentSources.has(reference.id)) currentSources.set(reference.id, readEnglishSource(reference.id).then(source => source ? englishSourceFingerprint(source) : null).catch(() => null));
-        if (await currentSources.get(reference.id) !== reference.fingerprint) ids.add(recipeId);
+        const key = JSON.stringify(reference);
+        if (!currentSources.has(key)) currentSources.set(key, arabicSourceIsCurrent(reference).catch(() => false));
+        if (!await currentSources.get(key)) ids.add(recipeId);
       }
       return ids;
     };

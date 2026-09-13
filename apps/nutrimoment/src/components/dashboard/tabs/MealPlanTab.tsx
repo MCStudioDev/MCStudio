@@ -12,7 +12,7 @@ import { CalendarDays, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
-import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
+import { ArabicAwareMealRevealCard as MealRevealCard } from "@/components/dashboard/arabic/ArabicAwareMealRevealCard";
 import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";

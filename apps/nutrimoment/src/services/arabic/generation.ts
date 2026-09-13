@@ -11,7 +11,7 @@ import { buildShoppingListFromMealIngredients } from "@/lib/shoppingListNormaliz
 import { assertSafeMealPlan } from "@/lib/generationSafety";
 import { logger } from "@/lib/logger";
 import type { MealPlanData, Recipe } from "@/lib/types";
-import { arabicDisabledResponse, arabicEnabled, ARABIC_REQUEST_BUDGET_MS, ARABIC_VALIDATOR_VERSION } from "./config";
+import { arabicDisabledResponse, arabicEnabled, ARABIC_REQUEST_BUDGET_MS, ARABIC_VALIDATOR_VERSION, ARABIC_READABLE_VERSIONS } from "./config";
 import { resolveArabicIngredients } from "./ingredientResolution";
 import { listArabicRecipes, saveArabicResult, arabicPaths } from "./repository";
 import { getAdminDb } from "@/lib/firebaseAdmin";
@@ -66,6 +66,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const normalized = await resolveArabicIngredients(raw, { allowAi: authorization.allowed, deadline: Math.min(deadline, Date.now() + 10000), requestId });
     if (normalized.unclear.length) return Response.json({ code: "INGREDIENT_CLARIFICATION_REQUIRED", error: "يرجى توضيح المكونات المحددة أو كتابة أسمائها بشكل أدق.", items: normalized.unclear }, { status: 422 });
     const count = mode === "mealplan" ? 21 : input.recipeCount;
+    const poolLimit = mode === "mealplan" ? 30 : count;
     const accepted = new Map<string, ArabicRecipeEntry>();
     const identities = new Set<string>();
     const output = new Map<string, Recipe>();
@@ -81,7 +82,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       }
     };
     const consider = async (entry: ArabicRecipeEntry) => {
-      if (accepted.size >= count || entry.validatorVersion !== ARABIC_VALIDATOR_VERSION) return;
+      if (accepted.size >= poolLimit || !ARABIC_READABLE_VERSIONS.has(entry.validatorVersion)) return;
       if (!cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine)) { recordReasons(["cuisine_mismatch"]); return; }
       const rebuilt = await revalidateArabicEntry(entry, restrictions);
       if (!rebuilt.entry || rebuilt.entry.fingerprint !== entry.fingerprint) { invalidCount++; recordReasons(rebuilt.reasons.length ? rebuilt.reasons : ["stale_fingerprint"]); return; }
@@ -143,7 +144,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const reservation = await reserveFreeAiAction(access, mode === "recipes" ? "recipe_generation" : "weekly_plan", requestId);
       reservationId = reservation.actionId;
       imageActionGrantId = reservation.actionGrantId;
-      for (const reference of references.filter(item => item.edited).slice(0, 2)) {
+      for (const reference of references.filter(item => item.edited).slice(0, mode === "mealplan" ? 0 : 2)) {
         if (accepted.size >= count || deadline - Date.now() < 25000) break;
         const edited = reference.edited!;
         const source: NonNullable<ArabicRecipeEntry["source"]> = { kind: "reference", id: reference.reference.id, fingerprint: reference.fingerprint, editorKey: edited.key, editorFingerprint: edited.fingerprint };
@@ -157,7 +158,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const sources = (await findEnglishSources(normalized.canonical)).filter(source =>
         !findRecipeDietViolation(source, restrictions) && !findRecipeHealthViolation(source, restrictions.conditions)
         && cuisineMatchesPreference(englishSourceRecipe(source).cuisine, input.preferredCuisine)
-      ).slice(0, Math.min(3, count - accepted.size));
+      ).slice(0, mode === "mealplan" ? 0 : Math.min(3, count - accepted.size));
       const translations = await Promise.allSettled(sources.map(async source => {
         const canonical = englishSourceRecipe(source), fingerprint = englishSourceFingerprint(source);
         didCallAi = true;
@@ -169,11 +170,24 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         if (result.status === "fulfilled") await processPair(result.value);
         else { modelFailureCount++; recordReasons(["translation_request_failed"]); }
       }
-      for (let batch = 0; batch < 3 && accepted.size < count && deadline - Date.now() > 15000; batch++) {
+      if (mode === "mealplan" && deadline - Date.now() > 15000 && !selectArabicWeeklyMeals([...accepted.values()])) {
+        didCallAi = true;
+        // Three bounded meal-slot batches run together under one action and
+        // deadline. Each aims for seven meals; no 21-recipe JSON megarequest.
+        const batches = await Promise.allSettled(["breakfast", "lunch", "dinner"].map(type => generateArabicFactBatch({
+          ingredients: normalized.canonical, restrictions, count: 7, cuisine: input.preferredCuisine,
+          calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients,
+          excludeNames: [...accepted.values()].map(entry => entry.canonical.name), mealTypesNeeded: [type], references
+        }, deadline - 5000, requestId)));
+        for (const result of batches) {
+          if (result.status === "fulfilled") for (const pair of pairsFrom(result.value)) await processPair(pair);
+          else { modelFailureCount++; recordReasons(["weekly_batch_failed"]); }
+        }
+      }
+      for (let batch = 0; mode === "recipes" && batch < 3 && accepted.size < count && deadline - Date.now() > 15000; batch++) {
         didCallAi = true;
         try {
-          const mealTypesNeeded = mode === "mealplan" ? ["breakfast", "lunch", "dinner"].filter(type => [...accepted.values()].filter(entry => entry.facts?.mealTypes.includes(type as "breakfast" | "lunch" | "dinner")).length < 7) : undefined;
-          const generated = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions, count: Math.min(7, count - accepted.size), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: [...accepted.values()].map(entry => entry.canonical.name), mealTypesNeeded, references }, deadline - 5000, requestId);
+          const generated = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions, count: Math.min(7, count - accepted.size), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: [...accepted.values()].map(entry => entry.canonical.name), references }, deadline - 5000, requestId);
           const pairs = pairsFrom(generated);
           if (!pairs.length) { modelFailureCount++; generationRequestFailed = true; recordReasons(["empty_or_malformed_model_response"]); break; }
           for (const pair of pairs) await processPair(pair);
@@ -239,7 +253,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       reservationId = undefined;
       return arabicDisabledResponse();
     }
-    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, restrictions, mealPlan, imageActionGrantId, billing: didCallAi ? { access, actionId: reservationId } : undefined });
+    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: weeklyEntries ?? [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, restrictions, mealPlan, imageActionGrantId, billing: didCallAi ? { access, actionId: reservationId } : undefined });
     if (completedAccess) access = completedAccess;
     reservationId = undefined;
     logger.info("Arabic generation completed", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, elapsedMs: Date.now() - startedAt });

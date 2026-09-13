@@ -22,7 +22,7 @@ import type { Recipe, RecipeImageSource } from "@/lib/types";
 import { EmptyState } from "./shared";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
-import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
+import { ArabicAwareMealRevealCard as MealRevealCard } from "@/components/dashboard/arabic/ArabicAwareMealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";

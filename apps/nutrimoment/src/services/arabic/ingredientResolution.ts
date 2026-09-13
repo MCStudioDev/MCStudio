@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { findUnverifiedCompositeProtein } from "@/lib/compositeProteinSafety";
 import { normalizeArabicInputs } from "./ingredients";
-import { arabicFoodById, ARABIC_FOOD_VERSION, foodTerm, rankArabicFoodCandidates } from "./foodCatalog";
+import { arabicFoods, arabicFoodById, ARABIC_FOOD_VERSION, foodTerm, rankArabicFoodCandidates } from "./foodCatalog";
 import { arabicFingerprint } from "./fingerprint";
 import { arabicPaths, assertArabicWritePath } from "./repository";
 import { callArabicModel } from "./gemini";
@@ -17,7 +17,10 @@ export async function resolveArabicIngredients(values: string[], options: {
   for (const item of normalized.unclear) {
     // A language model is never allowed to guess a composite meal's protein.
     if (findUnverifiedCompositeProtein({ ingredients: [item.text] })) { remaining.push({ ...item, candidates: [] }); continue; }
-    const candidates = rankArabicFoodCandidates(item.text);
+    const ranked = rankArabicFoodCandidates(item.text);
+    // Semantic resolution can still identify a new Arabic surface term when
+    // lexical similarity is absent. It must select a real, existing food ID.
+    const candidates = ranked.length ? ranked : arabicFoods.map(food => ({ food, score: 0 }));
     const key = arabicFingerprint({ term: foodTerm(item.text), version: ARABIC_FOOD_VERSION, candidates: candidates.map(c => c.food.id) });
     const path = arabicPaths.resolution(key);
     try {
@@ -47,5 +50,5 @@ export async function resolveArabicIngredients(values: string[], options: {
   }
   return { ...normalized, canonical: [...new Set([...normalized.canonical, ...resolved.values()])],
     unclear: normalized.unclear.filter(item => !resolved.has(item.index)).map(item => ({ ...item,
-      suggestions: remaining.find(candidate => candidate.index === item.index)?.candidates.slice(0, 3).map(c => c.food.ar || c.food.en) ?? [] })) };
+      suggestions: remaining.find(candidate => candidate.index === item.index)?.candidates.filter(c => c.score >= 0.55).slice(0, 3).map(c => c.food.ar || c.food.en) ?? [] })) };
 }

@@ -51,7 +51,9 @@ export async function findArabicReferenceCandidates(ingredients: string[], cuisi
     const fingerprint = referenceFingerprint(source);
     const input: RecipeEditorCacheInput = { sourceRecipe: reference, recipeLanguage: "English", preferredCuisine: cuisine,
       availableIngredients: ingredients.map(name => ({ name })), ...restrictions, excludedIngredients: [] };
-    const edited = await readEnglishEditorForArabic(input);
+    let edited: Awaited<ReturnType<typeof readEnglishEditorForArabic>> = null;
+    try { edited = await readEnglishEditorForArabic(input); }
+    catch { logger.warn("English editor cache unavailable to Arabic reader"); }
     return { reference, fingerprint, variantKey: arabicVariantKey(fingerprint, input), edited };
   }));
   if (results.some(result => result.status === "rejected")) logger.warn("Some Arabic reference candidates could not be read");

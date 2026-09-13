@@ -9,7 +9,7 @@ import { History, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
+import { ArabicAwareMealRevealCard as MealRevealCard } from "@/components/dashboard/arabic/ArabicAwareMealRevealCard";
 import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useCombinedHistory as useHistory } from "@/hooks/useCombinedHistory";

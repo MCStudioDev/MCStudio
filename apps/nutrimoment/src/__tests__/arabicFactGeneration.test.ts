@@ -72,6 +72,15 @@ describe("Arabic fact generation orchestration", () => {
     const result = await generateArabicFactBatch(input, Date.now() + 40000, "test");
     expect(result.recipes[0].facts.ingredients).toEqual(facts.ingredients); expect(result.recipes[0].facts.nutrition).toEqual(facts.nutrition); expect(model).toHaveBeenCalledTimes(3);
   });
+  it("repairs missing cooking-liquid references without changing ingredients", async () => {
+    const facts = weeklyFactFixtures()[0];
+    const broken = { ...facts, steps: facts.steps.map(step => ({ ...step, foodIds: step.foodIds.filter(id => id !== findArabicFood("water")!.id) })) };
+    model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts: broken }] })
+      .mockResolvedValueOnce({ repairs: [{ index: 0, name: facts.name, dishFamily: facts.dishFamily, steps: facts.steps.map(({ foodIds, ...step }) => ({ ...step, ingredientNumbers: foodIds.map(id => facts.ingredients.findIndex(item => item.foodId === id) + 1) })) }] });
+    const result = await generateArabicFactBatch(input, Date.now() + 40000, "test");
+    expect(result.recipes).toHaveLength(1);
+    expect(model.mock.calls[2][0]).toContain("missing_cooking_liquid");
+  });
   it("requires an independent semantic check for unclassified foods and rejects forged safety receipts", async () => {
     const facts = weeklyFactFixtures()[0], restrictions = { diets: ["pescatarian"], allergens: [], conditions: [] };
     const unknown = arabicFoods.find(food => needsArabicSemanticSafety({ ...facts, ingredients: [{ ...facts.ingredients[0], foodId: food.id }] }, restrictions))!;

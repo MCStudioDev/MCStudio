@@ -25,6 +25,11 @@ export function salmonFacts() {
 }
 
 describe("Arabic facts pipeline", () => {
+  it("requires cooking liquid when raw grains or legumes are boiled or simmered", async () => {
+    const facts = salmonFacts();
+    facts.steps[1].foodIds = [food("rice")];
+    expect((await buildArabicFactsEntry(facts, unrestricted)).reasons).toContain("missing_cooking_liquid");
+  });
   it("uses existing food knowledge for ordinary English, Arabic and mixed input", async () => {
     for (const term of ["mushroom", "mushrooms", "فطر", "soy sauce", "lime", "cilantro"]) {
       const result = await normalizeArabicInputs([term]);

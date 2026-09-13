@@ -28,6 +28,15 @@ describe("Arabic fact generation orchestration", () => {
     expect(result.recipes).toEqual([]);
     expect(model).toHaveBeenCalledTimes(1);
   });
+  it("allows source-verified cooking aromatics without a per-dish ingredient allowlist", async () => {
+    const facts = weeklyFactFixtures()[0], requiredFoodIds = facts.ingredients.map(item => item.foodId);
+    const garlic = findArabicFood("garlic")!.id;
+    facts.ingredients.push({ foodId: garlic, quantity: 1, unit: "clove", state: "raw" });
+    facts.steps[1].foodIds.push(garlic);
+    const reference = { reference: { id: "candidate-1", title: facts.dishFamily, cuisine: facts.cuisine, ingredients: [], steps: [], matchedIngredients: [] }, fingerprint: "f", variantKey: "v", requiredFoodIds };
+    model.mockResolvedValueOnce({ plans: [{ ...manifest(facts), referenceId: "candidate-1" }] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] }).mockResolvedValueOnce({ labels: [], sources: [{ index: 0, valid: true }] });
+    expect((await generateArabicFactBatch({ ...input, sourceOnly: true, references: [reference] }, Date.now() + 40000, "test")).recipes).toHaveLength(1);
+  });
   it("rejects corrections with no recognized source instead of silently generating a substitute", async () => {
     const facts = weeklyFactFixtures()[0];
     model.mockResolvedValueOnce({ plans: [manifest(facts)] }).mockResolvedValueOnce({ recipes: [{ planIndex: 0, facts }] });

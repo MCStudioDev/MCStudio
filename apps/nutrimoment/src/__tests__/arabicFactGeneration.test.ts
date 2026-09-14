@@ -36,7 +36,7 @@ describe("Arabic fact generation orchestration", () => {
   it("can add only measured plain water when a later cooking step exposes an incomplete manifest", async () => {
     manifestIds = manifestIds.filter(id => id !== findArabicFood("water")!.id);
     output = { ...facts, ingredients: facts.ingredients.filter(item => item.foodId !== findArabicFood("water")!.id),
-      steps: facts.steps.map(step => ({ ...step, foodIds: step.foodIds.filter(id => id !== findArabicFood("water")!.id) })) };
+      steps: facts.steps.map((step, index) => ({ ...step, ...(index === 1 ? { previousSteps: [0] } : {}), foodIds: step.foodIds.filter(id => id !== findArabicFood("water")!.id) })) };
     const original = model.getMockImplementation()!;
     model.mockImplementation(async (...args) => {
       const result = await original(...args);

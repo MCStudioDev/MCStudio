@@ -4,9 +4,23 @@ vi.mock("@/services/arabic/cuisineGuidance", () => ({ buildArabicCuisineGuidance
 import { selectArabicDishCandidates } from "@/services/arabic/dishCandidates";
 import { boundedArabicDiagnostics } from "@/services/arabic/generationDiagnostics";
 const input = { ingredients: ["rice", "fava beans"], restrictions: { diets: ["vegan"], allergens: [], conditions: [] }, count: 1, cuisine: "Egyptian", calorieTarget: 1650, missingLimit: "unlimited" as const };
-const dish = (name: string, ingredients: string[], nativeName = name) => ({ name, nativeName, description: name, essentialIngredients: ingredients, availableIngredients: ingredients });
+const dish = (name: string, ingredients: string[], nativeName = name, mealTypes = ["breakfast", "lunch", "dinner"]) => ({ name, nativeName, description: name, essentialIngredients: ingredients, availableIngredients: ingredients, mealTypes });
 beforeEach(() => guidance.mockReset());
 describe("server-selected Arabic dish candidates", () => {
+  it("assigns compatible distinct dishes and discovery slots to parallel weekly meal batches", async () => {
+    guidance.mockResolvedValue([
+      dish("Breakfast", ["fava beans"], "Breakfast", ["breakfast"]),
+      dish("Lunch", ["rice"], "Lunch", ["lunch"]),
+      dish("Dinner", ["tomato"], "Dinner", ["dinner"]),
+      dish("Flexible", ["rice", "tomato"])
+    ]);
+    const results = await Promise.all(["breakfast", "lunch", "dinner"].map(type =>
+      selectArabicDishCandidates({ ...input, count: 3, mealTypesNeeded: [type], variationSeed: "week" })));
+    expect(results.map(items => items[0].title)).toEqual(["Breakfast", "Lunch", "Dinner"]);
+    const ids = results.flatMap(items => items.map(item => item.candidateId));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(results.every(items => items.length >= 3)).toBe(true);
+  });
   it("deduplicates alternate English spellings through the shared native name", async () => {
     guidance.mockResolvedValue([dish("Foul Bil Tahina", ["fava beans"], "فول بالطحينة"), dish("Ful Bel Tahina", ["fava beans", "tahini"], "فول بالطحينة"), dish("Taameya", ["fava beans", "onion"], "طعمية")]);
     const result = await selectArabicDishCandidates(input);

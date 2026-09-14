@@ -33,6 +33,22 @@ beforeEach(() => {
   });
 });
 describe("Arabic fact generation orchestration", () => {
+  it("can add only measured plain water when a later cooking step exposes an incomplete manifest", async () => {
+    manifestIds = manifestIds.filter(id => id !== findArabicFood("water")!.id);
+    output = { ...facts, ingredients: facts.ingredients.filter(item => item.foodId !== findArabicFood("water")!.id),
+      steps: facts.steps.map(step => ({ ...step, foodIds: step.foodIds.filter(id => id !== findArabicFood("water")!.id) })) };
+    const original = model.getMockImplementation()!;
+    model.mockImplementation(async (...args) => {
+      const result = await original(...args);
+      if (args[3] === "arabic_facts_planning") result.plans.forEach((plan: any) => { plan.preparations = ["bake", "serve"]; });
+      if (args[3] === "arabic_facts_repair") result.repairs.forEach((item: any) => { item.water = { quantity: 2, unit: "cup" }; });
+      return result;
+    });
+    repair = true;
+    const result = await run();
+    expect(result.recipes[0]?.facts.ingredients, JSON.stringify(result.diagnostics)).toEqual(expect.arrayContaining(facts.ingredients));
+    expect(result.recipes[0].facts.nutrition).toEqual(facts.nutrition);
+  });
   it("repairs an omitted overnight soaking duration without treating the derived active-time error as fatal", async () => {
     facts.steps.unshift({ action: "soak", foodIds: [findArabicFood("rice")!.id, findArabicFood("water")!.id], minutes: 720, temperatureC: 0, heat: "none" });
     facts.totalMinutes += 720;

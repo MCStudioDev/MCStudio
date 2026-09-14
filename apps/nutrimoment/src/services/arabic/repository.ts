@@ -7,6 +7,7 @@ import type { ArabicRecipeEntry } from "./types";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
 import { buildArabicFreshnessRecord } from "./freshness";
 import { withTimeout } from "@/lib/utils";
+import { boundedArabicDiagnostics, type ArabicDishDiagnostic } from "./generationDiagnostics";
 export { arabicFingerprint } from "./fingerprint";
 
 function segment(value: string) {
@@ -38,6 +39,7 @@ export async function saveArabicResult(input: {
   uid: string; requestId: string; entries: ArabicRecipeEntry[]; ingredients: string[];
   restrictions: GenerationRestrictions; mealPlan?: MealPlanData; displayedRecipes?: Recipe[]; imageActionGrantId?: string;
   canonicalIngredients?: string[];
+  generationDiagnostics?: ArabicDishDiagnostic[];
   billing?: { access: RequestAccess; actionId?: string };
 }) {
   const writes: Array<{ path: string; data: object }> = [];
@@ -56,7 +58,8 @@ export async function saveArabicResult(input: {
   };
   const recipeFreshness = !input.mealPlan && input.canonicalIngredients
     ? buildArabicFreshnessRecord(input.canonicalIngredients, input.entries) : undefined;
-  writes.push({ path: arabicPaths.history(input.uid, input.requestId), data: { ...history, englishSources, recipeFreshness } });
+  writes.push({ path: arabicPaths.history(input.uid, input.requestId), data: { ...history, englishSources, recipeFreshness,
+    generationDiagnostics: input.generationDiagnostics ? boundedArabicDiagnostics(input.generationDiagnostics) : undefined } });
   if (input.mealPlan) writes.push({ path: arabicPaths.plan(input.uid), data: { mealPlan: input.mealPlan, effectiveRestrictions: input.restrictions, generationLanguage: "ar", englishSources } });
   writes.forEach(({ path }) => assertArabicWritePath(path));
   const db = getAdminDb();

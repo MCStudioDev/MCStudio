@@ -26,6 +26,7 @@ import { arabicFingerprint } from "./fingerprint";
 import { arabicRepairSchema } from "./modelSchemas";
 import type { ArabicRecipeEntry, ArabicRecipeSuggestion } from "./types";
 import { arabicCuisineMatches as cuisineMatchesPreference } from "./cuisineGuidance";
+import { boundedArabicDiagnostics, type ArabicDishDiagnostic } from "./generationDiagnostics";
 
 const schema = z.object({
   ingredients: z.array(z.string().min(1).max(300)).max(60).optional(),
@@ -36,9 +37,9 @@ const schema = z.object({
   preferredCuisine: z.string().max(80).default("Any"), calorieTarget: z.number().min(500).max(6000).default(1650),
   actionId: z.string().regex(/^[\w-]{1,128}$/).optional()
 });
-type Pair = { canonical?: unknown; recipe?: unknown; facts?: unknown; labelReceipt?: ArabicLabelReceipt; safetyReceipt?: string; source?: ArabicRecipeEntry["source"]; variantKey?: string };
+type Pair = { candidateId?: string; canonical?: unknown; recipe?: unknown; facts?: unknown; labelReceipt?: ArabicLabelReceipt; safetyReceipt?: string; source?: ArabicRecipeEntry["source"]; variantKey?: string };
 const pairsFrom = (value: unknown): Pair[] => {
-  const parsed = z.object({ recipes: z.array(z.object({ canonical: z.unknown().optional(), recipe: z.unknown().optional(), facts: z.unknown().optional(),
+  const parsed = z.object({ recipes: z.array(z.object({ candidateId: z.string().optional(), canonical: z.unknown().optional(), recipe: z.unknown().optional(), facts: z.unknown().optional(),
     labelReceipt: z.object({ version: z.literal("ar-label-v1"), fingerprint: z.string() }).optional(),
     safetyReceipt: z.string().optional(),
     source: z.object({ id: z.string(), fingerprint: z.string(), kind: z.enum(["reference", "shared", "trusted"]).optional(), editorKey: z.string().optional(), editorFingerprint: z.string().optional() }).optional(), variantKey: z.string().optional() })).max(21) }).safeParse(value);
@@ -84,6 +85,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const alternativeSources = new Map<string, NonNullable<ArabicRecipeEntry["source"]>>();
     let invalidCount = 0, modelFailureCount = 0;
     let generationRequestFailed = false;
+    const dishDiagnostics: ArabicDishDiagnostic[] = [];
     const rejectionCounts: Record<string, number> = {};
     const recordReasons = (reasons: string[]) => {
       for (const reason of reasons) {
@@ -126,8 +128,12 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         if (validated.entry && pair.variantKey) validated.entry.variantKey = pair.variantKey;
         if (validated.entry) {
           const alreadyAccepted = accepted.has(validated.entry.id);
+          const before = { ...rejectionCounts };
           await consider(validated.entry);
           if (!alreadyAccepted && accepted.has(validated.entry.id)) aiAcceptedIds.add(validated.entry.id);
+          if (pair.candidateId) dishDiagnostics.push({ candidateId: pair.candidateId, name: validated.entry.recipe.name, stage: "publication",
+            status: accepted.has(validated.entry.id) ? "accepted" : "rejected",
+            issues: Object.keys(rejectionCounts).filter(code => rejectionCounts[code] !== before[code]) });
         }
         else {
           invalidCount++; recordReasons(validated.reasons);
@@ -156,56 +162,59 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const reservation = await reserveFreeAiAction(access, mode === "recipes" ? "recipe_generation" : "weekly_plan", requestId);
       reservationId = reservation.actionId;
       imageActionGrantId = reservation.actionGrantId;
-      if (references.length && deadline - Date.now() > 25000) {
-        try {
-          didCallAi = true;
-          const corrected = await generateArabicSourceBatch({ ingredients: normalized.canonical, restrictions,
-            count: Math.min(7, Math.max(1, count - accepted.size)), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget,
-            missingLimit: input.maxMissingIngredients, sourceOnly: true, references: references.slice(0, 9),
-            excludeNames: excludeNames()
-          }, Math.min(deadline - 15000, Date.now() + 35000), requestId);
-          for (const pair of pairsFrom(corrected)) await processPair(pair);
-          for (const diagnostic of corrected.diagnostics ?? []) recordReasons(diagnostic.issues);
-          logger.info("Arabic source correction completed", { requestId, sources: references.map(item => ({
-            id: item.source?.id, kind: item.source?.kind, editor: !!item.source?.editorKey, title: item.reference.title
-          })), returned: corrected.recipes.length, diagnostics: corrected.diagnostics });
-        } catch {
-          modelFailureCount++; recordReasons(["source_correction_failed"]);
+      const consumeBatch = async (generated: Awaited<ReturnType<typeof generateArabicFactBatch>>) => {
+        for (const diagnostic of generated.diagnostics ?? []) {
+          if (diagnostic.stage) dishDiagnostics.push(diagnostic);
+          recordReasons(diagnostic.issues);
+          if (diagnostic.status === "rejected" && ["validation", "verification", "generation"].includes(diagnostic.stage)) invalidCount++;
+          if (diagnostic.issues.some(code => /unavailable|invalid_manifest_response|invalid_recipe_response/.test(code))) generationRequestFailed = true;
+        }
+        const pairs = pairsFrom(generated);
+        if (!pairs.length && !generated.diagnostics?.length) { modelFailureCount++; generationRequestFailed = true; recordReasons(["empty_or_malformed_model_response"]); }
+        for (const pair of pairs) await processPair(pair);
+      };
+      const base = { ingredients: normalized.canonical, restrictions, cuisine: input.preferredCuisine,
+        calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients };
+      const selectedSources = references.slice(0, Math.min(3, Math.max(1, count - accepted.size)));
+      // Correction and fresh discovery have independent prompts and share only
+      // this action/deadline. A slow source must not consume the fresh budget.
+      const jobs: Array<{ kind: string; run: Promise<Awaited<ReturnType<typeof generateArabicFactBatch>>> }> = [];
+      if (deadline - Date.now() >= 39000) {
+        if (selectedSources.length) jobs.push({ kind: "source_correction_failed", run: generateArabicSourceBatch({ ...base,
+          count: selectedSources.length, sourceOnly: true, references: selectedSources, excludeNames: excludeNames() }, deadline - 5000, requestId) });
+        const freshExclusions = [...excludeNames(), ...selectedSources.map(item => item.reference.title)];
+        if (mode === "mealplan") {
+          for (const type of ["breakfast", "lunch", "dinner"]) jobs.push({ kind: "weekly_batch_failed", run: generateArabicFactBatch({ ...base,
+            count: 7, excludeNames: freshExclusions, mealTypesNeeded: [type] }, deadline - 5000, requestId) });
+        } else {
+          jobs.push({ kind: "generation_request_failed", run: generateArabicFactBatch({ ...base,
+            count: Math.min(7, Math.max(1, count - accepted.size - selectedSources.length)), excludeNames: freshExclusions,
+            variationSeed: `${variationSeed}:0` }, deadline - 5000, requestId) });
+        }
+      } else {
+        generationRequestFailed = true; recordReasons(["insufficient_generation_time"]);
+        dishDiagnostics.push({ stage: "generation", status: "rejected", issues: ["insufficient_generation_time"] });
+      }
+      didCallAi = jobs.length > 0;
+      const completed = await Promise.allSettled(jobs.map(job => job.run));
+      for (const [index, result] of completed.entries()) {
+        if (result.status === "fulfilled") await consumeBatch(result.value);
+        else {
+          modelFailureCount++;
+          const kind = jobs[index].kind;
+          if (kind !== "source_correction_failed") generationRequestFailed = true;
+          recordReasons([kind]); dishDiagnostics.push({ stage: "generation", status: "rejected", issues: [kind] });
         }
       }
-      if (mode === "mealplan" && deadline - Date.now() > 15000 && !selectArabicWeeklyMeals([...accepted.values()])) {
-        didCallAi = true;
-        // Three bounded meal-slot batches run together under one action and
-        // deadline. Each aims for seven meals; no 21-recipe JSON megarequest.
-        const batches = await Promise.allSettled(["breakfast", "lunch", "dinner"].map(type => generateArabicFactBatch({
-          ingredients: normalized.canonical, restrictions, count: 7, cuisine: input.preferredCuisine,
-          calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients,
-          excludeNames: [...accepted.values()].map(entry => entry.canonical.name), mealTypesNeeded: [type]
-        }, deadline - 5000, requestId)));
-        for (const result of batches) {
-          if (result.status === "fulfilled") for (const pair of pairsFrom(result.value)) await processPair(pair);
-          else { modelFailureCount++; recordReasons(["weekly_batch_failed"]); }
-        }
-      }
-      for (let batch = 0; mode === "recipes" && batch < 3 && accepted.size < count && deadline - Date.now() > 15000; batch++) {
-        didCallAi = true;
+      // One bounded top-up only after a productive first pass. Exclude every
+      // attempted family so a rejected dish is not retried under another ID.
+      if (mode === "recipes" && aiAcceptedIds.size > 0 && accepted.size < count && deadline - Date.now() >= 39000) {
         try {
-          const generated = await generateArabicFactBatch({ ingredients: normalized.canonical, restrictions, count: Math.min(7, count - accepted.size), cuisine: input.preferredCuisine, calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, excludeNames: excludeNames(), variationSeed: `${variationSeed}:${batch}`,
-            previousShortages: [...alternatives.values()].slice(-10).map(item => ({ name: item.name, missingIngredients: item.missingIngredients })) }, deadline - 5000, requestId);
-          const pairs = pairsFrom(generated);
-          if (!pairs.length) {
-            if (generated.diagnostics?.some(item => item.issues.includes("no_feasible_ingredient_manifest"))) recordReasons(["missing_ingredient_limit"]);
-            else { modelFailureCount++; generationRequestFailed = true; recordReasons(["empty_or_malformed_model_response"]); }
-            break;
-          }
-          for (const pair of pairs) await processPair(pair);
-          // Repeating a batch that added no accepted dishes cannot fill a plan.
-          if (batch > 0 && pairs.every(pair => !pair.facts)) break;
-        } catch (error) {
-          modelFailureCount++; generationRequestFailed = true;
-          recordReasons([error instanceof Error && /too many states for serving/i.test(error.message) ? "model_schema_rejected" : "generation_request_failed"]);
-          break;
-        }
+          const attempted = dishDiagnostics.flatMap(item => item.name ? [item.name] : []);
+          await consumeBatch(await generateArabicFactBatch({ ...base, count: Math.min(7, count - accepted.size),
+            excludeNames: [...excludeNames(), ...attempted], variationSeed: `${variationSeed}:1`,
+            previousShortages: [...alternatives.values()].slice(-10).map(item => ({ name: item.name, missingIngredients: item.missingIngredients })) }, deadline - 5000, requestId));
+        } catch { modelFailureCount++; generationRequestFailed = true; recordReasons(["generation_request_failed"]); }
       }
       if (failed.length && accepted.size < count && deadline - Date.now() >= 5000) {
         // One repair batch; canonical recipes and source links are never accepted back from the model.
@@ -254,7 +263,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       .slice(0, 3).map(([, suggestion]) => suggestion);
     if (!recipes.length || (mode === "mealplan" && !weeklyEntries)) {
       if (reservationId) { await releaseFreeAiAction(access, reservationId); reservationId = undefined; }
-      logger.warn("Arabic generation produced insufficient validated results", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts });
+      logger.warn("Arabic generation produced insufficient validated results", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, diagnostics: boundedArabicDiagnostics(dishDiagnostics) });
       const failureCode = suggestions.length ? "ARABIC_RESULTS_UNAVAILABLE" : generationRequestFailed ? "ARABIC_AI_UNAVAILABLE" : invalidCount ? "ARABIC_VALIDATION_FAILED" : modelFailureCount ? "ARABIC_AI_UNAVAILABLE" : "ARABIC_RESULTS_UNAVAILABLE";
       if (authorization.allowed && failureCode !== "ARABIC_RESULTS_UNAVAILABLE") {
         const reason = failureCode === "ARABIC_VALIDATION_FAILED"
@@ -286,12 +295,16 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       reservationId = undefined;
       return arabicDisabledResponse();
     }
-    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: weeklyEntries ?? [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, canonicalIngredients: normalized.canonical, restrictions, mealPlan, imageActionGrantId, billing: didCallAi ? { access, actionId: reservationId } : undefined });
+    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: weeklyEntries ?? [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, canonicalIngredients: normalized.canonical, restrictions, mealPlan, imageActionGrantId, generationDiagnostics: boundedArabicDiagnostics(dishDiagnostics), billing: didCallAi ? { access, actionId: reservationId } : undefined });
     if (completedAccess) access = completedAccess;
     reservationId = undefined;
-    logger.info("Arabic generation completed", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, elapsedMs: Date.now() - startedAt });
+    logger.info("Arabic generation completed", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, diagnostics: boundedArabicDiagnostics(dishDiagnostics), elapsedMs: Date.now() - startedAt });
     const backfilledCount = backfilledIds.size, freshCount = recipes.length - backfilledCount;
-    const message = freshnessUnavailable ? "تعذر التحقق من السجل الآن. هذه وصفات مطابقة لإعداداتك، وقد تتضمن وصفات شاهدتها سابقًا."
+    const refreshFailure = invalidCount ? "بعض الوصفات الجديدة لم تجتز فحص الدقة والتحضير، لذلك لم نعرضها."
+      : generationRequestFailed || modelFailureCount ? "تعذر إكمال توليد بعض الوصفات الجديدة الآن." : undefined;
+    const message = refreshFailure && (backfilledCount || recipes.length < count)
+      ? `${refreshFailure} عرضنا ${recipes.length} وصفات محفوظة أو تحقّقنا منها، منها ${backfilledCount} شاهدتها سابقًا. يمكنك المحاولة مجددًا؛ قيودك الغذائية ما زالت مطبقة.`
+      : freshnessUnavailable ? "تعذر التحقق من السجل الآن. هذه وصفات مطابقة لإعداداتك، وقد تتضمن وصفات شاهدتها سابقًا."
       : backfilledCount ? `وجدنا ${freshCount} وصفات جديدة، وأكملنا النتائج بـ ${backfilledCount} وصفات شاهدتها خلال آخر 24 ساعة لعدم توفر خيارات جديدة كافية. ما زالت جميعها تطابق مكوناتك وقيودك الغذائية.`
       : recipes.length < count ? `تم العثور على ${recipes.length} من ${count} وصفات تجتاز الفحوص بالعربية.` : undefined;
     return Response.json({ recipes, suggestions, result: JSON.stringify(mealPlan ?? recipes), generationLanguage: "ar", generationStatus: recipes.length < count || backfilledCount || freshnessUnavailable ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message,

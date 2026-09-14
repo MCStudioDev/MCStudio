@@ -41,7 +41,10 @@ describe("Arabic fact generation orchestration", () => {
     model.mockImplementation(async (...args) => {
       const result = await original(...args);
       if (args[3] === "arabic_facts_planning") result.plans.forEach((plan: any) => { plan.preparations = ["bake", "serve"]; });
-      if (args[3] === "arabic_facts_repair") result.repairs.forEach((item: any) => { item.water = { quantity: 2, unit: "cup" }; });
+      if (args[3] === "arabic_facts_repair") result.repairs.forEach((item: any) => {
+        item.water = { quantity: 2, unit: "cup" };
+        item.steps.forEach((step: any) => { step.foodIds = step.foodIds.filter((id: string) => id !== findArabicFood("water")!.id); });
+      });
       return result;
     });
     repair = true;

@@ -120,6 +120,7 @@ export function MealPlanTab() {
       !findRecipeHealthViolation(meal, health.conditions)
     )
   ) ? selectedPlan : null;
+  const showingEnglishPlanInArabic = settings.uiLanguage === "ar" && mealPlan && mealPlan.generationLanguage !== "ar";
   const profileVersionRef = useRef(0);
   const safetyPreferenceSignature = mealPlanPreferenceSignature.replace(/\|language:[^|]*/, "");
   useEffect(() => { profileVersionRef.current += 1; }, [safetyPreferenceSignature, loadingProfile, profileError, user?.uid]);
@@ -795,7 +796,7 @@ export function MealPlanTab() {
             {loadingProfile ? <p role="status">{t("profileLoadingMeals")}</p> : null}
             {profileError ? <p role="alert">{t("profileUnavailableMeals")} <button type="button" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></p> : null}
             <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={(!canGenerateMealPlan && settings.uiLanguage !== "ar") || loadingProfile || Boolean(profileError)}>
-              {!canGenerateMealPlan && settings.uiLanguage !== "ar" ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+              {!canGenerateMealPlan && settings.uiLanguage !== "ar" ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : showingEnglishPlanInArabic ? "توليد خطة بالعربية" : mealPlan ? t("regeneratePlan") : t("generatePlan")}
             </Button>
           </div>
         </Card>
@@ -814,6 +815,13 @@ export function MealPlanTab() {
         </motion.div>
       ) : mealPlan ? (
         <motion.div variants={itemVariants} className="grid items-start gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+          {showingEnglishPlanInArabic ? (
+            <div role="status" dir="rtl" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 xl:col-span-2">
+              <p className="font-semibold">لغة الخطة المعروضة: الإنجليزية</p>
+              <p className="mt-1">هذه خطتك الإنجليزية المحفوظة سابقًا، وليست نتيجة توليد بالعربية. تغيير لغة الواجهة لا يترجم الوجبات أو المكونات أو خطوات التحضير.</p>
+              <p className="mt-1">{compatibleArabicPlan ? "يمكنك عرض خطتك العربية المحفوظة من اختيار اللغة أعلاه." : "للحصول على خطة عربية، استخدم «توليد خطة بالعربية». تظل خطتك السابقة محفوظة حتى يكتمل التوليد بنجاح."}</p>
+            </div>
+          ) : null}
           <div className="flex flex-col gap-3">
             <ResultLegalNotice mode="mealplan" />
             {mealPlan.plan.map((day, dayIndex) => (

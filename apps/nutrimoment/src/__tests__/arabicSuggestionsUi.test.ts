@@ -10,13 +10,23 @@ vi.mock("@/contexts/AuthContext", () => {
 import { useArabicWorkflow } from "@/hooks/useArabicWorkflow";
 import { ArabicGenerationIssue } from "@/components/dashboard/ArabicGenerationIssue";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-function Harness() {
+function Harness({ mode = "recipes" }: { mode?: "recipes" | "mealplan" }) {
   const arabic = useArabicWorkflow();
   return createElement("div", null,
-    createElement("button", { onClick: () => void arabic.generate("recipes", {}).catch(() => undefined) }, "generate"),
+    createElement("button", { onClick: () => void arabic.generate(mode, {}).catch(() => undefined) }, "generate"),
     createElement(ArabicGenerationIssue, { issue: arabic.issue }));
 }
 describe("Arabic suggestions", () => {
+  it("shows the successful weekly repeat notice to the user", async () => {
+    const message = "أكملنا الأسبوع بتكرار لا يتجاوز 10٪ من الوجبات المتحقق منها.";
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ recipes: [], result: "{}", message })));
+    const container = document.createElement("div"), root = createRoot(container);
+    try {
+      await act(async () => root.render(createElement(Harness, { mode: "mealplan" })));
+      await act(async () => container.querySelector("button")!.click());
+      expect(container.textContent).toContain(message);
+    } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
+  });
   it.each([200, 503])("shows missing ingredients and the configured limit after status %i", async status => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ recipes: [], result: "[]", error: "لا توجد وصفات مطابقة", suggestions: [{ name: "كشري", missingIngredients: ["1 كوب عدس", "1 كوب مكرونة"], maxMissingIngredients: 1 }] }, { status })));
     const container = document.createElement("div"), root = createRoot(container);

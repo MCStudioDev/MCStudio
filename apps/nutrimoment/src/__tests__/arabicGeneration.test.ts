@@ -161,6 +161,17 @@ describe("Arabic request integration with write recording", () => {
     expect(discovery[0].excludeNames).toEqual(expect.arrayContaining(facts.slice(0, 15).map(fact => fact.name)));
     expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
   });
+  it("counts same-name cache variants as one weekly dish instead of pretending they are unique", async () => {
+    mock.allowed = false;
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.map(async (fact, index) => (await buildArabicFactsEntry({ ...fact, name: index < 3 ? facts[0].name : fact.name }, restrictions)).entry));
+    const response = await handleArabicGeneration(request({ maxMissingIngredients: "unlimited" }), "mealplan");
+    const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.repeatFallback).toMatchObject({ uniqueMealCount: 19, repeatedSlots: 2 });
+    const meals = JSON.parse(data.result).plan.flatMap((day: any) => [day.breakfast, day.lunch, day.dinner]);
+    expect(Math.max(...meals.map((meal: any) => meals.filter((other: any) => other.name === meal.name).length))).toBeLessThanOrEqual(2);
+    expect(mock.generate).not.toHaveBeenCalled();
+  });
   it("starts fresh generation while source correction is pending under the same billing action", async () => {
     mock.candidates.mockResolvedValue([{ reference: { id: "source-candidate", title: "Koshary" }, variantKey: "v" }]);
     let releaseSource!: (value: unknown) => void;

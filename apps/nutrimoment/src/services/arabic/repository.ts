@@ -29,10 +29,11 @@ export function assertArabicWritePath(path: string) {
   }
 }
 const clean = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-export async function listArabicRecipes(ingredients: string[], limit = 50) {
-  if (!ingredients.length) return [];
-  const snapshot = await getAdminDb().collection("sharedRecipesArabicV1")
-    .where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)).limit(Math.min(limit, 200)).get();
+export async function listArabicRecipes(ingredients: string[], limit = 50, allowEmptyPantry = false) {
+  if (!ingredients.length && !allowEmptyPantry) return [];
+  const collection = getAdminDb().collection("sharedRecipesArabicV1");
+  const query = ingredients.length ? collection.where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)) : collection;
+  const snapshot = await query.limit(Math.min(limit, 200)).get();
   return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as ArabicRecipeEntry);
 }
 export async function saveArabicResult(input: {

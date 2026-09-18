@@ -10,7 +10,7 @@ export function arabicCuisineMatches(actual: string, requested: string) {
   return translateCuisineToEnglish(actual).toLowerCase() === translateCuisineToEnglish(requested).toLowerCase();
 }
 
-export async function buildArabicCuisineGuidance(cuisine: string, pantry: string[], restrictions: GenerationRestrictions) {
+export async function buildArabicCuisineGuidance(cuisine: string, pantry: string[], restrictions: GenerationRestrictions, allowEmptyPantry = false) {
   const catalog = getCompleteCuisineCatalog(cuisine);
   if (!catalog) return [];
   // Read-only dish descriptions guide fresh generation; they are not cached
@@ -27,7 +27,7 @@ export async function buildArabicCuisineGuidance(cuisine: string, pantry: string
     return { name: dish.names.english[0], nativeName: dish.names.native[0], description: dish.description,
       essentialIngredients: dish.primaryIngredients, mealTypes: dish.mealTypes, availableIngredients: available, score: dish.iconicScore + available.length * 20 };
   }));
-  return ranked.filter(dish => dish.availableIngredients.length > 0)
+  return ranked.filter(dish => dish.availableIngredients.length > 0 || (allowEmptyPantry && pantry.length === 0))
     .sort((a, b) => b.score - a.score).slice(0, 20)
     .map(dish => ({ name: dish.name, nativeName: dish.nativeName, description: dish.description,
       essentialIngredients: dish.essentialIngredients, mealTypes: dish.mealTypes, availableIngredients: dish.availableIngredients }));

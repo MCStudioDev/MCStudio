@@ -35,7 +35,8 @@ export function useArabicWorkflow(readSaved = false) {
       const failure = { code: data.code, message: data.error ?? "تعذر إكمال الطلب بالعربية.", items: data.items, suggestions: data.suggestions };
       setIssue(failure); throw new Error(failure.message);
     }
-    if (data.suggestions?.length) setIssue({ code: "ARABIC_RECIPE_SUGGESTIONS", message: "أكلات أخرى تحتاج مكونات إضافية:", suggestions: data.suggestions });
+    if (mode === "mealplan" && data.message) setIssue({ code: "ARABIC_WEEKLY_PLAN_NOTICE", message: data.message, suggestions: data.suggestions });
+    else if (data.suggestions?.length) setIssue({ code: "ARABIC_RECIPE_SUGGESTIONS", message: "أكلات أخرى تحتاج مكونات إضافية:", suggestions: data.suggestions });
     window.dispatchEvent(new Event("nutrimoment:arabic-results"));
     return data as ArabicGenerationResult;
   }, [getAuthHeaders]);

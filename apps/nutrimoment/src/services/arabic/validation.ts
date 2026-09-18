@@ -106,7 +106,7 @@ export async function buildArabicEntry(canonicalInput: unknown, arabicInput: unk
   };
   return { reasons: [], entry };
 }
-export async function partitionArabicRecipe(entry: ArabicRecipeEntry, pantry: string[], missingLimit: ArabicMissingIngredientLimit) {
+export async function partitionArabicRecipe(entry: ArabicRecipeEntry, pantry: string[], missingLimit: ArabicMissingIngredientLimit, allowEmptyPantry = false) {
   const canonical = allIngredients(entry.canonical), display = allIngredients(entry.recipe);
   const owned: string[] = [], missing: string[] = [];
   for (const [index, ingredient] of canonical.entries()) {
@@ -120,7 +120,7 @@ export async function partitionArabicRecipe(entry: ArabicRecipeEntry, pantry: st
     if (normalized.unclear.length) return null;
     (normalized.canonical.every(name => pantry.includes(name)) ? owned : missing).push(display[index]);
   }
-  if (!owned.length || (missingLimit !== "unlimited" && missing.length > missingLimit)) return null;
+  if ((!owned.length && !(allowEmptyPantry && pantry.length === 0)) || (missingLimit !== "unlimited" && missing.length > missingLimit)) return null;
   return { ...entry.recipe, ingredients: owned, missing_ingredients: missing };
 }
 export async function revalidateArabicEntry(entry: ArabicRecipeEntry, restrictions: GenerationRestrictions) {

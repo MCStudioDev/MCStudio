@@ -150,6 +150,7 @@ export function MealPlanTab() {
     if (loadingProfile || profileError) return;
     const profileVersion = profileVersionRef.current;
     if (settings.uiLanguage === "ar") {
+      setError(null);
       setLoading(true);
       try {
         await arabic.generate("mealplan", { pantry: items.map(item => item.name), pantryItems: items.map(item => ({ name: item.name, quantity: item.quantity })), preferredCuisine: settings.preferredCuisine, calorieTarget: settings.calorieTarget, maxMissingIngredients: settings.arabicUnlimitedMissingIngredients === true ? "unlimited" : settings.maxMissingIngredients });

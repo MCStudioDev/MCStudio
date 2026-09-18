@@ -47,6 +47,7 @@ export interface ArabicFactBatchInput {
   excludeNames?: string[]; variationSeed?: string; mealTypesNeeded?: string[]; references?: ArabicReferenceCandidate[];
   previousShortages?: Array<{ name: string; missingIngredients: string[] }>;
   sourceOnly?: boolean;
+  allowEmptyPantry?: boolean;
 }
 type ValidatedDish = { candidateId: string; facts: ArabicRecipeFacts; source?: ArabicRecipeEntry["source"]; variantKey?: string; labelReceipt?: ArabicLabelReceipt; safetyReceipt?: string };
 const culinaryIssue = z.enum(["dish_identity_mismatch", "incorrect_ingredient_state", "incorrect_cooking_sequence", "invalid_measures", "incomplete_preparation", "nutrition_inconsistent"]);
@@ -109,10 +110,12 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
   const owned = new Set(input.ingredients.flatMap(name => findArabicFood(name)?.id ?? []));
   const foods = arabicFoods.filter(food => !findRecipeDietViolation({ ingredients: [food.en] }, input.restrictions));
   const allowed = new Set(foods.map(food => food.id));
+  const emptyWeeklyPantry = input.allowEmptyPantry === true && input.ingredients.length === 0;
+  const pantryRule = emptyWeeklyPantry ? "This is weekly planning without a pantry. No owned ingredient is required. Every ingredient must be purchased and counts against missingLimit." : "At least one ingredient must be owned.";
   const budgetRule = input.sourceOnly ? "Retain complete source dishes even beyond missingLimit for shortage suggestions. The server will apply the budget before serving; do not simplify or omit structural ingredients."
     : input.missingLimit === "unlimited"
-    ? "No limit on missing ingredients. Keep all essential ingredients regardless of pantry availability; at least one must be owned. All restrictions still apply."
-    : `No more than ${input.missingLimit} distinct foodIds may be outside ownedFoodIds per dish. Water, oil and salt count when absent. Never omit structural ingredients to meet this limit.`;
+    ? `No limit on missing ingredients. Keep all essential ingredients regardless of pantry availability. ${pantryRule} All restrictions still apply.`
+    : `No more than ${input.missingLimit} distinct foodIds may be outside ownedFoodIds per dish. Water, oil and salt count when absent. Never omit structural ingredients to meet this limit. ${pantryRule}`;
   const modeRule = input.sourceOnly
     ? "SOURCE CORRECTION ONLY. Complete exactly the supplied source candidates, one plan per candidateId. Never invent another dish or choose another source. Translate each source title accurately. Keep every requiredFoodId and verified protein. Correct duplicate lines and incomplete measures/instructions; add necessary cooking water, oil or aromatics. Retain complete over-budget source dishes for shortage suggestions; the server enforces the user's budget."
     : "FRESH GENERATION. Complete the server-selected dishes, one plan per candidateId, never substitute a generic rice variation for a named dish. Preserve every supplied essentialIngredient. Catalog hints are not proof of authenticity: verify the identity and essential preparation. If the required ingredients conflict with dietary restrictions or the actual dish, reject that candidate instead of dropping or substituting an ingredient. Only discovery slots may propose a new recognizable dish. Do not repeat excluded names. Respect mealTypesNeeded. If a dish cannot meet restrictions or the missing-ingredient budget, report it as rejected with its candidateId instead of silently replacing it.";
@@ -163,7 +166,7 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
     if (input.sourceOnly && plan.foodIds.some(id => !required?.includes(id) && findRecipeDietViolation({ ingredients: [arabicFoodById(id)?.en ?? ""] }, { diets: ["vegan"], allergens: [] }))) reasons.push("source_protein_changed");
     if (new Set(plan.foodIds).size !== plan.foodIds.length) reasons.push("duplicate_ingredient");
     if (plan.foodIds.some(id => !allowed.has(id))) reasons.push("ingredient_not_allowed");
-    if (!plan.foodIds.some(id => owned.has(id))) reasons.push("pantry_mismatch");
+    if (!emptyWeeklyPantry && !plan.foodIds.some(id => owned.has(id))) reasons.push("pantry_mismatch");
     if (!input.sourceOnly && input.missingLimit !== "unlimited" && plan.foodIds.filter(id => !owned.has(id)).length > input.missingLimit) reasons.push("missing_ingredient_limit");
     if (!input.sourceOnly && input.excludeNames?.some(name => [plan.name, plan.dishFamily].some(value => foodTerm(value) === foodTerm(name)))) reasons.push("excluded_dish");
     if (input.mealTypesNeeded?.length && !plan.mealTypes.some(type => input.mealTypesNeeded!.includes(type))) reasons.push("meal_type_mismatch");

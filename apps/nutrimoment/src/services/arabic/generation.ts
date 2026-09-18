@@ -23,6 +23,7 @@ import { findArabicSourceCandidates } from "./sourceCandidates";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
 import { selectArabicWeeklyMeals, arabicWeeklyMealCounts, arabicWeeklyMealTypes, ARABIC_WEEKLY_MAX_REPEATED_SLOTS } from "./weeklyFacts";
 import { arabicFingerprint } from "./fingerprint";
+import { buildArabicCuisineGuidance } from "./cuisineGuidance";
 import { arabicRepairSchema } from "./modelSchemas";
 import type { ArabicRecipeEntry, ArabicRecipeSuggestion } from "./types";
 import { arabicCuisineMatches as cuisineMatchesPreference } from "./cuisineGuidance";
@@ -190,6 +191,15 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         if (mode === "mealplan") {
           for (const type of ["breakfast", "lunch", "dinner"]) jobs.push({ kind: "weekly_batch_failed", run: generateArabicFactBatch({ ...base,
             count: 7, excludeNames: freshExclusions, mealTypesNeeded: [type] }, deadline - 5000, requestId) });
+          // Mixed catalog/discovery prompts can omit the unnamed slots. Give
+          // new dish discovery its own bounded batch, excluding planned dishes.
+          const guidance = await buildArabicCuisineGuidance(base.cuisine, base.ingredients, restrictions, allowEmptyPantry);
+          const coverage = arabicWeeklyMealCounts([...accepted.values()]);
+          const missingTypes = arabicWeeklyMealTypes.filter(type => coverage[type] < 7);
+          jobs.push({ kind: "weekly_discovery_failed", run: generateArabicFactBatch({ ...base, discoveryOnly: true,
+            count: Math.min(7, Math.max(1, 21 - accepted.size + 2)),
+            excludeNames: [...freshExclusions, ...guidance.flatMap(dish => [dish.name, dish.nativeName]).filter(Boolean)],
+            mealTypesNeeded: missingTypes.length ? missingTypes : [...arabicWeeklyMealTypes], variationSeed: `${variationSeed}:weekly-discovery` }, deadline - 5000, requestId) });
         } else {
           jobs.push({ kind: "generation_request_failed", run: generateArabicFactBatch({ ...base,
             count: Math.min(7, Math.max(1, count - accepted.size - selectedSources.length)), excludeNames: freshExclusions,

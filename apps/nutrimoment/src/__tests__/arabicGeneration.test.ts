@@ -274,7 +274,7 @@ describe("Arabic request integration with write recording", () => {
     const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: "unlimited" }), "mealplan");
     expect(response.status).toBe(200);
     expect(JSON.parse((await response.json()).result).plan).toHaveLength(7);
-    expect(mock.generate).toHaveBeenCalledTimes(3);
+    expect(mock.generate).toHaveBeenCalledTimes(4);
     expect(mock.generate.mock.calls.every(([input]) => input.missingLimit === "unlimited")).toBe(true);
   });
   it("does not recommend raising a missing limit that is already unlimited", async () => {
@@ -313,7 +313,7 @@ describe("Arabic request integration with write recording", () => {
     expect(plan.shoppingList.join(" ")).toContain("سلمون");
     expect(plan.shoppingList.join(" ")).not.toMatch(/[A-Za-z]/);
     expect(mock.reserve).toHaveBeenCalledTimes(1); expect(mock.complete).toHaveBeenCalledTimes(1);
-    expect(mock.generate).toHaveBeenCalledTimes(3);
+    expect(mock.generate).toHaveBeenCalledTimes(4);
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
   });
   it("returns valid recipes from the real rejected Gemini response for the screenshot settings", async () => {

@@ -47,6 +47,7 @@ export interface ArabicFactBatchInput {
   excludeNames?: string[]; variationSeed?: string; mealTypesNeeded?: string[]; references?: ArabicReferenceCandidate[];
   previousShortages?: Array<{ name: string; missingIngredients: string[] }>;
   sourceOnly?: boolean;
+  discoveryOnly?: boolean;
   allowEmptyPantry?: boolean;
 }
 type ValidatedDish = { candidateId: string; facts: ArabicRecipeFacts; source?: ArabicRecipeEntry["source"]; variantKey?: string; labelReceipt?: ArabicLabelReceipt; safetyReceipt?: string };

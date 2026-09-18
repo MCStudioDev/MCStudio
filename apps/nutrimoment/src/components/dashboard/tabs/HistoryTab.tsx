@@ -8,6 +8,8 @@ import { motion } from "framer-motion";
 import { History, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { InlineNotice } from "@/components/ui/InlineNotice";
+import { ErrorBanner } from "@/components/dashboard/ErrorBanner";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ArabicAwareMealRevealCard as MealRevealCard } from "@/components/dashboard/arabic/ArabicAwareMealRevealCard";
 import { useApp } from "@/contexts/AppContext";
@@ -28,7 +30,7 @@ const HISTORY_INITIAL_ENTRY_COUNT = 6;
 const HISTORY_LOAD_MORE_COUNT = 6;
 
 export function HistoryTab() {
-  const { t, setError, health, loadingProfile, profileError } = useApp();
+  const { t, setError, health, loadingProfile, profileError, rtl } = useApp();
   const { access, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const { items, clear, removeEntry, loading, error: historyError, updateRecipeImage } = useHistory();
@@ -49,12 +51,6 @@ export function HistoryTab() {
       setError(message);
     }
   };
-
-  useEffect(() => {
-    if (historyError) {
-      setError(`History could not sync. ${historyError.message}`);
-    }
-  }, [historyError, setError]);
 
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -115,6 +111,7 @@ export function HistoryTab() {
         }
       />
 
+      <ErrorBanner />
       {loading ? (
         <motion.div variants={itemVariants}>
           <Card className="theme-history-entry rounded-[2rem] space-y-4" aria-busy="true">
@@ -128,12 +125,12 @@ export function HistoryTab() {
         </motion.div>
       ) : historyError ? (
         <motion.div variants={itemVariants}>
-          <Card className="theme-history-entry rounded-[2rem] space-y-3 border-emerald-100 bg-white text-[#173a31] shadow-[0_24px_70px_-42px_rgba(16,58,48,0.32)]">
-            <p className="text-sm font-semibold text-[#173a31]">History is temporarily unavailable.</p>
-            <p className="text-sm leading-relaxed text-[#4f6f66]">
-              Please refresh the page or sign in again.
+          <InlineNotice role="alert" dir={rtl ? "rtl" : "ltr"}>
+            <p className="font-semibold">{rtl ? "السجل غير متاح مؤقتًا." : "History is temporarily unavailable."}</p>
+            <p>
+              {rtl ? "يرجى تحديث الصفحة أو تسجيل الدخول مجددًا." : "Please refresh the page or sign in again."}
             </p>
-          </Card>
+          </InlineNotice>
         </motion.div>
       ) : items.length ? (
         <motion.div variants={itemVariants} className="space-y-4">
@@ -193,16 +190,16 @@ export function HistoryTab() {
                 </div>
 
                 {entry.generationStatus === "pending" && !entry.recipes.length ? (
-                  <div className="rounded-[1.4rem] border border-cyan-200/18 bg-cyan-300/10 px-4 py-5 text-sm font-semibold text-cyan-50">
+                  <InlineNotice>
                     <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent align-[-0.2rem]" />
                     {entry.generationMessage ?? t("backgroundRecipesQueued")}
-                  </div>
+                  </InlineNotice>
                 ) : null}
 
                 {entry.generationStatus === "failed" && !entry.recipes.length ? (
-                  <div className="rounded-[1.4rem] border border-emerald-100 bg-white px-4 py-5 text-sm font-semibold text-[#173a31] shadow-[0_20px_55px_-36px_rgba(16,58,48,0.32)]">
+                  <InlineNotice role="alert">
                     {entry.generationMessage ?? t("backgroundRecipesFailed")}
-                  </div>
+                  </InlineNotice>
                 ) : null}
 
                 {entry.recipes.length ? (

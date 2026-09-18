@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { TopNav } from "./TopNav";
-import { ErrorBanner } from "./ErrorBanner";
 import { ScannerTab } from "./tabs/ScannerTab";
 import { PantryTab } from "./tabs/PantryTab";
 import { MealPlanTab } from "./tabs/MealPlanTab";
@@ -29,7 +28,7 @@ export function NutriMomentApp() {
   const [activeTab, setActiveTab] = useState<Tab>("scanner");
   const shellRef = useRef<HTMLDivElement | null>(null);
   const restoredTabRef = useRef(false);
-  const { settings } = useApp();
+  const { settings, setError } = useApp();
   const ActiveComponent = TAB_COMPONENTS[activeTab];
   const themeMode = settings.themeMode ?? "auroraDark";
 
@@ -76,6 +75,7 @@ export function NutriMomentApp() {
   }, [activeTab]);
 
   const handleTabChange = (tab: Tab) => {
+    setError(null);
     setActiveTab(tab);
   };
 
@@ -96,7 +96,6 @@ export function NutriMomentApp() {
         <div className="blob animate-blob bottom-12 left-[22%] h-60 w-60 bg-lime-200/10 [animation-delay:-8s]" data-parallax-layer="soft" />
         <div className="relative pt-[3.65rem] sm:pt-[4.1rem]">
           <AppLegalBanner />
-          <ErrorBanner />
           <main id="main-content" className="shell-frame relative px-3 pb-10 pt-1 sm:px-6 sm:pt-2 md:pb-16">
             <AnimatePresence mode="wait">
               <motion.div

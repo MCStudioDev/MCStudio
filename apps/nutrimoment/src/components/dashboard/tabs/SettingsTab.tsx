@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import { ChefHat, Scale, SlidersHorizontal, Utensils } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { ErrorBanner } from "@/components/dashboard/ErrorBanner";
 import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
 import { containerVariants, itemVariants } from "@/lib/animations";
@@ -61,6 +62,7 @@ export function SettingsTab() {
         </SettingCard>
       </motion.div>
 
+      <ErrorBanner />
       <HealthSettingsSection />
 
       <motion.div variants={itemVariants} className="grid min-w-0 grid-cols-1 gap-5 2xl:grid-cols-2">

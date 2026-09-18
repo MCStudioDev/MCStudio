@@ -33,6 +33,11 @@ beforeEach(() => {
   });
 });
 describe("Arabic fact generation orchestration", () => {
+  it("allows an explicitly empty weekly pantry without relaxing the missing limit or scanner overlap", async () => {
+    expect((await run({ ingredients: [], allowEmptyPantry: true, mealTypesNeeded: ["breakfast"], missingLimit: "unlimited" })).recipes).toHaveLength(1);
+    expect((await run({ ingredients: [], allowEmptyPantry: true, missingLimit: 0 })).recipes).toEqual([]);
+    expect((await run({ ingredients: [], missingLimit: "unlimited" })).recipes).toEqual([]);
+  });
   it("can add only measured plain water when a later cooking step exposes an incomplete manifest", async () => {
     manifestIds = manifestIds.filter(id => id !== findArabicFood("water")!.id);
     output = { ...facts, ingredients: facts.ingredients.filter(item => item.foodId !== findArabicFood("water")!.id),

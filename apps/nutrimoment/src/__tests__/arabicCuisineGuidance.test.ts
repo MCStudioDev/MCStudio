@@ -3,6 +3,13 @@ import { buildArabicCuisineGuidance } from "@/services/arabic/cuisineGuidance";
 import { selectArabicDishCandidates } from "@/services/arabic/dishCandidates";
 
 describe("Arabic cuisine guidance", () => {
+  it("uses cuisine guidance for an explicitly empty weekly pantry", async () => {
+    const base = { ingredients: [], cuisine: "Egyptian", count: 7, calorieTarget: 1650, missingLimit: "unlimited" as const,
+      restrictions: { diets: ["vegetarian"], allergens: [], conditions: [] }, mealTypesNeeded: ["breakfast"] };
+    const selected = await selectArabicDishCandidates({ ...base, allowEmptyPantry: true });
+    expect(selected.some(item => item.kind === "catalog")).toBe(true);
+    expect(await buildArabicCuisineGuidance("Egyptian", [], base.restrictions)).toEqual([]);
+  });
   it("assigns both taameya and koshary a stable slot for Mina's shown pantry", async () => {
     const selected = await selectArabicDishCandidates({ ingredients: ["rice", "fava beans", "chickpeas"], cuisine: "Egyptian", count: 7,
       calorieTarget: 1650, missingLimit: "unlimited", restrictions: { diets: ["vegan"], allergens: [], conditions: [] } });

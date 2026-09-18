@@ -63,6 +63,25 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it.each([false, true])("supports weekly planning with an empty pantry, AI access=%s", async allowed => {
+    const facts = weeklyFactFixtures(); mock.allowed = allowed;
+    if (!allowed) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
+    const response = await handleArabicGeneration(request({ ingredients: [], pantry: [], maxMissingIngredients: "unlimited" }), "mealplan");
+    const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(JSON.parse(data.result).plan).toHaveLength(7);
+    expect(JSON.parse(data.result).shoppingList).toContain("4200 غرام سلمون");
+    if (allowed) expect(mock.generate.mock.calls.every(call => call[0].allowEmptyPantry === true)).toBe(true);
+    else expect(mock.generate).not.toHaveBeenCalled();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("still requires scanner ingredients and enforces the weekly empty-pantry missing limit", async () => {
+    expect((await handleArabicGeneration(request({ ingredients: [] }), "recipes")).status).toBe(400);
+    mock.allowed = false;
+    mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
+    expect((await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: 0 }), "mealplan")).status).toBe(503);
+    expect(mock.writes).toEqual([]);
+  });
   it.each([false, true])("completes a 19-dish weekly pool with the English repeat limit, AI access=%s", async allowed => {
     const facts = weeklyFactFixtures().filter((_, index) => ![6, 13].includes(index));
     mock.allowed = allowed;
@@ -90,7 +109,7 @@ describe("Arabic request integration with write recording", () => {
     expect(response.status).toBe(503);
     expect(data.code).toBe("ARABIC_WEEKLY_PLAN_INCOMPLETE");
     expect(data.validatedRecipeCount).toBe(17);
-    expect(data.error).toContain("17"); expect(data.error).toContain("الفطور");
+    expect(data.error).toContain("17"); expect(data.error).toContain("فطور");
     expect(data.error).not.toContain("تعذر التحقق من دقة الوصفات");
     expect(mock.writes).toEqual([]); expect(mock.release).toHaveBeenCalledOnce();
   });

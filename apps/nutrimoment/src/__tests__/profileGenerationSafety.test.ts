@@ -3,8 +3,10 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultUserHealthProfile, createDefaultUserSettings } from "@/lib/userDefaults";
+import type { MealPlanData } from "@/lib/types";
+import { buildMealPlanPreferenceSignatureFromProfile } from "@/lib/mealPlanPreferenceSignature";
 
-const state = vi.hoisted(() => ({ app: {} as Record<string, unknown> }));
+const state = vi.hoisted(() => ({ app: {} as Record<string, unknown>, storedPlan: null as MealPlanData | null }));
 vi.mock("@/contexts/AppContext", () => ({ useApp: () => state.app }));
 vi.mock("@/contexts/AuthContext", () => {
   const auth = {
@@ -27,7 +29,7 @@ vi.mock("@/hooks/usePantry", () => ({ usePantry: () => ({
   addItems: async () => undefined
 }) }));
 vi.mock("@/hooks/useMealPlan", () => ({ useMealPlan: () => ({
-  mealPlan: null, loading: false, error: null,
+  mealPlan: state.storedPlan, loading: false, error: null,
   reloadMealPlan: async () => undefined,
   saveMealPlan: async () => undefined,
   updateMealImage: async () => undefined
@@ -76,6 +78,7 @@ describe("Generation controls with simulated profile states; all network calls m
     localStorage.clear();
     sessionStorage.clear();
     requests = [];
+    state.storedPlan = null;
     state.app = {
       settings: createDefaultUserSettings(),
       health: createDefaultUserHealthProfile(),
@@ -223,5 +226,51 @@ describe("Generation controls with simulated profile states; all network calls m
     await act(async () => root.render(createElement(ScannerTab)));
     await act(async () => button("generateRecipes").click());
     expect(container.textContent).toContain(canonical.name);
+  });
+  it("identifies the previous English week instead of presenting it as an Arabic generation result", async () => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    // Legacy English plans may predate the generationLanguage field.
+    state.storedPlan = { plan: [{ day: "Monday", breakfast: canonical, lunch: canonical, dinner: canonical }], shoppingList: [] };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      requests.push({ url });
+      return url === "/api/ar/history" ? Response.json({ items: [], mealPlan: null })
+        : Response.json({ code: "ARABIC_WEEKLY_PLAN_INCOMPLETE", error: "توفر 15 وصفة فقط، ولم تكتمل الخطة العربية." }, { status: 503 });
+    }));
+    await mount("mealplan");
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain("وليست نتيجة توليد بالعربية");
+    await act(async () => button("توليد خطة بالعربية").click());
+    expect(container.textContent).toContain("لم تكتمل الخطة العربية");
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain(canonical.name);
+    expect(requests.filter(request => request.url === "/api/ar/mealplan")).toHaveLength(1);
+    expect(requests.some(request => request.url === "/api/mealplan")).toBe(false);
+  });
+  it("preserves a saved English week on UI language changes without generating or translating", async () => {
+    state.app.loadingProfile = false;
+    state.storedPlan = { generationLanguage: "en", plan: [{ day: "Monday", breakfast: canonical, lunch: canonical, dinner: canonical }], shoppingList: [] };
+    await mount("mealplan");
+    expect(container.textContent).not.toContain("لغة الخطة المعروضة");
+    expect(button("regeneratePlan")).toBeTruthy();
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    await act(async () => root.render(createElement(MealPlanTab)));
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain(canonical.name);
+    expect(requests.some(request => request.url === "/api/mealplan" || request.url === "/api/ar/mealplan")).toBe(false);
+  });
+  it("removes the English-plan notice when the user selects a saved Arabic week", async () => {
+    const settings = { ...createDefaultUserSettings(), uiLanguage: "ar" as const }, health = createDefaultUserHealthProfile();
+    state.app.loadingProfile = false; state.app.settings = settings; state.app.health = health;
+    state.storedPlan = { plan: [{ day: "Monday", breakfast: canonical, lunch: canonical, dinner: canonical }], shoppingList: [] };
+    const arabicPlan = { generationLanguage: "ar", preferenceSignature: buildMealPlanPreferenceSignatureFromProfile(settings, health),
+      plan: [{ day: "الاثنين", breakfast: arabic, lunch: arabic, dinner: arabic }], shoppingList: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], mealPlan: arabicPlan })));
+    await mount("mealplan");
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    await act(async () => button("العربية").click());
+    expect(container.textContent).not.toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain(arabic.name);
+    expect(container.textContent).not.toContain(canonical.name);
   });
 });

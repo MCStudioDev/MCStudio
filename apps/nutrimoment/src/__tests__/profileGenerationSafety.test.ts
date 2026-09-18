@@ -161,6 +161,16 @@ describe("Generation controls with simulated profile states; all network calls m
     await act(async () => button("التبديل إلى الإنجليزية").click());
     expect(state.app.setLanguage).toHaveBeenCalledWith("en");
   });
+  it("clears a previous global failure before a successful Arabic weekly generation", async () => {
+    state.app.loadingProfile = false;
+    state.app.error = "Previous Arabic validation failure";
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], mealPlan: null, recipes: [], result: "{}", message: "أكملنا الأسبوع بتكرار أقل من 10٪." })));
+    await mount("mealplan");
+    await act(async () => button("generatePlan").click());
+    expect(state.app.setError).toHaveBeenCalledWith(null);
+    expect(container.textContent).toContain("أكملنا الأسبوع");
+  });
   it("creates a new Arabic action each click and explains repeats even when the recipe count is full", async () => {
     state.app.loadingProfile = false; state.app.rtl = true;
     state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar", recipeCount: 1 };

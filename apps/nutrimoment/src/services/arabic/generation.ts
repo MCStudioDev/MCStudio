@@ -12,7 +12,7 @@ import type { MealPlanData, Recipe } from "@/lib/types";
 import { arabicDisabledResponse, arabicEnabled, ARABIC_REQUEST_BUDGET_MS, ARABIC_READABLE_VERSIONS } from "./config";
 import { resolveArabicIngredients } from "./ingredientResolution";
 import { listArabicRecipes, saveArabicResult, arabicPaths, readRecentArabicRecipeHistory } from "./repository";
-import { arabicLastShownAt, buildArabicRecentRecipes, rotateArabicCandidates, type ArabicRecentRecipes } from "./freshness";
+import { arabicLastShownAt, arabicRecipeNameKey, buildArabicRecentRecipes, rotateArabicCandidates, type ArabicRecentRecipes } from "./freshness";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { arabicRecipeSchema, buildArabicEntry, partitionArabicRecipe, revalidateArabicEntry } from "./validation";
 import { callArabicModel } from "./gemini";
@@ -112,12 +112,13 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         return;
       }
       const identity = entry.facts ? recipeFactsIdentity(entry.facts) : arabicFingerprint({ ingredients: entry.canonical.ingredients.map(value => value.toLowerCase()).sort(), steps: entry.canonical.steps });
-      if (identities.has(identity)) { recordReasons(["duplicate_dish"]); return; }
+      const identityKeys = mode === "mealplan" ? [identity, `weekly:${arabicRecipeNameKey(entry.recipe.name)}`, `weekly:${arabicRecipeNameKey(entry.canonical.name)}`] : [identity];
+      if (identityKeys.some(key => identities.has(key))) { recordReasons(["duplicate_dish"]); return; }
       if (mode === "recipes" && arabicLastShownAt(rebuilt.entry, recent)) {
         if (!recentCandidates.has(identity)) recentCandidates.set(identity, { entry: rebuilt.entry, displayed, identity });
         recordReasons(["recent_recipe"]); return;
       }
-      identities.add(identity);
+      identityKeys.forEach(key => identities.add(key));
       accepted.set(rebuilt.entry.id, rebuilt.entry); output.set(rebuilt.entry.id, displayed);
     };
     const cached = await listArabicRecipes(normalized.canonical, mode === "recipes" || allowEmptyPantry ? 200 : 50, allowEmptyPantry);

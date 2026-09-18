@@ -69,8 +69,9 @@ async function resolveEditorSource(editor: Editor) {
 }
 
 export async function findArabicSourceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number,
-  freshness?: { recentKeys: string[]; seed: string }): Promise<ArabicReferenceCandidate[]> {
-  if (!ingredients.length) return [];
+  freshness?: { recentKeys: string[]; seed: string }, allowEmptyPantry = false): Promise<ArabicReferenceCandidate[]> {
+  const emptyWeeklyPantry = allowEmptyPantry && !ingredients.length;
+  if (!ingredients.length && !emptyWeeklyPantry) return [];
   const limit = Math.min(count + 6, 20);
   const owned = new Set(ingredients.flatMap(name => findArabicFood(name)?.id ?? []));
   const recentKeys = new Set(freshness?.recentKeys);
@@ -81,7 +82,7 @@ export async function findArabicSourceCandidates(ingredients: string[], cuisine:
     if (edited && (unsafe(edited.recipe, restrictions) || !sameArabicSourceDish(edited.recipe.name, recipe.name))) return;
     const foods = await arabicSourceFoodIds(names ?? [...recipe.ingredients, ...(recipe.missing_ingredients ?? [])]);
     const matching = foods.ids.filter(id => owned.has(id));
-    if (!matching.length || foods.unclear || !foods.ids.length) return;
+    if ((!matching.length && !emptyWeeklyPantry) || foods.unclear || !foods.ids.length) return;
     const linked = { ...source, ...(edited ? { editorKey: edited.key, editorFingerprint: edited.fingerprint } : {}) };
     const fingerprint = arabicFingerprint({ linked, version: "ar-source-correction-v1" });
     const key = arabicFingerprint({ fingerprint, cuisine, restrictions: { diets: [...restrictions.diets].sort(), conditions: [...restrictions.conditions].sort(), allergens: [...restrictions.allergens].sort() } });
@@ -92,8 +93,8 @@ export async function findArabicSourceCandidates(ingredients: string[], cuisine:
       score: matching.length * 20 - (foods.ids.length - matching.length) * 2 + (edited ? 3 : 0) });
   };
   const batches = await Promise.allSettled([
-    findArabicReferenceCandidates(ingredients, cuisine, restrictions, count),
-    findEnglishSources(ingredients), readCurrentEditors()
+    findArabicReferenceCandidates(ingredients, cuisine, restrictions, count, emptyWeeklyPantry),
+    findEnglishSources(ingredients, { allowEmptyPantry: emptyWeeklyPantry, cuisine }), readCurrentEditors()
   ]);
   const refs = batches[0];
   if (refs.status === "fulfilled") for (const row of refs.value) {
@@ -111,7 +112,7 @@ export async function findArabicSourceCandidates(ingredients: string[], cuisine:
       const foods = await arabicSourceFoodIds([...item.recipe.ingredients, ...(item.recipe.missing_ingredients ?? [])]);
       return { item, score: foods.ids.filter(id => owned.has(id)).length };
     }));
-    const eligible = ranked.filter(row => row.score > 0 && !recentKeys.has(arabicRecipeNameKey(row.item.recipe.name))
+    const eligible = ranked.filter(row => (row.score > 0 || emptyWeeklyPantry) && !recentKeys.has(arabicRecipeNameKey(row.item.recipe.name))
       && !["shared", "reference", "trusted"].some(kind => recentKeys.has(`source:${kind}:${row.item.recipe.source_recipe_id}`)));
     const selected = (freshness ? rotateArabicCandidates(eligible, freshness.seed, row => row.item.key) : eligible)
       .sort((a, b) => b.score - a.score).slice(0, limit);

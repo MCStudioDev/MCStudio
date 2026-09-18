@@ -4,6 +4,8 @@ import { arabicFingerprint } from "./fingerprint";
 import type { Transaction } from "firebase-admin/firestore";
 import type { RecipeCatalogDoc } from "@/lib/domain";
 import type { Recipe } from "@/lib/types";
+import { translateCuisineToEnglish } from "@/lib/arabicRecipeLocalization";
+import { withTimeout } from "@/lib/utils";
 
 /** Deliberately read-only: never import English cache repair/promotion helpers here. */
 export async function readEnglishSource(id: string, transaction?: Transaction): Promise<RecipeCatalogDoc | null> {
@@ -14,10 +16,13 @@ export async function readEnglishSource(id: string, transaction?: Transaction): 
   const recipe = { ...snapshot.data(), id } as RecipeCatalogDoc;
   return isSharedRecipeV2Searchable(recipe) ? recipe : null;
 }
-export async function findEnglishSources(ingredients: string[]) {
-  if (!ingredients.length) return [];
-  const snapshot = await getAdminDb().collection("sharedRecipesV2")
-    .where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)).limit(50).get();
+export async function findEnglishSources(ingredients: string[], options: { allowEmptyPantry?: boolean; cuisine?: string } = {}) {
+  if (!ingredients.length && !options.allowEmptyPantry) return [];
+  const collection = getAdminDb().collection("sharedRecipesV2");
+  const cuisine = translateCuisineToEnglish(options.cuisine ?? "Any");
+  const query = ingredients.length ? collection.where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10))
+    : cuisine.toLowerCase() !== "any" ? collection.where("cuisine", "==", cuisine) : collection;
+  const snapshot = await withTimeout(query.limit(ingredients.length ? 50 : 200).get(), 5000, "Arabic English-source lookup");
   return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as RecipeCatalogDoc).filter(isSharedRecipeV2Searchable);
 }
 // Independent of the English publication receipt: quantities, units, times and

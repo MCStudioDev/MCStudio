@@ -10,6 +10,8 @@ import { arabicFingerprint } from "./fingerprint";
 import { ARABIC_VALIDATOR_VERSION } from "./config";
 import { logger } from "@/lib/logger";
 import type { ArabicRecipeEntry } from "./types";
+import { normalizeRecipeReferenceCuisineKey } from "@/lib/recipeReferenceNormalization";
+import { withTimeout } from "@/lib/utils";
 
 const editorVersion = "recipe-editor-v11-validation-identity-v1";
 export async function readEnglishEditorForArabic(input: RecipeEditorCacheInput) {
@@ -45,10 +47,24 @@ export interface ArabicReferenceCandidate {
   requiredFoodIds?: string[];
   sourceServings?: number;
 }
-export async function findArabicReferenceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number): Promise<ArabicReferenceCandidate[]> {
+async function findWeeklyCuisineReferences(cuisine: string, count: number): Promise<RecipeReferencePromptRecipe[]> {
+  if (process.env.DISABLE_RECIPE_REFERENCE_LIBRARY === "true") return [];
+  const collection = getAdminDb().collection(process.env.RECIPE_REFERENCE_COLLECTION || "recipeReferenceRecipes");
+  const cuisineKey = normalizeRecipeReferenceCuisineKey(cuisine);
+  const query = cuisineKey && cuisineKey !== "any" ? collection.where("cuisineKey", "==", cuisineKey) : collection;
+  const snapshot = await withTimeout(query.limit(200).get(), 5000, "Arabic weekly reference lookup");
+  return snapshot.docs.flatMap(doc => {
+    const row = { ...doc.data(), id: doc.id } as RecipeReferenceDoc;
+    if (typeof row.title !== "string" || !Array.isArray(row.ingredients) || row.ingredients.some(item => typeof item !== "string")
+      || !Array.isArray(row.directions) || row.directions.some(item => typeof item !== "string") || !isDiscoverableRecipeReferenceDoc(row)) return [];
+    return [{ id: row.id, title: row.title, cuisine: row.cuisine ?? "Any", ingredients: row.ingredients, steps: row.directions, matchedIngredients: [] }];
+  }).slice(0, Math.min(count + 6, 30));
+}
+export async function findArabicReferenceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number, allowEmptyPantry = false): Promise<ArabicReferenceCandidate[]> {
   // This existing retrieval service performs reads only. Dietary ranking is
   // merely retrieval; each resulting Arabic recipe is independently validated.
-  const references = await findRecipeReferencesForGeneration({ ingredients, preferredCuisine: cuisine, ...restrictions, maxReferences: Math.min(count + 6, 30) });
+  const references = allowEmptyPantry && !ingredients.length ? await findWeeklyCuisineReferences(cuisine, count)
+    : await findRecipeReferencesForGeneration({ ingredients, preferredCuisine: cuisine, ...restrictions, maxReferences: Math.min(count + 6, 30) });
   const results = await Promise.allSettled(references.map(async reference => {
     const source = await readArabicReferenceSource(reference.id);
     if (!source) return null;

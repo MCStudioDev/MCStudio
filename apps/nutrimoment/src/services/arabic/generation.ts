@@ -146,8 +146,8 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         if (arabicRecipeSchema.safeParse(pair.canonical).success) failed.push({ ...pair, reasons: ["invalid_recipe_shape"] });
       }
     };
-    const references = needsMore() && authorization.allowed && !allowEmptyPantry ? await findArabicSourceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count,
-      mode === "recipes" ? { recentKeys: [...recent.shownAt.keys()], seed: variationSeed } : undefined) : [];
+    const references = needsMore() && authorization.allowed ? await findArabicSourceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count,
+      mode === "recipes" ? { recentKeys: [...recent.shownAt.keys()], seed: variationSeed } : undefined, allowEmptyPantry) : [];
     // Arabic cache is the entire discovery path without AI access. Entitled
     // requests can reuse a matching Arabic derivative before reserving an action.
     for (const reference of references) {
@@ -176,13 +176,16 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       };
       const base = { ingredients: normalized.canonical, restrictions, cuisine: input.preferredCuisine,
         calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, allowEmptyPantry };
-      const selectedSources = references.slice(0, Math.min(3, Math.max(1, count - accepted.size)));
+      const selectedSources = references.slice(0, mode === "mealplan" ? Math.min(21, Math.max(1, count - accepted.size + 2)) : Math.min(3, Math.max(1, count - accepted.size)));
       // Correction and fresh discovery have independent prompts and share only
       // this action/deadline. A slow source must not consume the fresh budget.
       const jobs: Array<{ kind: string; run: Promise<Awaited<ReturnType<typeof generateArabicFactBatch>>> }> = [];
       if (deadline - Date.now() >= 39000) {
-        if (selectedSources.length) jobs.push({ kind: "source_correction_failed", run: generateArabicSourceBatch({ ...base,
-          count: selectedSources.length, sourceOnly: true, references: selectedSources, excludeNames: excludeNames() }, deadline - 5000, requestId) });
+        for (let start = 0; start < selectedSources.length; start += 7) {
+          const batch = selectedSources.slice(start, start + 7);
+          jobs.push({ kind: "source_correction_failed", run: generateArabicSourceBatch({ ...base,
+            count: batch.length, sourceOnly: true, references: batch, excludeNames: excludeNames() }, deadline - 5000, requestId) });
+        }
         const freshExclusions = [...excludeNames(), ...selectedSources.map(item => item.reference.title)];
         if (mode === "mealplan") {
           for (const type of ["breakfast", "lunch", "dinner"]) jobs.push({ kind: "weekly_batch_failed", run: generateArabicFactBatch({ ...base,

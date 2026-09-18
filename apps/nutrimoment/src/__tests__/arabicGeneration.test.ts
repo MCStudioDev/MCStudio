@@ -144,7 +144,21 @@ describe("Arabic request integration with write recording", () => {
     const data = await response.json();
     expect(response.status, JSON.stringify(data)).toBe(200);
     expect(data.repeatFallback.repeatedSlots).toBe(2);
-    expect(mock.generate).toHaveBeenCalledTimes(4);
+    expect(mock.generate).toHaveBeenCalledTimes(5);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+  });
+  it("fills weekly discovery omissions in a separate bounded batch under the same action", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.slice(0, 15).map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { discoveryOnly?: boolean }) => ({ recipes: input.discoveryOnly ? facts.slice(15).map(facts => ({ facts })) : [],
+      diagnostics: input.discoveryOnly ? [] : [{ stage: "planning", status: "rejected", issues: ["dish_omitted"] }] }));
+    const response = await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: "unlimited" }), "mealplan");
+    const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(JSON.parse(data.result).plan).toHaveLength(7);
+    const discovery = mock.generate.mock.calls.map(call => call[0]).filter(input => input.discoveryOnly);
+    expect(discovery).toHaveLength(1);
+    expect(discovery[0].count).toBeLessThanOrEqual(7);
+    expect(discovery[0].excludeNames).toEqual(expect.arrayContaining(facts.slice(0, 15).map(fact => fact.name)));
     expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
   });
   it("starts fresh generation while source correction is pending under the same billing action", async () => {

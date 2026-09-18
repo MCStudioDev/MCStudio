@@ -7,6 +7,12 @@ const input = { ingredients: ["rice", "fava beans"], restrictions: { diets: ["ve
 const dish = (name: string, ingredients: string[], nativeName = name, mealTypes = ["breakfast", "lunch", "dinner"]) => ({ name, nativeName, description: name, essentialIngredients: ingredients, availableIngredients: ingredients, mealTypes });
 beforeEach(() => guidance.mockReset());
 describe("server-selected Arabic dish candidates", () => {
+  it("keeps a dedicated discovery batch free of catalog candidates", async () => {
+    guidance.mockResolvedValue([dish("Already planned dish", ["rice"])]);
+    const result = await selectArabicDishCandidates({ ...input, count: 3, discoveryOnly: true });
+    expect(result).toHaveLength(3);
+    expect(result.every(item => item.kind === "discovery" && !item.title)).toBe(true);
+  });
   it("assigns compatible distinct dishes and discovery slots to parallel weekly meal batches", async () => {
     guidance.mockResolvedValue([
       dish("Breakfast", ["fava beans"], "Breakfast", ["breakfast"]),

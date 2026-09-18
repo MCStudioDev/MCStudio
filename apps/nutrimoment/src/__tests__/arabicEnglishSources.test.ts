@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { canonical } from "./fixtures/arabic";
 import type { RecipeCatalogDoc } from "@/lib/domain";
-const mock = vi.hoisted(() => ({ row: {} as Record<string, unknown>, reads: [] as string[] }));
+const mock = vi.hoisted(() => ({ row: {} as Record<string, unknown>, reads: [] as string[], filters: [] as unknown[][], limits: [] as number[] }));
 vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
   doc: (path: string) => ({ get: async () => { mock.reads.push(path); return { exists: true, data: () => mock.row }; } }),
   collection: (path: string) => {
     mock.reads.push(path);
-    const query = { where: () => query, limit: () => query, get: async () => ({ docs: [{ id: "source-1", data: () => mock.row }] }) };
+    const query = { where: (...args: unknown[]) => { mock.filters.push(args); return query; }, limit: (limit: number) => { mock.limits.push(limit); return query; }, get: async () => ({ docs: [{ id: "source-1", data: () => mock.row }] }) };
     return query;
   }
 }) }));
@@ -30,6 +30,14 @@ describe("read-only English source repository", () => {
   });
   it("rejects path traversal and avoids empty queries", async () => {
     expect(await readEnglishSource("../users/u")).toBeNull(); expect(await findEnglishSources([])).toEqual([]);
+  });
+  it("allows an explicit pantry-free weekly cuisine lookup but still excludes quarantined sources", async () => {
+    mock.filters = []; mock.limits = []; mock.row = { ...source, publicationStatus: "published" };
+    expect(await findEnglishSources([], { allowEmptyPantry: true, cuisine: "Egyptian" })).toHaveLength(1);
+    expect(mock.filters).toEqual([["cuisine", "==", "Egyptian"]]);
+    expect(mock.limits).toEqual([200]);
+    mock.row = { ...source, publicationStatus: "quarantined" };
+    expect(await findEnglishSources([], { allowEmptyPantry: true, cuisine: "Egyptian" })).toEqual([]);
   });
   it("uses canonical quantities when localized content is absent", () => {
     expect(englishSourceRecipe({ ...source, localized: undefined }).ingredients).toEqual(["1 cup rice"]);

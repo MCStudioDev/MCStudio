@@ -63,6 +63,21 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it.each([{ ingredients: [] }, { ingredients: ["rice"] }])("uses enough corrected sources to complete a premium week with pantry $ingredients", async ({ ingredients }) => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.slice(0, 11).map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
+    mock.candidates.mockResolvedValue(facts.slice(11).map((fact, index) => ({ reference: { id: `source-${index}`, title: fact.name }, variantKey: `source-${index}` })));
+    mock.generate.mockImplementation(async (input: { sourceOnly?: boolean; references?: Array<{ reference: { id: string } }> }) => ({ recipes:
+      input.sourceOnly ? input.references!.map(source => ({ facts: facts[11 + Number(source.reference.id.split("-")[1])] })) : [] }));
+    const response = await handleArabicGeneration(request({ ingredients, maxMissingIngredients: "unlimited" }), "mealplan");
+    const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(JSON.parse(data.result).plan).toHaveLength(7);
+    const corrections = mock.generate.mock.calls.map(call => call[0]).filter(input => input.sourceOnly);
+    expect(corrections.flatMap(input => input.references)).toHaveLength(10);
+    expect(corrections.every(input => input.references.length <= 7)).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
   it.each([false, true])("supports weekly planning with an empty pantry, AI access=%s", async allowed => {
     const facts = weeklyFactFixtures(); mock.allowed = allowed;
     if (!allowed) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));

@@ -28,6 +28,17 @@ function editor(id: string, sourceId: string, recipe = canonical) {
 }
 beforeEach(() => { vi.clearAllMocks(); mock.editors = []; mock.rows.clear(); mock.queries = []; mock.reads = []; mock.references.mockResolvedValue([]); mock.shared.mockResolvedValue([]); });
 describe("Arabic independent English source retrieval", () => {
+  it("retrieves safe shared, semantic and trusted sources for an explicitly pantry-free week", async () => {
+    mock.shared.mockResolvedValue([{ id: "fish-source", recipe: canonical }]);
+    mock.rows.set("sharedRecipesV2/fish-source", { recipe: canonical });
+    mock.editors = [editor("a".repeat(64), "fish-source")];
+    const result = await findArabicSourceCandidates([], "Mediterranean", { ...vegan, diets: ["pescatarian"] }, 21, undefined, true);
+    expect(result.some(row => row.source?.editorKey === "a".repeat(64))).toBe(true);
+    expect(result[0].reference.matchedIngredients).toEqual([]);
+    expect((await findArabicSourceCandidates([], "Egyptian", vegan, 21, undefined, true)).some(row => /koshary/i.test(row.reference.title))).toBe(true);
+    expect(await findArabicSourceCandidates([], "Egyptian", vegan, 21)).toEqual([]);
+    expect(await findArabicSourceCandidates([], "Mediterranean", vegan, 21, undefined, true)).toEqual([]);
+  });
   it("excludes recently shown English sources before choosing correction candidates", async () => {
     mock.shared.mockResolvedValue([{ id: "seen-source", recipe: canonical }, { id: "new-source", recipe: { ...canonical, name: "Salmon Pilaf" } }]);
     const result = await findArabicSourceCandidates(["rice"], "Mediterranean", { ...vegan, diets: ["pescatarian"] }, 1,

@@ -161,6 +161,10 @@ export function MealPlanTab() {
   const generateMealPlan = async () => {
     if (loadingProfile || profileError) return;
     setError(null);
+    if (!canGenerateMealPlan) {
+      setError(t("aiCreditsExhausted"));
+      return;
+    }
     const profileVersion = profileVersionRef.current;
     if (settings.uiLanguage === "ar") {
       setLoading(true);
@@ -174,11 +178,6 @@ export function MealPlanTab() {
       finally { setLoading(false); }
       return;
     }
-    if (!canGenerateMealPlan) {
-      setError(t("freeMealPlanNotice"));
-      return;
-    }
-
     setLoading(true);
     let pendingHistoryEntryId: string | null = null;
     let keepPendingRecoveryActive = false;
@@ -807,8 +806,8 @@ export function MealPlanTab() {
             ) : null}
             {loadingProfile ? <p role="status">{t("profileLoadingMeals")}</p> : null}
             {profileError ? <InlineNotice role="alert">{t("profileUnavailableMeals")} <button type="button" className="underline" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></InlineNotice> : null}
-            <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={(!canGenerateMealPlan && settings.uiLanguage !== "ar") || loadingProfile || Boolean(profileError)}>
-              {!canGenerateMealPlan && settings.uiLanguage !== "ar" ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : showingEnglishPlanInArabic ? "توليد خطة بالعربية" : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+            <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan || loadingProfile || Boolean(profileError)}>
+              {!canGenerateMealPlan ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : showingEnglishPlanInArabic ? "توليد خطة بالعربية" : mealPlan ? t("regeneratePlan") : t("generatePlan")}
             </Button>
           </div>
         </Card>

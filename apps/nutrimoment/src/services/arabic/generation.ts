@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { accessErrorResponse, accessPayload, canUseApiFeature, releaseFreeAiAction, reserveFreeAiAction } from "@/services/authService";
+import { AccessError, accessErrorResponse, accessPayload, canUseApiFeature, releaseFreeAiAction, reserveFreeAiAction } from "@/services/authService";
 import { loadGenerationRestrictions } from "@/services/generationProfileService";
 import { rateLimitedResponse } from "@/services/rateLimitService";
 import { applyArabicRateLimit as applyRateLimit } from "./rateLimit";
@@ -57,6 +57,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
   try {
     const authorization = await canUseApiFeature(request, mode === "recipes" ? "recipe_generation" : "weekly_plan");
     access = authorization.access;
+    if (mode === "mealplan" && !authorization.allowed) return weeklyCreditsExhausted(access);
     const limit = applyRateLimit({ uid: access.uid, feature: mode === "recipes" ? "recipe_generation" : "meal_plan", isPremium: authorization.allowed, bypass: access.isAdmin });
     if (!limit.decision.allowed) return rateLimitedResponse(limit.decision, limit.config);
     const parsed = schema.safeParse(await request.json());
@@ -67,6 +68,13 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     if (!raw.length && mode === "recipes") return Response.json({ error: "أضف مكونًا واحدًا على الأقل." }, { status: 400 });
     const normalized = await resolveArabicIngredients(raw, { allowAi: authorization.allowed, deadline: Math.min(deadline, Date.now() + 15000), requestId });
     if (normalized.unclear.length) return Response.json({ code: "INGREDIENT_CLARIFICATION_REQUIRED", error: "يرجى توضيح المكونات المحددة أو كتابة أسمائها بشكل أدق.", items: normalized.unclear }, { status: 422 });
+    // Weekly planning is one entitled action even when every meal is cached,
+    // matching the English endpoint. Unclear input never reserves a credit.
+    if (mode === "mealplan") {
+      const reservation = await reserveFreeAiAction(access, "weekly_plan", requestId);
+      reservationId = reservation.actionId;
+      imageActionGrantId = reservation.actionGrantId;
+    }
     const allowEmptyPantry = mode === "mealplan" && normalized.canonical.length === 0;
     const variationSeed = input.actionId ?? requestId;
     let recent: ArabicRecentRecipes = { shownAt: new Map(), names: [] }, freshnessUnavailable = false;
@@ -150,8 +158,8 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     };
     const references = needsMore() && authorization.allowed ? await findArabicSourceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count,
       mode === "recipes" ? { recentKeys: [...recent.shownAt.keys()], seed: variationSeed } : undefined, allowEmptyPantry) : [];
-    // Arabic cache is the entire discovery path without AI access. Entitled
-    // requests can reuse a matching Arabic derivative before reserving an action.
+    // Scanner requests without AI access use only Arabic cache. Entitled scanner
+    // requests can reuse a derivative before reserving; weeks reserve above.
     for (const reference of references) {
       const variant = (await getAdminDb().doc(arabicPaths.variant(reference.variantKey)).get()).data();
       if (variant?.recipeId && /^ar-[a-f0-9]{24}$/.test(variant.recipeId)) {
@@ -162,9 +170,11 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     if (needsMore() && authorization.allowed) {
       // A completed English or Arabic action ID supplied by a client must not
       // authorize another generation for free. Repairs share this server action.
-      const reservation = await reserveFreeAiAction(access, mode === "recipes" ? "recipe_generation" : "weekly_plan", requestId);
-      reservationId = reservation.actionId;
-      imageActionGrantId = reservation.actionGrantId;
+      if (mode === "recipes") {
+        const reservation = await reserveFreeAiAction(access, "recipe_generation", requestId);
+        reservationId = reservation.actionId;
+        imageActionGrantId = reservation.actionGrantId;
+      }
       const consumeBatch = async (generated: Awaited<ReturnType<typeof generateArabicFactBatch>>) => {
         for (const diagnostic of generated.diagnostics ?? []) {
           if (diagnostic.stage) dishDiagnostics.push(diagnostic);
@@ -283,9 +293,6 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       for (const [id, recipe] of output) output.set(id, { ...recipe, freshness_origin: freshnessUnavailable ? undefined : backfilledIds.has(id) ? "backfilled_recent" : "fresh" });
     }
     const weeklyEntries = mode === "mealplan" ? selectArabicWeeklyMeals([...accepted.values()], { allowLimitedRepeats: true }) : null;
-    if (weeklyEntries && reservationId && !weeklyEntries.some(entry => aiAcceptedIds.has(entry.id))) {
-      await releaseFreeAiAction(access, reservationId); reservationId = undefined; imageActionGrantId = undefined; didCallAi = false;
-    }
     const uniqueWeeklyCount = weeklyEntries ? new Set(weeklyEntries.map(entry => entry.id)).size : 0;
     const repeatFallback = weeklyEntries && uniqueWeeklyCount < 21
       ? { maxRepeatedSlots: ARABIC_WEEKLY_MAX_REPEATED_SLOTS, repeatedSlots: 21 - uniqueWeeklyCount, uniqueMealCount: uniqueWeeklyCount } : undefined;
@@ -335,7 +342,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       reservationId = undefined;
       return arabicDisabledResponse();
     }
-    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: weeklyEntries ? [...new Map(weeklyEntries.map(entry => [entry.id, entry])).values()] : [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, canonicalIngredients: normalized.canonical, restrictions, mealPlan, imageActionGrantId, generationDiagnostics: boundedArabicDiagnostics(dishDiagnostics), billing: didCallAi ? { access, actionId: reservationId } : undefined });
+    const completedAccess = await saveArabicResult({ uid: access.uid, requestId, entries: weeklyEntries ? [...new Map(weeklyEntries.map(entry => [entry.id, entry])).values()] : [...accepted.values()], displayedRecipes: recipes, ingredients: normalized.original, canonicalIngredients: normalized.canonical, restrictions, mealPlan, imageActionGrantId, generationDiagnostics: boundedArabicDiagnostics(dishDiagnostics), billing: mode === "mealplan" || didCallAi ? { access, actionId: reservationId } : undefined });
     if (completedAccess) access = completedAccess;
     reservationId = undefined;
     logger.info("Arabic generation completed", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, diagnostics: boundedArabicDiagnostics(dishDiagnostics), elapsedMs: Date.now() - startedAt });
@@ -353,7 +360,14 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
   } catch (error) {
     if (access && reservationId) await releaseFreeAiAction(access, reservationId);
     if (!access) return accessErrorResponse(error);
+    if (mode === "mealplan" && error instanceof AccessError && error.status === 402) return weeklyCreditsExhausted(access);
     logger.warn("Arabic workflow failed", { requestId, error: error instanceof Error ? error.message : "unknown" });
     return Response.json({ code: error instanceof ProfileUnavailableError ? "PROFILE_UNAVAILABLE" : "ARABIC_SERVICE_UNAVAILABLE", error: "تعذر إكمال الطلب بالعربية الآن. لم يتم تغيير نتائجك السابقة. حاول مجددًا بعد قليل.", requestId }, { status: 503 });
   }
+}
+
+function weeklyCreditsExhausted(access: Awaited<ReturnType<typeof canUseApiFeature>>["access"]) {
+  return Response.json({ code: "FREE_AI_CREDITS_EXHAUSTED",
+    error: "نفد رصيد الذكاء الاصطناعي المجاني. تحتاج الخطة الأسبوعية إلى رصيد واحد أو اشتراك مميز. تظل خطتك المحفوظة متاحة.",
+    access: accessPayload(access) }, { status: 402 });
 }

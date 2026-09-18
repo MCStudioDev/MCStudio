@@ -4,7 +4,7 @@ import livePairs from "./fixtures/arabic-live-rejection.json";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 
 const mock = vi.hoisted(() => ({
-  rows: [] as unknown[], writes: [] as Array<{ path: string; data: unknown }>,
+  rows: [] as unknown[], writes: [] as Array<{ path: string; data: unknown }>, reads: [] as string[],
   allowed: true, source: null as unknown, history: [] as Record<string, unknown>[], uid: "sandy-test", historyFailure: false,
   generate: vi.fn(), translate: vi.fn(), repair: vi.fn(), reserve: vi.fn(), complete: vi.fn(), release: vi.fn(),
   profile: vi.fn(), readSource: vi.fn(), findSources: vi.fn(), candidates: vi.fn(), commit: vi.fn()
@@ -12,6 +12,7 @@ const mock = vi.hoisted(() => ({
 vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
   doc: (path: string) => ({ path, get: async () => ({ exists: false, data: () => undefined }) }),
   collection: (path: string) => {
+    mock.reads.push(path);
     if (path !== "sharedRecipesArabicV1" && path !== `users/${mock.uid}/historyArabicV1`) throw new Error(`Unexpected query ${path}`);
     const query = { where: () => query, orderBy: () => query, limit: () => query, get: async () => {
       if (path.includes("historyArabicV1") && mock.historyFailure) throw new Error("History unavailable");
@@ -26,6 +27,7 @@ vi.mock("@/lib/firebaseAdmin", () => ({ getAdminDb: () => ({
   }
 }) }));
 vi.mock("@/services/authService", () => ({
+  AccessError: class extends Error { constructor(message: string, public status = 401) { super(message); } },
   canUseApiFeature: async () => ({ allowed: mock.allowed, access: { uid: mock.uid, isAdmin: false } }),
   accessPayload: (a: unknown) => a, accessErrorResponse: () => Response.json({}, { status: 401 }),
   reserveFreeAiAction: mock.reserve, completeFreeAiAction: mock.complete, releaseFreeAiAction: mock.release
@@ -42,6 +44,7 @@ vi.mock("@/services/arabic/englishSources", () => ({
   englishSourceRecipe: (source: { recipe: unknown }) => source.recipe
 }));
 import { handleArabicGeneration } from "@/services/arabic/generation";
+import { AccessError } from "@/services/authService";
 import { buildArabicEntry } from "@/services/arabic/validation";
 import { assertArabicWritePath } from "@/services/arabic/repository";
 import { ProfileUnavailableError } from "@/lib/profileSafety";
@@ -50,8 +53,8 @@ import { buildArabicFactsEntry } from "@/services/arabic/recipeFacts";
 const request = (body = {}) => new Request("http://localhost/api/ar/generate-recipes", { method: "POST", body: JSON.stringify({ ingredients: ["rice", "salmon", "water"], recipeCount: 1, ...body }) });
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("ARABIC_GENERATION_ENABLED", "true");
-  mock.rows = []; mock.writes = []; mock.allowed = true; mock.history = []; mock.uid = "sandy-test"; mock.historyFailure = false;
-  mock.profile.mockResolvedValue(restrictions); mock.reserve.mockResolvedValue({ actionId: "action-1" });
+  mock.rows = []; mock.writes = []; mock.reads = []; mock.allowed = true; mock.history = []; mock.uid = "sandy-test"; mock.historyFailure = false;
+  mock.profile.mockResolvedValue(restrictions); mock.reserve.mockReset().mockResolvedValue({ actionId: "action-1" });
   mock.complete.mockImplementation(async (access, _actionId, publish) => {
     if (publish) await publish({ set: (ref: { path: string }, data: unknown) => mock.writes.push({ path: ref.path, data }) });
     return access;
@@ -63,6 +66,32 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it.each([false, true])("rejects zero-credit weekly generation before cache retrieval, complete pool=%s", async cached => {
+    mock.allowed = false;
+    if (cached) mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
+    const response = await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: "unlimited", tier: "premium" }), "mealplan");
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ code: "FREE_AI_CREDITS_EXHAUSTED", error: expect.stringContaining("رصيد") });
+    expect(mock.reads).toEqual([]); expect(mock.writes).toEqual([]);
+    expect(mock.generate).not.toHaveBeenCalled(); expect(mock.candidates).not.toHaveBeenCalled();
+    expect(mock.reserve).not.toHaveBeenCalled(); expect(mock.complete).not.toHaveBeenCalled();
+  });
+  it("reserves and completes one weekly action even when the entire plan comes from Arabic cache", async () => {
+    mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
+    const response = await handleArabicGeneration(request({ maxMissingIngredients: "unlimited" }), "mealplan");
+    expect(response.status).toBe(200);
+    expect(mock.reserve).toHaveBeenCalledExactlyOnceWith(expect.anything(), "weekly_plan", expect.any(String));
+    expect(mock.complete).toHaveBeenCalledOnce(); expect(mock.release).not.toHaveBeenCalled();
+    expect(mock.generate).not.toHaveBeenCalled(); expect(mock.candidates).not.toHaveBeenCalled();
+  });
+  it("rejects a credit exhausted during reservation before reading or publishing a cached week", async () => {
+    mock.reserve.mockRejectedValueOnce(new AccessError("Credits exhausted", 402));
+    mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
+    const response = await handleArabicGeneration(request({ maxMissingIngredients: "unlimited" }), "mealplan");
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ code: "FREE_AI_CREDITS_EXHAUSTED" });
+    expect(mock.reads).toEqual([]); expect(mock.writes).toEqual([]); expect(mock.complete).not.toHaveBeenCalled();
+  });
   it.each([{ ingredients: [] }, { ingredients: ["rice"] }])("uses enough corrected sources to complete a premium week with pantry $ingredients", async ({ ingredients }) => {
     const facts = weeklyFactFixtures();
     mock.rows = await Promise.all(facts.slice(0, 11).map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
@@ -78,30 +107,30 @@ describe("Arabic request integration with write recording", () => {
     expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
   });
-  it.each([false, true])("supports weekly planning with an empty pantry, AI access=%s", async allowed => {
-    const facts = weeklyFactFixtures(); mock.allowed = allowed;
-    if (!allowed) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+  it.each([false, true])("supports entitled weekly planning with an empty pantry, cached=%s", async cached => {
+    const facts = weeklyFactFixtures();
+    if (cached) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
     mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
     const response = await handleArabicGeneration(request({ ingredients: [], pantry: [], maxMissingIngredients: "unlimited" }), "mealplan");
     const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
     expect(JSON.parse(data.result).plan).toHaveLength(7);
     expect(JSON.parse(data.result).shoppingList).toContain("4200 غرام سلمون");
-    if (allowed) expect(mock.generate.mock.calls.every(call => call[0].allowEmptyPantry === true)).toBe(true);
+    if (!cached) expect(mock.generate.mock.calls.every(call => call[0].allowEmptyPantry === true)).toBe(true);
     else expect(mock.generate).not.toHaveBeenCalled();
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
   });
   it("still requires scanner ingredients and enforces the weekly empty-pantry missing limit", async () => {
     expect((await handleArabicGeneration(request({ ingredients: [] }), "recipes")).status).toBe(400);
-    mock.allowed = false;
+    mock.allowed = true;
     mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
     expect((await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: 0 }), "mealplan")).status).toBe(503);
     expect(mock.writes).toEqual([]);
   });
-  it.each([false, true])("completes a 19-dish weekly pool with the English repeat limit, AI access=%s", async allowed => {
+  it.each([false, true])("completes an entitled 19-dish weekly pool with the English repeat limit, cached=%s", async cached => {
     const facts = weeklyFactFixtures().filter((_, index) => ![6, 13].includes(index));
-    mock.allowed = allowed;
-    if (!allowed) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
-    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
+    if (cached) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: cached ? [] : facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
     const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 3 }), "mealplan");
     const data = await response.json();
     expect(response.status, JSON.stringify(data)).toBe(200);
@@ -112,9 +141,8 @@ describe("Arabic request integration with write recording", () => {
     expect(plan.shoppingList).toContain("4200 غرام سلمون");
     expect(new Set(mock.writes.map(write => write.path)).size).toBe(mock.writes.length);
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
-    expect(mock.reserve).toHaveBeenCalledTimes(allowed ? 1 : 0);
-    expect(mock.complete).toHaveBeenCalledTimes(allowed ? 1 : 0);
-    if (!allowed) { expect(mock.generate).not.toHaveBeenCalled(); expect(mock.candidates).not.toHaveBeenCalled(); }
+    expect(mock.reserve).toHaveBeenCalledOnce();
+    expect(mock.complete).toHaveBeenCalledOnce();
   });
   it("explains an incomplete week instead of claiming all accepted recipes failed validation", async () => {
     const facts = weeklyFactFixtures().filter((_, index) => index < 3 || index >= 7);
@@ -128,13 +156,13 @@ describe("Arabic request integration with write recording", () => {
     expect(data.error).not.toContain("تعذر التحقق من دقة الوصفات");
     expect(mock.writes).toEqual([]); expect(mock.release).toHaveBeenCalledOnce();
   });
-  it("releases the AI reservation when an unsuccessful refresh falls back to a complete cached week", async () => {
+  it("completes one weekly action when an unsuccessful refresh still produces a complete cached week", async () => {
     mock.rows = await Promise.all(weeklyFactFixtures().filter((_, index) => ![6, 13].includes(index)).map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
     mock.generate.mockResolvedValue({ recipes: [], diagnostics: [{ stage: "generation", status: "rejected", issues: ["generation_unavailable"] }] });
     const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 3 }), "mealplan");
     expect(response.status).toBe(200);
-    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.release).toHaveBeenCalledOnce();
-    expect(mock.complete).not.toHaveBeenCalled(); expect(mock.writes.some(write => write.path.endsWith("currentWeeklyArabic"))).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.release).not.toHaveBeenCalled();
+    expect(mock.complete).toHaveBeenCalledOnce(); expect(mock.writes.some(write => write.path.endsWith("currentWeeklyArabic"))).toBe(true);
   });
   it("tries one bounded weekly top-up for an 18-dish result before applying the two-repeat fallback", async () => {
     const facts = weeklyFactFixtures();
@@ -162,7 +190,7 @@ describe("Arabic request integration with write recording", () => {
     expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
   });
   it("counts same-name cache variants as one weekly dish instead of pretending they are unique", async () => {
-    mock.allowed = false;
+    mock.generate.mockResolvedValue({ recipes: [] });
     const facts = weeklyFactFixtures();
     mock.rows = await Promise.all(facts.map(async (fact, index) => (await buildArabicFactsEntry({ ...fact, name: index < 3 ? facts[0].name : fact.name }, restrictions)).entry));
     const response = await handleArabicGeneration(request({ maxMissingIngredients: "unlimited" }), "mealplan");
@@ -170,7 +198,7 @@ describe("Arabic request integration with write recording", () => {
     expect(data.repeatFallback).toMatchObject({ uniqueMealCount: 19, repeatedSlots: 2 });
     const meals = JSON.parse(data.result).plan.flatMap((day: any) => [day.breakfast, day.lunch, day.dinner]);
     expect(Math.max(...meals.map((meal: any) => meals.filter((other: any) => other.name === meal.name).length))).toBeLessThanOrEqual(2);
-    expect(mock.generate).not.toHaveBeenCalled();
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
   });
   it("starts fresh generation while source correction is pending under the same billing action", async () => {
     mock.candidates.mockResolvedValue([{ reference: { id: "source-candidate", title: "Koshary" }, variantKey: "v" }]);

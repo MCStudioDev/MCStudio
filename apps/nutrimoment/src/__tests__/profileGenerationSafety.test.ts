@@ -6,11 +6,12 @@ import { createDefaultUserHealthProfile, createDefaultUserSettings } from "@/lib
 import type { MealPlanData } from "@/lib/types";
 import { buildMealPlanPreferenceSignatureFromProfile } from "@/lib/mealPlanPreferenceSignature";
 
-const state = vi.hoisted(() => ({ app: {} as Record<string, unknown>, storedPlan: null as MealPlanData | null }));
+const state = vi.hoisted(() => ({ app: {} as Record<string, unknown>, storedPlan: null as MealPlanData | null,
+  access: { role: "user", tier: "premium", aiCreditsRemaining: 10 } }));
 vi.mock("@/contexts/AppContext", () => ({ useApp: () => state.app }));
 vi.mock("@/contexts/AuthContext", () => {
   const auth = {
-    access: { role: "user", tier: "premium", aiCreditsRemaining: 10 },
+    access: state.access,
     user: { uid: "diagnostic-user" },
     getAuthHeaders: async () => ({}),
     refreshAccess: async () => undefined
@@ -79,6 +80,7 @@ describe("Generation controls with simulated profile states; all network calls m
     sessionStorage.clear();
     requests = [];
     state.storedPlan = null;
+    Object.assign(state.access, { role: "user", tier: "premium", aiCreditsRemaining: 10 });
     state.app = {
       settings: createDefaultUserSettings(),
       health: createDefaultUserHealthProfile(),
@@ -104,6 +106,29 @@ describe("Generation controls with simulated profile states; all network calls m
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["en", "ar"] as const)("blocks zero-credit free weekly generation in %s", async uiLanguage => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage };
+    Object.assign(state.access, { role: "user", tier: "free", aiCreditsRemaining: 0 });
+    await mount("mealplan");
+    expect(button("aiCreditsExhausted").disabled).toBe(true);
+    await act(async () => button("aiCreditsExhausted").click());
+    expect(requests.some(request => request.url === "/api/mealplan" || request.url === "/api/ar/mealplan")).toBe(false);
+  });
+  it.each([
+    { role: "user", tier: "free", aiCreditsRemaining: 1 },
+    { role: "user", tier: "premium", aiCreditsRemaining: 0 },
+    { role: "admin", tier: "free", aiCreditsRemaining: 0 }
+  ])("allows entitled Arabic weekly generation: $role/$tier/$aiCreditsRemaining", async access => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    Object.assign(state.access, access);
+    await mount("mealplan");
+    expect(button("generatePlan").disabled).toBe(false);
+    await act(async () => button("generatePlan").click());
+    expect(requests.some(request => request.url === "/api/ar/mealplan")).toBe(true);
   });
 
   it.each([

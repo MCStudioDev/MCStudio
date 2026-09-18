@@ -20,7 +20,7 @@
 
 The server repository allowlists content write paths. English sources are accessed through a read-only repository. Publication transactions recheck their current eligibility and independent content fingerprints, including quantities, units, nutrition and cooking times. Source changes invalidate reuse of the derivative; they never trigger English repairs or writes. There is no migration or bulk translation.
 
-Authentication, action grants and usage counters remain shared. One successful generation consumes at most one parent action credit. Translation and the single bounded repair pass do not consume separate credits. Failed/incomplete requests release reservations. Without AI access, only validated Arabic cache entries are served. Images use the existing parent-action image grant or premium access.
+Authentication, action grants and usage counters remain shared. One successful generation consumes at most one parent action credit. Translation and the single bounded repair pass do not consume separate credits. Failed/incomplete requests release reservations. Without AI access, scanner requests serve only validated Arabic cache entries. New weekly plans require the same entitlement as English: free users need a remaining credit, even when all meals are cached, and a completed week consumes one credit. Zero-credit weekly requests return 402 without reading the pool or publishing a plan; saved weeks remain readable. Images use the existing parent-action image grant or premium access.
 
 ## Validation and rollout
 

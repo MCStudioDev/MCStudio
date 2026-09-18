@@ -90,6 +90,8 @@ export interface LocalizedRecipeVariant {
 }
 
 export interface Recipe {
+  image_action_grant_id?: string;
+  generationLanguage?: "en" | "ar";
   id?: string;
   name: string;
   cuisine: string;
@@ -147,6 +149,9 @@ export interface RecipeIngredientOwnership {
 }
 
 export interface MealPlanMeal {
+  image_action_grant_id?: string;
+  id?: string;
+  generationLanguage?: "en" | "ar";
   name: string;
   cuisine?: string;
   recipe_source_type?: Recipe["recipe_source_type"];
@@ -178,6 +183,7 @@ export interface MealPlanDay {
 }
 
 export interface MealPlanData {
+  generationLanguage?: "en" | "ar";
   plan: MealPlanDay[];
   shoppingList: string[];
   recommendedRecipes?: Recipe[];
@@ -187,6 +193,7 @@ export interface MealPlanData {
 }
 
 export interface HistoryItem {
+  generationLanguage?: "en" | "ar";
   id: string;
   timestamp: string;
   title?: string;
@@ -212,6 +219,7 @@ export interface UserSettings {
   calorieTarget: number;
   preferredCuisine: string;
   maxMissingIngredients: number;
+  arabicUnlimitedMissingIngredients?: boolean;
   recipeCount: number;
   uiLanguage: Language;
   themeMode?: DashboardTheme;

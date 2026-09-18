@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import { ChefHat, Scale, SlidersHorizontal, Utensils } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { ErrorBanner } from "@/components/dashboard/ErrorBanner";
 import { Pill } from "@/components/ui/Pill";
 import { useApp } from "@/contexts/AppContext";
 import { containerVariants, itemVariants } from "@/lib/animations";
@@ -16,6 +17,7 @@ export function SettingsTab() {
   const { t, settings, saveSettings } = useApp();
   const currentLanguageLabel = settings.uiLanguage === "ar" ? t("arabic") : t("english");
   const preferredCuisineLabel = getCuisineDisplayLabel(settings.preferredCuisine, settings.uiLanguage);
+  const unlimitedMissing = settings.uiLanguage === "ar" && settings.arabicUnlimitedMissingIngredients === true;
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-5 sm:space-y-6">
@@ -60,14 +62,26 @@ export function SettingsTab() {
         </SettingCard>
       </motion.div>
 
+      <ErrorBanner />
       <HealthSettingsSection />
 
       <motion.div variants={itemVariants} className="grid min-w-0 grid-cols-1 gap-5 2xl:grid-cols-2">
         <SettingCard
           icon={<SlidersHorizontal className="h-5 w-5" />}
           eyebrow={t("maxMissingIngredients")}
-          title={`${settings.maxMissingIngredients}`}
+          title={unlimitedMissing ? t("unlimited") : `${settings.maxMissingIngredients}`}
         >
+          {settings.uiLanguage === "ar" && (
+            <label className="mb-3 flex items-center gap-2 text-sm font-medium text-emerald-50">
+              <input
+                type="checkbox"
+                checked={unlimitedMissing}
+                onChange={(event) => void saveSettings({ arabicUnlimitedMissingIngredients: event.target.checked })}
+                className="focus-ring h-4 w-4 accent-emerald-600"
+              />
+              {t("unlimited")}
+            </label>
+          )}
           <label htmlFor="settings-max-missing-ingredients" className="sr-only">
             {t("maxMissingIngredients")}
           </label>
@@ -80,11 +94,12 @@ export function SettingsTab() {
             step="1"
             inputMode="decimal"
             value={settings.maxMissingIngredients}
+            disabled={unlimitedMissing}
             onChange={(event) => void saveSettings({ maxMissingIngredients: Number(event.target.value) })}
             className="focus-ring w-full accent-emerald-600"
           />
           <p className="text-sm text-emerald-50/62">
-            {t("recipesWillAllowUpTo")} {settings.maxMissingIngredients} {t("missingIngredients")}
+            {unlimitedMissing ? t("unlimitedMissingIngredientsDescription") : <>{t("recipesWillAllowUpTo")} {settings.maxMissingIngredients} {t("missingIngredients")}</>}
           </p>
           <p className="text-xs font-medium text-cyan-200/85">{t("pantryMatchesRecommended")}</p>
         </SettingCard>

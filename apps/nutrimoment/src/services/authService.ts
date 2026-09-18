@@ -1,4 +1,4 @@
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
 export {
   buildFreeAiCreditsExhaustedNotice,
@@ -542,8 +542,15 @@ export async function reserveFreeAiAction(
   };
 }
 
-export async function completeFreeAiAction(access: RequestAccess, actionId?: string | null) {
-  if (!actionId || access.isAdmin || access.isPremium) return access;
+export async function completeFreeAiAction(
+  access: RequestAccess,
+  actionId?: string | null,
+  publish?: (transaction: Transaction) => Promise<void>
+) {
+  if (!actionId || access.isAdmin || access.isPremium) {
+    if (publish) await getAdminDb().runTransaction(publish);
+    return access;
+  }
 
   const db = getAdminDb();
   const safeActionId = normalizeActionGrantId(actionId);
@@ -564,6 +571,7 @@ export async function completeFreeAiAction(access: RequestAccess, actionId?: str
       const status = String(grant?.status ?? "");
 
       if (grantSnapshot.exists && status === "completed") {
+        if (publish) await publish(transaction);
         nextUsed = currentUsed;
         return;
       }
@@ -580,6 +588,9 @@ export async function completeFreeAiAction(access: RequestAccess, actionId?: str
         );
       }
 
+      // Optional content publication participates in this transaction. Existing
+      // callers omit it and retain the original credit-only behavior.
+      if (publish) await publish(transaction);
       nextUsed = currentUsed + 1;
       const activeReservations = readActiveFreeAiActionReservations(usage?.pendingActions, now)
         .filter((reservation) => reservation.actionId !== safeActionId);

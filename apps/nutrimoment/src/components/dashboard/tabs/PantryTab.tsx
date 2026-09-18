@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { Camera, Plus, ShoppingCart, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { InlineNotice } from "@/components/ui/InlineNotice";
+import { ErrorBanner } from "@/components/dashboard/ErrorBanner";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -42,6 +44,8 @@ export function PantryTab() {
 
   const handleAddItem = async () => {
     if (!name.trim()) return;
+    setError(null);
+    setSuccessMessage("");
     const savedName = name.trim();
     setSaving(true);
     try {
@@ -383,11 +387,12 @@ export function PantryTab() {
             {t("add")}
           </Button>
 
-          <div aria-live="polite" className="min-h-6">
+          <ErrorBanner />
+          <div className="min-h-6">
             {successMessage ? (
-              <p className="rounded-2xl border border-emerald-200/16 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-50">
+              <InlineNotice dir={rtl ? "rtl" : "ltr"}>
                 {successMessage}
-              </p>
+              </InlineNotice>
             ) : null}
           </div>
 

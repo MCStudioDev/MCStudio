@@ -22,6 +22,8 @@ export interface AiCallTraceOptions {
 }
 
 export interface AiTextGenerationOptions {
+  /** Optional cap for bounded workflows; existing callers retain all retries. */
+  maxAttempts?: number;
   groundWithGoogleSearch?: boolean;
   maxOutputTokens?: number;
   temperature?: number;
@@ -166,6 +168,7 @@ export async function callOpenAIText(
   let attempt = 0;
   for (const model of modelAttempts) {
     for (let modelAttempt = 1; modelAttempt <= transientRetryAttempts; modelAttempt += 1) {
+      if (attempt >= (options?.maxAttempts ?? totalAttempts)) throw lastError;
       attempt += 1;
       try {
         const effectiveRequestTimeoutMs = Math.max(5_000, options?.requestTimeoutMs ?? requestTimeoutMs);

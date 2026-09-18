@@ -299,5 +299,5 @@ function filterMealPlanByPreferenceSignature(
   expectedPreferenceSignature?: string
 ) {
   if (!mealPlan || !expectedPreferenceSignature) return mealPlan;
-  return mealPlan.preferenceSignature === expectedPreferenceSignature ? mealPlan : null;
+  return mealPlan.preferenceSignature?.replace(/\|language:[^|]*/, "") === expectedPreferenceSignature.replace(/\|language:[^|]*/, "") ? mealPlan : null;
 }

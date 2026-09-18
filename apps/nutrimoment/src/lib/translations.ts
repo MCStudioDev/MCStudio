@@ -173,6 +173,8 @@ export const translations = {
     switchToMintTheme: "Switch to Mint White",
     preferredCuisine: "Preferred Cuisine",
     maxMissingIngredients: "Max Missing Ingredients",
+    unlimited: "Unlimited",
+    unlimitedMissingIngredientsDescription: "No limit on missing ingredients. Dietary restrictions and safety checks still apply.",
     recipeCount: "Recipes Per Scan",
     recipesWillAllowUpTo: "Recipes will allow up to",
     missingIngredients: "missing ingredients.",

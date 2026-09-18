@@ -3,18 +3,21 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultUserHealthProfile, createDefaultUserSettings } from "@/lib/userDefaults";
+import type { MealPlanData } from "@/lib/types";
+import { buildMealPlanPreferenceSignatureFromProfile } from "@/lib/mealPlanPreferenceSignature";
 
-const state = vi.hoisted(() => ({ app: {} as Record<string, unknown> }));
+const state = vi.hoisted(() => ({ app: {} as Record<string, unknown>, storedPlan: null as MealPlanData | null,
+  access: { role: "user", tier: "premium", aiCreditsRemaining: 10 } }));
 vi.mock("@/contexts/AppContext", () => ({ useApp: () => state.app }));
-vi.mock("@/contexts/AuthContext", () => ({
-  hasRecipeImageLookupAccess: () => false,
-  useAuth: () => ({
-    access: { role: "user", tier: "premium", aiCreditsRemaining: 10 },
+vi.mock("@/contexts/AuthContext", () => {
+  const auth = {
+    access: state.access,
     user: { uid: "diagnostic-user" },
     getAuthHeaders: async () => ({}),
     refreshAccess: async () => undefined
-  })
-}));
+  };
+  return { hasRecipeImageLookupAccess: () => false, useAuth: () => auth };
+});
 vi.mock("@/hooks/useHistory", () => ({ useHistory: () => ({
   items: [], loading: false,
   addEntry: async () => null,
@@ -27,13 +30,13 @@ vi.mock("@/hooks/usePantry", () => ({ usePantry: () => ({
   addItems: async () => undefined
 }) }));
 vi.mock("@/hooks/useMealPlan", () => ({ useMealPlan: () => ({
-  mealPlan: null, loading: false, error: null,
+  mealPlan: state.storedPlan, loading: false, error: null,
   reloadMealPlan: async () => undefined,
   saveMealPlan: async () => undefined,
   updateMealImage: async () => undefined
 }) }));
 vi.mock("@/lib/recipeImageStorage", () => ({ persistRecipeImageForUser: async () => undefined }));
-vi.mock("@/components/dashboard/MealRevealCard", () => ({ MealRevealCard: () => null }));
+vi.mock("@/components/dashboard/MealRevealCard", () => ({ MealRevealCard: ({ name }: { name: string }) => createElement("div", null, name) }));
 vi.mock("framer-motion", async () => {
   const { createElement } = await import("react");
   const Box = ({ children }: { children: unknown }) => createElement("div", null, children);
@@ -43,6 +46,7 @@ vi.mock("framer-motion", async () => {
 
 import { ScannerTab } from "@/components/dashboard/tabs/ScannerTab";
 import { MealPlanTab } from "@/components/dashboard/tabs/MealPlanTab";
+import { arabic, canonical } from "./fixtures/arabic";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -75,6 +79,8 @@ describe("Generation controls with simulated profile states; all network calls m
     localStorage.clear();
     sessionStorage.clear();
     requests = [];
+    state.storedPlan = null;
+    Object.assign(state.access, { role: "user", tier: "premium", aiCreditsRemaining: 10 });
     state.app = {
       settings: createDefaultUserSettings(),
       health: createDefaultUserHealthProfile(),
@@ -83,6 +89,7 @@ describe("Generation controls with simulated profile states; all network calls m
       rtl: false,
       t: (key: string) => key,
       setError: vi.fn(),
+      setLanguage: vi.fn(),
       addNotification: vi.fn()
     };
     vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
@@ -99,6 +106,29 @@ describe("Generation controls with simulated profile states; all network calls m
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["en", "ar"] as const)("blocks zero-credit free weekly generation in %s", async uiLanguage => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage };
+    Object.assign(state.access, { role: "user", tier: "free", aiCreditsRemaining: 0 });
+    await mount("mealplan");
+    expect(button("aiCreditsExhausted").disabled).toBe(true);
+    await act(async () => button("aiCreditsExhausted").click());
+    expect(requests.some(request => request.url === "/api/mealplan" || request.url === "/api/ar/mealplan")).toBe(false);
+  });
+  it.each([
+    { role: "user", tier: "free", aiCreditsRemaining: 1 },
+    { role: "user", tier: "premium", aiCreditsRemaining: 0 },
+    { role: "admin", tier: "free", aiCreditsRemaining: 0 }
+  ])("allows entitled Arabic weekly generation: $role/$tier/$aiCreditsRemaining", async access => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    Object.assign(state.access, access);
+    await mount("mealplan");
+    expect(button("generatePlan").disabled).toBe(false);
+    await act(async () => button("generatePlan").click());
+    expect(requests.some(request => request.url === "/api/ar/mealplan")).toBe(true);
   });
 
   it.each([
@@ -137,5 +167,152 @@ describe("Generation controls with simulated profile states; all network calls m
     expect(container.textContent).toContain("What you can try");
     expect(container.textContent).toContain("1 or 2");
     expect(container.textContent).toContain("already have");
+  });
+  it.each([
+    { tab: "scanner" as const, label: "generateRecipes", endpoint: "/api/ar/generate-recipes" },
+    { tab: "mealplan" as const, label: "generatePlan", endpoint: "/api/ar/mealplan" }
+  ])("routes $tab Arabic generation exclusively to the Arabic endpoint", async ({ tab, label, endpoint }) => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    await mount(tab);
+    await act(async () => button(label).click());
+    expect(requests.some(request => request.url === endpoint)).toBe(true);
+    expect(requests.some(request => request.url === "/api/generate-recipes" || request.url === "/api/mealplan" || request.url === "/api/recipe-photo")).toBe(false);
+  });
+  it("offers an explicit English switch when Arabic is disabled", async () => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: "ARABIC_GENERATION_DISABLED", error: "Arabic unavailable" }, { status: 503 })));
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain("Arabic unavailable");
+    await act(async () => button("التبديل إلى الإنجليزية").click());
+    expect(state.app.setLanguage).toHaveBeenCalledWith("en");
+  });
+  it("clears a previous global failure before a successful Arabic weekly generation", async () => {
+    state.app.loadingProfile = false;
+    state.app.error = "Previous Arabic validation failure";
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], mealPlan: null, recipes: [], result: "{}", message: "أكملنا الأسبوع بتكرار أقل من 10٪." })));
+    await mount("mealplan");
+    await act(async () => button("generatePlan").click());
+    expect(state.app.setError).toHaveBeenCalledWith(null);
+    expect(container.textContent).toContain("أكملنا الأسبوع");
+  });
+  it("creates a new Arabic action each click and explains repeats even when the recipe count is full", async () => {
+    state.app.loadingProfile = false; state.app.rtl = true;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar", recipeCount: 1 };
+    const actionIds: string[] = [];
+    const repeatedMessage = "لا توجد وصفات جديدة كافية؛ هذه وصفة شاهدتها خلال آخر 24 ساعة.";
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("/api/ar/generate-recipes");
+      actionIds.push(JSON.parse(String(init?.body)).actionId);
+      const recipe = { ...arabic, freshness_origin: actionIds.length > 1 ? "backfilled_recent" : "fresh" };
+      return Response.json({ recipes: [recipe], result: JSON.stringify([recipe]),
+        generationStatus: actionIds.length > 1 ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message: actionIds.length > 1 ? repeatedMessage : undefined });
+    }));
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain("وجدنا وصفات مناسبة");
+    await act(async () => button("generateRecipes").click());
+    expect(actionIds).toHaveLength(2); expect(actionIds[0]).not.toBe(actionIds[1]);
+    expect(container.textContent).toContain("عرضنا أفضل النتائج");
+    expect(container.textContent).toContain(repeatedMessage);
+  });
+  it.each([
+    { tab: "scanner" as const, label: "generateRecipes", endpoint: "/api/ar/generate-recipes" },
+    { tab: "mealplan" as const, label: "generatePlan", endpoint: "/api/ar/mealplan" }
+  ])("sends the persisted Arabic unlimited preference from $tab", async ({ tab, label, endpoint }) => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar", arabicUnlimitedMissingIngredients: true };
+    await mount(tab);
+    await act(async () => button(label).click());
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === endpoint);
+    expect(call).toBeDefined();
+    expect(JSON.parse(String(call![1]?.body)).maxMissingIngredients).toBe("unlimited");
+  });
+  it("keeps the numeric English request when Arabic unlimited is saved", async () => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "en", maxMissingIngredients: 2, arabicUnlimitedMissingIngredients: true };
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/generate-recipes");
+    expect(JSON.parse(String(call![1]?.body)).maxMissingIngredients).toBe(2);
+  });
+  it("keeps generated English recipes visible after an Arabic failure", async () => {
+    state.app.loadingProfile = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url === "/api/generate-recipes"
+      ? Response.json({ recipes: [canonical], result: JSON.stringify([canonical]), generationStatus: "SUCCESS_DATASET" })
+      : Response.json({ error: "Arabic unavailable" }, { status: 503 })));
+    await mount("scanner");
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain(canonical.name);
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    await act(async () => root.render(createElement(ScannerTab)));
+    await act(async () => button("generateRecipes").click());
+    expect(container.textContent).toContain(canonical.name);
+  });
+  it("identifies the previous English week instead of presenting it as an Arabic generation result", async () => {
+    state.app.loadingProfile = false;
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    // Legacy English plans may predate the generationLanguage field.
+    state.storedPlan = { plan: [{ day: "Monday", breakfast: canonical, lunch: canonical, dinner: canonical }], shoppingList: [] };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      requests.push({ url });
+      return url === "/api/ar/history" ? Response.json({ items: [], mealPlan: null })
+        : Response.json({ code: "ARABIC_WEEKLY_PLAN_INCOMPLETE", error: "توفر 15 وصفة فقط، ولم تكتمل الخطة العربية." }, { status: 503 });
+    }));
+    await mount("mealplan");
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain("وليست نتيجة توليد بالعربية");
+    await act(async () => button("توليد خطة بالعربية").click());
+    expect(container.textContent).toContain("لم تكتمل الخطة العربية");
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain(canonical.name);
+    expect(requests.filter(request => request.url === "/api/ar/mealplan")).toHaveLength(1);
+    expect(requests.some(request => request.url === "/api/mealplan")).toBe(false);
+  });
+  it("preserves a saved English week on UI language changes without generating or translating", async () => {
+    state.app.loadingProfile = false;
+    state.storedPlan = { generationLanguage: "en", plan: [{ day: "Monday", breakfast: canonical, lunch: canonical, dinner: canonical }], shoppingList: [] };
+    await mount("mealplan");
+    expect(container.textContent).not.toContain("لغة الخطة المعروضة");
+    expect(button("regeneratePlan")).toBeTruthy();
+    state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar" };
+    await act(async () => root.render(createElement(MealPlanTab)));
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain(canonical.name);
+    expect(requests.some(request => request.url === "/api/mealplan" || request.url === "/api/ar/mealplan")).toBe(false);
+  });
+  it("removes the English-plan notice when the user selects a saved Arabic week", async () => {
+    const settings = { ...createDefaultUserSettings(), uiLanguage: "ar" as const }, health = createDefaultUserHealthProfile();
+    state.app.loadingProfile = false; state.app.settings = settings; state.app.health = health;
+    state.storedPlan = { plan: [{ day: "Monday", breakfast: canonical, lunch: canonical, dinner: canonical }], shoppingList: [] };
+    const arabicPlan = { generationLanguage: "ar", preferenceSignature: buildMealPlanPreferenceSignatureFromProfile(settings, health),
+      plan: [{ day: "الاثنين", breakfast: arabic, lunch: arabic, dinner: arabic }], shoppingList: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], mealPlan: arabicPlan })));
+    await mount("mealplan");
+    expect(container.textContent).toContain(arabic.name);
+    await act(async () => button("English").click());
+    expect(container.textContent).toContain("لغة الخطة المعروضة: الإنجليزية");
+    await act(async () => button("العربية").click());
+    expect(container.textContent).not.toContain("لغة الخطة المعروضة: الإنجليزية");
+    expect(container.textContent).toContain(arabic.name);
+    expect(container.textContent).not.toContain(canonical.name);
+  });
+  it("prefers the saved Arabic week after the profile finishes loading in Arabic", async () => {
+    const settings = { ...createDefaultUserSettings(), uiLanguage: "ar" as const }, health = createDefaultUserHealthProfile();
+    state.storedPlan = { plan: [{ day: "Monday", breakfast: canonical, lunch: canonical, dinner: canonical }], shoppingList: [] };
+    const arabicPlan = { generationLanguage: "ar", preferenceSignature: buildMealPlanPreferenceSignatureFromProfile(settings, health),
+      plan: [{ day: "الاثنين", breakfast: arabic, lunch: arabic, dinner: arabic }], shoppingList: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], mealPlan: arabicPlan })));
+    await mount("mealplan");
+    state.app.loadingProfile = false; state.app.settings = settings;
+    await act(async () => root.render(createElement(MealPlanTab)));
+    expect(container.textContent).toContain(arabic.name);
+    expect(container.textContent).not.toContain(canonical.name);
+    state.app.settings = createDefaultUserSettings();
+    await act(async () => root.render(createElement(MealPlanTab)));
+    expect(container.textContent).toContain(arabic.name);
   });
 });

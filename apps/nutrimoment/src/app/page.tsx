@@ -5,7 +5,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  AlertCircle,
   Apple,
   CalendarDays,
   Camera,
@@ -16,10 +15,10 @@ import {
   ShieldCheck,
   Sparkles,
   SunMedium,
-  Utensils,
-  X
+  Utensils
 } from "lucide-react";
 import { Loader } from "@/components/ui/Loader";
+import { InlineNotice } from "@/components/ui/InlineNotice";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -261,30 +260,6 @@ export default function Landing() {
       <div className="blob animate-blob right-[-3rem] top-24 h-72 w-72 bg-cyan-300/14 [animation-delay:-4s]" />
       <div className="blob animate-blob bottom-0 left-[18%] h-52 w-52 bg-lime-200/10 [animation-delay:-8s]" />
 
-      {error ? (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          role="alert"
-          aria-live="assertive"
-          aria-atomic="true"
-          className="fixed left-1/2 top-6 z-[200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2"
-        >
-          <div className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm text-[#173a31] shadow-[0_24px_70px_-30px_rgba(16,58,48,0.38)]">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#0f8f7c]" aria-hidden="true" />
-            <span className="flex-1">{error}</span>
-            <button
-              type="button"
-              onClick={() => setError(null)}
-              aria-label="Dismiss error"
-              className="focus-ring rounded-lg p-1 text-[#4f6f66] transition-ui hover:bg-emerald-50 hover:text-[#173a31]"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
-        </motion.div>
-      ) : null}
-
       <div id="main-content" className="shell-frame relative z-10 flex min-h-[calc(100vh-3rem)] w-full items-center">
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -292,6 +267,10 @@ export default function Landing() {
           transition={{ duration: 0.5 }}
           className="flex w-full flex-col gap-6"
         >
+          {error ? <InlineNotice role="alert" dir={rtl ? "rtl" : "ltr"}
+            onDismiss={() => setError(null)} dismissLabel={t("dismissNotification")}>
+            {error}
+          </InlineNotice> : null}
           <header className="floating-shell section-band flex flex-col gap-4 rounded-[1.6rem] p-4 sm:flex-row sm:items-center sm:justify-between">
             <Link href="/" className="flex items-center gap-3">
               <span className="gradient-emerald flex h-11 w-11 items-center justify-center rounded-2xl shadow-glow">

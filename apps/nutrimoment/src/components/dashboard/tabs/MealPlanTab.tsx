@@ -1,4 +1,6 @@
 "use client";
+import { useArabicWorkflow } from "@/hooks/useArabicWorkflow";
+import { ArabicGenerationIssue } from "@/components/dashboard/ArabicGenerationIssue";
 
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
@@ -10,7 +12,9 @@ import { CalendarDays, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
-import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
+import { ErrorBanner } from "@/components/dashboard/ErrorBanner";
+import { InlineNotice } from "@/components/ui/InlineNotice";
+import { ArabicAwareMealRevealCard as MealRevealCard } from "@/components/dashboard/arabic/ArabicAwareMealRevealCard";
 import { useApp } from "@/contexts/AppContext";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
 import { useHistory } from "@/hooks/useHistory";
@@ -89,8 +93,17 @@ function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 }
 
 export function MealPlanTab() {
+  const arabic = useArabicWorkflow(true);
+  const [shownLanguage, setShownLanguage] = useState<"en" | "ar" | null>(null);
   const { t, settings, health, setError, loadingProfile, profileError, reloadProfile } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
+  const [initialPlanView, setInitialPlanView] = useState<{ uid: string; language: "en" | "ar" } | null>(null);
+  // Capture the loaded profile language once per user. Later UI-language
+  // changes preserve the displayed content; explicit saved-plan choices win.
+  if (user && !loadingProfile && !profileError && initialPlanView?.uid !== user.uid) {
+    setInitialPlanView({ uid: user.uid, language: settings.uiLanguage });
+    setShownLanguage(null);
+  }
   const hasNativeGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
   const [aiActionGrantId, setAiActionGrantId] = useState<string | undefined>();
@@ -108,14 +121,20 @@ export function MealPlanTab() {
     [health, settings]
   );
   const { mealPlan: storedMealPlan, loading: savedPlanLoading, error: mealPlanError, reloadMealPlan, saveMealPlan, updateMealImage } = useMealPlan(mealPlanPreferenceSignature);
-  const mealPlan = !loadingProfile && !profileError && storedMealPlan && storedMealPlan.plan.every(day =>
+  const compatibleArabicPlan = arabic.mealPlan && arabic.mealPlan.preferenceSignature?.replace(/\|language:[^|]*/, "") === mealPlanPreferenceSignature.replace(/\|language:[^|]*/, "") ? arabic.mealPlan : null;
+  const initialLanguage = initialPlanView?.uid === user?.uid ? initialPlanView?.language : settings.uiLanguage;
+  const selectedPlan = shownLanguage === "ar" ? compatibleArabicPlan : shownLanguage === "en" ? storedMealPlan
+    : initialLanguage === "ar" ? compatibleArabicPlan ?? storedMealPlan : storedMealPlan ?? compatibleArabicPlan;
+  const mealPlan = !loadingProfile && !profileError && selectedPlan && selectedPlan.plan.every(day =>
     [day.breakfast, day.lunch, day.dinner].every(meal =>
       !findRecipeDietViolation(meal, { diets: health.diets, allergens: health.allergens ?? [] }) &&
       !findRecipeHealthViolation(meal, health.conditions)
     )
-  ) ? storedMealPlan : null;
+  ) ? selectedPlan : null;
+  const showingEnglishPlanInArabic = settings.uiLanguage === "ar" && mealPlan && mealPlan.generationLanguage !== "ar";
   const profileVersionRef = useRef(0);
-  useEffect(() => { profileVersionRef.current += 1; }, [mealPlanPreferenceSignature, loadingProfile, profileError, user?.uid]);
+  const safetyPreferenceSignature = mealPlanPreferenceSignature.replace(/\|language:[^|]*/, "");
+  useEffect(() => { profileVersionRef.current += 1; }, [safetyPreferenceSignature, loadingProfile, profileError, user?.uid]);
   const [loading, setLoading] = useState(false);
   const [imageLoadingSlots, setImageLoadingSlots] = useState<Set<string>>(() => new Set());
   const [imageErrorSlots, setImageErrorSlots] = useState<Set<string>>(() => new Set());
@@ -141,17 +160,29 @@ export function MealPlanTab() {
 
   const generateMealPlan = async () => {
     if (loadingProfile || profileError) return;
-    const profileVersion = profileVersionRef.current;
+    setError(null);
     if (!canGenerateMealPlan) {
-      setError(t("freeMealPlanNotice"));
+      setError(t("aiCreditsExhausted"));
       return;
     }
-
+    const profileVersion = profileVersionRef.current;
+    if (settings.uiLanguage === "ar") {
+      setLoading(true);
+      try {
+        await arabic.generate("mealplan", { pantry: items.map(item => item.name), pantryItems: items.map(item => ({ name: item.name, quantity: item.quantity })), preferredCuisine: settings.preferredCuisine, calorieTarget: settings.calorieTarget, maxMissingIngredients: settings.arabicUnlimitedMissingIngredients === true ? "unlimited" : settings.maxMissingIngredients });
+        if (profileVersion !== profileVersionRef.current) return;
+        await arabic.reload();
+        setShownLanguage("ar");
+        await refreshAccess();
+      } catch (error) { setError(error instanceof Error ? error.message : "Arabic generation unavailable"); }
+      finally { setLoading(false); }
+      return;
+    }
     setLoading(true);
     let pendingHistoryEntryId: string | null = null;
     let keepPendingRecoveryActive = false;
     try {
-      const historyIngredients = items.map((item) => item.name);
+      const historyIngredients = await arabic.normalizeInput(items.map((item) => item.name));
       pendingHistoryEntryId = await withClientTimeout(
         addHistoryEntry({
           timestamp: new Date().toISOString(),
@@ -218,6 +249,7 @@ export function MealPlanTab() {
       if (profileVersion !== profileVersionRef.current) return;
       assertSafeMealPlan(nextMealPlan, { diets: health.diets, allergens: health.allergens ?? [], conditions: health.conditions });
       await saveMealPlan(nextMealPlan);
+      setShownLanguage("en");
       void persistMealPlanRecipes(nextMealPlan);
       if (pendingHistoryEntryId) {
         rememberMealPlanHistoryEntry(nextMealPlan, pendingHistoryEntryId);
@@ -254,8 +286,8 @@ export function MealPlanTab() {
     [items]
   );
   const shoppingList = useMemo(
-    () => buildNormalizedShoppingList({ displayLanguage: settings.uiLanguage, mealPlan, pantryItems: items }),
-    [items, mealPlan, settings.uiLanguage]
+    () => mealPlan?.generationLanguage === "ar" ? mealPlan.shoppingList : buildNormalizedShoppingList({ displayLanguage: "en", mealPlan, pantryItems: items }),
+    [items, mealPlan]
   );
   const mealPlanImagePlanKey = useMemo(() => {
     if (!mealPlan) return "";
@@ -370,6 +402,7 @@ export function MealPlanTab() {
   }, [historyItems, reloadMealPlan]);
 
   const persistMealPlanRecipes = useCallback(async (nextMealPlan: NonNullable<typeof mealPlan>) => {
+    if (nextMealPlan.generationLanguage === "ar") return;
     const effectiveActionGrantId = nextMealPlan.imageActionGrantId ?? aiActionGrantId;
     if (!user || (!hasNativeGeneratedImageAccess && !effectiveActionGrantId)) return;
 
@@ -405,7 +438,7 @@ export function MealPlanTab() {
   const resolveMealPlanImages = useCallback(async () => {
     void mealPlanImagePlanKey;
     const currentMealPlan = mealPlanRef.current;
-    if (!currentMealPlan || !user || !hasGeneratedImageAccess) return;
+    if (!currentMealPlan || currentMealPlan.generationLanguage === "ar" || !user || !hasGeneratedImageAccess) return;
     if (!mealPlanHistoryEntryIdRef.current) {
       mealPlanHistoryEntryIdRef.current = readMealPlanHistoryEntry(currentMealPlan);
     }
@@ -763,10 +796,18 @@ export function MealPlanTab() {
                 {t("premiumMealPlanNotice")}
               </div>
             )}
+            <ErrorBanner handledMessage={arabic.issue?.message} />
+            <ArabicGenerationIssue issue={arabic.issue} />
+            {storedMealPlan && compatibleArabicPlan ? (
+              <div className="flex gap-3" aria-label="Saved plan language">
+                <button type="button" onClick={() => setShownLanguage("en")} aria-pressed={mealPlan === storedMealPlan}>English</button>
+                <button type="button" onClick={() => setShownLanguage("ar")} aria-pressed={mealPlan === compatibleArabicPlan}>العربية</button>
+              </div>
+            ) : null}
             {loadingProfile ? <p role="status">{t("profileLoadingMeals")}</p> : null}
-            {profileError ? <p role="alert">{t("profileUnavailableMeals")} <button type="button" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></p> : null}
+            {profileError ? <InlineNotice role="alert">{t("profileUnavailableMeals")} <button type="button" className="underline" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></InlineNotice> : null}
             <Button fullWidth size="lg" loading={loading || savedPlanLoading} onClick={generateMealPlan} disabled={!canGenerateMealPlan || loadingProfile || Boolean(profileError)}>
-              {!canGenerateMealPlan ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : mealPlan ? t("regeneratePlan") : t("generatePlan")}
+              {!canGenerateMealPlan ? t("aiCreditsExhausted") : loading ? t("craftingMenu") : showingEnglishPlanInArabic ? "توليد خطة بالعربية" : mealPlan ? t("regeneratePlan") : t("generatePlan")}
             </Button>
           </div>
         </Card>
@@ -785,6 +826,13 @@ export function MealPlanTab() {
         </motion.div>
       ) : mealPlan ? (
         <motion.div variants={itemVariants} className="grid items-start gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+          {showingEnglishPlanInArabic ? (
+            <InlineNotice dir="rtl" className="xl:col-span-2">
+              <p className="font-semibold">لغة الخطة المعروضة: الإنجليزية</p>
+              <p className="mt-1">هذه خطتك الإنجليزية المحفوظة سابقًا، وليست نتيجة توليد بالعربية. تغيير لغة الواجهة لا يترجم الوجبات أو المكونات أو خطوات التحضير.</p>
+              <p className="mt-1">{compatibleArabicPlan ? "يمكنك عرض خطتك العربية المحفوظة من اختيار اللغة أعلاه." : "للحصول على خطة عربية، استخدم «توليد خطة بالعربية». تظل خطتك السابقة محفوظة حتى يكتمل التوليد بنجاح."}</p>
+            </InlineNotice>
+          ) : null}
           <div className="flex flex-col gap-3">
             <ResultLegalNotice mode="mealplan" />
             {mealPlan.plan.map((day, dayIndex) => (
@@ -796,9 +844,10 @@ export function MealPlanTab() {
                   <MealPlanRevealCard
                     title={t("breakfast")}
                     meal={day.breakfast}
+                    readOnlyImage={mealPlan.generationLanguage === "ar"}
                     deferImageLookup={dayIndex > 0}
                     disableAutoImageLookup={
-                      hasGeneratedImageAccess &&
+                      mealPlan.generationLanguage === "ar" || hasGeneratedImageAccess &&
                       !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "breakfast"))}
@@ -808,7 +857,7 @@ export function MealPlanTab() {
                     strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
                     onImageResolved={
-                      user
+                      user && mealPlan.generationLanguage !== "ar"
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                             const persistedImageUrl =
                               access.tier === "premium"
@@ -836,10 +885,11 @@ export function MealPlanTab() {
                   />
                   <MealPlanRevealCard
                     title={t("lunch")}
+                    readOnlyImage={mealPlan.generationLanguage === "ar"}
                     meal={day.lunch}
                     deferImageLookup={dayIndex > 0}
                     disableAutoImageLookup={
-                      hasGeneratedImageAccess &&
+                      mealPlan.generationLanguage === "ar" || hasGeneratedImageAccess &&
                       !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "lunch"))}
@@ -849,7 +899,7 @@ export function MealPlanTab() {
                     strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
                     onImageResolved={
-                      user
+                      user && mealPlan.generationLanguage !== "ar"
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                             const persistedImageUrl =
                               access.tier === "premium"
@@ -877,10 +927,11 @@ export function MealPlanTab() {
                   />
                   <MealPlanRevealCard
                     title={t("dinner")}
+                    readOnlyImage={mealPlan.generationLanguage === "ar"}
                     meal={day.dinner}
                     deferImageLookup={dayIndex > 0}
                     disableAutoImageLookup={
-                      hasGeneratedImageAccess &&
+                      mealPlan.generationLanguage === "ar" || hasGeneratedImageAccess &&
                       !imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))
                     }
                     imageError={imageErrorSlots.has(buildMealPlanImageSlotKey(indexOfDay(mealPlan.plan, day.day), "dinner"))}
@@ -890,7 +941,7 @@ export function MealPlanTab() {
                     strictGeneratedImages={hasGeneratedImageAccess}
                     t={t}
                     onImageResolved={
-                      user
+                      user && mealPlan.generationLanguage !== "ar"
                         ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                             const persistedImageUrl =
                               access.tier === "premium"
@@ -951,6 +1002,7 @@ export function MealPlanTab() {
 }
 
 function MealPlanRevealCard({
+  readOnlyImage,
   deferImageLookup,
   disableAutoImageLookup,
   imageDiets,
@@ -963,6 +1015,7 @@ function MealPlanRevealCard({
   t,
   onImageResolved
 }: {
+  readOnlyImage?: boolean;
   deferImageLookup?: boolean;
   disableAutoImageLookup?: boolean;
   imageDiets?: string[];
@@ -1018,6 +1071,9 @@ function MealPlanRevealCard({
       imagePromptIngredients={buildEnglishMealIngredients(meal.ingredients).slice(0, 10)}
       deferImageLookup={deferImageLookup}
       disableAutoImageLookup={disableAutoImageLookup}
+      readOnlyImage={readOnlyImage}
+      arabicRecipeId={readOnlyImage ? meal.id : undefined}
+      imageActionGrantId={readOnlyImage ? meal.image_action_grant_id : undefined}
       onImageResolved={onImageResolved}
       recipeSource={meal.recipe_source_type ?? (meal.source_recipe_id ? "local_database" : "generated")}
       stats={[

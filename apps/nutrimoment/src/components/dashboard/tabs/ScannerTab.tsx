@@ -1,4 +1,6 @@
 "use client";
+import { useArabicWorkflow } from "@/hooks/useArabicWorkflow";
+import { ArabicGenerationIssue } from "@/components/dashboard/ArabicGenerationIssue";
 
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { buildRecipeResultGuidance, type RecipeResultGuidance } from "@/lib/recipeResultGuidance";
@@ -19,8 +21,10 @@ import { cn, fileToBase64 } from "@/lib/utils";
 import type { Recipe, RecipeImageSource } from "@/lib/types";
 import { EmptyState } from "./shared";
 import { ResultLegalNotice } from "@/components/legal/LegalNotice";
+import { ErrorBanner } from "@/components/dashboard/ErrorBanner";
+import { InlineNotice } from "@/components/ui/InlineNotice";
 import { hasRecipeImageLookupAccess, useAuth } from "@/contexts/AuthContext";
-import { MealRevealCard } from "@/components/dashboard/MealRevealCard";
+import { ArabicAwareMealRevealCard as MealRevealCard } from "@/components/dashboard/arabic/ArabicAwareMealRevealCard";
 import { persistRecipeImageForUser } from "@/lib/recipeImageStorage";
 import { isUsableRecipeImageForAccess } from "@/lib/recipeImageQuality";
 import { buildEnglishRecipePhotoContext, buildEnglishRecipePhotoIngredients } from "@/lib/recipePhotoLanguage";
@@ -195,6 +199,7 @@ function getRecipeIngredientLabel(ingredient: unknown) {
 }
 
 export function ScannerTab() {
+  const arabic = useArabicWorkflow();
   const { t, settings, health, setError, addNotification, rtl, loadingProfile, profileError, reloadProfile } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
   const hasGeneratedImageAccess = hasRecipeImageLookupAccess(access);
@@ -614,7 +619,7 @@ export function ScannerTab() {
 
   const addManualIngredient = () => {
     const next = manualEntry
-      .split(",")
+      .split(/[,\u060c;\u061b\n]+/u)
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item) => !ingredients.some((ingredient) => ingredient.name.toLowerCase() === item.toLowerCase()))
@@ -802,6 +807,7 @@ export function ScannerTab() {
 
   const handleGenerateRecipes = async () => {
     if (loadingProfile || profileError) return;
+    setError(null);
     const canUseReferenceImage = canUseFridgeScan && Boolean(lastScanImage);
     if (!ingredients.length && !canUseReferenceImage) {
       setError(t("addOrScanFirst"));
@@ -810,6 +816,25 @@ export function ScannerTab() {
 
     const requestVersion = recipeRequestVersionRef.current + 1;
     recipeRequestVersionRef.current = requestVersion;
+    if (settings.uiLanguage === "ar") {
+      setRecipeLoading(true);
+      try {
+        const data = await arabic.generate("recipes", {
+          ingredients: ingredients.map(item => item.name), recipeCount: settings.recipeCount,
+          preferredCuisine: settings.preferredCuisine, calorieTarget: settings.calorieTarget,
+          maxMissingIngredients: settings.arabicUnlimitedMissingIngredients === true ? "unlimited" : settings.maxMissingIngredients
+        });
+        if (requestVersion !== recipeRequestVersionRef.current) return;
+        setRecipes(data.recipes);
+        setHistoryEntryId(null);
+        setRecipeGuidance(null);
+        setRecipeGenerationDetail(data.message ?? null);
+        setRecipeGenerationStatus(data.generationStatus === RecipeGenerationStatus.PARTIAL_RESULTS || data.recipes.length < settings.recipeCount ? RecipeGenerationStatus.PARTIAL_RESULTS : RecipeGenerationStatus.SUCCESS_DATASET);
+        await refreshAccess();
+      } catch (error) { setError(error instanceof Error ? error.message : "Arabic generation unavailable"); }
+      finally { setRecipeLoading(false); }
+      return;
+    }
     readPendingRecipeHistoryIds().forEach(forgetPendingRecipeHistoryId);
     setRecipeLoading(true);
     setRecipeGenerationStatus(null);
@@ -817,7 +842,7 @@ export function ScannerTab() {
     setRecipeGuidance(null);
     let pendingEntryId: string | null = null;
     try {
-      const ingredientNames = ingredients.map((item) => item.name);
+      const ingredientNames = await arabic.normalizeInput(ingredients.map((item) => item.name));
       pendingEntryId = await addEntry({
         timestamp: new Date().toISOString(),
         ingredients: ingredientNames,
@@ -1204,6 +1229,8 @@ export function ScannerTab() {
                   {ingredients.map((ingredient) => (
                     <div
                       key={ingredient.id}
+                      aria-invalid={arabic.issue?.items?.some(item => item.text === ingredient.name) || undefined}
+                      style={arabic.issue?.items?.some(item => item.text === ingredient.name) ? { borderColor: "#f59e0b" } : undefined}
                       className="grid gap-2.5 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3 text-sm font-medium text-emerald-50/82 sm:grid-cols-[1fr_auto]"
                     >
                       <div className="min-w-0">
@@ -1291,8 +1318,10 @@ export function ScannerTab() {
                 </div>
               )}
 
+              <ErrorBanner handledMessage={arabic.issue?.message} />
+              <ArabicGenerationIssue issue={arabic.issue} />
               {loadingProfile ? <p role="status">{t("profileLoadingMeals")}</p> : null}
-              {profileError ? <p role="alert">{t("profileUnavailableMeals")} <button type="button" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></p> : null}
+              {profileError ? <InlineNotice role="alert">{t("profileUnavailableMeals")} <button type="button" className="underline" onClick={() => void reloadProfile()}>{t("retryProfile")}</button></InlineNotice> : null}
               <Button
                 fullWidth
                 size="lg"
@@ -1345,12 +1374,15 @@ export function ScannerTab() {
                 <MealRevealCard
                   key={`${recipe.id ?? recipe.name}-${index}`}
                   disableAutoImageLookup
+                  readOnlyImage={recipe.generationLanguage === "ar"}
+                  arabicRecipeId={recipe.generationLanguage === "ar" ? recipe.id : undefined}
+                  imageActionGrantId={recipe.generationLanguage === "ar" ? recipe.image_action_grant_id : undefined}
                   deferImageLookup={index >= 2}
                   trustProvidedImage
                   eyebrow={getRecipeEyebrow(recipe, t)}
-                  name={buildRecipeDisplayName(recipe, settings.uiLanguage)}
+                  name={buildRecipeDisplayName(recipe, recipe.generationLanguage ?? "en")}
                   visualMatchLabel={recipe.visual_match_label}
-                  summary={buildRecipeSummary(recipe, t, settings.uiLanguage)}
+                  summary={buildRecipeSummary(recipe, t, recipe.generationLanguage ?? "en")}
                   previewLabel={getRecipePreviewLabel(recipe, t)}
                   previewItems={buildRecipePreviewItems(recipe)}
                   imageUrl={hasStrictRenderableImage(recipe.image_url, hasGeneratedImageAccess) ? recipe.image_url : undefined}
@@ -1369,7 +1401,7 @@ export function ScannerTab() {
                   imageDiets={health.diets}
                   imagePromptIngredients={buildRecipePhotoPromptIngredients(recipe)}
                   onImageResolved={
-                    user && historyEntryId
+                    user && recipe.generationLanguage !== "ar" && historyEntryId
                       ? async ({ imageAttributionName, imageAttributionUrl, imageSource, imageUrl }) => {
                           const persistedImageUrl =
                             hasGeneratedImageAccess
@@ -1457,16 +1489,11 @@ function RecipeGenerationStatusCard({
   const Icon = copy.icon;
 
   return (
-    <div
+    <InlineNotice
       role={status === RecipeGenerationStatus.NO_RESULTS ? "alert" : "status"}
-      aria-live="polite"
-      className={cn(
-        "rounded-[1.15rem] border px-4 py-3 text-sm shadow-[0_18px_55px_rgba(20,184,166,0.10)]",
-        copy.className
-      )}
+      dir={rtl ? "rtl" : "ltr"}
+      icon={<Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />}
     >
-      <div className="flex items-start gap-3">
-        <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
         <div className="space-y-1">
           <p className="font-semibold">{guidance?.title ?? copy.title}</p>
           {guidance ? (
@@ -1479,8 +1506,7 @@ function RecipeGenerationStatusCard({
             </>
           ) : <p className="text-xs leading-relaxed opacity-80">{detail ?? copy.detail}</p>}
         </div>
-      </div>
-    </div>
+    </InlineNotice>
   );
 }
 
@@ -1488,7 +1514,6 @@ function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: bool
   const copies = {
     [RecipeGenerationStatus.SUCCESS_AI]: {
       icon: CheckCircle2,
-      className: "border-emerald-200/28 bg-emerald-400/12 text-emerald-50",
       title: rtl ? "\u062a\u0645 \u0625\u0646\u0634\u0627\u0621 \u0648\u0635\u0641\u0627\u062a \u0645\u062e\u0635\u0635\u0629" : "Custom recipes are ready",
       detail: rtl
         ? "\u0627\u0644\u0648\u0635\u0641\u0627\u062a \u0645\u0628\u0646\u064a\u0629 \u0639\u0644\u0649 \u0645\u0643\u0648\u0646\u0627\u062a\u0643 \u0648\u062a\u0641\u0636\u064a\u0644\u0627\u062a\u0643."
@@ -1496,7 +1521,6 @@ function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: bool
     },
     [RecipeGenerationStatus.SUCCESS_DATASET]: {
       icon: Search,
-      className: "border-sky-200/28 bg-sky-400/12 text-sky-50",
       title: rtl ? "\u0648\u062c\u062f\u0646\u0627 \u0648\u0635\u0641\u0627\u062a \u0645\u0646\u0627\u0633\u0628\u0629" : "We found matching recipes",
       detail: rtl
         ? "\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0648\u0635\u0641\u0627\u062a \u062a\u0646\u0627\u0633\u0628 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a \u0627\u0644\u062a\u064a \u0623\u0636\u0641\u062a\u0647\u0627."
@@ -1504,7 +1528,6 @@ function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: bool
     },
     [RecipeGenerationStatus.SUCCESS_CACHE]: {
       icon: Info,
-      className: "border-cyan-200/28 bg-cyan-400/12 text-cyan-50",
       title: rtl ? "\u0648\u062c\u062f\u0646\u0627 \u0648\u0635\u0641\u0627\u062a \u062c\u0627\u0647\u0632\u0629" : "Ready recipes found",
       detail: rtl
         ? "\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0648\u0635\u0641\u0627\u062a \u0645\u0646\u0627\u0633\u0628\u0629 \u0628\u0633\u0631\u0639\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a."
@@ -1512,7 +1535,6 @@ function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: bool
     },
     [RecipeGenerationStatus.PARTIAL_RESULTS]: {
       icon: Info,
-      className: "border-amber-200/30 bg-amber-400/12 text-amber-50",
       title: rtl ? "\u0639\u0631\u0636\u0646\u0627 \u0623\u0641\u0636\u0644 \u0627\u0644\u0646\u062a\u0627\u0626\u062c" : "Best available matches",
       detail: rtl
         ? "\u0642\u062f \u062a\u0638\u0647\u0631 \u0646\u062a\u0627\u0626\u062c \u0623\u0643\u062b\u0631 \u0625\u0630\u0627 \u0623\u0636\u0641\u062a \u0645\u0643\u0648\u0646\u0627\u062a \u0623\u0648 \u063a\u064a\u0631\u062a \u0627\u0644\u0645\u0637\u0628\u062e."
@@ -1520,7 +1542,6 @@ function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: bool
     },
     [RecipeGenerationStatus.NO_RESULTS]: {
       icon: AlertTriangle,
-      className: "border-amber-200/34 bg-amber-400/14 text-amber-50",
       title: rtl ? "\u0644\u0645 \u0646\u062c\u062f \u0648\u0635\u0641\u0627\u062a \u0645\u0646\u0627\u0633\u0628\u0629" : "No matching recipes yet",
       detail: rtl
         ? "\u062c\u0631\u0628 \u0625\u0636\u0627\u0641\u0629 \u0645\u0643\u0648\u0646 \u0622\u062e\u0631 \u0623\u0648 \u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0645\u0637\u0628\u062e \u0644\u0646\u0642\u062a\u0631\u062d \u0648\u0635\u0641\u0627\u062a \u0623\u0641\u0636\u0644."
@@ -1528,7 +1549,6 @@ function getRecipeGenerationStatusCopy(status: RecipeGenerationStatus, rtl: bool
     }
   } satisfies Record<RecipeGenerationStatus, {
     icon: LucideIcon;
-    className: string;
     title: string;
     detail: string;
   }>;

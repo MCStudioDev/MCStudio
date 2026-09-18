@@ -95,6 +95,13 @@ export function MealPlanTab() {
   const [shownLanguage, setShownLanguage] = useState<"en" | "ar" | null>(null);
   const { t, settings, health, setError, loadingProfile, profileError, reloadProfile } = useApp();
   const { access, getAuthHeaders, refreshAccess, user } = useAuth();
+  const [initialPlanView, setInitialPlanView] = useState<{ uid: string; language: "en" | "ar" } | null>(null);
+  // Capture the loaded profile language once per user. Later UI-language
+  // changes preserve the displayed content; explicit saved-plan choices win.
+  if (user && !loadingProfile && !profileError && initialPlanView?.uid !== user.uid) {
+    setInitialPlanView({ uid: user.uid, language: settings.uiLanguage });
+    setShownLanguage(null);
+  }
   const hasNativeGeneratedImageAccess = hasRecipeImageLookupAccess(access);
   const isPremiumFeatureUnlocked = access.role === "admin" || access.tier === "premium";
   const [aiActionGrantId, setAiActionGrantId] = useState<string | undefined>();
@@ -113,7 +120,9 @@ export function MealPlanTab() {
   );
   const { mealPlan: storedMealPlan, loading: savedPlanLoading, error: mealPlanError, reloadMealPlan, saveMealPlan, updateMealImage } = useMealPlan(mealPlanPreferenceSignature);
   const compatibleArabicPlan = arabic.mealPlan && arabic.mealPlan.preferenceSignature?.replace(/\|language:[^|]*/, "") === mealPlanPreferenceSignature.replace(/\|language:[^|]*/, "") ? arabic.mealPlan : null;
-  const selectedPlan = shownLanguage === "ar" ? compatibleArabicPlan : shownLanguage === "en" ? storedMealPlan : storedMealPlan ?? compatibleArabicPlan;
+  const initialLanguage = initialPlanView?.uid === user?.uid ? initialPlanView?.language : settings.uiLanguage;
+  const selectedPlan = shownLanguage === "ar" ? compatibleArabicPlan : shownLanguage === "en" ? storedMealPlan
+    : initialLanguage === "ar" ? compatibleArabicPlan ?? storedMealPlan : storedMealPlan ?? compatibleArabicPlan;
   const mealPlan = !loadingProfile && !profileError && selectedPlan && selectedPlan.plan.every(day =>
     [day.breakfast, day.lunch, day.dinner].every(meal =>
       !findRecipeDietViolation(meal, { diets: health.diets, allergens: health.allergens ?? [] }) &&

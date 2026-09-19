@@ -28,6 +28,13 @@ function editor(id: string, sourceId: string, recipe = canonical) {
 }
 beforeEach(() => { vi.clearAllMocks(); mock.editors = []; mock.rows.clear(); mock.queries = []; mock.reads = []; mock.references.mockResolvedValue([]); mock.shared.mockResolvedValue([]); });
 describe("Arabic independent English source retrieval", () => {
+  it("accepts safe sources without pantry overlap for weekly planning only", async () => {
+    mock.shared.mockResolvedValue([{ id: "fish-source", recipe: canonical }]);
+    const rules = { ...vegan, diets: ["pescatarian"] };
+    const weekly = await findArabicSourceCandidates(["shrimp"], "Mediterranean", rules, 21, undefined, true);
+    expect(weekly.some(row => row.source?.id === "fish-source")).toBe(true);
+    expect(await findArabicSourceCandidates(["shrimp"], "Mediterranean", rules, 10)).toEqual([]);
+  });
   it("ranks the preferred cuisine first and retrieves compatible alternatives only when enabled", async () => {
     mock.shared.mockResolvedValue([{ id: "other-source", recipe: { ...canonical, name: "Italian Salmon Rice", cuisine: "Italian" } }, { id: "preferred-source", recipe: canonical }]);
     const rules = { ...vegan, diets: ["pescatarian"] };

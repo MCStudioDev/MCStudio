@@ -12,6 +12,13 @@ const assertComplete = (plan: ArabicRecipeEntry[]) => {
 };
 
 describe("Arabic weekly completion with limited repeats", () => {
+  it("prefers pantry-using meals among equally valid cuisine and slot choices", () => {
+    const preferred = entries().map(entry => ({ ...entry, ingredientCanonicals: ["rice"] }));
+    const alternatives = entries().map(entry => ({ ...entry, id: `other-${entry.id}`, ingredientCanonicals: ["oats"] }));
+    const plan = selectArabicWeeklyMeals([...alternatives, ...preferred], { pantry: ["rice"], preferredCuisine: "Mediterranean" })!;
+    assertComplete(plan);
+    expect(plan.every(entry => entry.ingredientCanonicals.includes("rice"))).toBe(true);
+  });
   it("maximizes the preferred cuisine even when other cuisines arrive first", () => {
     const preferred = entries();
     const alternatives = preferred.map(entry => ({ ...entry, id: `other-${entry.id}`, canonical: { ...entry.canonical, cuisine: "Italian" } }));

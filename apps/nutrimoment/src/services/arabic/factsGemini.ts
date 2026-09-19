@@ -48,7 +48,7 @@ export interface ArabicFactBatchInput {
   previousShortages?: Array<{ name: string; missingIngredients: string[] }>;
   sourceOnly?: boolean;
   discoveryOnly?: boolean;
-  allowEmptyPantry?: boolean;
+  pantryOptional?: boolean;
 }
 type ValidatedDish = { candidateId: string; facts: ArabicRecipeFacts; source?: ArabicRecipeEntry["source"]; variantKey?: string; labelReceipt?: ArabicLabelReceipt; safetyReceipt?: string };
 const culinaryIssue = z.enum(["dish_identity_mismatch", "incorrect_ingredient_state", "incorrect_cooking_sequence", "invalid_measures", "incomplete_preparation", "nutrition_inconsistent"]);
@@ -111,8 +111,9 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
   const owned = new Set(input.ingredients.flatMap(name => findArabicFood(name)?.id ?? []));
   const foods = arabicFoods.filter(food => !findRecipeDietViolation({ ingredients: [food.en] }, input.restrictions));
   const allowed = new Set(foods.map(food => food.id));
-  const emptyWeeklyPantry = input.allowEmptyPantry === true && input.ingredients.length === 0;
-  const pantryRule = emptyWeeklyPantry ? "This is weekly planning without a pantry. No owned ingredient is required. Every ingredient must be purchased and counts against missingLimit." : "At least one ingredient must be owned.";
+  const pantryRule = input.pantryOptional
+    ? "This is weekly planning. Prefer compatible pantry ingredients where they fit, but no owned ingredient is required in every meal. Add necessary groceries instead of forcing a pantry ingredient into an unsuitable meal slot. Never invent pantry ownership. Dietary and safety restrictions always apply."
+    : "At least one ingredient must be owned.";
   const budgetRule = input.sourceOnly ? "Retain complete source dishes even beyond missingLimit for shortage suggestions. The server will apply the budget before serving; do not simplify or omit structural ingredients."
     : input.missingLimit === "unlimited"
     ? `No limit on missing ingredients. Keep all essential ingredients regardless of pantry availability. ${pantryRule} All restrictions still apply.`
@@ -167,7 +168,7 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
     if (input.sourceOnly && plan.foodIds.some(id => !required?.includes(id) && findRecipeDietViolation({ ingredients: [arabicFoodById(id)?.en ?? ""] }, { diets: ["vegan"], allergens: [] }))) reasons.push("source_protein_changed");
     if (new Set(plan.foodIds).size !== plan.foodIds.length) reasons.push("duplicate_ingredient");
     if (plan.foodIds.some(id => !allowed.has(id))) reasons.push("ingredient_not_allowed");
-    if (!emptyWeeklyPantry && !plan.foodIds.some(id => owned.has(id))) reasons.push("pantry_mismatch");
+    if (!input.pantryOptional && !plan.foodIds.some(id => owned.has(id))) reasons.push("pantry_mismatch");
     if (!input.sourceOnly && input.missingLimit !== "unlimited" && plan.foodIds.filter(id => !owned.has(id)).length > input.missingLimit) reasons.push("missing_ingredient_limit");
     if (!input.sourceOnly && input.excludeNames?.some(name => [plan.name, plan.dishFamily].some(value => foodTerm(value) === foodTerm(name)))) reasons.push("excluded_dish");
     if (input.mealTypesNeeded?.length && !plan.mealTypes.some(type => input.mealTypesNeeded!.includes(type))) reasons.push("meal_type_mismatch");

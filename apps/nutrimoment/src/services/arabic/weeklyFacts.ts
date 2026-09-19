@@ -1,5 +1,5 @@
 import type { ArabicRecipeEntry } from "./types";
-import { arabicCuisineMatches } from "./cuisineGuidance";
+import { arabicCuisineMatches, prioritizeArabicPantry } from "./cuisineGuidance";
 
 // Matches the English weekly fallback: at most 2 repeated slots out of 21
 // (less than 10%). Content, validation and persistence remain Arabic-only.
@@ -16,8 +16,9 @@ type Edge = { to: number; reverse: number; capacity: number; cost: number };
  * Recipe/day nodes forbid the same dish twice on one day; source edges allow
  * each dish at most twice. Every selected entry has already passed validation.
  */
-export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { allowLimitedRepeats?: boolean; preferredCuisine?: string } = {}): ArabicRecipeEntry[] | null {
-  const entries = [...new Map(input.map(entry => [entry.id, entry])).values()];
+export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { allowLimitedRepeats?: boolean; preferredCuisine?: string; pantry?: string[] } = {}): ArabicRecipeEntry[] | null {
+  const uniqueEntries = [...new Map(input.map(entry => [entry.id, entry])).values()];
+  const entries = options.pantry?.length ? prioritizeArabicPantry(uniqueEntries, options.pantry) : uniqueEntries;
   const maxRepeats = options.allowLimitedRepeats ? ARABIC_WEEKLY_MAX_REPEATED_SLOTS : 0;
   if (entries.length < 21 - maxRepeats) return null;
   const graph: Edge[][] = [[], []], source = 0, sink = 1;

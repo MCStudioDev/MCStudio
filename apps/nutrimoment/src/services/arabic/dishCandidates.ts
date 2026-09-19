@@ -28,7 +28,7 @@ export async function selectArabicDishCandidates(input: ArabicFactBatchInput): P
     }));
   }
   const excluded = new Set((input.excludeNames ?? []).map(foodTerm));
-  let guidance = (input.discoveryOnly ? [] : await buildArabicCuisineGuidance(input.cuisine, input.ingredients, input.restrictions, input.allowEmptyPantry))
+  let guidance = (input.discoveryOnly ? [] : await buildArabicCuisineGuidance(input.cuisine, input.ingredients, input.restrictions, input.pantryOptional))
     .filter(dish => ![dish.name, dish.nativeName ?? ""].some(name => name && excluded.has(foodTerm(name))));
   const weeklySlots = ["breakfast", "lunch", "dinner"] as const;
   if (input.mealTypesNeeded?.length) {

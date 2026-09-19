@@ -23,7 +23,7 @@ import { findArabicSourceCandidates } from "./sourceCandidates";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
 import { selectArabicWeeklyMeals, arabicWeeklyMealCounts, arabicWeeklyMealTypes, ARABIC_WEEKLY_MAX_REPEATED_SLOTS } from "./weeklyFacts";
 import { arabicFingerprint } from "./fingerprint";
-import { buildArabicCuisineGuidance, prioritizeArabicCuisine } from "./cuisineGuidance";
+import { buildArabicCuisineGuidance, prioritizeArabicCuisine, prioritizeArabicPantry } from "./cuisineGuidance";
 import { arabicRepairSchema } from "./modelSchemas";
 import type { ArabicRecipeEntry, ArabicRecipeSuggestion } from "./types";
 import { arabicCuisineMatches as cuisineMatchesPreference } from "./cuisineGuidance";
@@ -75,7 +75,10 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       reservationId = reservation.actionId;
       imageActionGrantId = reservation.actionGrantId;
     }
-    const allowEmptyPantry = mode === "mealplan" && normalized.canonical.length === 0;
+    // Like English weekly planning, groceries complete the week. Scanner
+    // ownership and missing-ingredient limits do not constrain weekly meals.
+    const pantryOptional = mode === "mealplan";
+    const missingLimit = pantryOptional ? "unlimited" : input.maxMissingIngredients;
     const variationSeed = input.actionId ?? requestId;
     let recent: ArabicRecentRecipes = { shownAt: new Map(), names: [] }, freshnessUnavailable = false;
     if (mode === "recipes") {
@@ -86,7 +89,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     // Keep a bounded reserve so later preferred matches can displace alternatives.
     const poolLimit = mode === "mealplan" ? 80 : count + 21;
     const accepted = new Map<string, ArabicRecipeEntry>();
-    const weeklyOptions = { preferredCuisine: input.preferredCuisine };
+    const weeklyOptions = { preferredCuisine: input.preferredCuisine, pantry: normalized.canonical };
     const needsMore = () => mode === "mealplan" ? !selectArabicWeeklyMeals([...accepted.values()], weeklyOptions) : accepted.size < count;
     const hasCuisinePreference = !cuisineMatchesPreference("Any", input.preferredCuisine);
     const identities = new Set<string>();
@@ -112,12 +115,12 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const rebuilt = await revalidateArabicEntry(entry, restrictions);
       if (!rebuilt.entry || rebuilt.entry.fingerprint !== entry.fingerprint) { invalidCount++; recordReasons(rebuilt.reasons.length ? rebuilt.reasons : ["stale_fingerprint"]); return; }
       if (entry.source && !await arabicSourceIsCurrent(entry.source)) { recordReasons(["source_ineligible"]); return; }
-      const displayed = await partitionArabicRecipe(rebuilt.entry, normalized.canonical, "unlimited", allowEmptyPantry);
+      const displayed = await partitionArabicRecipe(rebuilt.entry, normalized.canonical, "unlimited", pantryOptional);
       if (!displayed) { recordReasons(["pantry_mismatch"]); return; }
-      if (input.maxMissingIngredients !== "unlimited" && displayed.missing_ingredients.length > input.maxMissingIngredients) {
+      if (missingLimit !== "unlimited" && displayed.missing_ingredients.length > missingLimit) {
         recordReasons(["missing_ingredient_limit"]);
         // Source eligibility was checked above; suggest only fully validated dishes.
-        alternatives.set(entry.id, { name: displayed.name, missingIngredients: displayed.missing_ingredients, maxMissingIngredients: input.maxMissingIngredients });
+        alternatives.set(entry.id, { name: displayed.name, missingIngredients: displayed.missing_ingredients, maxMissingIngredients: missingLimit });
         if (entry.source) alternativeSources.set(entry.id, entry.source);
         return;
       }
@@ -132,8 +135,8 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       accepted.set(rebuilt.entry.id, rebuilt.entry); output.set(rebuilt.entry.id, { ...displayed,
         cuisine_match_origin: cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine) ? "preferred" : "ingredient_fallback" });
     };
-    const cached = await listArabicRecipes(normalized.canonical, 200, allowEmptyPantry);
-    for (const entry of prioritizeArabicCuisine(mode === "recipes" ? rotateArabicCandidates(cached, variationSeed, entry => entry.id) : cached,
+    const cached = await listArabicRecipes(normalized.canonical, 200, pantryOptional);
+    for (const entry of prioritizeArabicCuisine(mode === "recipes" ? rotateArabicCandidates(cached, variationSeed, entry => entry.id) : prioritizeArabicPantry(cached, normalized.canonical),
       input.preferredCuisine, entry => entry.canonical?.cuisine ?? "")) await consider(entry);
     const failed: Array<Pair & { reasons: string[] }> = [];
     const processPair = async (pair: Pair) => {
@@ -161,7 +164,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       }
     };
     const references = needsMore() && authorization.allowed ? await findArabicSourceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count,
-      mode === "recipes" ? { recentKeys: [...recent.shownAt.keys()], seed: variationSeed } : undefined, allowEmptyPantry, true) : [];
+      mode === "recipes" ? { recentKeys: [...recent.shownAt.keys()], seed: variationSeed } : undefined, pantryOptional, true) : [];
     // Scanner requests without AI access use only Arabic cache. Entitled scanner
     // requests can reuse a derivative before reserving; weeks reserve above.
     for (const reference of references) {
@@ -191,7 +194,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         for (const pair of pairs) await processPair(pair);
       };
       const base = { ingredients: normalized.canonical, restrictions, cuisine: input.preferredCuisine,
-        calorieTarget: input.calorieTarget, missingLimit: input.maxMissingIngredients, allowEmptyPantry };
+        calorieTarget: input.calorieTarget, missingLimit, pantryOptional };
       const selectedSources = references.slice(0, mode === "mealplan" ? Math.min(21, Math.max(1, count - accepted.size + 2)) : Math.min(3, Math.max(1, count - accepted.size)));
       // Correction and fresh discovery have independent prompts and share only
       // this action/deadline. A slow source must not consume the fresh budget.
@@ -209,7 +212,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
             count: 7, excludeNames: freshExclusions, mealTypesNeeded: [type] }, deadline - 5000, requestId) });
           // Mixed catalog/discovery prompts can omit the unnamed slots. Give
           // new dish discovery its own bounded batch, excluding planned dishes.
-          const guidance = await buildArabicCuisineGuidance(base.cuisine, base.ingredients, restrictions, allowEmptyPantry);
+          const guidance = await buildArabicCuisineGuidance(base.cuisine, base.ingredients, restrictions, pantryOptional);
           const coverage = arabicWeeklyMealCounts([...accepted.values()]);
           const missingTypes = arabicWeeklyMealTypes.filter(type => coverage[type] < 7);
           jobs.push({ kind: "weekly_discovery_failed", run: generateArabicFactBatch({ ...base, discoveryOnly: true,
@@ -330,7 +333,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       if (mode === "mealplan" && recipes.length) {
         const coverage = arabicWeeklyMealCounts([...accepted.values()]);
         return Response.json({ code: "ARABIC_WEEKLY_PLAN_INCOMPLETE", validatedRecipeCount: accepted.size, mealTypeCounts: coverage,
-          error: `توفر ${accepted.size} وصفة تجتاز الفحوص، لكن توزيعها لا يكفي لإكمال 21 وجبة مع تكرار وجبتين فقط كحد أقصى (أقل من 10٪). المتاح للفطور: ${coverage.breakfast}، والغداء: ${coverage.lunch}، والعشاء: ${coverage.dinner}. جرّب مكونات إضافية أو مطبخًا آخر أو أعد المحاولة. لم يتم خصم رصيد أو تغيير خطتك السابقة.`,
+          error: `توفر ${accepted.size} وصفة تجتاز الفحوص، لكن توزيعها لا يكفي لإكمال 21 وجبة مع تكرار وجبتين فقط كحد أقصى (أقل من 10٪). المتاح للفطور: ${coverage.breakfast}، والغداء: ${coverage.lunch}، والعشاء: ${coverage.dinner}. حد المكونات الناقصة للماسح لا ينطبق على الخطة الأسبوعية؛ نضيف المكونات المطلوبة إلى قائمة التسوق. أعد المحاولة للحصول على خيارات إضافية. لم يتم خصم رصيد أو تغيير خطتك السابقة.`,
           recipes: [], suggestions, generationLanguage: "ar", requestId }, { status: 503 });
       }
       const failureCode = suggestions.length ? "ARABIC_RESULTS_UNAVAILABLE" : generationRequestFailed ? "ARABIC_AI_UNAVAILABLE" : invalidCount ? "ARABIC_VALIDATION_FAILED" : modelFailureCount ? "ARABIC_AI_UNAVAILABLE" : "ARABIC_RESULTS_UNAVAILABLE";
@@ -340,7 +343,9 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
           : "تعذر إكمال توليد الوصفات بالعربية الآن بسبب مشكلة في خدمة التوليد. اشتراكك يتيح التوليد.";
         return Response.json({ code: failureCode, error: reason + " حاول مجددًا أو بدّل إلى الإنجليزية. لم يتم خصم رصيد، ونتائجك السابقة محفوظة.", recipes: [], suggestions, generationLanguage: "ar", requestId }, { status: 503 });
       }
-      const shortage = !authorization.allowed
+      const shortage = mode === "mealplan"
+        ? " نستخدم مكوناتك المتوافقة حيث تناسب الوجبات ونضيف بقية الاحتياجات إلى قائمة التسوق. لم تتوفر خيارات متحقق منها تكفي للأسبوع؛ أعد المحاولة. لم يتم خصم رصيد."
+        : !authorization.allowed
         ? " تتوفر الوصفات العربية المحفوظة فقط لأن رصيد التوليد غير متاح. لم يتم استخدام رصيد إضافي."
         : input.maxMissingIngredients === "unlimited"
           ? " لا يوجد حد لعدد المكونات الناقصة. تبقى قيودك الغذائية مطبقة؛ جرّب مكونات أخرى أو مطبخًا آخر."
@@ -380,7 +385,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const alternativeCount = recipes.filter(recipe => recipe.cuisine_match_origin === "ingredient_fallback").length;
     const cuisineFallback = alternativeCount ? { preferredCount: recipes.length - alternativeCount, alternativeCount, requestedCuisine: input.preferredCuisine } : undefined;
     const cuisineMessage = cuisineFallback
-      ? `وجدنا ${cuisineFallback.preferredCount} من ${mode === "mealplan" ? "الوجبات" : "الوصفات"} من مطبخك المفضل، وأكملنا المتاح بـ ${alternativeCount} من مطابخ أخرى لعدم توفر خيارات كافية منه. جميعها تجتاز قيودك الغذائية وحد المكونات الناقصة.` : undefined;
+      ? `وجدنا ${cuisineFallback.preferredCount} من ${mode === "mealplan" ? "الوجبات" : "الوصفات"} من مطبخك المفضل، وأكملنا المتاح بـ ${alternativeCount} من مطابخ أخرى لعدم توفر خيارات كافية منه. ${mode === "mealplan" ? "جميعها تجتاز قيودك الغذائية، والمكونات غير المتوفرة مدرجة في قائمة التسوق." : "جميعها تجتاز قيودك الغذائية وحد المكونات الناقصة."}` : undefined;
     const message = [cuisineMessage, resultMessage].filter(Boolean).join(" ") || undefined;
     return Response.json({ recipes, suggestions, result: JSON.stringify(mealPlan ?? recipes), generationLanguage: "ar", generationStatus: recipes.length < count || backfilledCount || freshnessUnavailable || alternativeCount ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message, cuisineFallback,
       ...(mode === "recipes" ? { freshCount: freshnessUnavailable ? undefined : freshCount, backfilledCount, freshnessUnavailable } : { repeatFallback }), requestId, access: accessPayload(access) });

@@ -3,9 +3,24 @@ import { buildArabicShoppingList } from "@/services/arabic/shoppingFacts";
 import { buildArabicFactsEntry } from "@/services/arabic/recipeFacts";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 import { buildArabicEntry } from "@/services/arabic/validation";
-import { canonical, arabic } from "./fixtures/arabic";
+import { canonical, arabic, veganCanonical, veganArabic } from "./fixtures/arabic";
 const restrictions = { diets: [], conditions: [], allergens: [] };
 describe("Arabic shopping quantities from verified facts", () => {
+  it("preserves ingredient names containing unit words in validated cached translations", async () => {
+    const legacy = await buildArabicEntry({ ...veganCanonical,
+      ingredients: veganCanonical.ingredients.map(item => item.replace("fava beans", "canned beans")),
+      steps: veganCanonical.steps.map(step => step.replaceAll("fava beans", "canned beans"))
+    }, { ...veganArabic,
+      ingredients: veganArabic.ingredients.map(item => item.replace("فول", "فاصوليا معلبة")),
+      steps: veganArabic.steps.map(step => step.replaceAll("الفول", "الفاصوليا المعلبة"))
+    }, restrictions);
+    expect(legacy.reasons).toEqual([]);
+    const list = await buildArabicShoppingList([legacy.entry!], []);
+    expect(list).toContain("200 غرام فاصوليا معلبة");
+    expect(list).toContain("1 ملعقة كبيرة زيت زيتون");
+    expect(list).toContain("0.5 ملعقة صغيرة كمون");
+    expect(list.join(" ")).not.toMatch(/[A-Za-z]/);
+  });
   it("keeps fractional quantities when an existing Arabic recipe joins a new weekly plan", async () => {
     const legacy = await buildArabicEntry({ ...canonical, ingredients: [canonical.ingredients[0], "1/2 cup rice", canonical.ingredients[2]] },
       { ...arabic, ingredients: [arabic.ingredients[0], "١/٢ كوب أرز", arabic.ingredients[2]] }, restrictions);

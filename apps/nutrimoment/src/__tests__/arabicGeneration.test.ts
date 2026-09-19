@@ -49,6 +49,7 @@ import { buildArabicEntry } from "@/services/arabic/validation";
 import { assertArabicWritePath } from "@/services/arabic/repository";
 import { ProfileUnavailableError } from "@/lib/profileSafety";
 import { buildArabicFactsEntry } from "@/services/arabic/recipeFacts";
+import { findArabicFood } from "@/services/arabic/foodCatalog";
 
 const request = (body = {}) => new Request("http://localhost/api/ar/generate-recipes", { method: "POST", body: JSON.stringify({ ingredients: ["rice", "salmon", "water"], recipeCount: 1, ...body }) });
 beforeEach(() => {
@@ -201,16 +202,81 @@ describe("Arabic request integration with write recording", () => {
     const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
     expect(JSON.parse(data.result).plan).toHaveLength(7);
     expect(JSON.parse(data.result).shoppingList).toContain("4200 غرام سلمون");
-    if (!cached) expect(mock.generate.mock.calls.every(call => call[0].allowEmptyPantry === true)).toBe(true);
+    if (!cached) expect(mock.generate.mock.calls.every(call => call[0].pantryOptional === true)).toBe(true);
     else expect(mock.generate).not.toHaveBeenCalled();
     expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
   });
-  it("still requires scanner ingredients and enforces the weekly empty-pantry missing limit", async () => {
+  it("still requires scanner ingredients but ignores the scanner limit for a weekly plan", async () => {
     expect((await handleArabicGeneration(request({ ingredients: [] }), "recipes")).status).toBe(400);
     mock.allowed = true;
     mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
-    expect((await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: 0 }), "mealplan")).status).toBe(503);
+    expect((await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: 0 }), "mealplan")).status).toBe(200);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("publishes a complete cached week when a shopping ingredient contains an Arabic unit word", async () => {
+    const legacy = await buildArabicEntry({ ...veganCanonical,
+      ingredients: veganCanonical.ingredients.map(item => item.replace("fava beans", "canned beans")),
+      steps: veganCanonical.steps.map(step => step.replaceAll("fava beans", "canned beans"))
+    }, { ...veganArabic,
+      ingredients: veganArabic.ingredients.map(item => item.replace("فول", "فاصوليا معلبة")),
+      steps: veganArabic.steps.map(step => step.replaceAll("الفول", "الفاصوليا المعلبة"))
+    }, restrictions);
+    expect(legacy.reasons).toEqual([]);
+    mock.rows = [legacy.entry, ...await Promise.all(weeklyFactFixtures().slice(1).map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry))];
+    const response = await handleArabicGeneration(request({ ingredients: ["shrimp"], preferredCuisine: "Egyptian", maxMissingIngredients: 5 }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    const plan = JSON.parse(data.result);
+    expect(plan.plan).toHaveLength(7);
+    expect(plan.shoppingList).toContain("200 غرام فاصوليا معلبة");
+    expect(plan.shoppingList.join(" ")).not.toMatch(/[A-Za-z]/);
+    expect(mock.generate).not.toHaveBeenCalled();
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    expect(mock.release).not.toHaveBeenCalled();
+    expect(mock.writes.some(write => write.path.endsWith("/plans/currentWeeklyArabic"))).toBe(true);
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it.each([false, true])("plans a complete week with a nonmatching pantry and scanner limit zero, cached=%s", async cached => {
+    const facts = weeklyFactFixtures();
+    if (cached) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
+    const response = await handleArabicGeneration(request({ ingredients: ["shrimp"], pantryItems: [{ name: "shrimp", quantity: "1 kg" }], maxMissingIngredients: 0 }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    const plan = JSON.parse(data.result);
+    expect(plan.plan).toHaveLength(7);
+    expect(plan.shoppingList).toContain("4200 غرام سلمون");
+    expect(plan.shoppingList.some((item: string) => /جمبري|روبيان/.test(item))).toBe(false);
+    expect(data.suggestions).toEqual([]);
+    if (!cached) expect(mock.generate.mock.calls.every(call => call[0].missingLimit === "unlimited")).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("still rejects scanner recipes without pantry overlap even with unlimited missing ingredients", async () => {
+    mock.allowed = false;
+    mock.rows = await Promise.all(weeklyFactFixtures().map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    const response = await handleArabicGeneration(request({ ingredients: ["shrimp"], maxMissingIngredients: "unlimited", pantryOptional: true }), "recipes");
+    expect(response.status).toBe(503); expect(mock.writes).toEqual([]);
+    expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
+  });
+  it("allows weekly recipes with six missing ingredients at a scanner limit of five", async () => {
+    const extra = ["garlic", "olive oil", "black pepper"].map(name => ({ foodId: findArabicFood(name)!.id, quantity: 1, unit: "g" as const, state: "raw" as const }));
+    const facts = weeklyFactFixtures().map(fact => ({ ...fact, ingredients: [...fact.ingredients, ...extra],
+      steps: fact.steps.map(step => step.action === "simmer" ? { ...step, foodIds: [...step.foodIds, ...extra.map(item => item.foodId)] } : step) }));
+    mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    expect(mock.rows.every(Boolean)).toBe(true);
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 5 }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(JSON.parse(data.result).plan).toHaveLength(7);
+    expect(data.suggestions).toEqual([]);
+    expect(mock.generate).not.toHaveBeenCalled();
+    mock.writes = []; mock.allowed = false;
+    const scanner = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 5 }), "recipes");
+    expect(scanner.status).toBe(503);
+    expect((await scanner.json()).suggestions[0].missingIngredients).toHaveLength(6);
     expect(mock.writes).toEqual([]);
   });
   it.each([false, true])("completes an entitled 19-dish weekly pool with the English repeat limit, cached=%s", async cached => {

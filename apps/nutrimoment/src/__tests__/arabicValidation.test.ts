@@ -40,6 +40,13 @@ describe("Arabic validation adapter", () => {
     expect(await partitionArabicRecipe(entry!, ["rice"], 0)).toBeNull();
     expect((await partitionArabicRecipe(entry!, ["rice"], 2))?.missing_ingredients).toHaveLength(2);
   });
+  it("retains all groceries for a weekly meal with no owned ingredients", async () => {
+    const { entry } = await buildArabicEntry(canonical, arabic, restrictions);
+    const weekly = await partitionArabicRecipe(entry!, ["shrimp"], "unlimited", true);
+    expect(weekly?.ingredients).toEqual([]);
+    expect(weekly?.missing_ingredients).toEqual([...arabic.ingredients, ...arabic.missing_ingredients]);
+    expect(await partitionArabicRecipe(entry!, ["shrimp"], "unlimited")).toBeNull();
+  });
   it("keeps fingerprints stable across Firestore field ordering", async () => {
     const first = await buildArabicEntry(canonical, arabic, restrictions, { id: "source-1", fingerprint: "hash" });
     const second = await buildArabicEntry(canonical, arabic, restrictions, { fingerprint: "hash", id: "source-1" });

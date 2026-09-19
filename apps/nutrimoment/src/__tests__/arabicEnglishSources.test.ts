@@ -33,13 +33,19 @@ describe("read-only English source repository", () => {
   });
   it("allows an explicit pantry-free weekly cuisine lookup but still excludes quarantined sources", async () => {
     mock.filters = []; mock.limits = []; mock.row = { ...source, publicationStatus: "published" };
-    expect(await findEnglishSources([], { allowEmptyPantry: true, cuisine: "Egyptian" })).toHaveLength(1);
+    expect(await findEnglishSources([], { pantryOptional: true, cuisine: "Egyptian" })).toHaveLength(1);
     expect(mock.filters).toEqual([["cuisine", "==", "Egyptian"]]);
     expect(mock.limits).toEqual([200]);
     mock.row = { ...source, publicationStatus: "quarantined" };
-    expect(await findEnglishSources([], { allowEmptyPantry: true, cuisine: "Egyptian" })).toEqual([]);
+    expect(await findEnglishSources([], { pantryOptional: true, cuisine: "Egyptian" })).toEqual([]);
   });
   it("uses canonical quantities when localized content is absent", () => {
     expect(englishSourceRecipe({ ...source, localized: undefined }).ingredients).toEqual(["1 cup rice"]);
+  });
+  it("includes a cuisine search beyond a nonempty weekly pantry and deduplicates read-only results", async () => {
+    mock.filters = []; mock.limits = []; mock.row = { ...source, publicationStatus: "published" };
+    expect(await findEnglishSources(["shrimp"], { pantryOptional: true, cuisine: "Mediterranean" })).toHaveLength(1);
+    expect(mock.filters).toEqual([["ingredientCanonicals", "array-contains-any", ["shrimp"]], ["cuisine", "==", "Mediterranean"]]);
+    expect(mock.limits).toEqual([50, 200]);
   });
 });

@@ -1,6 +1,6 @@
 import { parsePantryQuantity } from "@/lib/pantryQuantity";
 import { arabicFoodById, findArabicFood } from "./foodCatalog";
-import { normalizeArabicInputs, normalizeArabicMeasure } from "./ingredients";
+import { normalizeArabicInputs, normalizeArabicMeasure, westernDigits } from "./ingredients";
 import type { ArabicRecipeEntry } from "./types";
 
 const units: Record<string, { base: string; factor: number; ar: string }> = {
@@ -13,13 +13,25 @@ const units: Record<string, { base: string; factor: number; ar: string }> = {
 type Amount = { id: string; state: string; label: string; quantity: number; unit: string };
 const stateLabels: Record<string, string> = { raw: "", cooked: "مطهو", canned: "معلب", dried: "مجفف" };
 const measurePrefix = /^\s*((?:\d+\s+)?\d+\s*\/\s*\d+|\d+(?:\.\d+)?)\s*(\S+)\s+/;
+function ingredientLabel(text: string) {
+  const measured = westernDigits(text).match(/^\s*(?:(?:\d+\s+)?\d+\s*\/\s*\d+|\d+(?:\.\d+)?)\s*(.*)$/);
+  if (!measured) throw new Error("Unresolved Arabic shopping ingredient");
+  // Normalize only the leading unit. Rewriting the full ingredient turns
+  // معلبة into مcan and can also alter names such as حبة البركة.
+  const rest = measured[1];
+  for (const pattern of [/^(\S+)\s+/, /^(\S+\s+\S+)\s+/]) {
+    const prefix = rest.match(pattern);
+    if (prefix && Object.hasOwn(units, normalizeArabicMeasure(prefix[1]))) return rest.slice(prefix[0].length).trim();
+  }
+  throw new Error("Unresolved Arabic shopping ingredient");
+}
 // Inputs are already validated entries. Facts carry identity and labels directly;
 // legacy translations retain their independently validated ingredient pairing.
 export async function buildArabicShoppingList(entries: ArabicRecipeEntry[], pantry: Array<{ name: string; quantity?: string }>) {
   const needed = new Map<string, Amount>();
   const add = (amount: Amount) => {
     const unit = units[amount.unit];
-    if (!unit || !Number.isFinite(amount.quantity) || amount.quantity <= 0 || /[A-Za-z]/.test(amount.label)) throw new Error("Invalid Arabic shopping ingredient");
+    if (!unit || !Number.isFinite(amount.quantity) || amount.quantity <= 0 || !amount.label.trim() || /[A-Za-z]/.test(amount.label)) throw new Error("Invalid Arabic shopping ingredient");
     const key = `${amount.id}:${amount.state}:${unit.base}`;
     const existing = needed.get(key);
     if (existing) existing.quantity += amount.quantity * unit.factor / units[existing.unit].factor;
@@ -34,7 +46,7 @@ export async function buildArabicShoppingList(entries: ArabicRecipeEntry[], pant
       for (const [index, ingredient] of canonical.entries()) {
         const normalized = await normalizeArabicInputs([ingredient]);
         const quantity = normalizeArabicMeasure(ingredient).match(measurePrefix);
-        const label = normalizeArabicMeasure(display[index]).replace(measurePrefix, "");
+        const label = ingredientLabel(display[index]);
         if (!quantity || normalized.unclear.length || normalized.canonical.length !== 1) throw new Error("Unresolved Arabic shopping ingredient");
         const name = normalized.canonical[0];
         const fraction = quantity[1].match(/^(?:(\d+)\s+)?(\d+)\s*\/\s*(\d+)$/);

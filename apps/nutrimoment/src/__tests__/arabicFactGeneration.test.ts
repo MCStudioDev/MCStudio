@@ -34,9 +34,14 @@ beforeEach(() => {
 });
 describe("Arabic fact generation orchestration", () => {
   it("allows an explicitly empty weekly pantry without relaxing the missing limit or scanner overlap", async () => {
-    expect((await run({ ingredients: [], allowEmptyPantry: true, mealTypesNeeded: ["breakfast"], missingLimit: "unlimited" })).recipes).toHaveLength(1);
-    expect((await run({ ingredients: [], allowEmptyPantry: true, missingLimit: 0 })).recipes).toEqual([]);
+    expect((await run({ ingredients: [], pantryOptional: true, mealTypesNeeded: ["breakfast"], missingLimit: "unlimited" })).recipes).toHaveLength(1);
+    expect((await run({ ingredients: [], pantryOptional: true, missingLimit: 0 })).recipes).toEqual([]);
     expect((await run({ ingredients: [], missingLimit: "unlimited" })).recipes).toEqual([]);
+  });
+  it("allows weekly meals with no pantry overlap while requiring overlap for scanner recipes", async () => {
+    expect((await run({ ingredients: ["shrimp"], pantryOptional: true, missingLimit: "unlimited" })).recipes).toHaveLength(1);
+    expect(model.mock.calls[0][0]).toContain("no owned ingredient is required in every meal");
+    expect((await run({ ingredients: ["shrimp"], missingLimit: "unlimited" })).recipes).toEqual([]);
   });
   it("can add only measured plain water when a later cooking step exposes an incomplete manifest", async () => {
     manifestIds = manifestIds.filter(id => id !== findArabicFood("water")!.id);

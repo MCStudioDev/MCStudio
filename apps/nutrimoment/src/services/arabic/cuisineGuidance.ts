@@ -4,6 +4,7 @@ import { findRecipeHealthViolation } from "@/lib/healthEnforcement";
 import type { GenerationRestrictions } from "@/lib/profileSafety";
 import { normalizeArabicInputs } from "./ingredients";
 import { translateCuisineToEnglish } from "@/lib/arabicRecipeLocalization";
+import type { ArabicRecipeEntry } from "./types";
 
 export function arabicCuisineMatches(actual: string, requested: string) {
   if (!requested || requested.toLowerCase() === "any") return true;
@@ -15,7 +16,13 @@ export function prioritizeArabicCuisine<T>(items: T[], requested: string, cuisin
   return [...items].sort((a, b) => Number(arabicCuisineMatches(cuisine(b), requested)) - Number(arabicCuisineMatches(cuisine(a), requested)));
 }
 
-export async function buildArabicCuisineGuidance(cuisine: string, pantry: string[], restrictions: GenerationRestrictions, allowEmptyPantry = false) {
+export function prioritizeArabicPantry(entries: ArabicRecipeEntry[], pantry: string[]) {
+  const owned = new Set(pantry);
+  const matches = (entry: ArabicRecipeEntry) => (Array.isArray(entry.ingredientCanonicals) ? entry.ingredientCanonicals : []).filter(name => owned.has(name)).length;
+  return [...entries].sort((a, b) => matches(b) - matches(a));
+}
+
+export async function buildArabicCuisineGuidance(cuisine: string, pantry: string[], restrictions: GenerationRestrictions, pantryOptional = false) {
   const catalog = getCompleteCuisineCatalog(cuisine);
   if (!catalog) return [];
   // Read-only dish descriptions guide fresh generation; they are not cached
@@ -32,7 +39,7 @@ export async function buildArabicCuisineGuidance(cuisine: string, pantry: string
     return { name: dish.names.english[0], nativeName: dish.names.native[0], description: dish.description,
       essentialIngredients: dish.primaryIngredients, mealTypes: dish.mealTypes, availableIngredients: available, score: dish.iconicScore + available.length * 20 };
   }));
-  return ranked.filter(dish => dish.availableIngredients.length > 0 || (allowEmptyPantry && pantry.length === 0))
+  return ranked.filter(dish => dish.availableIngredients.length > 0 || pantryOptional)
     .sort((a, b) => b.score - a.score).slice(0, 20)
     .map(dish => ({ name: dish.name, nativeName: dish.nativeName, description: dish.description,
       essentialIngredients: dish.essentialIngredients, mealTypes: dish.mealTypes, availableIngredients: dish.availableIngredients }));

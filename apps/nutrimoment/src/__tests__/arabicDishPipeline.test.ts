@@ -5,6 +5,7 @@ vi.mock("@/services/arabic/cuisineGuidance", () => ({ buildArabicCuisineGuidance
 import { generateArabicFactBatch } from "@/services/arabic/factsGemini";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 import { findArabicFood } from "@/services/arabic/foodCatalog";
+import { normalizeArabicInputs } from "@/services/arabic/ingredients";
 
 const input = { ingredients: ["rice"], restrictions: { diets: [], allergens: [], conditions: [] }, count: 2, cuisine: "Mediterranean", calorieTarget: 1650, missingLimit: "unlimited" as const };
 const fixtures = () => [weeklyFactFixtures()[0], weeklyFactFixtures()[1]];
@@ -44,6 +45,53 @@ function useProvider(options: { reorder?: boolean; omitFirst?: boolean; badSeque
 }
 beforeEach(() => { mocks.model.mockReset(); mocks.guidance.mockReset(); mocks.guidance.mockResolvedValue([]); state.ids = []; });
 describe("Arabic dish ownership and independent validation", () => {
+  it("shares one name-repair budget across concurrent generation batches", async () => {
+    useProvider();
+    const original = mocks.model.getMockImplementation()!;
+    mocks.model.mockImplementation(async (...args) => {
+      if (args[3] === "arabic_facts_name_repair") return { names: payload(args[0]).names.map((item: Candidate, index: number) => ({ candidateId: item.candidateId, name: fixtures()[index].name })) };
+      const result = await original(...args);
+      if (args[3] === "arabic_facts_planning") result.plans.forEach((plan: any) => { plan.name = "Native Latin title"; });
+      return result;
+    });
+    const nameRepairBudget = { used: false };
+    await Promise.all(["a", "b"].map(variationSeed => generateArabicFactBatch({ ...input, variationSeed, nameRepairBudget }, Date.now() + 65000, "shared-budget")));
+    expect(mocks.model.mock.calls.filter(call => call[3] === "arabic_facts_name_repair")).toHaveLength(1);
+    expect(nameRepairBudget.used).toBe(true);
+  });
+  it.each([true, false])("repairs only non-Arabic planning titles once, repair succeeds=%s", async succeeds => {
+    useProvider();
+    const original = mocks.model.getMockImplementation()!;
+    mocks.model.mockImplementation(async (...args) => {
+      if (args[3] === "arabic_facts_name_repair") return { names: payload(args[0]).names.map((item: Candidate, index: number) => ({
+        candidateId: item.candidateId, name: succeeds ? fixtures()[index].name : "Still English", foodIds: ["food-chicken"]
+      })) };
+      const result = await original(...args);
+      if (args[3] === "arabic_facts_planning") result.plans.forEach((plan: any) => { plan.name = "Native Latin title"; });
+      return result;
+    });
+    const result = await generateArabicFactBatch(input, Date.now() + 65000, "planning-language");
+    expect(mocks.model.mock.calls.filter(call => call[3] === "arabic_facts_name_repair")).toHaveLength(1);
+    expect(result.recipes).toHaveLength(succeeds ? 2 : 0);
+    if (succeeds) expect(result.recipes[0].facts.ingredients).toEqual(fixtures()[0].ingredients);
+    else expect(mocks.model.mock.calls.some(call => call[3] === "arabic_facts_generation")).toBe(false);
+  });
+  it("uses the same exact generic food identity for pantry, catalog requirements and Gemini", async () => {
+    mocks.guidance.mockResolvedValue([{ name: "Chicken rice", nativeName: "أرز بالدجاج", essentialIngredients: ["chicken", "rice"], availableIngredients: ["chicken"] }]);
+    useProvider();
+    const original = mocks.model.getMockImplementation()!;
+    mocks.model.mockImplementation(async (...args) => {
+      const result = await original(...args);
+      // Provider returns the valid generic catalog ID, not a guessed cut.
+      return JSON.parse(JSON.stringify(result).replaceAll("food-salmon", "food-chicken").replaceAll("سلمون", "دجاج").replaceAll("salmon", "chicken"));
+    });
+    const normalized = await normalizeArabicInputs(["دجاج"]);
+    const result = await generateArabicFactBatch({ ...input, count: 1, ingredients: normalized.canonical }, Date.now() + 65000, "generic-food");
+    expect(result.recipes, JSON.stringify(result.diagnostics)).toHaveLength(1);
+    const planning = payload(mocks.model.mock.calls[0][0]);
+    expect(planning.ownedFoodIds).toEqual(["food-chicken"]);
+    expect(planning.candidates[0].essentialFoodIds).toEqual(["food-chicken", "food-rice"]);
+  });
   it("cannot rename a different ingredient manifest after dropping catalog structural ingredients", async () => {
     mocks.guidance.mockResolvedValue([{ name: "Chicken rice", nativeName: "أرز بالدجاج", essentialIngredients: ["chicken", "rice"], availableIngredients: ["rice"] }]);
     useProvider();

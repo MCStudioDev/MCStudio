@@ -3,10 +3,17 @@ import { buildArabicCuisineGuidance } from "@/services/arabic/cuisineGuidance";
 import { selectArabicDishCandidates } from "@/services/arabic/dishCandidates";
 
 describe("Arabic cuisine guidance", () => {
+  it("includes breakfast guidance beyond a shrimp-only weekly pantry", async () => {
+    const rules = { diets: ["pescatarian"], allergens: [], conditions: [] };
+    const weekly = await buildArabicCuisineGuidance("Egyptian", ["shrimp"], rules, true);
+    expect(weekly.some(dish => /ful|foul|taameya/i.test(dish.name))).toBe(true);
+    const scanner = await buildArabicCuisineGuidance("Egyptian", ["shrimp"], rules);
+    expect(scanner.every(dish => dish.availableIngredients.includes("shrimp"))).toBe(true);
+  });
   it("uses cuisine guidance for an explicitly empty weekly pantry", async () => {
     const base = { ingredients: [], cuisine: "Egyptian", count: 7, calorieTarget: 1650, missingLimit: "unlimited" as const,
       restrictions: { diets: ["vegetarian"], allergens: [], conditions: [] }, mealTypesNeeded: ["breakfast"] };
-    const selected = await selectArabicDishCandidates({ ...base, allowEmptyPantry: true });
+    const selected = await selectArabicDishCandidates({ ...base, pantryOptional: true });
     expect(selected.some(item => item.kind === "catalog")).toBe(true);
     expect(await buildArabicCuisineGuidance("Egyptian", [], base.restrictions)).toEqual([]);
   });

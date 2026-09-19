@@ -49,6 +49,17 @@ for (const item of foods.values()) {
 }
 export const arabicFoods: readonly ArabicFood[] = [...foods.values()].sort((a, b) => a.id.localeCompare(b.id));
 const byId = new Map(arabicFoods.map(item => [item.id, item]));
+const canonicalNames = new Map(arabicFoods.map(item => [foodTerm(item.en), item]));
+const preciseLabels = new Map<string, Set<ArabicFood>>();
+for (const [english, arabic] of Object.entries(ARABIC_CULINARY_DICTIONARY.ingredients)) {
+  const food = canonicalNames.get(foodTerm(english));
+  if (!food) continue;
+  const label = foodTerm(arabic);
+  preciseLabels.set(label, new Set([...(preciseLabels.get(label) ?? []), food]));
+}
+// Prefer existing unambiguous, precise translations over broad taxonomy
+// aliases. Do not infer a food identity from substring/parent-name similarity.
+for (const [label, candidates] of preciseLabels) if (candidates.size === 1) canonicalNames.set(label, [...candidates][0]);
 const aliases = new Map<string, ArabicFood>();
 for (const item of arabicFoods) for (const alias of item.aliases) {
   const key = foodTerm(alias);
@@ -62,7 +73,8 @@ for (const item of OFFLINE_INGREDIENT_TAXONOMY.filter(item => item.isActive)) {
 export const arabicFoodById = (id: string) => byId.get(id);
 export function findArabicFood(term: string): ArabicFood | undefined {
   const key = foodTerm(term);
-  return aliases.get(key) ?? aliases.get(key.replace(/s$/, "")) ?? aliases.get(`${key}s`);
+  // Taxonomy aliases are useful fallbacks, never overrides of exact identities.
+  return canonicalNames.get(key) ?? aliases.get(key) ?? aliases.get(key.replace(/s$/, "")) ?? aliases.get(`${key}s`);
 }
 
 export function rankArabicFoodCandidates(term: string, limit = 6) {

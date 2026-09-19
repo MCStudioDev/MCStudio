@@ -16,14 +16,15 @@ export async function readEnglishSource(id: string, transaction?: Transaction): 
   const recipe = { ...snapshot.data(), id } as RecipeCatalogDoc;
   return isSharedRecipeV2Searchable(recipe) ? recipe : null;
 }
-export async function findEnglishSources(ingredients: string[], options: { allowEmptyPantry?: boolean; cuisine?: string } = {}) {
-  if (!ingredients.length && !options.allowEmptyPantry) return [];
+export async function findEnglishSources(ingredients: string[], options: { pantryOptional?: boolean; cuisine?: string } = {}) {
+  if (!ingredients.length && !options.pantryOptional) return [];
   const collection = getAdminDb().collection("sharedRecipesV2");
   const cuisine = translateCuisineToEnglish(options.cuisine ?? "Any");
-  const query = ingredients.length ? collection.where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10))
-    : cuisine.toLowerCase() !== "any" ? collection.where("cuisine", "==", cuisine) : collection;
-  const snapshot = await withTimeout(query.limit(ingredients.length ? 50 : 200).get(), 5000, "Arabic English-source lookup");
-  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as RecipeCatalogDoc).filter(isSharedRecipeV2Searchable);
+  const queries = ingredients.length ? [collection.where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)).limit(50)] : [];
+  if (options.pantryOptional) queries.push((cuisine.toLowerCase() !== "any" ? collection.where("cuisine", "==", cuisine) : collection).limit(200));
+  const snapshots = await withTimeout(Promise.all(queries.map(query => query.get())), 5000, "Arabic English-source lookup");
+  const sources = snapshots.flatMap(snapshot => snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as RecipeCatalogDoc)).filter(isSharedRecipeV2Searchable);
+  return [...new Map(sources.map(source => [source.id, source])).values()].slice(0, options.pantryOptional ? 200 : 50);
 }
 // Independent of the English publication receipt: quantities, units, times and
 // localized ingredient text must also invalidate a translated derivative.

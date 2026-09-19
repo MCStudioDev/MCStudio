@@ -49,8 +49,15 @@ import { buildArabicEntry } from "@/services/arabic/validation";
 import { assertArabicWritePath } from "@/services/arabic/repository";
 import { ProfileUnavailableError } from "@/lib/profileSafety";
 import { buildArabicFactsEntry } from "@/services/arabic/recipeFacts";
+import { findArabicFood } from "@/services/arabic/foodCatalog";
 
 const request = (body = {}) => new Request("http://localhost/api/ar/generate-recipes", { method: "POST", body: JSON.stringify({ ingredients: ["rice", "salmon", "water"], recipeCount: 1, ...body }) });
+function withExtraFood(fact: ReturnType<typeof weeklyFactFixtures>[number], food: string, suffix: string) {
+  const foodId = findArabicFood(food)!.id;
+  return { ...fact, name: `${fact.name} ${suffix}`, dishFamily: `${fact.dishFamily} with ${food}`,
+    ingredients: [...fact.ingredients, { foodId, quantity: 1, unit: "tsp" as const, state: "raw" as const }],
+    steps: fact.steps.map(step => step.action === "simmer" ? { ...step, foodIds: [...step.foodIds, foodId] } : step) };
+}
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("ARABIC_GENERATION_ENABLED", "true");
   mock.rows = []; mock.writes = []; mock.reads = []; mock.allowed = true; mock.history = []; mock.uid = "sandy-test"; mock.historyFailure = false;
@@ -66,6 +73,198 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it("ignores obsolete cache rows without cuisine metadata before considering valid results", async () => {
+    mock.allowed = false;
+    mock.rows = [{ id: "obsolete", validatorVersion: "retired" }, (await buildArabicEntry(canonical, arabic, restrictions)).entry];
+    const response = await handleArabicGeneration(request(), "recipes");
+    expect(response.status).toBe(200);
+    expect((await response.json()).recipes).toHaveLength(1);
+    expect(mock.generate).not.toHaveBeenCalled();
+  });
+  it("recovers missing weekly slots after all initial Gemini plans are rejected", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.slice(7).map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { variationSeed?: string }) => input.variationSeed?.endsWith(":weekly-top-up")
+      ? { recipes: facts.slice(0, 7).map(facts => ({ facts })) }
+      : { recipes: [], diagnostics: [{ stage: "planning", status: "rejected", issues: ["unsupported_dish"] }] });
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Mediterranean" }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(JSON.parse(data.result).plan).toHaveLength(7);
+    const recovery = mock.generate.mock.calls.map(call => call[0]).filter(input => input.variationSeed?.endsWith(":weekly-top-up"));
+    expect(recovery).toHaveLength(1);
+    expect(recovery[0]).toMatchObject({ cuisine: "Mediterranean", discoveryOnly: true, mealTypesNeeded: ["breakfast"] });
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it.each(["Indian", "Italian", "Egyptian"])("recovers zero accepted plans in %s before returning recent alternatives", async cuisine => {
+    mock.generate.mockImplementation(async (input: { variationSeed?: string; cuisine: string }) => input.variationSeed?.endsWith(":1")
+      ? { recipes: [{ canonical: { ...canonical, cuisine }, recipe: { ...arabic, cuisine: ({ Indian: "هندي", Italian: "إيطالي", Egyptian: "مصري" })[cuisine] } }] }
+      : { recipes: [], diagnostics: [{ stage: "planning", status: "rejected", name: "اقتراح سابق", issues: ["pantry_mismatch", "dish_ingredients_changed"] }] });
+    const response = await handleArabicGeneration(request({ preferredCuisine: cuisine }), "recipes");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.recipes).toHaveLength(1);
+    expect(data.cuisineFallback).toBeUndefined();
+    const retries = mock.generate.mock.calls.map(call => call[0]).filter(input => input.variationSeed?.endsWith(":1"));
+    expect(retries).toHaveLength(1);
+    expect(retries[0]).toMatchObject({ cuisine, discoveryOnly: true, planningFeedback: [{ name: "اقتراح سابق", issues: ["pantry_mismatch", "dish_ingredients_changed"] }] });
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("explains rejected planning proposals when recovery fails and recent cache fills the response", async () => {
+    const entry = (await buildArabicEntry(canonical, arabic, restrictions)).entry!;
+    mock.rows = [entry];
+    mock.history = [{ timestamp: new Date().toISOString(), sessionType: "recipe_generation", generationStatus: "completed", ingredients: ["rice", "salmon", "water"], recipes: [entry.recipe] }];
+    mock.generate.mockResolvedValue({ recipes: [], diagnostics: [{ stage: "planning", status: "rejected", name: "اقتراح سابق", issues: ["pantry_mismatch"] }] });
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Indian" }), "recipes");
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    expect(data.backfilledCount).toBe(1);
+    expect(data.message).toContain("اقتراحات المكونات");
+    expect(mock.generate.mock.calls.filter(call => call[0].variationSeed?.endsWith(":1"))).toHaveLength(1);
+    expect(mock.release).toHaveBeenCalledOnce();
+  });
+  it.each([false, true])("fills 3 preferred recipes with 7 validated Arabic alternatives, AI access=%s", async allowed => {
+    mock.allowed = allowed;
+    mock.generate.mockResolvedValue({ recipes: [] });
+    const facts = weeklyFactFixtures().slice(0, 10).map((fact, index) => ({ ...fact, cuisine: index < 3 ? "Mediterranean" : "Italian" }));
+    mock.rows = (await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry))).reverse();
+    const response = await handleArabicGeneration(request({ recipeCount: 10, preferredCuisine: "Mediterranean", maxMissingIngredients: "unlimited" }), "recipes");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.recipes).toHaveLength(10);
+    expect(data.recipes.map((recipe: any) => recipe.cuisine_match_origin)).toEqual([...Array(3).fill("preferred"), ...Array(7).fill("ingredient_fallback")]);
+    expect(data.cuisineFallback).toMatchObject({ preferredCount: 3, alternativeCount: 7 });
+    expect(data.message).toContain("مطابخ أخرى");
+    if (allowed) {
+      expect(mock.generate).toHaveBeenCalled(); expect(mock.reserve).toHaveBeenCalledOnce();
+      expect(mock.candidates).toHaveBeenCalledOnce();
+    } else {
+      expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
+      expect(mock.candidates).not.toHaveBeenCalled();
+    }
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("completes weekly meal slots with other cuisines without extra charges", async () => {
+    const facts = weeklyFactFixtures().map((fact, index) => ({ ...fact, cuisine: index < 3 ? "Mediterranean" : "Italian" }));
+    mock.rows = (await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry))).reverse();
+    mock.generate.mockRejectedValue(new Error("Provider unavailable"));
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Mediterranean", maxMissingIngredients: "unlimited" }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.cuisineFallback).toMatchObject({ preferredCount: 3, alternativeCount: 18 });
+    expect(JSON.parse(data.result).plan).toHaveLength(7);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    expect(mock.generate).toHaveBeenCalled();
+    expect(data.message).toContain("تعذر إكمال توليد");
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("does not relax missing-ingredient limits for other cuisines", async () => {
+    mock.allowed = false;
+    mock.rows = await Promise.all(weeklyFactFixtures().slice(0, 3).map(async fact => (await buildArabicFactsEntry({ ...fact, cuisine: "Italian" }, restrictions)).entry));
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Mediterranean", maxMissingIngredients: 0 }), "recipes");
+    expect(response.status).toBe(503); expect(mock.writes).toEqual([]);
+  });
+  it.each([false, true])("keeps only preferred recipes without AI when enough pass, AI access=%s", async allowed => {
+    mock.allowed = allowed;
+    const facts = weeklyFactFixtures().map((fact, index) => ({ ...fact, cuisine: index < 10 ? "Mediterranean" : "Italian" }));
+    mock.rows = (await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry))).reverse();
+    const response = await handleArabicGeneration(request({ recipeCount: 10, preferredCuisine: "Mediterranean", maxMissingIngredients: "unlimited" }), "recipes");
+    const data = await response.json();
+    expect(data.recipes).toHaveLength(10);
+    expect(data.recipes.every((recipe: any) => recipe.cuisine_match_origin === "preferred")).toBe(true);
+    expect(data.cuisineFallback).toBeUndefined();
+    expect(mock.generate).not.toHaveBeenCalled();
+    expect(mock.writes.filter(write => write.path.startsWith("sharedRecipesArabicV1/"))).toHaveLength(10);
+  });
+  it("tries preferred-cuisine Gemini generation even when a cached week is complete", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.map(async (fact, index) => (await buildArabicFactsEntry({ ...fact, cuisine: index === 0 ? "Indian" : "Italian" }, restrictions)).entry));
+    const additions = facts.slice(1).map(fact => ({ ...withExtraFood(fact, "cumin", "مع الكمون"), cuisine: "Indian" }));
+    mock.generate.mockImplementation(async (input: { cuisine: string; mealTypesNeeded?: string[]; discoveryOnly?: boolean }) => ({ recipes: input.discoveryOnly ? [] : additions
+      .filter(fact => input.cuisine === "Indian" && input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast"))).map(facts => ({ facts })) }));
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Indian" }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.recipes).toHaveLength(21);
+    expect(data.recipes.every((recipe: any) => recipe.cuisine_match_origin === "preferred")).toBe(true);
+    expect(mock.generate.mock.calls.every(call => call[0].cuisine === "Indian")).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("retains new preferred AI meals when the 80-entry weekly cache reserve is full", async () => {
+    const facts = weeklyFactFixtures();
+    const cached = Array.from({ length: 80 }, (_, index) => {
+      const fact = facts[index % 21], variation = Math.floor(index / 21);
+      return { ...(variation ? withExtraFood(fact, ["garlic", "lemon", "parsley"][variation - 1], `تنويع ${variation}`) : fact), cuisine: "Italian" };
+    });
+    mock.rows = await Promise.all(cached.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    expect(mock.rows.filter(Boolean)).toHaveLength(80);
+    const preferred = { ...withExtraFood(facts[0], "cumin", "مع الكمون"), cuisine: "Indian" };
+    mock.generate.mockResolvedValue({ recipes: [{ facts: preferred }] });
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Indian" }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.recipes).toHaveLength(21);
+    expect(data.cuisineFallback).toMatchObject({ preferredCount: 1, alternativeCount: 20 });
+    expect(data.recipes.some((recipe: any) => recipe.name === preferred.name)).toBe(true);
+  });
+  it("replaces fresh scanner alternatives with preferred AI recipes before returning", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.slice(0, 10).map(async fact => (await buildArabicFactsEntry({ ...fact, cuisine: "Italian" }, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { cuisine: string; count: number }) => ({ recipes: input.cuisine === "Indian"
+      ? facts.slice(10, 10 + input.count).map(fact => ({ facts: { ...fact, cuisine: "Indian" } })) : [] }));
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Indian", recipeCount: 10, maxMissingIngredients: "unlimited" }), "recipes");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.cuisineFallback).toMatchObject({ preferredCount: 7, alternativeCount: 3 });
+    expect(mock.generate.mock.calls[0][0]).toMatchObject({ cuisine: "Indian", count: 7 });
+    expect(mock.generate.mock.calls.every(call => call[0].cuisine === "Indian")).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+  });
+  it("selects preferred AI recipes before alternatives and charges the combined work once", async () => {
+    const facts = weeklyFactFixtures();
+    mock.generate.mockImplementation(async (input: { cuisine: string }) => ({ recipes: (input.cuisine === "Any"
+      ? facts.slice(3, 13).map(fact => ({ ...fact, cuisine: "Italian" })) : facts.slice(0, 3)).map(facts => ({ facts })) }));
+    const response = await handleArabicGeneration(request({ recipeCount: 10, preferredCuisine: "Mediterranean", maxMissingIngredients: "unlimited" }), "recipes");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.cuisineFallback).toMatchObject({ preferredCount: 3, alternativeCount: 7 });
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    expect(mock.generate.mock.calls.map(call => call[0].cuisine)).toEqual(["Mediterranean", "Any", "Mediterranean"]);
+    expect(mock.generate.mock.calls.every(call => call[0].missingLimit === "unlimited" && call[0].restrictions === restrictions)).toBe(true);
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("fills weekly breakfast shortages from other cuisines even when more than 21 lunch/dinner recipes exist", async () => {
+    const facts = weeklyFactFixtures();
+    const meals = facts.slice(7);
+    mock.rows = await Promise.all([...meals, ...meals.map(fact => ({ ...fact, name: `${fact.name} مع زيادة الأرز`, dishFamily: `${fact.dishFamily} extra rice`, ingredients: fact.ingredients.map(item => item.foodId === "food-rice" ? { ...item, quantity: 2 } : item) }))]
+      .map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { cuisine: string; mealTypesNeeded?: string[] }) => ({ recipes: input.cuisine === "Any" && input.mealTypesNeeded?.includes("breakfast")
+      ? facts.slice(0, 7).map(fact => ({ facts: { ...fact, cuisine: "Italian" } })) : [] }));
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Mediterranean", maxMissingIngredients: "unlimited" }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(data.cuisineFallback).toMatchObject({ preferredCount: 14, alternativeCount: 7 });
+    const fallback = mock.generate.mock.calls.map(call => call[0]).find(input => input.cuisine === "Any" && input.mealTypesNeeded?.includes("breakfast"));
+    expect(fallback.count).toBe(7);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+  });
+  it("rejects other-cuisine cache recipes that violate the saved diet", async () => {
+    mock.allowed = false;
+    mock.rows = [(await buildArabicFactsEntry({ ...weeklyFactFixtures()[0], cuisine: "Italian" }, restrictions)).entry];
+    mock.profile.mockResolvedValue({ ...restrictions, diets: ["vegan"] });
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Mediterranean", maxMissingIngredients: "unlimited" }), "recipes");
+    expect(response.status).toBe(503); expect(mock.writes).toEqual([]);
+  });
+  it("rejects blocked derivatives from other cuisines", async () => {
+    mock.allowed = false;
+    mock.rows = [(await buildArabicFactsEntry({ ...weeklyFactFixtures()[0], cuisine: "Italian" }, restrictions, { id: "blocked", fingerprint: "original" })).entry];
+    mock.readSource.mockResolvedValue(null);
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Mediterranean", maxMissingIngredients: "unlimited" }), "recipes");
+    expect(response.status).toBe(503); expect(mock.writes).toEqual([]);
+  });
   it.each([false, true])("rejects zero-credit weekly generation before cache retrieval, complete pool=%s", async cached => {
     mock.allowed = false;
     if (cached) mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
@@ -115,16 +314,81 @@ describe("Arabic request integration with write recording", () => {
     const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
     expect(JSON.parse(data.result).plan).toHaveLength(7);
     expect(JSON.parse(data.result).shoppingList).toContain("4200 غرام سلمون");
-    if (!cached) expect(mock.generate.mock.calls.every(call => call[0].allowEmptyPantry === true)).toBe(true);
+    if (!cached) expect(mock.generate.mock.calls.every(call => call[0].pantryOptional === true)).toBe(true);
     else expect(mock.generate).not.toHaveBeenCalled();
     expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
     mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
   });
-  it("still requires scanner ingredients and enforces the weekly empty-pantry missing limit", async () => {
+  it("still requires scanner ingredients but ignores the scanner limit for a weekly plan", async () => {
     expect((await handleArabicGeneration(request({ ingredients: [] }), "recipes")).status).toBe(400);
     mock.allowed = true;
     mock.rows = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry));
-    expect((await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: 0 }), "mealplan")).status).toBe(503);
+    expect((await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: 0 }), "mealplan")).status).toBe(200);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("publishes a complete cached week when a shopping ingredient contains an Arabic unit word", async () => {
+    const legacy = await buildArabicEntry({ ...veganCanonical,
+      ingredients: veganCanonical.ingredients.map(item => item.replace("fava beans", "canned beans")),
+      steps: veganCanonical.steps.map(step => step.replaceAll("fava beans", "canned beans"))
+    }, { ...veganArabic,
+      ingredients: veganArabic.ingredients.map(item => item.replace("فول", "فاصوليا معلبة")),
+      steps: veganArabic.steps.map(step => step.replaceAll("الفول", "الفاصوليا المعلبة"))
+    }, restrictions);
+    expect(legacy.reasons).toEqual([]);
+    mock.rows = [legacy.entry, ...await Promise.all(weeklyFactFixtures().slice(1).map(async facts => (await buildArabicFactsEntry({ ...facts, cuisine: "Egyptian" }, restrictions)).entry))];
+    const response = await handleArabicGeneration(request({ ingredients: ["shrimp"], preferredCuisine: "Egyptian", maxMissingIngredients: 5 }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    const plan = JSON.parse(data.result);
+    expect(plan.plan).toHaveLength(7);
+    expect(plan.shoppingList).toContain("200 غرام فاصوليا معلبة");
+    expect(plan.shoppingList.join(" ")).not.toMatch(/[A-Za-z]/);
+    expect(mock.generate).not.toHaveBeenCalled();
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    expect(mock.release).not.toHaveBeenCalled();
+    expect(mock.writes.some(write => write.path.endsWith("/plans/currentWeeklyArabic"))).toBe(true);
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it.each([false, true])("plans a complete week with a nonmatching pantry and scanner limit zero, cached=%s", async cached => {
+    const facts = weeklyFactFixtures();
+    if (cached) mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts.filter(fact => input.mealTypesNeeded?.some(type => fact.mealTypes.includes(type as "breakfast" | "lunch" | "dinner"))).map(facts => ({ facts })) }));
+    const response = await handleArabicGeneration(request({ ingredients: ["shrimp"], pantryItems: [{ name: "shrimp", quantity: "1 kg" }], maxMissingIngredients: 0 }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    const plan = JSON.parse(data.result);
+    expect(plan.plan).toHaveLength(7);
+    expect(plan.shoppingList).toContain("4200 غرام سلمون");
+    expect(plan.shoppingList.some((item: string) => /جمبري|روبيان/.test(item))).toBe(false);
+    expect(data.suggestions).toEqual([]);
+    if (!cached) expect(mock.generate.mock.calls.every(call => call[0].missingLimit === "unlimited")).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("still rejects scanner recipes without pantry overlap even with unlimited missing ingredients", async () => {
+    mock.allowed = false;
+    mock.rows = await Promise.all(weeklyFactFixtures().map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    const response = await handleArabicGeneration(request({ ingredients: ["shrimp"], maxMissingIngredients: "unlimited", pantryOptional: true }), "recipes");
+    expect(response.status).toBe(503); expect(mock.writes).toEqual([]);
+    expect(mock.generate).not.toHaveBeenCalled(); expect(mock.reserve).not.toHaveBeenCalled();
+  });
+  it("allows weekly recipes with six missing ingredients at a scanner limit of five", async () => {
+    const extra = ["garlic", "olive oil", "black pepper"].map(name => ({ foodId: findArabicFood(name)!.id, quantity: 1, unit: "g" as const, state: "raw" as const }));
+    const facts = weeklyFactFixtures().map(fact => ({ ...fact, ingredients: [...fact.ingredients, ...extra],
+      steps: fact.steps.map(step => step.action === "simmer" ? { ...step, foodIds: [...step.foodIds, ...extra.map(item => item.foodId)] } : step) }));
+    mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    expect(mock.rows.every(Boolean)).toBe(true);
+    const response = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 5 }), "mealplan");
+    const data = await response.json();
+    expect(response.status, JSON.stringify(data)).toBe(200);
+    expect(JSON.parse(data.result).plan).toHaveLength(7);
+    expect(data.suggestions).toEqual([]);
+    expect(mock.generate).not.toHaveBeenCalled();
+    mock.writes = []; mock.allowed = false;
+    const scanner = await handleArabicGeneration(request({ ingredients: ["rice"], maxMissingIngredients: 5 }), "recipes");
+    expect(scanner.status).toBe(503);
+    expect((await scanner.json()).suggestions[0].missingIngredients).toHaveLength(6);
     expect(mock.writes).toEqual([]);
   });
   it.each([false, true])("completes an entitled 19-dish weekly pool with the English repeat limit, cached=%s", async cached => {

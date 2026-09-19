@@ -29,12 +29,17 @@ export function assertArabicWritePath(path: string) {
   }
 }
 const clean = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-export async function listArabicRecipes(ingredients: string[], limit = 50, allowEmptyPantry = false) {
-  if (!ingredients.length && !allowEmptyPantry) return [];
+export async function listArabicRecipes(ingredients: string[], limit = 50, pantryOptional = false) {
+  if (!ingredients.length && !pantryOptional) return [];
   const collection = getAdminDb().collection("sharedRecipesArabicV1");
-  const query = ingredients.length ? collection.where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)) : collection;
-  const snapshot = await query.limit(Math.min(limit, 200)).get();
-  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as ArabicRecipeEntry);
+  const boundedLimit = Math.min(limit, 200);
+  const queries = ingredients.length
+    ? [collection.where("ingredientCanonicals", "array-contains-any", ingredients.slice(0, 10)).limit(pantryOptional ? Math.ceil(boundedLimit / 2) : boundedLimit)] : [];
+  // Weekly search includes meals to buy, even when the pantry is nonempty.
+  if (pantryOptional) queries.push(collection.limit(boundedLimit));
+  const snapshots = await Promise.all(queries.map(query => query.get()));
+  const entries = snapshots.flatMap(snapshot => snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as ArabicRecipeEntry));
+  return [...new Map(entries.map(entry => [entry.id, entry])).values()].slice(0, boundedLimit);
 }
 export async function saveArabicResult(input: {
   uid: string; requestId: string; entries: ArabicRecipeEntry[]; ingredients: string[];

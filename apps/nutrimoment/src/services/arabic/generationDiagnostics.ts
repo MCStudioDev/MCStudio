@@ -7,6 +7,14 @@ export interface ArabicDishDiagnostic {
   issues: string[];
 }
 
+const recoverablePlanningIssues = new Set(["dish_ingredients_changed", "pantry_mismatch", "unsupported_dish", "excluded_dish",
+  "dish_omitted", "invalid_ingredient_manifest", "invalid_manifest_response"]);
+export function arabicPlanningFeedback(items: ArabicDishDiagnostic[]) {
+  const feedback = boundedArabicDiagnostics(items).filter(item => item.stage === "planning" && item.status === "rejected"
+    && item.issues.some(issue => recoverablePlanningIssues.has(issue))).map(({ name, issues }) => ({ name, issues }));
+  return [...new Map(feedback.map(item => [JSON.stringify(item), item])).values()].slice(-20);
+}
+
 /** Store bounded codes and dish identities, never provider prompts or raw output. */
 export function boundedArabicDiagnostics(items: ArabicDishDiagnostic[]): ArabicDishDiagnostic[] {
   return items.slice(-150).map(item => ({

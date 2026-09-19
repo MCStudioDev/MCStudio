@@ -16,6 +16,13 @@ import { findArabicReferenceCandidates } from "@/services/arabic/referenceSource
 const restrictions = { diets: ["pescatarian"], conditions: [], allergens: [] };
 beforeEach(() => { mock.rows = []; mock.queries = []; mock.retrieval.mockReset().mockResolvedValue([]); });
 describe("Arabic weekly reference discovery without pantry ingredients", () => {
+  it("also searches cuisine references when the weekly pantry contains an unrelated ingredient", async () => {
+    mock.rows = [{ id: "ready", title: canonical.name, cuisine: "Mediterranean", ingredients: canonical.ingredients, directions: canonical.steps, publishStatus: "ready" }];
+    const result = await findArabicReferenceCandidates(["shrimp"], "Mediterranean", restrictions, 21, true);
+    expect(result.map(row => row.reference.id)).toEqual(["ready"]);
+    expect(mock.retrieval).toHaveBeenCalledWith(expect.objectContaining({ ingredients: ["shrimp"] }));
+    expect(mock.queries).toContainEqual(["cuisineKey", "==", "mediterranean"]);
+  });
   it("reads a bounded cuisine bucket and checks publication without inventing owned ingredients", async () => {
     mock.rows = [
       { id: "ready", title: canonical.name, cuisine: "Mediterranean", ingredients: canonical.ingredients, directions: canonical.steps, publishStatus: "ready" },

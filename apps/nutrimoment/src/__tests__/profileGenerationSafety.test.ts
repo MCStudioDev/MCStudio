@@ -220,16 +220,16 @@ describe("Generation controls with simulated profile states; all network calls m
     expect(container.textContent).toContain(repeatedMessage);
   });
   it.each([
-    { tab: "scanner" as const, label: "generateRecipes", endpoint: "/api/ar/generate-recipes" },
-    { tab: "mealplan" as const, label: "generatePlan", endpoint: "/api/ar/mealplan" }
-  ])("sends the persisted Arabic unlimited preference from $tab", async ({ tab, label, endpoint }) => {
+    { tab: "scanner" as const, label: "generateRecipes", endpoint: "/api/ar/generate-recipes", missingLimit: "unlimited" },
+    { tab: "mealplan" as const, label: "generatePlan", endpoint: "/api/ar/mealplan", missingLimit: undefined }
+  ])("applies the scanner-only Arabic missing preference to $tab correctly", async ({ tab, label, endpoint, missingLimit }) => {
     state.app.loadingProfile = false;
     state.app.settings = { ...createDefaultUserSettings(), uiLanguage: "ar", arabicUnlimitedMissingIngredients: true };
     await mount(tab);
     await act(async () => button(label).click());
     const call = vi.mocked(fetch).mock.calls.find(([url]) => url === endpoint);
     expect(call).toBeDefined();
-    expect(JSON.parse(String(call![1]?.body)).maxMissingIngredients).toBe("unlimited");
+    expect(JSON.parse(String(call![1]?.body)).maxMissingIngredients).toBe(missingLimit);
   });
   it("keeps the numeric English request when Arabic unlimited is saved", async () => {
     state.app.loadingProfile = false;

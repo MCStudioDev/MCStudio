@@ -60,11 +60,15 @@ async function findWeeklyCuisineReferences(cuisine: string, count: number): Prom
     return [{ id: row.id, title: row.title, cuisine: row.cuisine ?? "Any", ingredients: row.ingredients, steps: row.directions, matchedIngredients: [] }];
   }).slice(0, Math.min(count + 6, 30));
 }
-export async function findArabicReferenceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number, allowEmptyPantry = false): Promise<ArabicReferenceCandidate[]> {
+export async function findArabicReferenceCandidates(ingredients: string[], cuisine: string, restrictions: GenerationRestrictions, count: number, pantryOptional = false): Promise<ArabicReferenceCandidate[]> {
   // This existing retrieval service performs reads only. Dietary ranking is
   // merely retrieval; each resulting Arabic recipe is independently validated.
-  const references = allowEmptyPantry && !ingredients.length ? await findWeeklyCuisineReferences(cuisine, count)
-    : await findRecipeReferencesForGeneration({ ingredients, preferredCuisine: cuisine, ...restrictions, maxReferences: Math.min(count + 6, 30) });
+  const batches = await Promise.allSettled([
+    ingredients.length || !pantryOptional ? findRecipeReferencesForGeneration({ ingredients, preferredCuisine: cuisine, ...restrictions, maxReferences: Math.min(count + 6, 30) }) : Promise.resolve([]),
+    pantryOptional ? findWeeklyCuisineReferences(cuisine, count) : Promise.resolve([])
+  ]);
+  if (batches.some(batch => batch.status === "rejected")) logger.warn("Some Arabic reference searches were unavailable");
+  const references = [...new Map(batches.flatMap(batch => batch.status === "fulfilled" ? batch.value : []).map(reference => [reference.id, reference])).values()];
   const results = await Promise.allSettled(references.map(async reference => {
     const source = await readArabicReferenceSource(reference.id);
     if (!source) return null;

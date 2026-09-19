@@ -3,7 +3,7 @@ import { selectArabicWeeklyMeals } from "@/services/arabic/weeklyFacts";
 import type { ArabicRecipeEntry } from "@/services/arabic/types";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 
-const entries = () => weeklyFactFixtures().map((facts, index) => ({ id: `recipe-${index}`, facts }) as ArabicRecipeEntry);
+const entries = () => weeklyFactFixtures().map((facts, index) => ({ id: `recipe-${index}`, facts, canonical: { cuisine: facts.cuisine } }) as ArabicRecipeEntry);
 const assertComplete = (plan: ArabicRecipeEntry[]) => {
   expect(plan).toHaveLength(21);
   for (const [index, meal] of plan.entries()) expect(meal.facts!.mealTypes).toContain(["breakfast", "lunch", "dinner"][index % 3]);
@@ -12,6 +12,21 @@ const assertComplete = (plan: ArabicRecipeEntry[]) => {
 };
 
 describe("Arabic weekly completion with limited repeats", () => {
+  it("maximizes the preferred cuisine even when other cuisines arrive first", () => {
+    const preferred = entries();
+    const alternatives = preferred.map(entry => ({ ...entry, id: `other-${entry.id}`, canonical: { ...entry.canonical, cuisine: "Italian" } }));
+    const plan = selectArabicWeeklyMeals([...alternatives, ...preferred], { preferredCuisine: "Mediterranean", allowLimitedRepeats: true })!;
+    assertComplete(plan);
+    expect(plan.every(entry => entry.canonical.cuisine === "Mediterranean")).toBe(true);
+  });
+  it("uses distinct alternative dishes for missing meal slots before repeating preferred dishes", () => {
+    const preferred = entries().filter((_, index) => ![6, 13].includes(index));
+    const alternatives = entries().map(entry => ({ ...entry, id: `other-${entry.id}`, canonical: { ...entry.canonical, cuisine: "Italian" } }));
+    const plan = selectArabicWeeklyMeals([...alternatives, ...preferred], { preferredCuisine: "Mediterranean", allowLimitedRepeats: true })!;
+    assertComplete(plan);
+    expect(new Set(plan.map(entry => entry.id)).size).toBe(21);
+    expect(plan.filter(entry => entry.canonical.cuisine === "Mediterranean")).toHaveLength(19);
+  });
   it("matches the English two-repeat limit by filling 21 slots from 19 validated dishes", () => {
     const pool = entries().filter((_, index) => ![6, 13].includes(index));
     expect(selectArabicWeeklyMeals(pool)).toBeNull();

@@ -10,6 +10,11 @@ export function arabicCuisineMatches(actual: string, requested: string) {
   return translateCuisineToEnglish(actual).toLowerCase() === translateCuisineToEnglish(requested).toLowerCase();
 }
 
+/** Stable preference ranking; callers still validate every dietary/pantry rule. */
+export function prioritizeArabicCuisine<T>(items: T[], requested: string, cuisine: (item: T) => string): T[] {
+  return [...items].sort((a, b) => Number(arabicCuisineMatches(cuisine(b), requested)) - Number(arabicCuisineMatches(cuisine(a), requested)));
+}
+
 export async function buildArabicCuisineGuidance(cuisine: string, pantry: string[], restrictions: GenerationRestrictions, allowEmptyPantry = false) {
   const catalog = getCompleteCuisineCatalog(cuisine);
   if (!catalog) return [];

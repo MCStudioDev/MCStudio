@@ -1,4 +1,5 @@
 import type { ArabicRecipeEntry } from "./types";
+import { arabicCuisineMatches } from "./cuisineGuidance";
 
 // Matches the English weekly fallback: at most 2 repeated slots out of 21
 // (less than 10%). Content, validation and persistence remain Arabic-only.
@@ -15,7 +16,7 @@ type Edge = { to: number; reverse: number; capacity: number; cost: number };
  * Recipe/day nodes forbid the same dish twice on one day; source edges allow
  * each dish at most twice. Every selected entry has already passed validation.
  */
-export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { allowLimitedRepeats?: boolean } = {}): ArabicRecipeEntry[] | null {
+export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { allowLimitedRepeats?: boolean; preferredCuisine?: string } = {}): ArabicRecipeEntry[] | null {
   const entries = [...new Map(input.map(entry => [entry.id, entry])).values()];
   const maxRepeats = options.allowLimitedRepeats ? ARABIC_WEEKLY_MAX_REPEATED_SLOTS : 0;
   if (entries.length < 21 - maxRepeats) return null;
@@ -30,10 +31,14 @@ export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { a
   const slots = Array.from({ length: 21 }, () => node());
   slots.forEach(slot => link(slot, sink, 1));
   const assignments: Array<{ edge: Edge; slot: number; entry: ArabicRecipeEntry }> = [];
+  // A repeated slot costs more than all 21 cuisine alternatives combined:
+  // keep distinct meals first, then maximize the preferred cuisine.
+  const repeatCost = 22;
   for (const entry of entries) {
     const recipe = node();
-    link(source, recipe, 1);
-    if (maxRepeats) link(source, recipe, 1, 1);
+    const cuisineCost = options.preferredCuisine && !arabicCuisineMatches(entry.canonical.cuisine, options.preferredCuisine) ? 1 : 0;
+    link(source, recipe, 1, cuisineCost);
+    if (maxRepeats) link(source, recipe, 1, repeatCost + cuisineCost);
     for (let day = 0; day < 7; day++) {
       const recipeDay = node(); link(recipe, recipeDay, 1);
       arabicWeeklyMealTypes.forEach((type, index) => {
@@ -43,7 +48,7 @@ export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { a
       });
     }
   }
-  let repeats = 0;
+  let totalCost = 0;
   for (let filled = 0; filled < 21; filled++) {
     const distance = graph.map(() => Infinity), previous = graph.map(() => ({ node: -1, edge: -1 }));
     const queue = [source], queued = new Set([source]); distance[source] = 0;
@@ -58,8 +63,8 @@ export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { a
         if (!queued.has(edge.to)) { queue.push(edge.to); queued.add(edge.to); }
       });
     }
-    if (!Number.isFinite(distance[sink]) || repeats + distance[sink] > maxRepeats) return null;
-    repeats += distance[sink];
+    if (!Number.isFinite(distance[sink]) || totalCost + distance[sink] > maxRepeats * repeatCost + 21) return null;
+    totalCost += distance[sink];
     for (let current = sink; current !== source;) {
       const parent = previous[current], edge = graph[parent.node][parent.edge];
       edge.capacity--; graph[current][edge.reverse].capacity++; current = parent.node;
@@ -67,5 +72,6 @@ export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { a
   }
   const result: ArabicRecipeEntry[] = [];
   for (const { edge, slot, entry } of assignments) if (!edge.capacity) result[slot] = entry;
+  if (21 - new Set(result.map(entry => entry.id)).size > maxRepeats) return null;
   return result;
 }

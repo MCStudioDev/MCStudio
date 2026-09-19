@@ -22,6 +22,14 @@ The server repository allowlists content write paths. English sources are access
 
 Authentication, action grants and usage counters remain shared. One successful generation consumes at most one parent action credit. Translation and the single bounded repair pass do not consume separate credits. Failed/incomplete requests release reservations. Without AI access, scanner requests serve only validated Arabic cache entries. New weekly plans require the same entitlement as English: free users need a remaining credit, even when all meals are cached, and a completed week consumes one credit. Zero-credit weekly requests return 402 without reading the pool or publishing a plan; saved weeks remain readable. Images use the existing parent-action image grant or premium access.
 
+## Cuisine preference and shortages
+
+Arabic recipe and weekly-plan generation prefer the selected cuisine and fill remaining places with validated recipes from other cuisines. Cuisine is a ranking preference; saved diets, allergens, health restrictions, pantry matching, source eligibility, and the missing-ingredient limit remain mandatory. Each returned alternative retains its actual cuisine and `cuisine_match_origin: "ingredient_fallback"`. The response includes preferred/alternative counts and an Arabic explanation shown in the existing yellow notice.
+
+Without AI access, recipe alternatives come only from the Arabic cache. Entitled requests can read compatible English/reference/semantic sources through the Arabic read-only adapters and use bounded alternative-discovery batches alongside preferred-cuisine generation within the existing deadline and single action reservation. Only selected results are published to Arabic destinations. No English workflow, cache, or record is changed.
+
+Weekly selection first maximizes distinct dishes, then maximizes the preferred cuisine while preserving breakfast/lunch/dinner eligibility. Other cuisines fill missing meal slots before the existing at-most-two-repeat fallback. An incomplete week is never saved, and free users with zero credits still cannot generate a new weekly plan.
+
 ## Validation and rollout
 
 The Arabic adapter retains the pure English safety checks and adds ingredient aliases, Arabic digits/units, quantified ingredient correspondence, nutrition equality, language checks, and instruction action/number/protein checks. The English source-backed publication requirement is not applied to fresh Arabic generation. Arabic validation versions are independent. These deterministic translation checks are conservative and do not constitute a general-purpose semantic translation proof; review natural Arabic output in staging.

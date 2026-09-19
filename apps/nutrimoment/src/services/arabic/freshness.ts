@@ -47,7 +47,13 @@ export async function buildArabicRecentRecipes(history: Record<string, unknown>[
     const saved = storedSchema.safeParse(row.recipeFreshness);
     let keys: string[], rowNames: string[];
     if (saved.success) {
-      if (saved.data.ingredientKey !== ingredientKey) continue;
+      if (saved.data.ingredientKey !== ingredientKey) {
+        // Alias corrections must not make previously shown dishes look new.
+        // Re-read the original input without rewriting stored history.
+        if (!Array.isArray(row.ingredients) || !row.ingredients.every(value => typeof value === "string")) continue;
+        const normalized = await normalizeArabicInputs(row.ingredients);
+        if (normalized.unclear.length || arabicIngredientContextKey(normalized.canonical) !== ingredientKey) continue;
+      }
       keys = saved.data.keys; rowNames = saved.data.names;
     } else {
       // Read older Arabic history without migrating or rewriting its recipes.

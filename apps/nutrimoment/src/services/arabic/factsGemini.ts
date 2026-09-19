@@ -46,6 +46,9 @@ export interface ArabicFactBatchInput {
   ingredients: string[]; restrictions: GenerationRestrictions; count: number; cuisine: string; calorieTarget: number; missingLimit: ArabicMissingIngredientLimit;
   excludeNames?: string[]; variationSeed?: string; mealTypesNeeded?: string[]; references?: ArabicReferenceCandidate[];
   previousShortages?: Array<{ name: string; missingIngredients: string[] }>;
+  planningFeedback?: Array<{ name?: string; issues: string[] }>;
+  // Shared by this request's parallel batches; never supplied by the client.
+  nameRepairBudget?: { used: boolean };
   sourceOnly?: boolean;
   discoveryOnly?: boolean;
   pantryOptional?: boolean;
@@ -72,7 +75,8 @@ function referenceData(candidate: ArabicDishCandidate) {
       carbs: item.edited.recipe.carbs, fat: item.edited.recipe.fat, cook_time: item.edited.recipe.cook_time } : undefined };
 }
 const candidateData = (candidate: ArabicDishCandidate) => ({ candidateId: candidate.candidateId, kind: candidate.kind, title: candidate.title,
-  nativeName: candidate.nativeName, description: candidate.description, essentialIngredients: candidate.essentialIngredients, reference: referenceData(candidate) });
+  nativeName: candidate.nativeName, description: candidate.description, essentialIngredients: candidate.essentialIngredients,
+  essentialFoodIds: candidate.essentialIngredients?.map(name => findArabicFood(name)?.id), reference: referenceData(candidate) });
 function materializeFacts(value: unknown, plan: IngredientPlan): unknown {
   const parsed = z.record(z.unknown()).safeParse(value);
   if (!parsed.success) return value;
@@ -120,15 +124,15 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
     : `No more than ${input.missingLimit} distinct foodIds may be outside ownedFoodIds per dish. Water, oil and salt count when absent. Never omit structural ingredients to meet this limit. ${pantryRule}`;
   const modeRule = input.sourceOnly
     ? "SOURCE CORRECTION ONLY. Complete exactly the supplied source candidates, one plan per candidateId. Never invent another dish or choose another source. Translate each source title accurately. Keep every requiredFoodId and verified protein. Correct duplicate lines and incomplete measures/instructions; add necessary cooking water, oil or aromatics. Retain complete over-budget source dishes for shortage suggestions; the server enforces the user's budget."
-    : "FRESH GENERATION. Complete the server-selected dishes, one plan per candidateId, never substitute a generic rice variation for a named dish. Preserve every supplied essentialIngredient. Catalog hints are not proof of authenticity: verify the identity and essential preparation. If the required ingredients conflict with dietary restrictions or the actual dish, reject that candidate instead of dropping or substituting an ingredient. Only discovery slots may propose a new recognizable dish. Do not repeat excluded names. Respect mealTypesNeeded. If a dish cannot meet restrictions or the missing-ingredient budget, report it as rejected with its candidateId instead of silently replacing it.";
+    : "FRESH GENERATION. Complete the server-selected dishes, one plan per candidateId, never substitute a generic rice variation for a named dish. Preserve every supplied essentialIngredient using its exact essentialFoodId. Do not replace a generic food ID with a specific cut or preparation, or vice versa. Pantry matching also uses exact ownedFoodIds. Catalog hints are not proof of authenticity: verify the identity and essential preparation. If the required ingredients conflict with dietary restrictions or the actual dish, reject that candidate instead of dropping or substituting an ingredient. Only discovery slots may propose a new recognizable dish. Do not repeat excluded names. Respect mealTypesNeeded. Use planningFeedback to avoid the previous failure; discovery candidates are open slots for distinct real dishes in the requested cuisine, not unknown dish names to reject. If a dish cannot meet restrictions or the missing-ingredient budget, report it as rejected with its candidateId instead of silently replacing it.";
   const planningSchema = z.object({ plans: z.array(manifestSchema).max(10), rejected: z.array(z.object({ candidateId: candidateIdSchema,
     reason: z.enum(["missing_ingredient_limit", "dietary_restriction", "unsupported_dish", "excluded_dish"]) })).max(10).optional() });
   let planning: unknown;
   try {
     if (deadline - Date.now() < 33000) throw new Error("phase budget");
-    planning = await callArabicModel(prompt(`${modeRule}\nReturn brief ingredient manifests only, no quantities or instructions yet. Include preparations: the cooking actions needed for each dish (such as soak, drain, grind, shape, fry). Use Modern Standard Arabic names and an English dishFamily. Use only foodId values from the catalog. List EVERY necessary ingredient including liquids and frying fats; no optional sides/garnishes. Soaked ingredients require food-water in the manifest EVEN WHEN the soaking water is discarded. Separate cooking water and soaking water must both be accounted for by the same water ingredient. Frying requires an explicit cooking fat. Do not alter candidateId or attach a referenceId. ${budgetRule}`,
+    planning = await callArabicModel(prompt(`${modeRule}\nReturn brief ingredient manifests only, no quantities or instructions yet. Include preparations: the cooking actions needed for each dish (such as soak, drain, grind, shape, fry). The visible name MUST use Arabic script only, even when the catalog title or nativeName is in another language: translate or transliterate it into Arabic, without Latin text or English in parentheses. Keep dishFamily internal English. Use only foodId values from the catalog. List EVERY necessary ingredient including liquids and frying fats; no optional sides/garnishes. Soaked ingredients require food-water in the manifest EVEN WHEN the soaking water is discarded. Separate cooking water and soaking water must both be accounted for by the same water ingredient. Frying requires an explicit cooking fat. Do not alter candidateId or attach a referenceId. ${budgetRule}`,
       { candidates: candidates.map(candidateData), cuisine: input.cuisine, restrictions: input.restrictions, ownedFoodIds: [...owned],
-        mealTypesNeeded: input.mealTypesNeeded, excludeNames: input.excludeNames, variationSeed: input.variationSeed, previousShortages: input.previousShortages,
+        mealTypesNeeded: input.mealTypesNeeded, excludeNames: input.excludeNames, variationSeed: input.variationSeed, previousShortages: input.previousShortages, planningFeedback: input.planningFeedback,
         foodCatalog: foods.map(food => ({ foodId: food.id, english: food.en, arabic: food.ar || undefined })) }),
       Math.min(deadline - 22000, Date.now() + 16000), requestId, "arabic_facts_planning", servingSchema(planningSchema));
   } catch {
@@ -137,10 +141,37 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
   }
   const envelope = z.object({ plans: z.array(z.unknown()).max(10), rejected: planningSchema.shape.rejected }).safeParse(planning);
   if (!envelope.success) { candidates.forEach(candidate => note(candidate, "planning", ["invalid_manifest_response"])); return { recipes: [], diagnostics }; }
+  // Correct display language independently of the immutable ingredient plan.
+  // A catalog's native title may use Latin script in any cuisine. One name-only
+  // pass cannot replace its food IDs, quantities, source, or safety decisions.
+  const nameCandidates = envelope.data.plans.flatMap(value => {
+    const parsed = manifestSchema.extend({ name: z.string().min(3).max(180) }).safeParse(value);
+    return parsed.success && /[A-Za-z]/.test(parsed.data.name) && candidates.some(candidate => candidate.candidateId === parsed.data.candidateId)
+      && envelope.data.plans.filter(row => z.object({ candidateId: z.literal(parsed.data.candidateId) }).safeParse(row).success).length === 1
+      ? [parsed.data] : [];
+  });
+  const repairedNames = new Map<string, string>();
+  if (nameCandidates.length && deadline - Date.now() >= 33000 && !input.nameRepairBudget?.used) {
+    if (input.nameRepairBudget) input.nameRepairBudget.used = true;
+    const nameSchema = z.object({ candidateId: candidateIdSchema, name: arabicFactsSchema.shape.name });
+    try {
+      const response = await callArabicModel(prompt("Translate or transliterate ONLY these dish names into Modern Standard Arabic script. Return names matched by unchanged candidateId. Preserve each dish's identity; no Latin letters or added ingredients. Return only candidateId and name.",
+        { names: nameCandidates.map(({ candidateId, name }) => ({ candidateId, name })) }),
+        Math.min(deadline - 22000, Date.now() + 12000), requestId, "arabic_facts_name_repair", servingSchema(z.object({ names: z.array(nameSchema) })));
+      const rows = z.object({ names: z.array(z.unknown()).max(10) }).parse(response).names;
+      for (const value of rows) {
+        const parsed = nameSchema.safeParse(value);
+        if (!parsed.success || !nameCandidates.some(item => item.candidateId === parsed.data.candidateId)
+          || rows.filter(row => z.object({ candidateId: z.literal(parsed.data.candidateId) }).safeParse(row).success).length !== 1) continue;
+        repairedNames.set(parsed.data.candidateId, parsed.data.name);
+      }
+    } catch { /* Unrepaired names remain invalid and are reported below. */ }
+  }
   const plans: IngredientPlan[] = [], reported = new Set<string>();
   for (const value of envelope.data.plans) {
-    const item = manifestSchema.safeParse(value);
     const id = z.object({ candidateId: z.string() }).safeParse(value);
+    const fixedName = id.success ? repairedNames.get(id.data.candidateId) : undefined;
+    const item = manifestSchema.safeParse(fixedName && value && typeof value === "object" ? { ...value, name: fixedName } : value);
     const candidate = id.success ? candidates.find(candidate => candidate.candidateId === id.data.candidateId) : undefined;
     if (!candidate) { note(undefined, "planning", ["unknown_candidate_id"]); continue; }
     if (reported.has(candidate.candidateId)) {

@@ -11,6 +11,15 @@ const history = (overrides: Record<string, unknown> = {}) => ({ timestamp: new D
   sessionType: "recipe_generation", generationStatus: "completed", ingredients: ["أرز", "سلمون"], recipes: [arabic], ...overrides });
 
 describe("Arabic recipe freshness", () => {
+  it("retains recent history after correcting a broad ingredient alias without rewriting records", async () => {
+    const entry = (await buildArabicEntry(canonical, arabic, restrictions)).entry!;
+    const row = history({ ingredients: ["دجاج"], recipeFreshness: buildArabicFreshnessRecord(["chicken breast"], [entry]) });
+    const before = structuredClone(row);
+    const recent = await buildArabicRecentRecipes([row], ["chicken"], now);
+    expect(arabicLastShownAt(entry, recent)).toBe(now - 1000);
+    expect(row).toEqual(before);
+    expect((await buildArabicRecentRecipes([row], ["salmon"], now)).shownAt.size).toBe(0);
+  });
   it("uses a stable ingredient context regardless of order, duplication or case", () => {
     expect(arabicIngredientContextKey(["rice", "salmon"])).toBe(arabicIngredientContextKey(["Salmon", "rice", "rice"]));
     expect(arabicIngredientContextKey(["rice"])).not.toBe(arabicIngredientContextKey(["rice", "salmon"]));

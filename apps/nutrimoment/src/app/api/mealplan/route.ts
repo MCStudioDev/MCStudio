@@ -1,3 +1,4 @@
+import { rejectLegacyArabicGeneration } from "@/services/arabic/legacyWorkflow";
 import { loadGenerationRestrictions } from "@/services/generationProfileService";
 import { ProfileUnavailableError, type GenerationRestrictions } from "@/lib/profileSafety";
 import { assertSafeMealPlan } from "@/lib/generationSafety";
@@ -120,6 +121,8 @@ const MOCK_MEAL_PLAN = {
 };
 
 export async function POST(request: Request) {
+  const retired = await rejectLegacyArabicGeneration(request, "/api/ar/mealplan");
+  if (retired) return retired;
   const requestId = crypto.randomUUID();
   let failureHistoryEntryId: string | undefined;
   let failureUid: string | undefined;

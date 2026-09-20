@@ -136,6 +136,7 @@ describe("shared recipe photo linking", () => {
   it("builds a persistent shared-recipe link from a validated generated photo", () => {
     const recipe = validatedShrimpFriedRice();
     const uiRecipe = mapCatalogRecipeToUiRecipe(recipe, [], "good", 0, 0, [], "English");
+    recipe.localized = { English: uiRecipe, Arabic: { ...uiRecipe, name: "أرز بالجمبري" } };
     const candidate: SharedRecipePhotoEntry = {
       dietTags: ["pescatarian"],
       imageUrl: generatedPhoto().imageUrl,
@@ -159,5 +160,9 @@ describe("shared recipe photo linking", () => {
       poolVersion: 2,
       publicationStatus: "published"
     });
+    expect(update.localized?.Arabic).toBeUndefined();
+    expect(update.localized?.English?.name).toBe(uiRecipe.name);
+    expect(update.localized?.English?.image_url).toBe(candidate.imageUrl);
+    expect(recipe.localized.Arabic?.name).toBe("أرز بالجمبري");
   });
 });

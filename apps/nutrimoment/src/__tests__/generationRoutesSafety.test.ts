@@ -32,9 +32,24 @@ vi.mock("@/services/recipeValidationRepairService", async importOriginal => ({
 
 import { POST as recipes } from "@/app/api/generate-recipes/route";
 import { POST as mealplan } from "@/app/api/mealplan/route";
+import { POST as recipeAlias } from "@/app/api/recipes/route";
 
 describe("generation routes reject unavailable saved profiles before any generation or credit charge", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.accessFailure = false; });
+  it.each([
+    { handler: recipes, replacement: "/api/ar/generate-recipes" },
+    { handler: recipeAlias, replacement: "/api/ar/generate-recipes" },
+    { handler: mealplan, replacement: "/api/ar/mealplan" }
+  ])("retires legacy Arabic before any account, billing or cache work ($replacement)", async ({ handler, replacement }) => {
+    mocks.accessFailure = true;
+    const response = await handler(new Request("http://localhost/api/test", {
+      method: "POST", body: JSON.stringify({ uiLanguage: "ar", ingredients: ["rice"], historyEntryId: "existing-history" })
+    }));
+    expect(response.status).toBe(410);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ code: "LEGACY_ARABIC_WORKFLOW_RETIRED", replacement });
+    for (const mock of [mocks.get, mocks.write, mocks.search, mocks.reserve]) expect(mock).not.toHaveBeenCalled();
+  });
   it("reports unavailable account verification as a service error, not zero recipe matches", async () => {
     mocks.accessFailure = true;
     const response = await recipes(new Request("http://localhost/api/generate-recipes", {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeCatalogDoc } from "@/lib/domain";
+import type { Recipe } from "@/lib/types";
 import { RECIPE_CONTENT_VERSION } from "@/services/recipeContentQualityService";
 import { RECIPE_PHOTO_ASSET_VALIDATOR_HASH } from "@/services/recipePhotoReusePolicy";
 import {
@@ -76,6 +77,17 @@ function withReadyPhoto(source: RecipeCatalogDoc): RecipeCatalogDoc {
 }
 
 describe("shared recipe V2 policy", () => {
+  it("omits legacy Arabic on publication without changing English content, versions or images", () => {
+    const english: Recipe = { name: "Rice", cuisine: "Egyptian", ingredients: ["1 cup rice"], missing_ingredients: [], steps: ["Cook the rice."], calories: 400, protein: "12g", carbs: "65g", fat: "8g", cook_time: "30 minutes", difficulty: "easy" };
+    const source = withReadyPhoto({ ...recipe("rice", "Rice"), localized: { English: english } });
+    const previous = buildSharedRecipeV2Document(source);
+    const bilingual = { ...source, localized: { ...source.localized, Arabic: { ...english, name: "أرز" } } };
+    const published = buildSharedRecipeV2Document(bilingual, previous);
+    expect(published).toEqual(previous);
+    expect(published.localized?.Arabic).toBeUndefined();
+    expect(bilingual.localized.Arabic.name).toBe("أرز");
+    expect(isSharedRecipeV2Searchable(published)).toBe(true);
+  });
   it("reserves other cuisines until after the AI preferred-cuisine deficit", () => {
     const matches = [
       { name: "Chicken Piccata", cuisine: "Italian" },

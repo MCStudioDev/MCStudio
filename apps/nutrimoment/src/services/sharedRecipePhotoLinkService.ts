@@ -228,7 +228,7 @@ export function buildLinkedSharedRecipePhotoUpdate(
   return stripUndefinedDeep({
     contentHash: v2Document.contentHash,
     image,
-    localized,
+    localized: v2Document.localized,
     poolVersion: v2Document.poolVersion,
     publicationStatus: v2Document.publicationStatus,
     updatedAt,

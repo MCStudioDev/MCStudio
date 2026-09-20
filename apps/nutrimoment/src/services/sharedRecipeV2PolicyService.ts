@@ -110,6 +110,12 @@ export function buildSharedRecipeV2Document(
       source.ingredientLookupCanonicals
     )
   };
+  // Arabic generation owns a separate pool. Never republish template translations
+  // supplied by legacy bilingual normalization on an English cache write.
+  if (source.localized) {
+    normalizedSource.localized = { ...source.localized };
+    delete normalizedSource.localized.Arabic;
+  }
   const contentHash = buildSharedRecipeV2ContentHash(normalizedSource);
   const previousHash = previous?.contentHash ?? (previous ? buildSharedRecipeV2ContentHash(previous as RecipeCatalogDoc) : undefined);
   const previousVersion = Number.isFinite(previous?.version) ? Math.max(1, Number(previous?.version)) : 1;

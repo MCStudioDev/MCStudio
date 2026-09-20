@@ -1,3 +1,4 @@
+import { rejectLegacyArabicGeneration } from "@/services/arabic/legacyWorkflow";
 import { loadGenerationRestrictions } from "@/services/generationProfileService";
 import { ProfileUnavailableError, type GenerationRestrictions } from "@/lib/profileSafety";
 import { filterSafeRecipeResponse } from "@/lib/generationSafety";
@@ -307,6 +308,8 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const retired = await rejectLegacyArabicGeneration(request, "/api/ar/generate-recipes");
+  if (retired) return retired;
   const requestId = crypto.randomUUID();
   const requestStartedAt = Date.now();
   let variationSeed = buildRecipeVariationSeed(requestId);

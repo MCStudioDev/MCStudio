@@ -26,13 +26,16 @@ const units = { g: "غرام", kg: "كيلوغرام", ml: "ملليلتر", cup
 const states = { raw: ["", ""], cooked: ["cooked", "مطهو"], canned: ["canned", "معلب"], dried: ["dried", "مجفف"] } as const;
 const actionKeys = Object.keys(actions) as [keyof typeof actions, ...(keyof typeof actions)[]];
 const unitKeys = Object.keys(units) as [keyof typeof units, ...(keyof typeof units)[]];
+// Require Arabic letters, while allowing numbers, measures and punctuation.
+// Merely forbidding Latin text also admits Thai/Cyrillic/etc. as "Arabic".
+export const arabicVisibleText = /^(?=.*[\u0621-\u064A])(?:\p{Script=Arabic}|[^\p{L}])*$/u;
 export const arabicFactsSchema = z.object({
-  version: z.literal("ar-facts-v1"), name: z.string().min(3).max(180).regex(/^[^A-Za-z]+$/).describe("The visible dish title in Arabic script only. No English name, Latin transliteration, or parentheses containing English."),
+  version: z.literal("ar-facts-v1"), name: z.string().min(3).max(180).regex(arabicVisibleText).describe("The visible dish title in Arabic script only. No English name, Latin transliteration, or parentheses containing another language."),
   cuisine: z.enum(FOOD_DICTIONARY.cuisines.map(item => item.en) as [string, ...string[]]),
   dishFamily: z.string().min(3).max(100).regex(/^[a-z0-9 -]+$/i).describe("Internal English dish identity, using English letters, spaces or hyphens only."),
   mealTypes: z.array(z.enum(["breakfast", "lunch", "dinner"])).min(1).max(3),
   servings: z.literal(1),
-  ingredients: z.array(z.object({ foodId: z.string().max(100), arabicName: z.string().min(1).max(100).regex(/^[^A-Za-z]+$/).optional(), quantity: z.number().positive().max(10000), unit: z.enum(unitKeys), state: z.enum(["raw", "cooked", "canned", "dried"]) })).min(1).max(30),
+  ingredients: z.array(z.object({ foodId: z.string().max(100), arabicName: z.string().min(1).max(100).regex(arabicVisibleText).optional(), quantity: z.number().positive().max(10000), unit: z.enum(unitKeys), state: z.enum(["raw", "cooked", "canned", "dried"]) })).min(1).max(30),
   steps: z.array(z.object({ action: z.enum(actionKeys), foodIds: z.array(z.string()).max(30).describe("Only foodIds from THIS recipe's ingredients. Never equipment, prepared mixtures, sauces made in earlier steps or finished dish IDs."),
     previousSteps: z.array(z.number().int().positive()).max(30).optional().describe("1-based indexes of earlier steps whose prepared outputs are used here. A sauce or mixture made earlier is referenced here, not added as a new foodId."),
     minutes: z.number().min(0).max(1440), temperatureC: z.number().min(0).max(300), heat: z.enum(["none", "low", "medium", "high"]) })).min(3).max(30),

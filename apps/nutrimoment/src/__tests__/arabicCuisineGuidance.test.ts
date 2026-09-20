@@ -3,6 +3,13 @@ import { buildArabicCuisineGuidance } from "@/services/arabic/cuisineGuidance";
 import { selectArabicDishCandidates } from "@/services/arabic/dishCandidates";
 
 describe("Arabic cuisine guidance", () => {
+  it("keeps lower-ranked Indian breakfasts available for an empty-pantry week", async () => {
+    const base = { ingredients: [], cuisine: "Indian", count: 7, calorieTarget: 1650, missingLimit: "unlimited" as const,
+      restrictions: { diets: [], allergens: [], conditions: [] }, pantryOptional: true, mealTypesNeeded: ["breakfast"] };
+    const selected = await selectArabicDishCandidates(base);
+    expect(selected.filter(item => item.kind === "catalog").length).toBeGreaterThanOrEqual(5);
+    expect(selected.some(item => item.title === "Poha")).toBe(true);
+  });
   it("includes breakfast guidance beyond a shrimp-only weekly pantry", async () => {
     const rules = { diets: ["pescatarian"], allergens: [], conditions: [] };
     const weekly = await buildArabicCuisineGuidance("Egyptian", ["shrimp"], rules, true);

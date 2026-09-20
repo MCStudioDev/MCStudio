@@ -73,6 +73,30 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it("recovers a short breakfast batch before a slower lunch batch finishes", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.slice(7).map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    let finishLunch: (() => void) | undefined;
+    let recoveryStarted = false;
+    mock.generate.mockImplementation(async (input: { variationSeed?: string; mealTypesNeeded?: string[]; discoveryOnly?: boolean }) => {
+      if (input.variationSeed?.endsWith(":weekly-top-up")) {
+        recoveryStarted = true;
+        expect(input.mealTypesNeeded).toEqual(["breakfast"]);
+        expect(finishLunch).toBeDefined();
+        finishLunch!();
+        return { recipes: facts.slice(4, 7).map(facts => ({ facts })) };
+      }
+      if (input.discoveryOnly) return { recipes: [] };
+      if (input.mealTypesNeeded?.[0] === "lunch") return new Promise(resolve => { finishLunch = () => resolve({ recipes: [] }); });
+      return { recipes: input.mealTypesNeeded?.[0] === "breakfast" ? facts.slice(0, 4).map(facts => ({ facts })) : [] };
+    });
+    const response = await handleArabicGeneration(request({ preferredCuisine: "Mediterranean" }), "mealplan");
+    expect(recoveryStarted).toBe(true);
+    expect(response.status).toBe(200);
+    expect(mock.generate.mock.calls.filter(call => call[0].variationSeed?.endsWith(":weekly-top-up"))).toHaveLength(1);
+    expect(mock.reserve).toHaveBeenCalledOnce(); expect(mock.complete).toHaveBeenCalledOnce();
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  }, 10000);
   it("ignores obsolete cache rows without cuisine metadata before considering valid results", async () => {
     mock.allowed = false;
     mock.rows = [{ id: "obsolete", validatorVersion: "retired" }, (await buildArabicEntry(canonical, arabic, restrictions)).entry];
@@ -447,7 +471,7 @@ describe("Arabic request integration with write recording", () => {
     const response = await handleArabicGeneration(request({ ingredients: [], maxMissingIngredients: "unlimited" }), "mealplan");
     const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200);
     expect(JSON.parse(data.result).plan).toHaveLength(7);
-    const discovery = mock.generate.mock.calls.map(call => call[0]).filter(input => input.discoveryOnly);
+    const discovery = mock.generate.mock.calls.map(call => call[0]).filter(input => input.variationSeed?.endsWith(":weekly-discovery"));
     expect(discovery).toHaveLength(1);
     expect(discovery[0].count).toBeLessThanOrEqual(7);
     expect(discovery[0].excludeNames).toEqual(expect.arrayContaining(facts.slice(0, 15).map(fact => fact.name)));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeArabicInputs } from "@/services/arabic/ingredients";
 import { arabicFoods, findArabicFood } from "@/services/arabic/foodCatalog";
-import { buildArabicFactsEntry, recipeFactsIdentity } from "@/services/arabic/recipeFacts";
+import { arabicFactsSchema, buildArabicFactsEntry, recipeFactsIdentity } from "@/services/arabic/recipeFacts";
 
 const unrestricted = { diets: [], conditions: [], allergens: [] };
 const food = (name: string) => findArabicFood(name)!.id;
@@ -25,6 +25,13 @@ export function salmonFacts() {
 }
 
 describe("Arabic facts pipeline", () => {
+  it.each(["ข้าวผัด", "Рис", "炒饭菜", "123", "أرز rice", "أرز ข้าว"])("rejects non-Arabic visible titles and ingredient labels: %s", name => {
+    expect(arabicFactsSchema.shape.name.safeParse(name).success).toBe(false);
+    expect(arabicFactsSchema.shape.ingredients.element.shape.arabicName.safeParse(name).success).toBe(false);
+  });
+  it("accepts Arabic names with diacritics, numerals and punctuation", () => {
+    expect(arabicFactsSchema.shape.name.safeParse("أَرُزّ بالخضار (٢ حصة)").success).toBe(true);
+  });
   it("requires explicitly measured soaking liquid, including water discarded before cooking", async () => {
     const facts = salmonFacts();
     facts.steps.unshift({ action: "soak", foodIds: [food("rice")], minutes: 20, temperatureC: 0, heat: "none" });

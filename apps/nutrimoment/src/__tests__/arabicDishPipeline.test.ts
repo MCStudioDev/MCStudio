@@ -45,6 +45,56 @@ function useProvider(options: { reorder?: boolean; omitFirst?: boolean; badSeque
 }
 beforeEach(() => { mocks.model.mockReset(); mocks.guidance.mockReset(); mocks.guidance.mockResolvedValue([]); state.ids = []; });
 describe("Arabic dish ownership and independent validation", () => {
+  it("constrains weekly discovery to the requested meal slot at the provider boundary", async () => {
+    useProvider();
+    await generateArabicFactBatch({ ...input, mealTypesNeeded: ["breakfast"], pantryOptional: true }, Date.now() + 65000, "breakfast");
+    const call = mocks.model.mock.calls.find(call => call[3] === "arabic_facts_planning")!;
+    expect(call[4].properties.plans.items.properties.mealTypes.items.enum).toEqual(["breakfast"]);
+  });
+  it("plans named dishes and open discovery slots separately without losing either", async () => {
+    const first = fixtures()[0];
+    mocks.guidance.mockResolvedValue([{ name: first.dishFamily, nativeName: first.name,
+      essentialIngredients: ["rice"], availableIngredients: ["rice"] }]);
+    useProvider();
+    const original = mocks.model.getMockImplementation()!;
+    mocks.model.mockImplementation(async (...args) => {
+      if (args[3] === "arabic_facts_planning") {
+        const candidates = payload(args[0]).candidates;
+        // Reproduce the live provider: a mixed prompt silently drops unnamed slots.
+        const selected = candidates.some((c: Candidate) => c.title) ? candidates.filter((c: Candidate) => c.title) : candidates;
+        return { plans: selected.map((c: Candidate) => {
+          const facts = fixtures()[c.title ? 0 : 1];
+          return { candidateId: c.candidateId, name: facts.name, dishFamily: facts.dishFamily,
+            foodIds: facts.ingredients.map(i => i.foodId), preparations: ["simmer"], mealTypes: facts.mealTypes };
+        }) };
+      }
+      return original(...args);
+    });
+    const result = await generateArabicFactBatch(input, Date.now() + 65000, "mixed-planning");
+    expect(result.recipes).toHaveLength(2);
+    const requests = mocks.model.mock.calls.filter(call => call[3] === "arabic_facts_planning").map(call => payload(call[0]).candidates);
+    expect(requests).toHaveLength(2);
+    expect(requests.every(items => items.every((c: Candidate) => !!c.title) || items.every((c: Candidate) => !c.title))).toBe(true);
+  });
+  it.each(["offline", "malformed"])("preserves named dishes when discovery is %s", async failure => {
+    const first = fixtures()[0];
+    mocks.guidance.mockResolvedValue([{ name: first.dishFamily, nativeName: first.name,
+      essentialIngredients: ["rice"], availableIngredients: ["rice"] }]);
+    useProvider();
+    const original = mocks.model.getMockImplementation()!;
+    mocks.model.mockImplementation(async (...args) => {
+      if (args[3] === "arabic_facts_planning" && payload(args[0]).candidates.every((c: Candidate) => !c.title)) {
+        if (failure === "offline") throw new Error("provider unavailable");
+        return { plans: "invalid" };
+      }
+      return original(...args);
+    });
+    const result = await generateArabicFactBatch(input, Date.now() + 65000, "partial-planning");
+    expect(result.recipes).toHaveLength(1);
+    expect(result.diagnostics.filter(item => item.status === "rejected").map(item => item.issues)).toEqual([
+      [failure === "offline" ? "planning_unavailable" : "invalid_manifest_response"]
+    ]);
+  });
   it("shares one name-repair budget across concurrent generation batches", async () => {
     useProvider();
     const original = mocks.model.getMockImplementation()!;
@@ -59,7 +109,8 @@ describe("Arabic dish ownership and independent validation", () => {
     expect(mocks.model.mock.calls.filter(call => call[3] === "arabic_facts_name_repair")).toHaveLength(1);
     expect(nameRepairBudget.used).toBe(true);
   });
-  it.each([true, false])("repairs only non-Arabic planning titles once, repair succeeds=%s", async succeeds => {
+  it.each([true, false].flatMap(succeeds => ["Native Latin title", "ข้าวผัด", "Рис"].map(name => ({ succeeds, name }))))(
+    "repairs only non-Arabic planning titles once: $name, succeeds=$succeeds", async ({ succeeds, name }) => {
     useProvider();
     const original = mocks.model.getMockImplementation()!;
     mocks.model.mockImplementation(async (...args) => {
@@ -67,7 +118,7 @@ describe("Arabic dish ownership and independent validation", () => {
         candidateId: item.candidateId, name: succeeds ? fixtures()[index].name : "Still English", foodIds: ["food-chicken"]
       })) };
       const result = await original(...args);
-      if (args[3] === "arabic_facts_planning") result.plans.forEach((plan: any) => { plan.name = "Native Latin title"; });
+      if (args[3] === "arabic_facts_planning") result.plans.forEach((plan: any) => { plan.name = name; });
       return result;
     });
     const result = await generateArabicFactBatch(input, Date.now() + 65000, "planning-language");

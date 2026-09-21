@@ -115,6 +115,10 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         rejectionCounts[code] = (rejectionCounts[code] ?? 0) + 1;
       }
     };
+    // A different cache ID or preparation must not create a second card with
+    // the same dish name. Use the same guard for fresh and recent results.
+    const dishIdentityKeys = (entry: ArabicRecipeEntry, identity: string) => [identity,
+      arabicRecipeNameKey(entry.recipe.name), arabicRecipeNameKey(entry.canonical.name)];
     const consider = async (entry: ArabicRecipeEntry) => {
       if (!ARABIC_READABLE_VERSIONS.has(entry.validatorVersion)) return;
       const preferred = typeof entry.canonical?.cuisine === "string" && cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine);
@@ -132,7 +136,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         return;
       }
       const identity = entry.facts ? recipeFactsIdentity(entry.facts) : arabicFingerprint({ ingredients: entry.canonical.ingredients.map(value => value.toLowerCase()).sort(), steps: entry.canonical.steps });
-      const identityKeys = mode === "mealplan" ? [identity, `weekly:${arabicRecipeNameKey(entry.recipe.name)}`, `weekly:${arabicRecipeNameKey(entry.canonical.name)}`] : [identity];
+      const identityKeys = dishIdentityKeys(entry, identity);
       if (identityKeys.some(key => identities.has(key))) { recordReasons(["duplicate_dish"]); return; }
       if (mode === "recipes" && arabicLastShownAt(rebuilt.entry, recent)) {
         if (!recentCandidates.has(identity)) recentCandidates.set(identity, { entry: rebuilt.entry, displayed, identity });
@@ -351,8 +355,9 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         .sort((a, b) => arabicLastShownAt(a.entry, recent) - arabicLastShownAt(b.entry, recent)), input.preferredCuisine, item => item.entry.canonical.cuisine);
       for (const { entry, displayed, identity } of fallback) {
         if (accepted.size >= count) break;
-        if (identities.has(identity) || (entry.source && !await arabicSourceIsCurrent(entry.source))) continue;
-        identities.add(identity); accepted.set(entry.id, entry); output.set(entry.id, { ...displayed,
+        const identityKeys = dishIdentityKeys(entry, identity);
+        if (identityKeys.some(key => identities.has(key)) || (entry.source && !await arabicSourceIsCurrent(entry.source))) continue;
+        identityKeys.forEach(key => identities.add(key)); accepted.set(entry.id, entry); output.set(entry.id, { ...displayed,
           cuisine_match_origin: cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine) ? "preferred" : "ingredient_fallback" }); backfilledIds.add(entry.id);
       }
       if (reservationId && ![...accepted.keys()].some(id => aiAcceptedIds.has(id))) {

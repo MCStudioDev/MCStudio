@@ -40,7 +40,9 @@ export async function buildArabicCuisineGuidance(cuisine: string, pantry: string
       essentialIngredients: dish.primaryIngredients, mealTypes: dish.mealTypes, availableIngredients: available, score: dish.iconicScore + available.length * 20 };
   }));
   return ranked.filter(dish => dish.availableIngredients.length > 0 || pantryOptional)
-    .sort((a, b) => b.score - a.score).slice(0, 20)
+    // A week's slots need their own selection from the bounded catalog.
+    // A global top 20 can exclude nearly every breakfast in a cuisine.
+    .sort((a, b) => b.score - a.score).slice(0, pantryOptional ? 80 : 20)
     .map(dish => ({ name: dish.name, nativeName: dish.nativeName, description: dish.description,
       essentialIngredients: dish.essentialIngredients, mealTypes: dish.mealTypes, availableIngredients: dish.availableIngredients }));
 }

@@ -23,7 +23,8 @@ import { findArabicSourceCandidates } from "./sourceCandidates";
 import { arabicSourceIsCurrent } from "./sourceEligibility";
 import { selectArabicWeeklyMeals, arabicWeeklyMealCounts, arabicWeeklyMealTypes, ARABIC_WEEKLY_MAX_REPEATED_SLOTS } from "./weeklyFacts";
 import { arabicFingerprint } from "./fingerprint";
-import { buildArabicCuisineGuidance, prioritizeArabicCuisine, prioritizeArabicPantry } from "./cuisineGuidance";
+import { prioritizeArabicCuisine, prioritizeArabicPantry } from "./cuisineGuidance";
+import { selectArabicDishCandidates } from "./dishCandidates";
 import { arabicRepairSchema } from "./modelSchemas";
 import type { ArabicRecipeEntry, ArabicRecipeSuggestion } from "./types";
 import { arabicCuisineMatches as cuisineMatchesPreference } from "./cuisineGuidance";
@@ -114,6 +115,10 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         rejectionCounts[code] = (rejectionCounts[code] ?? 0) + 1;
       }
     };
+    // A different cache ID or preparation must not create a second card with
+    // the same dish name. Use the same guard for fresh and recent results.
+    const dishIdentityKeys = (entry: ArabicRecipeEntry, identity: string) => [identity,
+      arabicRecipeNameKey(entry.recipe.name), arabicRecipeNameKey(entry.canonical.name)];
     const consider = async (entry: ArabicRecipeEntry) => {
       if (!ARABIC_READABLE_VERSIONS.has(entry.validatorVersion)) return;
       const preferred = typeof entry.canonical?.cuisine === "string" && cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine);
@@ -131,7 +136,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         return;
       }
       const identity = entry.facts ? recipeFactsIdentity(entry.facts) : arabicFingerprint({ ingredients: entry.canonical.ingredients.map(value => value.toLowerCase()).sort(), steps: entry.canonical.steps });
-      const identityKeys = mode === "mealplan" ? [identity, `weekly:${arabicRecipeNameKey(entry.recipe.name)}`, `weekly:${arabicRecipeNameKey(entry.canonical.name)}`] : [identity];
+      const identityKeys = dishIdentityKeys(entry, identity);
       if (identityKeys.some(key => identities.has(key))) { recordReasons(["duplicate_dish"]); return; }
       if (mode === "recipes" && arabicLastShownAt(rebuilt.entry, recent)) {
         if (!recentCandidates.has(identity)) recentCandidates.set(identity, { entry: rebuilt.entry, displayed, identity });
@@ -215,7 +220,9 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const selectedSources = references.slice(0, mode === "mealplan" ? Math.min(21, preferredGap + 2) : Math.min(3, preferredGap));
       // Correction and fresh discovery have independent prompts and share only
       // this action/deadline. A slow source must not consume the fresh budget.
-      const jobs: Array<{ kind: string; run: Promise<Awaited<ReturnType<typeof generateArabicFactBatch>>> }> = [];
+      type Batch = Awaited<ReturnType<typeof generateArabicFactBatch>>;
+      const jobs: Array<{ kind: string; mealType?: typeof arabicWeeklyMealTypes[number]; run: Promise<Batch> }> = [];
+      let weeklyTopUpStarted = false;
       if (deadline - Date.now() >= 39000) {
         for (let start = 0; start < selectedSources.length; start += 7) {
           const batch = selectedSources.slice(start, start + 7);
@@ -225,16 +232,19 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         }
         const freshExclusions = [...excludeNames(), ...selectedSources.map(item => item.reference.title)];
         if (mode === "mealplan") {
-          for (const type of ["breakfast", "lunch", "dinner"]) jobs.push({ kind: "weekly_batch_failed", run: generateArabicFactBatch({ ...base,
+          for (const type of arabicWeeklyMealTypes) jobs.push({ kind: "weekly_batch_failed", mealType: type, run: generateArabicFactBatch({ ...base,
             count: 7, excludeNames: freshExclusions, mealTypesNeeded: [type] }, deadline - 5000, requestId) });
           // Mixed catalog/discovery prompts can omit the unnamed slots. Give
           // new dish discovery its own bounded batch, excluding planned dishes.
-          const guidance = await buildArabicCuisineGuidance(base.cuisine, base.ingredients, restrictions, pantryOptional);
+          const planned = (await Promise.all(arabicWeeklyMealTypes.map(type => selectArabicDishCandidates({ ...base,
+            count: 7, excludeNames: freshExclusions, mealTypesNeeded: [type] })))).flat();
           const coverage = arabicWeeklyMealCounts(preferredEntries());
           const missingTypes = arabicWeeklyMealTypes.filter(type => coverage[type] < 7);
           jobs.push({ kind: "weekly_discovery_failed", run: generateArabicFactBatch({ ...base, discoveryOnly: true,
             count: Math.min(7, preferredGap + 2),
-            excludeNames: [...freshExclusions, ...guidance.flatMap(dish => [dish.name, dish.nativeName]).filter(Boolean)],
+            // Exclude only dishes actually assigned to another batch. The
+            // expanded weekly catalog still contains useful unattempted dishes.
+            excludeNames: [...freshExclusions, ...planned.flatMap(dish => [dish.title, dish.nativeName]).filter((name): name is string => !!name)],
             mealTypesNeeded: missingTypes.length ? missingTypes : [...arabicWeeklyMealTypes], variationSeed: `${variationSeed}:weekly-discovery` }, deadline - 5000, requestId) });
         } else {
           jobs.push({ kind: "generation_request_failed", run: generateArabicFactBatch({ ...base,
@@ -258,8 +268,15 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         dishDiagnostics.push({ stage: "generation", status: "rejected", issues: ["insufficient_generation_time"] });
       }
       didCallAi = jobs.length > 0;
-      const completed = await Promise.allSettled(jobs.map(job => job.run));
-      for (const [index, result] of completed.entries()) {
+      // Consume completed batches immediately. Waiting for a slow dinner/source
+      // batch can spend the time needed to recover an already-known breakfast
+      // shortage, even when the total number of accepted recipes exceeds 21.
+      const pending = new Map<number, Promise<{ index: number; result: PromiseSettledResult<Batch> }>>();
+      const track = (index: number) => pending.set(index, Promise.allSettled([jobs[index].run]).then(([result]) => ({ index, result })));
+      jobs.forEach((_, index) => track(index));
+      while (pending.size) {
+        const { index, result } = await Promise.race(pending.values());
+        pending.delete(index);
         if (result.status === "fulfilled") await consumeBatch(result.value);
         else {
           modelFailureCount++;
@@ -267,10 +284,22 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
           if (kind !== "source_correction_failed") generationRequestFailed = true;
           recordReasons([kind]); dishDiagnostics.push({ stage: "generation", status: "rejected", issues: [kind] });
         }
+        const type = jobs[index].mealType;
+        if (mode === "mealplan" && type && !weeklyTopUpStarted && deadline - Date.now() >= 39000
+          && arabicWeeklyMealCounts(preferredEntries())[type] < 7
+          && !selectArabicWeeklyMeals(preferredEntries(), { ...weeklyOptions, allowLimitedRepeats: true })) {
+          weeklyTopUpStarted = true;
+          const shortfall = 7 - arabicWeeklyMealCounts(preferredEntries())[type];
+          jobs.push({ kind: "weekly_top_up_failed", run: generateArabicFactBatch({ ...base, discoveryOnly: true,
+            count: Math.min(7, shortfall + 2), mealTypesNeeded: [type], planningFeedback: planningFeedback(),
+            excludeNames: [...excludeNames(), ...dishDiagnostics.flatMap(item => item.name ? [item.name] : [])],
+            variationSeed: `${variationSeed}:weekly-top-up` }, deadline - 5000, requestId) });
+          track(jobs.length - 1);
+        }
       }
       // Complete shortages before the same <=10% repeat fallback used by the
       // English workflow. Keep one action reservation and the original deadline.
-      if (mode === "mealplan" && (aiAcceptedIds.size > 0 || planningFeedback().length > 0)
+      if (mode === "mealplan" && !weeklyTopUpStarted && (aiAcceptedIds.size > 0 || planningFeedback().length > 0)
         && !selectArabicWeeklyMeals(preferredEntries(), { ...weeklyOptions, allowLimitedRepeats: true }) && deadline - Date.now() >= 39000) {
         const counts = arabicWeeklyMealCounts(preferredEntries());
         const missingTypes = arabicWeeklyMealTypes.filter(type => counts[type] < 7);
@@ -326,8 +355,9 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         .sort((a, b) => arabicLastShownAt(a.entry, recent) - arabicLastShownAt(b.entry, recent)), input.preferredCuisine, item => item.entry.canonical.cuisine);
       for (const { entry, displayed, identity } of fallback) {
         if (accepted.size >= count) break;
-        if (identities.has(identity) || (entry.source && !await arabicSourceIsCurrent(entry.source))) continue;
-        identities.add(identity); accepted.set(entry.id, entry); output.set(entry.id, { ...displayed,
+        const identityKeys = dishIdentityKeys(entry, identity);
+        if (identityKeys.some(key => identities.has(key)) || (entry.source && !await arabicSourceIsCurrent(entry.source))) continue;
+        identityKeys.forEach(key => identities.add(key)); accepted.set(entry.id, entry); output.set(entry.id, { ...displayed,
           cuisine_match_origin: cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine) ? "preferred" : "ingredient_fallback" }); backfilledIds.add(entry.id);
       }
       if (reservationId && ![...accepted.keys()].some(id => aiAcceptedIds.has(id))) {

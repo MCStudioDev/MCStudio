@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { GenerationRestrictions } from "@/lib/profileSafety";
 import { findRecipeDietViolation } from "@/lib/dietEnforcement";
 import { callArabicModel } from "./gemini";
-import { arabicFactsSchema, buildArabicFactsEntry, recipeLabelFingerprint, type ArabicLabelReceipt, type ArabicRecipeFacts } from "./recipeFacts";
+import { arabicFactsSchema, arabicVisibleText, buildArabicFactsEntry, recipeLabelFingerprint, type ArabicLabelReceipt, type ArabicRecipeFacts } from "./recipeFacts";
 import { arabicFoods, arabicFoodById, findArabicFood, foodTerm } from "./foodCatalog";
 import { selectArabicDishCandidates, type ArabicDishCandidate } from "./dishCandidates";
 import type { ArabicReferenceCandidate } from "./referenceSources";
@@ -37,7 +37,7 @@ const manifestSchema = z.object({ candidateId: candidateIdSchema, name: arabicFa
 type IngredientPlan = z.infer<typeof manifestSchema> & { candidate: ArabicDishCandidate };
 const stepIdSchema = z.enum(Array.from({ length: 30 }, (_, index) => `s${index + 1}`) as [string, ...string[]]);
 const providerFacts = arabicFactsSchema.omit({ name: true, dishFamily: true, mealTypes: true }).extend({
-  ingredients: z.array(arabicFactsSchema.shape.ingredients.element.extend({ arabicName: z.string().min(1).max(100).regex(/^[^A-Za-z]+$/)
+  ingredients: z.array(arabicFactsSchema.shape.ingredients.element.extend({ arabicName: z.string().min(1).max(100).regex(arabicVisibleText)
     .describe("Exact catalog Arabic label if present; otherwise translate the precise English food identity into Modern Standard Arabic.") })),
   steps: z.array(arabicFactsSchema.shape.steps.element.omit({ previousSteps: true }).extend({ stepId: stepIdSchema, previousStepIds: z.array(stepIdSchema) }))
 });
@@ -110,6 +110,7 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
     diagnostics.push({ ...(candidate ? { candidateId: candidate.candidateId, name: name ?? candidate.nativeName ?? candidate.title } : {}), stage, status, issues });
   };
   const candidates = await selectArabicDishCandidates(input);
+  const selectedNames = candidates.flatMap(candidate => [candidate.title, candidate.nativeName].filter((name): name is string => !!name));
   for (const candidate of candidates) note(candidate, "selection", [], "selected");
   if (!candidates.length) return { recipes: [], diagnostics };
   const owned = new Set(input.ingredients.flatMap(name => findArabicFood(name)?.id ?? []));
@@ -125,16 +126,45 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
   const modeRule = input.sourceOnly
     ? "SOURCE CORRECTION ONLY. Complete exactly the supplied source candidates, one plan per candidateId. Never invent another dish or choose another source. Translate each source title accurately. Keep every requiredFoodId and verified protein. Correct duplicate lines and incomplete measures/instructions; add necessary cooking water, oil or aromatics. Retain complete over-budget source dishes for shortage suggestions; the server enforces the user's budget."
     : "FRESH GENERATION. Complete the server-selected dishes, one plan per candidateId, never substitute a generic rice variation for a named dish. Preserve every supplied essentialIngredient using its exact essentialFoodId. Do not replace a generic food ID with a specific cut or preparation, or vice versa. Pantry matching also uses exact ownedFoodIds. Catalog hints are not proof of authenticity: verify the identity and essential preparation. If the required ingredients conflict with dietary restrictions or the actual dish, reject that candidate instead of dropping or substituting an ingredient. Only discovery slots may propose a new recognizable dish. Do not repeat excluded names. Respect mealTypesNeeded. Use planningFeedback to avoid the previous failure; discovery candidates are open slots for distinct real dishes in the requested cuisine, not unknown dish names to reject. If a dish cannot meet restrictions or the missing-ingredient budget, report it as rejected with its candidateId instead of silently replacing it.";
-  const planningSchema = z.object({ plans: z.array(manifestSchema).max(10), rejected: z.array(z.object({ candidateId: candidateIdSchema,
+  const requestedMealTypes = arabicFactsSchema.shape.mealTypes.element.options.filter(type => input.mealTypesNeeded?.includes(type));
+  const providerManifest = requestedMealTypes.length ? manifestSchema.extend({ mealTypes: z.array(z.enum(
+    requestedMealTypes as [typeof requestedMealTypes[number], ...typeof requestedMealTypes[number][]])) }) : manifestSchema;
+  const planningSchema = z.object({ plans: z.array(providerManifest).max(10), rejected: z.array(z.object({ candidateId: candidateIdSchema,
     reason: z.enum(["missing_ingredient_limit", "dietary_restriction", "unsupported_dish", "excluded_dish"]) })).max(10).optional() });
   let planning: unknown;
+  const failedPlanningIds = new Set<string>();
   try {
     if (deadline - Date.now() < 33000) throw new Error("phase budget");
-    planning = await callArabicModel(prompt(`${modeRule}\nReturn brief ingredient manifests only, no quantities or instructions yet. Include preparations: the cooking actions needed for each dish (such as soak, drain, grind, shape, fry). The visible name MUST use Arabic script only, even when the catalog title or nativeName is in another language: translate or transliterate it into Arabic, without Latin text or English in parentheses. Keep dishFamily internal English. Use only foodId values from the catalog. List EVERY necessary ingredient including liquids and frying fats; no optional sides/garnishes. Soaked ingredients require food-water in the manifest EVEN WHEN the soaking water is discarded. Separate cooking water and soaking water must both be accounted for by the same water ingredient. Frying requires an explicit cooking fat. Do not alter candidateId or attach a referenceId. ${budgetRule}`,
-      { candidates: candidates.map(candidateData), cuisine: input.cuisine, restrictions: input.restrictions, ownedFoodIds: [...owned],
-        mealTypesNeeded: input.mealTypesNeeded, excludeNames: input.excludeNames, variationSeed: input.variationSeed, previousShortages: input.previousShortages, planningFeedback: input.planningFeedback,
+    // Models tend to treat unnamed slots as incomplete catalog records when
+    // mixed with named dishes. Give discovery its own prompt, while retaining
+    // the same issued identities, request deadline and validation pipeline.
+    const groups = [candidates.filter(candidate => candidate.kind !== "discovery"), candidates.filter(candidate => candidate.kind === "discovery")].filter(group => group.length);
+    const responses = await Promise.allSettled(groups.map(async group => {
+      const discoveryRule = group.every(candidate => candidate.kind === "discovery")
+        ? "DISCOVERY: every issued candidateId is an open slot. Propose a distinct recognizable dish from the requested cuisine for EACH slot, using the allowed foods. Missing titles are intentional, not unsupported dishes. Respect mealTypesNeeded and excludeNames. Supply complete meals, not standalone drinks, condiments or garnishes."
+        : modeRule;
+      const response = await callArabicModel(prompt(`${discoveryRule}\nReturn exactly ${group.length} outcomes: each candidateId must occur once in plans or rejected. Do not silently omit candidates. Return brief ingredient manifests only, no quantities or instructions yet. Include preparations: the cooking actions needed for each dish (such as soak, drain, grind, shape, fry). The visible name MUST use Arabic script only, even when the catalog title or nativeName is in another language: translate or transliterate it into Arabic, without Latin text or English in parentheses. Keep dishFamily internal English. Use only foodId values from the catalog. List EVERY necessary ingredient including liquids and frying fats; no optional sides/garnishes. Soaked ingredients require food-water in the manifest EVEN WHEN the soaking water is discarded. Separate cooking water and soaking water must both be accounted for by the same water ingredient. Frying requires an explicit cooking fat. Do not alter candidateId or attach a referenceId. ${budgetRule}`,
+      { candidates: group.map(candidateData), cuisine: input.cuisine, restrictions: input.restrictions, ownedFoodIds: [...owned],
+        mealTypesNeeded: input.mealTypesNeeded, excludeNames: group[0].kind === "discovery" ? [...(input.excludeNames ?? []), ...selectedNames] : input.excludeNames,
+        variationSeed: input.variationSeed, previousShortages: input.previousShortages, planningFeedback: input.planningFeedback,
         foodCatalog: foods.map(food => ({ foodId: food.id, english: food.en, arabic: food.ar || undefined })) }),
       Math.min(deadline - 22000, Date.now() + 16000), requestId, "arabic_facts_planning", servingSchema(planningSchema));
+      const result = z.object({ plans: z.array(z.unknown()).max(10), rejected: planningSchema.shape.rejected }).parse(response);
+      const issued = new Set(group.map(candidate => candidate.candidateId));
+      return { plans: result.plans.filter(value => {
+        const id = z.object({ candidateId: z.string() }).safeParse(value);
+        return id.success && issued.has(id.data.candidateId);
+      }), rejected: (result.rejected ?? []).filter(item => issued.has(item.candidateId)) };
+    }));
+    const combined: { plans: unknown[]; rejected: unknown[] } = { plans: [], rejected: [] };
+    responses.forEach((response, index) => {
+      if (response.status === "fulfilled") { combined.plans.push(...response.value.plans); combined.rejected.push(...response.value.rejected); }
+      else groups[index].forEach(candidate => {
+        failedPlanningIds.add(candidate.candidateId);
+        note(candidate, "planning", [response.reason instanceof z.ZodError ? "invalid_manifest_response" : "planning_unavailable"]);
+      });
+    });
+    planning = combined;
   } catch {
     candidates.forEach(candidate => note(candidate, "planning", ["planning_unavailable"]));
     return { recipes: [], diagnostics };
@@ -146,7 +176,7 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
   // pass cannot replace its food IDs, quantities, source, or safety decisions.
   const nameCandidates = envelope.data.plans.flatMap(value => {
     const parsed = manifestSchema.extend({ name: z.string().min(3).max(180) }).safeParse(value);
-    return parsed.success && /[A-Za-z]/.test(parsed.data.name) && candidates.some(candidate => candidate.candidateId === parsed.data.candidateId)
+    return parsed.success && !arabicVisibleText.test(parsed.data.name) && candidates.some(candidate => candidate.candidateId === parsed.data.candidateId)
       && envelope.data.plans.filter(row => z.object({ candidateId: z.literal(parsed.data.candidateId) }).safeParse(row).success).length === 1
       ? [parsed.data] : [];
   });
@@ -201,14 +231,15 @@ export async function generateArabicFactBatch(input: ArabicFactBatchInput, deadl
     if (plan.foodIds.some(id => !allowed.has(id))) reasons.push("ingredient_not_allowed");
     if (!input.pantryOptional && !plan.foodIds.some(id => owned.has(id))) reasons.push("pantry_mismatch");
     if (!input.sourceOnly && input.missingLimit !== "unlimited" && plan.foodIds.filter(id => !owned.has(id)).length > input.missingLimit) reasons.push("missing_ingredient_limit");
-    if (!input.sourceOnly && input.excludeNames?.some(name => [plan.name, plan.dishFamily].some(value => foodTerm(value) === foodTerm(name)))) reasons.push("excluded_dish");
+    const excludedNames = candidate.kind === "discovery" ? [...(input.excludeNames ?? []), ...selectedNames] : input.excludeNames;
+    if (!input.sourceOnly && excludedNames?.some(name => [plan.name, plan.dishFamily].some(value => foodTerm(value) === foodTerm(name)))) reasons.push("excluded_dish");
     if (input.mealTypesNeeded?.length && !plan.mealTypes.some(type => input.mealTypesNeeded!.includes(type))) reasons.push("meal_type_mismatch");
     if (reasons.length) { note(candidate, "planning", reasons, "rejected", plan.name); continue; }
     const dishFamily = candidate.title?.replace(/[^a-z0-9 -]/gi, " ").trim().slice(0, 100) || plan.dishFamily;
     plans.push({ ...plan, dishFamily, candidate });
     note(candidate, "planning", [], "accepted", plan.name);
   }
-  for (const candidate of candidates) if (!reported.has(candidate.candidateId)) {
+  for (const candidate of candidates) if (!reported.has(candidate.candidateId) && !failedPlanningIds.has(candidate.candidateId)) {
     const rejection = envelope.data.rejected?.find(item => item.candidateId === candidate.candidateId);
     note(candidate, "planning", [rejection?.reason ?? "dish_omitted"]);
   }

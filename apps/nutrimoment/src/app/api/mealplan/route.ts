@@ -54,6 +54,8 @@ import {
   type MealPlanSharedRecipeLink
 } from "@/services/mealPlanSharedRecipeLinkService";
 import { createRecipeIngredientCompatibilityEvaluator } from "@/services/recipePrimaryIngredientCompatibility";
+import { readRecentWeeklyMeals, mealLastShownAt, rankWeeklyCandidates, summarizeWeeklyFreshness,
+  weeklyFreshnessIssues, weeklyFreshnessNotice, weeklyMeals } from "@/services/mealPlanFreshnessService";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -162,7 +164,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const aiAction = await reserveFreeAiAction(access, "weekly_plan", parsed.data.actionId ?? requestId);
+    let recent: Awaited<ReturnType<typeof readRecentWeeklyMeals>>;
+    try { recent = await readRecentWeeklyMeals(access.uid); }
+    catch {
+      const error = "We couldn't check your previous meal plans. Please try again shortly. Your saved plan is unchanged and no credit was deducted.";
+      await persistMealPlanFailureForUser({ uid: access.uid, historyEntryId: parsed.data.historyEntryId, errorMessage: error });
+      return Response.json({ code: "WEEKLY_HISTORY_UNAVAILABLE", error }, { status: 503 });
+    }
+    const aiAction = await reserveFreeAiAction(access, "weekly_plan", requestId);
     let nextAccess = aiAction.access;
     pendingActionAccess = access;
     pendingActionId = aiAction.actionId;
@@ -173,6 +182,13 @@ export async function POST(request: Request) {
     const releaseAiAction = async () => {
       await releaseFreeAiAction(access, pendingActionId);
       pendingActionId = undefined;
+    };
+    const rejectUnchangedWeek = async (plan: MealPlanData) => {
+      if (!summarizeWeeklyFreshness(plan, recent).unchanged) return null;
+      await releaseAiAction();
+      const error = "We couldn't find different validated meals for a new week. Your previous plan is unchanged and no credit was deducted. Try another cuisine or try again later.";
+      await persistMealPlanFailureForUser({ uid: access.uid, historyEntryId: parsed.data.historyEntryId, errorMessage: error });
+      return Response.json({ code: "WEEKLY_NO_NEW_MEALS", error, access: accessPayload(nextAccess) }, { status: 503 });
     };
     const actionGrantPayload = aiAction.actionGrantId
       ? { aiActionGrantId: aiAction.actionGrantId }
@@ -374,6 +390,8 @@ export async function POST(request: Request) {
       try {
         const repairText = await callOpenAIText(
           PromptBuilder.mealPlanRepair({
+            recentMealNames: recent.names,
+            variationSeed: requestId,
             pantry: dietCompatiblePantry,
             pantryItems: pantryStock,
             diets: parsed.data.diets ?? [],
@@ -433,6 +451,8 @@ export async function POST(request: Request) {
         wantsArabic ? "Arabic" : "English"
       );
       assertSafeMealPlan(outputMockPlan, verifiedRestrictions);
+      const unchangedMock = await rejectUnchangedWeek(outputMockPlan);
+      if (unchangedMock) return unchangedMock;
       await queueMealPlanCachePersist({
         uid: access.uid,
         recipeLanguage,
@@ -466,7 +486,11 @@ export async function POST(request: Request) {
       diets: parsed.data.diets,
       conditions: parsed.data.conditions,
       allergens: parsed.data.allergens,
-      maxResults: 21,
+      // Keep alternatives for every slot: a single week's shortlist can be
+      // exhausted by recent-history and duplicate-dish checks.
+      maxResults: 21 * 6,
+      freshnessSeed: requestId,
+      recentRecipeIds: [...recent.shownAt.keys()].filter(key => key.startsWith("source:")).map(key => key.slice(7)),
       recipeLanguage,
       uid: access.uid
     });
@@ -479,13 +503,28 @@ export async function POST(request: Request) {
       ? orderedRankedRecipes
       : searchResult.candidateRecipes;
     const cuisineAlignedCatalogRecipes = getCuisineAlignedRecipes(rankedCatalogRecipes, parsed.data.preferredCuisine);
-    const catalogRecipes = cuisineAlignedCatalogRecipes.length ? cuisineAlignedCatalogRecipes : rankedCatalogRecipes;
+    const catalogRecipes = rankWeeklyCandidates(cuisineAlignedCatalogRecipes.length ? cuisineAlignedCatalogRecipes : rankedCatalogRecipes,
+      recipe => mapCatalogRecipeToMeal(recipe, { diets: dietContext.diets, recipeLanguage }), recent, requestId);
+    const refreshFromValidatedCandidates = (plan: MealPlanData, candidates: MealPlanMeal[]) => {
+      const summary = summarizeWeeklyFreshness(plan, recent);
+      if (!summary.backfilledCount && !summary.duplicateSlots) return plan;
+      const result = buildValidatedRepeatFallbackPlan(plan, { candidateMeals: candidates,
+        conditions: parsed.data.conditions ?? [], dietContext, preferredCuisine: parsed.data.preferredCuisine,
+        recipeLanguage, maxSimilarMealSlots: 2, lastShownAt: meal => mealLastShownAt(meal, recent) });
+      if (!result.mealPlan) return plan;
+      const candidateSummary = summarizeWeeklyFreshness(result.mealPlan, recent);
+      const blocking = validateMealPlan(result.mealPlan, mealPlanGuardPreferences).filter(issue => !["ingredientCluster", "repeat", "unique"].includes(issue.kind));
+      return !blocking.length && candidateSummary.duplicateSlots <= summary.duplicateSlots
+        && candidateSummary.backfilledCount <= summary.backfilledCount ? result.mealPlan : plan;
+    };
     let aiFallbackCandidates: MealPlanMeal[] = [];
 
     try {
       ensureAiAvailable();
       const text = await callOpenAIText(
         PromptBuilder.mealPlan({
+          recentMealNames: recent.names,
+          variationSeed: requestId,
           pantry: dietCompatiblePantry,
           pantryItems: pantryStock,
           diets: parsed.data.diets ?? [],
@@ -518,14 +557,15 @@ export async function POST(request: Request) {
           catalogRecipes
         );
         let remainingGuardIssues = validateMealPlan(finalizedMealPlan.mealPlan, mealPlanGuardPreferences);
-        aiFallbackCandidates = finalizedMealPlan.mealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner]);
+        aiFallbackCandidates = weeklyMeals(finalizedMealPlan.mealPlan);
+        const freshnessIssues = weeklyFreshnessIssues(finalizedMealPlan.mealPlan, recent);
         const blockingIssuesBeforeRepair = remainingGuardIssues.filter((issue) =>
           !["ingredientCluster", "repeat", "unique"].includes(issue.kind)
         );
-        if (finalizedMealPlan.issues.length || blockingIssuesBeforeRepair.length) {
+        if (finalizedMealPlan.issues.length || blockingIssuesBeforeRepair.length || freshnessIssues.length) {
           const aiContractRepair = await repairMealPlanWithAiIfNeeded(
             finalizedMealPlan.mealPlan,
-            [...finalizedMealPlan.issues, ...remainingGuardIssues]
+            [...finalizedMealPlan.issues, ...remainingGuardIssues, ...freshnessIssues]
           );
           const reconciledContractRepair = repairMealPlanSlots(
             aiContractRepair,
@@ -543,7 +583,7 @@ export async function POST(request: Request) {
           );
           aiFallbackCandidates = [
             ...aiFallbackCandidates,
-            ...finalizedMealPlan.mealPlan.plan.flatMap((day) => [day.breakfast, day.lunch, day.dinner])
+            ...weeklyMeals(finalizedMealPlan.mealPlan)
           ];
           remainingGuardIssues = validateMealPlan(finalizedMealPlan.mealPlan, mealPlanGuardPreferences);
         }
@@ -561,15 +601,21 @@ export async function POST(request: Request) {
             issueSummary: summarizeMealPlanIssues(remainingGuardIssues)
           });
         }
+        const refreshedPlan = refreshFromValidatedCandidates(finalizedMealPlan.mealPlan, [...aiFallbackCandidates,
+          ...catalogRecipes.map(recipe => mapCatalogRecipeToMeal(recipe, { diets: dietContext.diets, recipeLanguage }))]);
         const outputMealPlan = {
-          ...finalizedMealPlan.mealPlan,
+          ...refreshedPlan,
+          servedFrom: "fallback_ai" as const,
           shoppingList: buildShoppingListFromMealIngredients({
             displayLanguage: isArabicRecipeLanguage(recipeLanguage) ? "ar" : "en",
-            mealPlan: finalizedMealPlan.mealPlan,
+            mealPlan: refreshedPlan,
             pantryItems: pantryStock
           })
         };
         assertSafeMealPlan(outputMealPlan, verifiedRestrictions);
+        const unchangedAi = await rejectUnchangedWeek(outputMealPlan);
+        if (unchangedAi) return unchangedAi;
+        const freshness = summarizeWeeklyFreshness(outputMealPlan, recent);
         const aiRepeatUsage = summarizeMealPlanRepeatUsage(outputMealPlan);
         const repeatFallbackMetadata = aiRepeatUsage.repeatedSlots
           ? { maxRepeatedSlots: 2, ...aiRepeatUsage }
@@ -591,6 +637,8 @@ export async function POST(request: Request) {
           historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
           historyTitle: parsed.data.historyTitle,
           mealPlan: linkedOutputMealPlan,
+          freshness,
+          generationMessage: weeklyFreshnessNotice(freshness),
           preferenceSignature,
           effectiveRestrictions: verifiedRestrictions,
           requestId,
@@ -613,6 +661,8 @@ export async function POST(request: Request) {
             servedFrom: "fallback_ai"
           }),
           servedFrom: "fallback_ai",
+          freshness,
+          fallbackNotice: weeklyFreshnessNotice(freshness),
           repeatFallback: repeatFallbackMetadata,
           sharedPublication,
           access: accessPayload(nextAccess)
@@ -673,6 +723,7 @@ export async function POST(request: Request) {
         conditions: parsed.data.conditions ?? [],
         dietContext,
         maxSimilarMealSlots: 2,
+        lastShownAt: meal => mealLastShownAt(meal, recent),
         preferredCuisine: parsed.data.preferredCuisine,
         recipeLanguage
       });
@@ -717,8 +768,13 @@ export async function POST(request: Request) {
         { status: 503 }
       );
     }
+    completedEmergencyMealPlan = refreshFromValidatedCandidates(completedEmergencyMealPlan, [...aiFallbackCandidates,
+      ...catalogRecipes.map(recipe => mapCatalogRecipeToMeal(recipe, { diets: dietContext.diets, recipeLanguage }))]);
+    const finalRepeatUsage = summarizeMealPlanRepeatUsage(completedEmergencyMealPlan);
+    repeatFallbackMetadata = finalRepeatUsage.repeatedSlots ? { maxRepeatedSlots: 2, ...finalRepeatUsage } : undefined;
     const outputEmergencyMealPlan = {
       ...completedEmergencyMealPlan,
+      servedFrom: "shared_pool" as const,
       shoppingList: buildShoppingListFromMealIngredients({
         displayLanguage: isArabicRecipeLanguage(recipeLanguage) ? "ar" : "en",
         mealPlan: completedEmergencyMealPlan,
@@ -726,6 +782,9 @@ export async function POST(request: Request) {
       })
     };
     assertSafeMealPlan(outputEmergencyMealPlan, verifiedRestrictions);
+    const unchangedFallback = await rejectUnchangedWeek(outputEmergencyMealPlan);
+    if (unchangedFallback) return unchangedFallback;
+    const freshness = summarizeWeeklyFreshness(outputEmergencyMealPlan, recent);
     await queueMealPlanCachePersist({
       uid: access.uid,
       recipeLanguage,
@@ -738,6 +797,8 @@ export async function POST(request: Request) {
       historyIngredients: parsed.data.historyIngredients ?? dietCompatiblePantry,
       historyTitle: parsed.data.historyTitle,
       mealPlan: outputEmergencyMealPlan,
+      freshness,
+      generationMessage: weeklyFreshnessNotice(freshness),
       preferenceSignature,
       effectiveRestrictions: verifiedRestrictions,
       requestId,
@@ -758,10 +819,11 @@ export async function POST(request: Request) {
         repeatFallback: repeatFallbackMetadata
       }),
       servedFrom: "shared_pool",
+      freshness,
       repeatFallback: repeatFallbackMetadata,
-      fallbackNotice: repeatFallbackMetadata
+      fallbackNotice: [weeklyFreshnessNotice(freshness), repeatFallbackMetadata
         ? "We completed the week by repeating up to 10% of validated meals from the available recipe pool."
-        : "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool.",
+        : "The premium AI meal plan service was unavailable, so we used recipes from the shared recipe pool."].filter(Boolean).join(" "),
       access: accessPayload(nextAccess)
     });
   } catch (err) {
@@ -1623,6 +1685,8 @@ async function persistMealPlanResultForUser({
   historyIngredients,
   historyTitle,
   mealPlan,
+  freshness,
+  generationMessage,
   preferenceSignature,
   persistResult,
   uid
@@ -1634,6 +1698,8 @@ async function persistMealPlanResultForUser({
   historyIngredients: string[];
   historyTitle?: string;
   mealPlan: MealPlanData;
+  freshness?: ReturnType<typeof summarizeWeeklyFreshness>;
+  generationMessage?: string;
   preferenceSignature?: string;
   persistResult?: boolean;
   uid: string;
@@ -1648,6 +1714,7 @@ async function persistMealPlanResultForUser({
       {
         effectiveRestrictions,
         requestId,
+        ...(freshness ? { weeklyFreshness: freshness } : {}),
         mealPlan: preferenceSignature ? { ...sanitized, preferenceSignature } : sanitized,
         ...(preferenceSignature ? { preferenceSignature } : {}),
         updatedAt: FieldValue.serverTimestamp()
@@ -1661,7 +1728,9 @@ async function persistMealPlanResultForUser({
           effectiveRestrictions,
           requestId,
           completedAt: new Date().toISOString(),
-          generationMessage: null,
+          generationMessage: generationMessage ?? null,
+          servedFrom: mealPlan.servedFrom ?? "fallback_ai",
+          ...(freshness ? { weeklyFreshness: freshness } : {}),
           generationStatus: "completed",
           ...(actionGrantId ? { imageActionGrantId: actionGrantId } : {}),
           ingredients: historyIngredients,

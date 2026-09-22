@@ -16,6 +16,11 @@ import { arabicImageObjectPath, readValidatedArabicEntry, resolveArabicImage } f
 import { arabicPaths, assertArabicWritePath } from "@/services/arabic/repository";
 import type { RequestAccess } from "@/services/authService";
 import { arabicFingerprint } from "@/services/arabic/fingerprint";
+import { buildArabicFactsEntry } from "@/services/arabic/recipeFacts";
+import { weeklyFactFixtures } from "./fixtures/arabicFacts";
+import { arabicImageIdentity } from "@/services/arabic/imageIdentity";
+import { findArabicFood } from "@/services/arabic/foodCatalog";
+import { arabicSafetyFingerprint } from "@/services/arabic/semanticSafety";
 const access = { uid: "test", isPremium: true } as RequestAccess;
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("ARABIC_GENERATION_ENABLED", "true");
@@ -30,11 +35,73 @@ async function fixture(source?: { id: string; fingerprint: string }) {
   return entry!;
 }
 describe("Arabic image isolation", () => {
+  it("converges existing recipe-version photos without calling Replicate or uploading again", async () => {
+    const facts = weeklyFactFixtures()[0];
+    const entries = await Promise.all([facts, { ...facts, totalMinutes: facts.totalMinutes + 1 }].map(async fact => {
+      const entry = (await buildArabicFactsEntry(fact, restrictions)).entry!;
+      mock.docs.set(arabicPaths.shared(entry.id), entry);
+      mock.docs.set(arabicPaths.image(entry.id), { imageUrl: `https://example.org/${entry.id}.webp`,
+        objectPath: arabicImageObjectPath(entry.id), fingerprint: entry.fingerprint, validatorVersion: entry.validatorVersion,
+        promptVersion: "test-version", recipeId: entry.id });
+      return entry;
+    }));
+    const first = await resolveArabicImage(entries[0], restrictions, access, false);
+    expect(await resolveArabicImage(entries[1], restrictions, access, false)).toBe(first);
+    expect(mock.model).not.toHaveBeenCalled(); expect(mock.uploads).toEqual([]);
+    expect(mock.writes).toEqual([arabicPaths.image((await arabicImageIdentity(entries[0])).id)]);
+  });
+  it("shares the generation lease across concurrent recipe versions", async () => {
+    const facts = weeklyFactFixtures()[0];
+    const entries = await Promise.all([facts, { ...facts, totalMinutes: facts.totalMinutes + 1 }].map(async fact => {
+      const entry = (await buildArabicFactsEntry(fact, restrictions)).entry!;
+      mock.docs.set(arabicPaths.shared(entry.id), entry); return entry;
+    }));
+    const urls = await Promise.all(entries.map(entry => resolveArabicImage(entry, restrictions, access, true)));
+    expect(urls[0]).toBe(urls[1]); expect(mock.model).toHaveBeenCalledTimes(1); expect(mock.uploads).toHaveLength(1);
+  });
+  it("keeps photos separate when a same-name recipe changes protein", async () => {
+    const facts = weeklyFactFixtures()[0], salmon = findArabicFood("salmon")!.id, tuna = findArabicFood("tuna")!.id;
+    const changed = { ...facts, ingredients: facts.ingredients.map(i => ({ ...i, foodId: i.foodId === salmon ? tuna : i.foodId })),
+      steps: facts.steps.map(step => ({ ...step, foodIds: step.foodIds.map(id => id === salmon ? tuna : id) })) };
+    const entries = await Promise.all([facts, changed].map(async fact => {
+      const result = await buildArabicFactsEntry(fact, restrictions, undefined, undefined, arabicSafetyFingerprint(fact, restrictions));
+      expect(result.reasons).toEqual([]);
+      mock.docs.set(arabicPaths.shared(result.entry!.id), result.entry); return result.entry!;
+    }));
+    await resolveArabicImage(entries[0], restrictions, access, true);
+    await expect(resolveArabicImage(entries[1], restrictions, access, false)).rejects.toThrow("ARABIC_IMAGE_NOT_CACHED");
+    expect((await arabicImageIdentity(entries[0])).id).not.toBe((await arabicImageIdentity(entries[1])).id);
+    expect(mock.model).toHaveBeenCalledTimes(1);
+  });
+  it("does not reuse a stable photo whose original source has since become blocked", async () => {
+    const facts = weeklyFactFixtures()[0];
+    const sourceEntry = (await buildArabicFactsEntry(facts, restrictions, { id: "en-1", fingerprint: "source-hash" })).entry!;
+    const independent = (await buildArabicFactsEntry(facts, restrictions)).entry!;
+    for (const entry of [sourceEntry, independent]) mock.docs.set(arabicPaths.shared(entry.id), entry);
+    mock.source.mockResolvedValue({});
+    await resolveArabicImage(sourceEntry, restrictions, access, true);
+    mock.source.mockResolvedValue(null);
+    await expect(resolveArabicImage(independent, restrictions, access, false)).rejects.toThrow("ARABIC_IMAGE_NOT_CACHED");
+    expect(mock.model).toHaveBeenCalledTimes(1);
+  });
+  it("reuses one photo across recipe IDs when quantities, step timing and ingredient order change", async () => {
+    const facts = weeklyFactFixtures()[0];
+    const first = (await buildArabicFactsEntry(facts, restrictions)).entry!;
+    const second = (await buildArabicFactsEntry({ ...facts,
+      ingredients: [...facts.ingredients].reverse().map(item => ({ ...item, quantity: item.quantity * 1.1 })),
+      steps: facts.steps.map(step => ({ ...step, minutes: step.minutes ? step.minutes + 1 : 0 })) }, restrictions)).entry!;
+    expect(first.id).not.toBe(second.id);
+    for (const entry of [first, second]) mock.docs.set(arabicPaths.shared(entry.id), entry);
+    const original = await resolveArabicImage(first, restrictions, access, true);
+    expect(await resolveArabicImage(second, restrictions, access, false)).toBe(original);
+    expect(mock.model).toHaveBeenCalledTimes(1); expect(mock.uploads).toHaveLength(1);
+    mock.writes.forEach(path => expect(() => assertArabicWritePath(path)).not.toThrow());
+  });
   it("generates once, stores only Arabic image data and reuses it", async () => {
     const entry = await fixture();
     const urls = await Promise.all([resolveArabicImage(entry, restrictions, access, true), resolveArabicImage(entry, restrictions, access, true)]);
     expect(urls[0]).toBe(urls[1]); expect(mock.model).toHaveBeenCalledTimes(1);
-    expect(mock.uploads).toEqual([arabicImageObjectPath(entry.id)]);
+    expect(mock.uploads).toEqual([arabicImageObjectPath((await arabicImageIdentity(entry)).id)]);
     mock.writes.forEach(path => expect(() => assertArabicWritePath(path)).not.toThrow());
     expect(await resolveArabicImage(entry, restrictions, access, false)).toBe(urls[0]);
     expect(mock.model).toHaveBeenCalledTimes(1);

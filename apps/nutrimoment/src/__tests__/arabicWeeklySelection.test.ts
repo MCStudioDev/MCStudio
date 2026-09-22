@@ -12,6 +12,13 @@ const assertComplete = (plan: ArabicRecipeEntry[]) => {
 };
 
 describe("Arabic weekly completion with limited repeats", () => {
+  it("selects unseen alternatives ahead of recent preferred dishes while retaining within-week diversity", () => {
+    const previous = entries(), fresh = entries().map(entry => ({ ...entry, id: `new-${entry.id}`,
+      canonical: { ...entry.canonical, cuisine: "Italian" } }));
+    const plan = selectArabicWeeklyMeals([...previous, ...fresh], { preferredCuisine: "Mediterranean",
+      recentIds: new Set(previous.map(entry => entry.id)), allowLimitedRepeats: true })!;
+    assertComplete(plan); expect(plan.every(entry => entry.id.startsWith("new-"))).toBe(true);
+  });
   it("prefers pantry-using meals among equally valid cuisine and slot choices", () => {
     const preferred = entries().map(entry => ({ ...entry, ingredientCanonicals: ["rice"] }));
     const alternatives = entries().map(entry => ({ ...entry, id: `other-${entry.id}`, ingredientCanonicals: ["oats"] }));

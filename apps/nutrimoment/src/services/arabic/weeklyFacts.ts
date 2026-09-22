@@ -16,7 +16,7 @@ type Edge = { to: number; reverse: number; capacity: number; cost: number };
  * Recipe/day nodes forbid the same dish twice on one day; source edges allow
  * each dish at most twice. Every selected entry has already passed validation.
  */
-export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { allowLimitedRepeats?: boolean; preferredCuisine?: string; pantry?: string[] } = {}): ArabicRecipeEntry[] | null {
+export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { allowLimitedRepeats?: boolean; preferredCuisine?: string; pantry?: string[]; recentIds?: Set<string> } = {}): ArabicRecipeEntry[] | null {
   const uniqueEntries = [...new Map(input.map(entry => [entry.id, entry])).values()];
   const entries = options.pantry?.length ? prioritizeArabicPantry(uniqueEntries, options.pantry) : uniqueEntries;
   const maxRepeats = options.allowLimitedRepeats ? ARABIC_WEEKLY_MAX_REPEATED_SLOTS : 0;
@@ -32,14 +32,15 @@ export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { a
   const slots = Array.from({ length: 21 }, () => node());
   slots.forEach(slot => link(slot, sink, 1));
   const assignments: Array<{ edge: Edge; slot: number; entry: ArabicRecipeEntry }> = [];
-  // A repeated slot costs more than all 21 cuisine alternatives combined:
-  // keep distinct meals first, then maximize the preferred cuisine.
-  const repeatCost = 22;
+  // Keep distinct meals first, then favor unseen meals, then preferred cuisine.
+  // Each level outweighs all 21 slots of the next level combined.
+  const recentCost = 22, repeatCost = 22 * 22;
   for (const entry of entries) {
     const recipe = node();
     const cuisineCost = options.preferredCuisine && !arabicCuisineMatches(entry.canonical.cuisine, options.preferredCuisine) ? 1 : 0;
-    link(source, recipe, 1, cuisineCost);
-    if (maxRepeats) link(source, recipe, 1, repeatCost + cuisineCost);
+    const cost = cuisineCost + (options.recentIds?.has(entry.id) ? recentCost : 0);
+    link(source, recipe, 1, cost);
+    if (maxRepeats) link(source, recipe, 1, repeatCost + cost);
     for (let day = 0; day < 7; day++) {
       const recipeDay = node(); link(recipe, recipeDay, 1);
       arabicWeeklyMealTypes.forEach((type, index) => {
@@ -64,7 +65,7 @@ export function selectArabicWeeklyMeals(input: ArabicRecipeEntry[], options: { a
         if (!queued.has(edge.to)) { queue.push(edge.to); queued.add(edge.to); }
       });
     }
-    if (!Number.isFinite(distance[sink]) || totalCost + distance[sink] > maxRepeats * repeatCost + 21) return null;
+    if (!Number.isFinite(distance[sink]) || totalCost + distance[sink] > maxRepeats * repeatCost + 21 * (recentCost + 1)) return null;
     totalCost += distance[sink];
     for (let current = sink; current !== source;) {
       const parent = previous[current], edge = graph[parent.node][parent.edge];

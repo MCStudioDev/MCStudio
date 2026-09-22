@@ -15,6 +15,36 @@ const OPTIONS = {
 };
 
 describe("meal plan recipe contract service", () => {
+  it("rejects three copies of a dish and same-day aliases even within the similarity allowance", () => {
+    const plan = invalidPlan();
+    plan.plan.forEach((day, index) => {
+      for (const slot of ["breakfast", "lunch", "dinner"] as const) day[slot] = validMeal(`Distinct ${slot} ${index}`, slot);
+    });
+    plan.plan[1].breakfast = plan.plan[0].breakfast;
+    plan.plan[2].breakfast = plan.plan[0].breakfast;
+    expect(validateMealPlanRecipeContracts(plan, { ...OPTIONS, maxSimilarMealSlots: 2 })
+      .some(issue => issue.reasons.includes("meal_reuse_limit_exceeded"))).toBe(true);
+    plan.plan[1].breakfast = validMeal("Different breakfast", "breakfast");
+    plan.plan[2].breakfast = validMeal("Another breakfast", "breakfast");
+    plan.plan[0].lunch = { ...plan.plan[0].breakfast, name: "Renamed plate", meal_type: "lunch" };
+    expect(validateMealPlanRecipeContracts(plan, { ...OPTIONS, maxSimilarMealSlots: 2 })
+      .some(issue => issue.reasons.includes("same_day_duplicate_dish"))).toBe(true);
+  });
+  it("fills a refreshed week with unseen safe meals before recent cached dishes", () => {
+    const old = Array.from({ length: 21 }, (_, i) => validMeal(`Earlier Chickpea Stew ${i}`, ["breakfast", "lunch", "dinner"][i % 3] as MealPlanMeal["meal_type"]));
+    const fresh = Array.from({ length: 21 }, (_, i) => validMeal(`Unseen Chickpea Stew ${i}`, ["breakfast", "lunch", "dinner"][i % 3] as MealPlanMeal["meal_type"]));
+    const result = buildValidatedRepeatFallbackPlan(invalidPlan(), { ...OPTIONS, candidateMeals: [...old, ...fresh],
+      maxSimilarMealSlots: 2, lastShownAt: meal => meal.name.startsWith("Earlier") ? 1000 : 0 });
+    expect(result.mealPlan).not.toBeNull(); expect(result.repeatedSlots).toBe(0);
+    expect(result.mealPlan!.plan.flatMap(day => [day.breakfast, day.lunch, day.dinner]).every(meal => meal.name.startsWith("Unseen"))).toBe(true);
+  });
+  it("cannot disguise an insufficient pool with two names sharing a photo dish identity", () => {
+    const candidates = Array.from({ length: 18 }, (_, i) => validMeal(`Chickpea Stew ${i}`));
+    candidates[0].photo_identity = { dish_slug: "vegetable-tacos", english_name: "Vegetable Tacos" } as MealPlanMeal["photo_identity"];
+    const alias = { ...validMeal("Roasted Vegetable Tacos"), photo_identity: candidates[0].photo_identity };
+    const result = buildValidatedRepeatFallbackPlan(invalidPlan(), { ...OPTIONS, candidateMeals: [...candidates, alias], maxSimilarMealSlots: 2 });
+    expect(result.mealPlan).toBeNull(); expect(result.uniqueMealCount).toBe(18);
+  });
   it("rejects a thin meal that recipe generation would not accept", () => {
     const result = evaluateMealPlanMealRecipeContract({
       name: "Chicken",

@@ -12,7 +12,7 @@ import type { MealPlanData, Recipe } from "@/lib/types";
 import { arabicDisabledResponse, arabicEnabled, ARABIC_REQUEST_BUDGET_MS, ARABIC_READABLE_VERSIONS } from "./config";
 import { resolveArabicIngredients } from "./ingredientResolution";
 import { listArabicRecipes, saveArabicResult, arabicPaths, readRecentArabicRecipeHistory } from "./repository";
-import { arabicLastShownAt, arabicRecipeNameKey, buildArabicRecentRecipes, rotateArabicCandidates, type ArabicRecentRecipes } from "./freshness";
+import { arabicLastShownAt, arabicRecipeNameKey, buildArabicRecentRecipes, buildArabicRecentWeeklyMeals, repeatsPreviousArabicWeek, rotateArabicCandidates, type ArabicRecentRecipes } from "./freshness";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { arabicRecipeSchema, buildArabicEntry, partitionArabicRecipe, revalidateArabicEntry } from "./validation";
 import { callArabicModel } from "./gemini";
@@ -82,10 +82,10 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const missingLimit = pantryOptional ? "unlimited" : input.maxMissingIngredients;
     const variationSeed = input.actionId ?? requestId;
     let recent: ArabicRecentRecipes = { shownAt: new Map(), names: [] }, freshnessUnavailable = false;
-    if (mode === "recipes") {
-      try { recent = await buildArabicRecentRecipes(await readRecentArabicRecipeHistory(access.uid), normalized.canonical); }
-      catch { freshnessUnavailable = true; logger.warn("Arabic freshness history unavailable", { requestId }); }
-    }
+    try {
+      const history = await readRecentArabicRecipeHistory(access.uid);
+      recent = mode === "mealplan" ? buildArabicRecentWeeklyMeals(history) : await buildArabicRecentRecipes(history, normalized.canonical);
+    } catch { freshnessUnavailable = true; logger.warn("Arabic freshness history unavailable", { requestId }); }
     const count = mode === "mealplan" ? 21 : input.recipeCount;
     // Keep a bounded reserve so later preferred matches can displace alternatives.
     const poolLimit = mode === "mealplan" ? 80 : count + 21;
@@ -138,7 +138,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       const identity = entry.facts ? recipeFactsIdentity(entry.facts) : arabicFingerprint({ ingredients: entry.canonical.ingredients.map(value => value.toLowerCase()).sort(), steps: entry.canonical.steps });
       const identityKeys = dishIdentityKeys(entry, identity);
       if (identityKeys.some(key => identities.has(key))) { recordReasons(["duplicate_dish"]); return; }
-      if (mode === "recipes" && arabicLastShownAt(rebuilt.entry, recent)) {
+      if (arabicLastShownAt(rebuilt.entry, recent)) {
         if (!recentCandidates.has(identity)) recentCandidates.set(identity, { entry: rebuilt.entry, displayed, identity });
         recordReasons(["recent_recipe"]); return;
       }
@@ -157,7 +157,8 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
         cuisine_match_origin: cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine) ? "preferred" : "ingredient_fallback" });
     };
     const cached = await listArabicRecipes(normalized.canonical, 200, pantryOptional);
-    for (const entry of prioritizeArabicCuisine(mode === "recipes" ? rotateArabicCandidates(cached, variationSeed, entry => entry.id) : prioritizeArabicPantry(cached, normalized.canonical),
+    const rotatedCache = rotateArabicCandidates(cached, variationSeed, entry => entry.id);
+    for (const entry of prioritizeArabicCuisine(mode === "recipes" ? rotatedCache : prioritizeArabicPantry(rotatedCache, normalized.canonical),
       input.preferredCuisine, entry => entry.canonical?.cuisine ?? "")) await consider(entry);
     const failed: Array<Pair & { reasons: string[] }> = [];
     const processPair = async (pair: Pair) => {
@@ -185,7 +186,7 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
       }
     };
     const references = needsMore() && authorization.allowed ? await findArabicSourceCandidates(normalized.canonical, input.preferredCuisine, restrictions, count,
-      mode === "recipes" ? { recentKeys: [...recent.shownAt.keys()], seed: variationSeed } : undefined, pantryOptional, true) : [];
+      { recentKeys: [...recent.shownAt.keys()], seed: variationSeed }, pantryOptional, true) : [];
     // Scanner requests without AI access use only Arabic cache. Entitled scanner
     // requests can reuse a derivative before reserving; weeks reserve above.
     for (const reference of references) {
@@ -351,21 +352,28 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     if (mode === "recipes") {
       const selectedIds = new Set(prioritizeArabicCuisine([...accepted.values()], input.preferredCuisine, entry => entry.canonical.cuisine).slice(0, count).map(entry => entry.id));
       for (const id of accepted.keys()) if (!selectedIds.has(id)) { accepted.delete(id); output.delete(id); }
-      const fallback = prioritizeArabicCuisine(rotateArabicCandidates([...recentCandidates.values()], variationSeed, item => item.entry.id)
-        .sort((a, b) => arabicLastShownAt(a.entry, recent) - arabicLastShownAt(b.entry, recent)), input.preferredCuisine, item => item.entry.canonical.cuisine);
-      for (const { entry, displayed, identity } of fallback) {
-        if (accepted.size >= count) break;
-        const identityKeys = dishIdentityKeys(entry, identity);
-        if (identityKeys.some(key => identities.has(key)) || (entry.source && !await arabicSourceIsCurrent(entry.source))) continue;
-        identityKeys.forEach(key => identities.add(key)); accepted.set(entry.id, entry); output.set(entry.id, { ...displayed,
-          cuisine_match_origin: cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine) ? "preferred" : "ingredient_fallback" }); backfilledIds.add(entry.id);
-      }
+    }
+    const fallback = prioritizeArabicCuisine(rotateArabicCandidates([...recentCandidates.values()], variationSeed, item => item.entry.id)
+      .sort((a, b) => arabicLastShownAt(a.entry, recent) - arabicLastShownAt(b.entry, recent)), input.preferredCuisine, item => item.entry.canonical.cuisine);
+    for (const { entry, displayed, identity } of fallback) {
+      if (accepted.size >= (mode === "mealplan" ? poolLimit : count)) break;
+      const identityKeys = dishIdentityKeys(entry, identity);
+      if (identityKeys.some(key => identities.has(key)) || (entry.source && !await arabicSourceIsCurrent(entry.source))) continue;
+      identityKeys.forEach(key => identities.add(key)); accepted.set(entry.id, entry); output.set(entry.id, { ...displayed,
+        cuisine_match_origin: cuisineMatchesPreference(entry.canonical.cuisine, input.preferredCuisine) ? "preferred" : "ingredient_fallback" }); backfilledIds.add(entry.id);
+    }
+    if (mode === "recipes") {
       if (reservationId && ![...accepted.keys()].some(id => aiAcceptedIds.has(id))) {
         await releaseFreeAiAction(access, reservationId); reservationId = undefined; imageActionGrantId = undefined; didCallAi = false;
       }
-      for (const [id, recipe] of output) output.set(id, { ...recipe, freshness_origin: freshnessUnavailable ? undefined : backfilledIds.has(id) ? "backfilled_recent" : "fresh" });
     }
-    const weeklyEntries = mode === "mealplan" ? selectArabicWeeklyMeals([...accepted.values()], { ...weeklyOptions, allowLimitedRepeats: true }) : null;
+    for (const [id, recipe] of output) output.set(id, { ...recipe, freshness_origin: freshnessUnavailable ? undefined : backfilledIds.has(id) ? "backfilled_recent" : "fresh" });
+    const weeklyEntries = mode === "mealplan" ? selectArabicWeeklyMeals([...accepted.values()], { ...weeklyOptions, recentIds: backfilledIds, allowLimitedRepeats: true }) : null;
+    if (weeklyEntries && repeatsPreviousArabicWeek(weeklyEntries, recent)) {
+      if (reservationId) { await releaseFreeAiAction(access, reservationId); reservationId = undefined; }
+      return Response.json({ code: "ARABIC_WEEKLY_NO_NEW_MEALS", recipes: [], generationLanguage: "ar", requestId,
+        error: "لم تتوفر وجبات جديدة تجتاز الفحوص لتغيير خطتك السابقة. احتفظنا بخطتك ولم نخصم رصيدًا. جرّب مطبخًا آخر أو أعد المحاولة لاحقًا." }, { status: 503 });
+    }
     const uniqueWeeklyCount = weeklyEntries ? new Set(weeklyEntries.map(entry => entry.id)).size : 0;
     const repeatFallback = weeklyEntries && uniqueWeeklyCount < 21
       ? { maxRepeatedSlots: ARABIC_WEEKLY_MAX_REPEATED_SLOTS, repeatedSlots: 21 - uniqueWeeklyCount, uniqueMealCount: uniqueWeeklyCount } : undefined;
@@ -423,12 +431,14 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     if (completedAccess) access = completedAccess;
     reservationId = undefined;
     logger.info("Arabic generation completed", { requestId, mode, returned: recipes.length, invalidCount, modelFailureCount, rejectionCounts, diagnostics: boundedArabicDiagnostics(dishDiagnostics), elapsedMs: Date.now() - startedAt });
-    const backfilledCount = backfilledIds.size, freshCount = recipes.length - backfilledCount;
+    const backfilledCount = recipes.filter(recipe => recipe.freshness_origin === "backfilled_recent").length, freshCount = recipes.length - backfilledCount;
     const refreshFailure = invalidCount ? "بعض الوصفات الجديدة لم تجتز فحص الدقة والتحضير، لذلك لم نعرضها."
       : planningFeedback().length ? "لم نتمكن من اعتماد بعض اقتراحات المكونات الجديدة بعد فحص المكونات والتنوع."
       : generationRequestFailed || modelFailureCount ? "تعذر إكمال توليد بعض الوصفات الجديدة الآن." : undefined;
     const alternativeCount = recipes.filter(recipe => recipe.cuisine_match_origin === "ingredient_fallback").length;
-    const resultMessage = repeatFallback ? `أكملنا الأسبوع بتكرار ${repeatFallback.repeatedSlots} من الوجبات المتحقق منها، بما لا يتجاوز 10٪ من أصل 21 وجبة. تضم الخطة ${repeatFallback.uniqueMealCount} وصفة مختلفة، والتكرار في أيام مختلفة.`
+    const repeatMessage = repeatFallback ? `أكملنا الأسبوع بتكرار ${repeatFallback.repeatedSlots} من الوجبات المتحقق منها، بما لا يتجاوز 10٪ من أصل 21 وجبة. تضم الخطة ${repeatFallback.uniqueMealCount} وصفة مختلفة، والتكرار في أيام مختلفة.` : undefined;
+    const resultMessage = mode === "mealplan" && backfilledCount && !freshnessUnavailable
+      ? `تضم الخطة ${freshCount} وجبات لم تظهر في خططك خلال آخر 7 أيام، وأكملناها بـ ${backfilledCount} وجبات ظهرت سابقًا لعدم توفر بدائل جديدة كافية تجتاز الفحوص. ${refreshFailure ?? ""}`.trim()
       : refreshFailure && (backfilledCount || recipes.length < count || alternativeCount)
       ? `${refreshFailure} عرضنا ${recipes.length} وصفات محفوظة أو تحقّقنا منها، منها ${backfilledCount} شاهدتها سابقًا. يمكنك المحاولة مجددًا؛ قيودك الغذائية ما زالت مطبقة.`
       : freshnessUnavailable ? "تعذر التحقق من السجل الآن. هذه وصفات مطابقة لإعداداتك، وقد تتضمن وصفات شاهدتها سابقًا."
@@ -437,9 +447,10 @@ export async function handleArabicGeneration(request: Request, mode: "recipes" |
     const cuisineFallback = alternativeCount ? { preferredCount: recipes.length - alternativeCount, alternativeCount, requestedCuisine: input.preferredCuisine } : undefined;
     const cuisineMessage = cuisineFallback
       ? `وجدنا ${cuisineFallback.preferredCount} من ${mode === "mealplan" ? "الوجبات" : "الوصفات"} من مطبخك المفضل، وأكملنا المتاح بـ ${alternativeCount} من مطابخ أخرى لعدم توفر خيارات كافية منه. ${mode === "mealplan" ? "جميعها تجتاز قيودك الغذائية، والمكونات غير المتوفرة مدرجة في قائمة التسوق." : "جميعها تجتاز قيودك الغذائية وحد المكونات الناقصة."}` : undefined;
-    const message = [cuisineMessage, resultMessage].filter(Boolean).join(" ") || undefined;
+    const message = [cuisineMessage, repeatMessage, resultMessage].filter(Boolean).join(" ") || undefined;
     return Response.json({ recipes, suggestions, result: JSON.stringify(mealPlan ?? recipes), generationLanguage: "ar", generationStatus: recipes.length < count || backfilledCount || freshnessUnavailable || alternativeCount ? "PARTIAL_RESULTS" : "SUCCESS_DATASET", message, cuisineFallback,
-      ...(mode === "recipes" ? { freshCount: freshnessUnavailable ? undefined : freshCount, backfilledCount, freshnessUnavailable } : { repeatFallback }), requestId, access: accessPayload(access) });
+      freshCount: freshnessUnavailable ? undefined : freshCount, backfilledCount, freshnessUnavailable,
+      ...(mode === "mealplan" ? { repeatFallback } : {}), requestId, access: accessPayload(access) });
   } catch (error) {
     if (access && reservationId) await releaseFreeAiAction(access, reservationId);
     if (!access) return accessErrorResponse(error);

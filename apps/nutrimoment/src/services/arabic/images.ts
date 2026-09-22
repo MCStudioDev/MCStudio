@@ -16,9 +16,10 @@ import { logger } from "@/lib/logger";
 import { readTrustedArabicSource, trustedArabicSourceFingerprint } from "./trustedSources";
 import { arabicSourceFoodIds, sameArabicSourceDish } from "./sourceCandidates";
 import { arabicFoodById } from "./foodCatalog";
+import { arabicImageIdentity, ARABIC_IMAGE_IDENTITY_VERSION } from "./imageIdentity";
 
 export function arabicImageObjectPath(id: string) {
-  if (!/^ar-[a-f0-9]{24}$/.test(id)) throw new Error("Invalid Arabic image identity");
+  if (!/^(?:ar-[a-f0-9]{24}|dish-[a-f0-9]{40})$/.test(id)) throw new Error("Invalid Arabic image identity");
   return `arabic-recipe-photos-v1/${id}`;
 }
 const pending = new Map<string, Promise<string>>();
@@ -38,12 +39,17 @@ export async function resolveArabicImage(entry: ArabicRecipeEntry, restrictions:
   if (cached) return cached.imageUrl;
   if (!allowGeneration) throw new Error("ARABIC_IMAGE_NOT_CACHED");
   if (!arabicEnabled()) throw new Error("ARABIC_GENERATION_DISABLED");
-  const cachePath = arabicPaths.image(entry.id);
-  const current = pending.get(entry.id);
-  if (current) return current;
+  const identity = await arabicImageIdentity(entry), cachePath = arabicPaths.image(identity.id);
+  const current = pending.get(identity.id);
+  if (current) {
+    const imageUrl = await current;
+    // A sibling recipe may have a different source which changed while waiting.
+    await readValidatedArabicEntry(entry.id, restrictions);
+    return imageUrl;
+  }
   const task = (async () => {
     const owner = crypto.randomUUID();
-    await acquireArabicImageLease(entry.id, owner);
+    await acquireArabicImageLease(identity.id, owner);
     try {
     // Another worker may have finished between the first read and our lease.
     const ready = await readArabicImage(entry, restrictions);
@@ -63,31 +69,56 @@ export async function resolveArabicImage(entry: ArabicRecipeEntry, restrictions:
     if (buffer.length > 10_000_000) throw new Error("Image too large");
     await readValidatedArabicEntry(entry.id, restrictions);
     if (!arabicEnabled()) throw new Error("Arabic generation disabled");
-    const bucket = getAdminStorageBucket(), objectPath = arabicImageObjectPath(entry.id), token = crypto.randomUUID();
+    const bucket = getAdminStorageBucket(), objectPath = arabicImageObjectPath(identity.id), token = crypto.randomUUID();
     await bucket.file(objectPath).save(buffer, { resumable: false, contentType, metadata: { metadata: { firebaseStorageDownloadTokens: token } } });
     const imageUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(objectPath)}?alt=media&token=${token}`;
     assertArabicWritePath(cachePath);
-    // This durable document is also the recipe-to-photo association. History,
-    // scanner and plans hydrate it by Arabic recipe ID instead of duplicating
-    // image data into old result records or writing English photo links.
+    // One Arabic dish photo serves all validated recipe versions. Content
+    // fingerprints and source eligibility remain independent safety checks.
     const db = getAdminDb();
     await db.runTransaction(async transaction => {
       if (entry.source && !await arabicSourceIsCurrent(entry.source, transaction)) throw new Error("Source changed before Arabic image publication");
       const lease = (await transaction.get(db.doc(cachePath))).data();
       if (lease?.leaseOwner !== owner) throw new Error("Arabic image lease lost");
-      transaction.set(db.doc(cachePath), { imageUrl, imageSource: "replicate", objectPath, fingerprint: entry.fingerprint, validatorVersion: ARABIC_VALIDATOR_VERSION, promptVersion: ARABIC_IMAGE_PROMPT_VERSION, recipeId: entry.id });
+      transaction.set(db.doc(cachePath), { imageUrl, imageSource: "replicate", objectPath, fingerprint: entry.fingerprint,
+        validatorVersion: ARABIC_VALIDATOR_VERSION, promptVersion: ARABIC_IMAGE_PROMPT_VERSION, recipeId: entry.id,
+        identityVersion: ARABIC_IMAGE_IDENTITY_VERSION, identityFingerprint: identity.fingerprint, source: entry.source ?? null });
     });
     return imageUrl;
     } finally {
-      await releaseArabicImageLease(entry.id, owner).catch(() => logger.warn("Arabic image lease cleanup deferred until expiry"));
+      await releaseArabicImageLease(identity.id, owner).catch(() => logger.warn("Arabic image lease cleanup deferred until expiry"));
     }
-  })().finally(() => pending.delete(entry.id));
-  pending.set(entry.id, task);
+  })().finally(() => pending.delete(identity.id));
+  pending.set(identity.id, task);
   return task;
 }
 
 export async function readArabicImage(entry: ArabicRecipeEntry, restrictions: GenerationRestrictions) {
   if (entry.source && !await arabicSourceIsCurrent(entry.source)) throw new Error("Source changed");
+  const db = getAdminDb(), identity = await arabicImageIdentity(entry), sharedPath = arabicPaths.image(identity.id);
+  const stable = (await db.doc(sharedPath).get()).data();
+  if (await usableDishPhoto(stable, identity)) return photoResult(stable!);
+  const legacy = (await db.doc(arabicPaths.image(entry.id)).get()).data();
+  if (legacy?.fingerprint === entry.fingerprint && legacy.promptVersion === ARABIC_IMAGE_PROMPT_VERSION
+    && ARABIC_READABLE_VERSIONS.has(legacy.validatorVersion) && typeof legacy.imageUrl === "string"
+    && /^https:\/\//.test(legacy.imageUrl) && legacy.objectPath === arabicImageObjectPath(entry.id)) {
+    // Lazily bind an existing Arabic photo instead of regenerating it. A
+    // transaction makes concurrent old recipe versions converge on one winner.
+    // The original recipe, image object and English data are never rewritten.
+    assertArabicWritePath(sharedPath);
+    const winner = await db.runTransaction(async transaction => {
+      const current = (await transaction.get(db.doc(sharedPath))).data();
+      if (await usableDishPhoto(current, identity, transaction)) return current!;
+      if (current?.leaseUntil > Date.now()) throw new Error("ARABIC_IMAGE_PENDING");
+      if (entry.source && !await arabicSourceIsCurrent(entry.source, transaction)) throw new Error("Source changed");
+      const bound = { imageUrl: legacy.imageUrl, imageSource: "replicate", objectPath: legacy.objectPath,
+        fingerprint: entry.fingerprint, validatorVersion: entry.validatorVersion, promptVersion: ARABIC_IMAGE_PROMPT_VERSION,
+        recipeId: entry.id, source: entry.source ?? null, identityVersion: ARABIC_IMAGE_IDENTITY_VERSION, identityFingerprint: identity.fingerprint };
+      transaction.set(db.doc(sharedPath), bound);
+      return bound;
+    });
+    return photoResult(winner);
+  }
   if (entry.source?.editorKey) {
     const cached = (await getAdminDb().doc(`recipeEditorSemanticCache/${entry.source.editorKey}`).get()).data();
     const recipe = cached?.recipe as Recipe | undefined;
@@ -99,10 +130,20 @@ export async function readArabicImage(entry: ArabicRecipeEntry, restrictions: Ge
     const recipe = englishSourceRecipe(source);
     if (await canReuseArabicSourcePicture(recipe, entry.canonical, restrictions) && recipe.image_url && /^https:\/\//.test(recipe.image_url)) return { imageUrl: recipe.image_url, imageSource: recipe.image_source, imageAttributionName: recipe.image_attribution_name, imageAttributionUrl: recipe.image_attribution_url };
   }
-  const cachePath = arabicPaths.image(entry.id);
-  const cached = (await getAdminDb().doc(cachePath).get()).data();
-  if (cached?.fingerprint === entry.fingerprint && cached.promptVersion === ARABIC_IMAGE_PROMPT_VERSION && ARABIC_READABLE_VERSIONS.has(cached.validatorVersion) && typeof cached.imageUrl === "string" && /^https:\/\//.test(cached.imageUrl) && cached.objectPath === arabicImageObjectPath(entry.id)) return { imageUrl: cached.imageUrl as string, imageSource: "replicate" as const };
   return null;
+}
+
+function photoResult(record: Record<string, unknown>) {
+  return { imageUrl: record.imageUrl as string, imageSource: "replicate" as const };
+}
+async function usableDishPhoto(record: Record<string, unknown> | undefined, identity: Awaited<ReturnType<typeof arabicImageIdentity>>,
+  transaction?: import("firebase-admin/firestore").Transaction) {
+  if (!record || record.identityVersion !== ARABIC_IMAGE_IDENTITY_VERSION || record.identityFingerprint !== identity.fingerprint
+    || record.promptVersion !== ARABIC_IMAGE_PROMPT_VERSION || !ARABIC_READABLE_VERSIONS.has(record.validatorVersion as string)
+    || typeof record.imageUrl !== "string" || !/^https:\/\//.test(record.imageUrl)
+    || typeof record.recipeId !== "string" || !/^ar-[a-f0-9]{24}$/.test(record.recipeId)
+    || ![arabicImageObjectPath(identity.id), arabicImageObjectPath(record.recipeId)].includes(record.objectPath as string)) return false;
+  return !record.source || await arabicSourceIsCurrent(record.source as NonNullable<ArabicRecipeEntry["source"]>, transaction);
 }
 
 async function canReuseArabicSourcePicture(recipe: Recipe, corrected: Recipe, restrictions: GenerationRestrictions) {

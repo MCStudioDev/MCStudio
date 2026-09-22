@@ -62,7 +62,7 @@ export async function saveArabicResult(input: {
     recipes: input.displayedRecipes ?? input.entries.map(entry => entry.recipe), generationStatus: "completed", generationLanguage: "ar",
     effectiveRestrictions: input.restrictions, imageActionGrantId: input.imageActionGrantId
   };
-  const recipeFreshness = !input.mealPlan && input.canonicalIngredients
+  const recipeFreshness = input.canonicalIngredients
     ? buildArabicFreshnessRecord(input.canonicalIngredients, input.entries) : undefined;
   writes.push({ path: arabicPaths.history(input.uid, input.requestId), data: { ...history, englishSources, recipeFreshness,
     generationDiagnostics: input.generationDiagnostics ? boundedArabicDiagnostics(input.generationDiagnostics) : undefined } });

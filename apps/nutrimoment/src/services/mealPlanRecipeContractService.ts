@@ -5,6 +5,7 @@ import type { MealPlanData, MealPlanMeal, Recipe } from "@/lib/types";
 import { RecipeAcceptanceEngine } from "@/services/recipeAcceptanceEngine";
 import { getBlockingEditedRecipeQualityReasons } from "@/services/recipeEditorFallbackService";
 import { RecipeQualityGate } from "@/services/recipeQualityGate";
+import { mealPlanIdentityIndex } from "@/lib/mealPlanDishIdentity";
 
 type MealSlot = "breakfast" | "lunch" | "dinner";
 
@@ -77,21 +78,28 @@ export function validateMealPlanRecipeContracts(
   const issues: MealPlanRecipeContractIssue[] = [];
   const selectedRecipes: Recipe[] = [];
   const usageCounts = new Map<string, number>();
+  const usedDays = new Map<string, Set<number>>();
+  const identify = mealPlanIdentityIndex(flattenMealPlan(mealPlan).map(entry => entry.meal));
   const maxSimilarMealSlots = Math.max(0, options.maxSimilarMealSlots ?? 0);
   let similarMealSlots = 0;
 
   for (const entry of flattenMealPlan(mealPlan)) {
-    const mealKey = normalizeMealKey(entry.meal);
+    const mealKey = identify(entry.meal);
     const repeatedIdentity = (usageCounts.get(mealKey) ?? 0) > 0;
     const standardEvaluation = evaluateMealPlanMealRecipeContract(entry.meal, options.recipeLanguage, selectedRecipes);
     const individualEvaluation = repeatedIdentity || isDiversityOnlyFailure(standardEvaluation.reasons)
       ? evaluateMealPlanMealRecipeContract(entry.meal, options.recipeLanguage)
       : standardEvaluation;
     const restrictionReasons = getRestrictionReasons(entry.meal, options);
+    const reuseReasons = [
+      ...((usageCounts.get(mealKey) ?? 0) >= 2 ? ["meal_reuse_limit_exceeded"] : []),
+      ...(usedDays.get(mealKey)?.has(entry.dayIndex) ? ["same_day_duplicate_dish"] : [])
+    ];
     const canUseSimilarityAllowance =
       (repeatedIdentity || isDiversityOnlyFailure(standardEvaluation.reasons)) &&
       individualEvaluation.accepted &&
       restrictionReasons.length === 0 &&
+      reuseReasons.length === 0 &&
       similarMealSlots < maxSimilarMealSlots;
     const reasons = canUseSimilarityAllowance
       ? []
@@ -99,7 +107,8 @@ export function validateMealPlanRecipeContracts(
           ...(repeatedIdentity && similarMealSlots >= maxSimilarMealSlots
             ? ["meal_similarity_budget_exceeded"]
             : standardEvaluation.reasons),
-          ...restrictionReasons
+          ...restrictionReasons,
+          ...reuseReasons
         ]));
     if (reasons.length) {
       issues.push({
@@ -112,6 +121,9 @@ export function validateMealPlanRecipeContracts(
     }
     if (canUseSimilarityAllowance) similarMealSlots += 1;
     usageCounts.set(mealKey, (usageCounts.get(mealKey) ?? 0) + 1);
+    const days = usedDays.get(mealKey) ?? new Set<number>();
+    days.add(entry.dayIndex);
+    usedDays.set(mealKey, days);
     selectedRecipes.push(individualEvaluation.recipe);
   }
 
@@ -123,13 +135,16 @@ export function buildValidatedRepeatFallbackPlan(
   options: Pick<MealPlanRecipeContractOptions, "conditions" | "dietContext" | "preferredCuisine" | "recipeLanguage"> & {
     candidateMeals: MealPlanMeal[];
     maxSimilarMealSlots: number;
+    lastShownAt?: (meal: MealPlanMeal) => number;
   }
 ) {
   const maxSimilarMealSlots = Math.max(0, options.maxSimilarMealSlots);
-  const candidates = dedupeMeals([
-    ...flattenMealPlan(template).map((entry) => entry.meal),
+  const pool = [
+    ...flattenMealPlan(template).map(entry => ({ ...entry.meal, meal_type: entry.meal.meal_type ?? entry.slot })),
     ...options.candidateMeals
-  ]).filter((meal) =>
+  ];
+  const identify = mealPlanIdentityIndex(pool);
+  const candidates = dedupeMeals(pool, identify).filter((meal) =>
     getRestrictionReasons(meal, options).length === 0 &&
     evaluateMealPlanMealRecipeContract(meal, options.recipeLanguage).accepted
   );
@@ -152,9 +167,13 @@ export function buildValidatedRepeatFallbackPlan(
   };
 
   for (const entry of flattenMealPlan(nextPlan)) {
-    const rankedCandidates = rankFallbackCandidates(candidates, entry.slot, usageCounts);
+    const dayKeys = new Set(flattenMealPlan(nextPlan).filter(item => item.dayIndex === entry.dayIndex
+      && ["breakfast", "lunch", "dinner"].indexOf(item.slot) < ["breakfast", "lunch", "dinner"].indexOf(entry.slot)).map(item => identify(item.meal)));
+    const rankedCandidates = rankFallbackCandidates(candidates, entry.slot, usageCounts, identify, options.lastShownAt)
+      .filter(candidate => (!candidate.meal_type || candidate.meal_type === entry.slot)
+        && !dayKeys.has(identify(candidate)) && (usageCounts.get(identify(candidate)) ?? 0) < 2);
     const unusedCandidates = rankedCandidates.filter((candidate) =>
-      (usageCounts.get(normalizeMealKey(candidate)) ?? 0) === 0
+      (usageCounts.get(identify(candidate)) ?? 0) === 0
     );
     let selected = unusedCandidates.find((candidate) =>
       evaluateMealPlanMealRecipeContract(candidate, options.recipeLanguage, selectedRecipes).accepted
@@ -170,7 +189,7 @@ export function buildValidatedRepeatFallbackPlan(
 
     if (!selected && repeatedSlots < maxSimilarMealSlots) {
       selected = rankedCandidates.find((candidate) =>
-        (usageCounts.get(normalizeMealKey(candidate)) ?? 0) > 0 &&
+        (usageCounts.get(identify(candidate)) ?? 0) > 0 &&
         evaluateMealPlanMealRecipeContract(candidate, options.recipeLanguage).accepted
       );
     }
@@ -184,7 +203,7 @@ export function buildValidatedRepeatFallbackPlan(
       };
     }
 
-    const key = normalizeMealKey(selected);
+    const key = identify(selected);
     const repeatedIdentity = (usageCounts.get(key) ?? 0) > 0;
     const standardEvaluation = evaluateMealPlanMealRecipeContract(selected, options.recipeLanguage, selectedRecipes);
     if (repeatedIdentity || isDiversityOnlyFailure(standardEvaluation.reasons)) repeatedSlots += 1;
@@ -205,7 +224,7 @@ export function buildValidatedRepeatFallbackPlan(
 
 export function summarizeMealPlanRepeatUsage(mealPlan: MealPlanData) {
   const meals = flattenMealPlan(mealPlan).map((entry) => entry.meal);
-  const uniqueMealCount = new Set(meals.map(normalizeMealKey)).size;
+  const uniqueMealCount = new Set(meals.map(mealPlanIdentityIndex(meals))).size;
   return {
     repeatedSlots: Math.max(0, meals.length - uniqueMealCount),
     uniqueMealCount
@@ -323,10 +342,10 @@ function pickReplacementMeal(
   });
 }
 
-function dedupeMeals(meals: MealPlanMeal[]) {
+function dedupeMeals(meals: MealPlanMeal[], identify: (meal: MealPlanMeal) => string) {
   const byKey = new Map<string, MealPlanMeal>();
   meals.forEach((meal) => {
-    const key = normalizeMealKey(meal);
+    const key = identify(meal);
     if (key && !byKey.has(key)) byKey.set(key, meal);
   });
   return Array.from(byKey.values());
@@ -335,14 +354,16 @@ function dedupeMeals(meals: MealPlanMeal[]) {
 function rankFallbackCandidates(
   meals: MealPlanMeal[],
   slot: MealSlot,
-  usageCounts: Map<string, number>
+  usageCounts: Map<string, number>,
+  identify: (meal: MealPlanMeal) => string,
+  lastShownAt?: (meal: MealPlanMeal) => number
 ) {
   return [...meals].sort((left, right) => {
-    const leftUsage = usageCounts.get(normalizeMealKey(left)) ?? 0;
-    const rightUsage = usageCounts.get(normalizeMealKey(right)) ?? 0;
+    const leftUsage = usageCounts.get(identify(left)) ?? 0;
+    const rightUsage = usageCounts.get(identify(right)) ?? 0;
     const leftSlot = left.meal_type === slot ? 1 : 0;
     const rightSlot = right.meal_type === slot ? 1 : 0;
-    return leftUsage - rightUsage || rightSlot - leftSlot;
+    return leftUsage - rightUsage || rightSlot - leftSlot || (lastShownAt?.(left) ?? 0) - (lastShownAt?.(right) ?? 0);
   });
 }
 

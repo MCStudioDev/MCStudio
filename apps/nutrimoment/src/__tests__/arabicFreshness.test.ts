@@ -4,7 +4,24 @@ import { buildArabicEntry } from "@/services/arabic/validation";
 import { weeklyFactFixtures } from "./fixtures/arabicFacts";
 import { buildArabicFactsEntry } from "@/services/arabic/recipeFacts";
 import { arabicEntryFreshnessKeys, arabicIngredientContextKey, arabicLastShownAt, arabicRecipeNameKey,
-  arabicSourceKey, buildArabicFreshnessRecord, buildArabicRecentRecipes, rotateArabicCandidates, ARABIC_FRESHNESS_WINDOW_MS } from "@/services/arabic/freshness";
+  arabicSourceKey, buildArabicFreshnessRecord, buildArabicRecentRecipes, buildArabicRecentWeeklyMeals, repeatsPreviousArabicWeek,
+  rotateArabicCandidates, ARABIC_FRESHNESS_WINDOW_MS, ARABIC_WEEKLY_FRESHNESS_WINDOW_MS } from "@/services/arabic/freshness";
+
+describe("Arabic weekly history", () => {
+  it("reads pre-fix weeks across pantry changes for seven days without rewriting them", async () => {
+    const entries = await Promise.all(weeklyFactFixtures().map(async facts => (await buildArabicFactsEntry(facts, restrictions)).entry!));
+    const row = { timestamp: new Date(now - 2 * ARABIC_FRESHNESS_WINDOW_MS).toISOString(), sessionType: "weekly_meal_plan",
+      generationStatus: "completed", ingredients: ["old pantry"], recipes: entries.map(entry => entry.recipe) };
+    const before = structuredClone(row), recent = buildArabicRecentWeeklyMeals([row], now);
+    expect(arabicLastShownAt(entries[0], recent)).toBe(now - 2 * ARABIC_FRESHNESS_WINDOW_MS);
+    expect(repeatsPreviousArabicWeek(entries, recent)).toBe(true); expect(row).toEqual(before);
+    for (const override of [{ timestamp: new Date(now - ARABIC_WEEKLY_FRESHNESS_WINDOW_MS).toISOString() },
+      { timestamp: new Date(now + 1000).toISOString() }, { timestamp: "bad" }, { generationStatus: "failed" },
+      { sessionType: "recipe_generation" }, { recipes: [] }]) {
+      expect(buildArabicRecentWeeklyMeals([{ ...row, ...override }], now).shownAt.size).toBe(0);
+    }
+  });
+});
 
 const now = Date.parse("2026-09-13T12:00:00Z");
 const history = (overrides: Record<string, unknown> = {}) => ({ timestamp: new Date(now - 1000).toISOString(),

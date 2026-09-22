@@ -73,6 +73,67 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Arabic request integration with write recording", () => {
+  it("uses unseen weekly cache meals on the next click and stores weekly freshness metadata", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all([...facts, ...facts.map(fact => withExtraFood(fact, "parsley", "بالبقدونس"))]
+      .map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    const first = await (await handleArabicGeneration(request(), "mealplan")).json();
+    const second = await (await handleArabicGeneration(request(), "mealplan")).json();
+    expect(first.recipes).toHaveLength(21); expect(second.recipes).toHaveLength(21);
+    const firstNames = new Set(first.recipes.map((recipe: { name: string }) => recipe.name));
+    expect(second.recipes.every((recipe: { name: string }) => !firstNames.has(recipe.name))).toBe(true);
+    expect(mock.generate).not.toHaveBeenCalled();
+    expect(mock.writes.filter(write => write.path.includes("/historyArabicV1/")).every(write =>
+      !!(write.data as { recipeFreshness?: unknown }).recipeFreshness)).toBe(true);
+    mock.writes.forEach(write => expect(() => assertArabicWritePath(write.path)).not.toThrow());
+  });
+  it("asks Gemini for new weekly dishes despite a complete previously shown cache", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.history = [{ timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), sessionType: "weekly_meal_plan",
+      generationStatus: "completed", ingredients: ["different pantry"], recipes: mock.rows.map((entry: any) => entry.recipe) }];
+    mock.generate.mockImplementation(async (input: { mealTypesNeeded?: string[] }) => ({ recipes: facts
+      .filter(fact => input.mealTypesNeeded?.includes(fact.mealTypes[0]))
+      .map(fact => ({ facts: withExtraFood(fact, "parsley", "بالبقدونس") })) }));
+    const response = await handleArabicGeneration(request(), "mealplan"), data = await response.json();
+    expect(response.status).toBe(200); expect(data.recipes).toHaveLength(21);
+    expect(mock.generate).toHaveBeenCalled();
+    expect(mock.generate.mock.calls[0][0].excludeNames).toContain(facts[0].name);
+    expect(data.recipes.every((recipe: { name: string }) => recipe.name.endsWith("بالبقدونس"))).toBe(true);
+    expect(mock.reserve).toHaveBeenCalledTimes(1); expect(mock.complete).toHaveBeenCalledTimes(1);
+  });
+  it("does not charge or replace the plan when refresh only returns the previous 21 dishes", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.history = [{ timestamp: new Date(Date.now() - 1000).toISOString(), sessionType: "weekly_meal_plan",
+      generationStatus: "completed", recipes: mock.rows.map((entry: any) => entry.recipe) }];
+    mock.generate.mockResolvedValue({ recipes: [] });
+    const response = await handleArabicGeneration(request(), "mealplan"), data = await response.json();
+    expect(response.status).toBe(503); expect(data.code).toBe("ARABIC_WEEKLY_NO_NEW_MEALS");
+    expect(mock.generate).toHaveBeenCalled(); expect(mock.release).toHaveBeenCalledTimes(1);
+    expect(mock.complete).not.toHaveBeenCalled(); expect(mock.writes).toEqual([]);
+  });
+  it("counts only selected recent meals and explains partial weekly freshness", async () => {
+    const facts = weeklyFactFixtures();
+    mock.rows = await Promise.all(facts.map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.history = [{ timestamp: new Date(Date.now() - 1000).toISOString(), sessionType: "weekly_meal_plan",
+      generationStatus: "completed", recipes: mock.rows.map((entry: any) => entry.recipe) }];
+    mock.generate.mockResolvedValue({ recipes: [{ facts: withExtraFood(facts[0], "parsley", "بالبقدونس") }] });
+    const response = await handleArabicGeneration(request(), "mealplan"), data = await response.json();
+    expect(response.status).toBe(200);
+    expect(data).toMatchObject({ freshCount: 1, backfilledCount: 20, generationStatus: "PARTIAL_RESULTS" });
+    expect(data.message).toContain("آخر 7 أيام");
+    expect(mock.reserve).toHaveBeenCalledTimes(1); expect(mock.complete).toHaveBeenCalledTimes(1);
+    expect(mock.release).not.toHaveBeenCalled();
+  });
+  it("keeps a safe weekly fallback after history failure without claiming its meals are new", async () => {
+    mock.rows = await Promise.all(weeklyFactFixtures().map(async fact => (await buildArabicFactsEntry(fact, restrictions)).entry));
+    mock.historyFailure = true;
+    const response = await handleArabicGeneration(request(), "mealplan"), data = await response.json();
+    expect(response.status).toBe(200); expect(data.recipes).toHaveLength(21);
+    expect(data.freshnessUnavailable).toBe(true); expect(data.freshCount).toBeUndefined();
+    expect(data.message).toContain("تعذر التحقق من السجل");
+  });
   it.each(["cache", "recent fallback", "Gemini"])("returns one card per normalized dish name from %s, regardless of steps or cache ID", async path => {
     const facts = weeklyFactFixtures();
     const duplicate = { ...facts[7], name: `  ${facts[0].name.replace("سلمون", "سَلْمُون")}  ` };
